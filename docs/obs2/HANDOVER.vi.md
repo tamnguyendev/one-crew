@@ -1,3 +1,58 @@
+# Phát hành beta UI OBS-2 2.5.0.dev10 — 05/11/2026 ~02:50
+
+**ĐÃ PHÁT HÀNH prerelease** trên kênh có sẵn của dự án: repo riêng tư `tamnguyendev/one-crew`, giữ nguyên mức riêng tư. Đây là lần đầu dự án dùng GitHub Release; các beta trước chỉ có tag và nhánh. Chủ ủy quyền push, tag và công bố beta ngày 05/11.
+
+Không phải stable 2.5, không phải toàn bộ lộ trình 2.5. Chưa nghiệm thu. Codex đã review dev10, không blocker mới trong phạm vi bản vá (`D:/OneCrewRuns/obs2-codex-review-dev10-20261105-021253`).
+
+| Mục | Giá trị |
+|---|---|
+| Trang phát hành | https://github.com/tamnguyendev/one-crew/releases/tag/v2.5.0.dev10 (prerelease, không phải bản nháp, không đánh dấu latest) |
+| Tag | `v2.5.0.dev10` (annotated `0f732cb`) → snapshot sản phẩm `c4951f6ee1bc8ab41d055e0091246d95233fae28`; push không force |
+| Nhánh trên origin | `claude/obs2-dev8` (nhánh mới), lúc phát hành ở `5dbc229`, sau đó là commit hồ sơ này |
+| Tag cũ | `v2.4.0.dev6`, `dev7`, `dev8`, `dev12` không đổi (ls-remote sau khi push) |
+| Gói | `onecrew-2.5.0.dev10-obs2-c4951f6.zip`, SHA256 `d8fd97abbd01921c3aff9c5195507ac5a135ca7711b4577d4dd90a636c556818`: thư mục gói đóng băng, nguyên vẹn, zip tất định |
+| Wheel | `onecrew-2.5.0.dev10-py3-none-any.whl`, SHA256 `57445419e7c616f8e7c9f00039c7ac1b8ccc384c4cf464a27e3bc04b9d6879a1` |
+| Hướng dẫn | `onecrew-2.5.0.dev10-su-dung-5dbc229.zip`, SHA256 `0e906a10e3b4c40d618ed63e5af2573c981b1dc33af330c25037fd5166e2cdb6`; ngoài gói, định danh là commit tài liệu `5dbc229` (ghi trong `NGUON.json`) |
+| Checksum | `SHA256SUMS-release.txt`, SHA256 `fe2366e34d85b51044f8b8a9fca69ce8b62b3c6d020539c01b36808cd4e113d3` |
+| Bằng chứng | `D:/OneCrewRuns/obs2-release-dev10`: `release/` (biên nhận check/tag/push/verify, draft, publish, tải lại, cách ly), `assets-final/`, các lab diễn tập, `tools/` |
+
+Hai điểm vào hướng dẫn:
+- [Bắt đầu sử dụng](su-dung/BAT-DAU-SU-DUNG.vi.md), cho repo mới;
+- [Repo đang dùng OneCrew](su-dung/REPO-DANG-DUNG-ONECREW.vi.md), để chọn chỉ mở UI hay [nâng runtime](su-dung/NANG-RUNTIME.vi.md).
+
+Ghi chú phát hành: [RELEASE-NOTES-2.5.0.dev10.vi.md](su-dung/RELEASE-NOTES-2.5.0.dev10.vi.md).
+
+## Đã kiểm khi phát hành
+
+- **Trước khi push:**
+  - quét bí mật trên từng dòng thêm của cả 46 commit được công bố (từ `ee801e4`, 6 246 dòng): 0 phát hiện;
+  - quét gói, wheel, hướng dẫn: không có bí mật, sổ hay log.
+  - Riêng `README.vi.md` của gói đóng băng có 14 ví dụ đường dẫn của máy dựng gói. Không sửa gói; ghi chú phát hành nêu rõ điều này.
+- **Tải lại:**
+  - bản nháp tải qua API: 4/4 file trùng SHA256; gói 18/18 file khớp, không file lạ; hướng dẫn ghi `5dbc229`;
+  - bản đã công bố tải bằng `gh release download`: cùng kết quả; tag trên origin trỏ `c4951f6`.
+- **Diễn tập hướng dẫn:** đường dẫn có khoảng trắng, `LOCALAPPDATA`/`APPDATA`/`TEMP` trỏ vào lab.
+  - 42/42 trên bản dựng trước khi phát hành;
+  - 42/42 trên chính các file tải từ trang phát hành, bằng đúng lệnh `gh release download` của hướng dẫn;
+  - các phần đã diễn tập: repo mới; repo chạy runtime 2.3.0.dev11 (cùng wheel SignSDK, venv lab) chỉ mở UI, qua bản sao và xem sổ chỉ đọc với marker ngoài sổ; nâng runtime và quay về hook trên repo lab.
+  - Script và hợp đồng mẫu trong gói hướng dẫn trùng byte với bản đã diễn tập.
+  - Mẫu hợp đồng phải sửa 5 điểm theo `plan lint` thật trước khi đạt: thiếu `covers`, thiếu `size`, `understanding` kiểu cũ, thiếu `preconditions`, đường dẫn đích chưa có. Ví dụ `examples/v2-plan-l1.json` trong repo đã cũ so với schema hiện hành và không dùng được làm mẫu.
+- **Chưa diễn tập**, vì cần chủ hoặc model thật:
+  - `owner approve`, `enforce`, `accept`: chỉ kiểm việc bị từ chối trong phiên AI;
+  - AI làm việc, `verdict run`;
+  - Claude Code nạp hook trong phiên mới;
+  - trình duyệt tự mở trang;
+  - sổ của version khác 2.3.0.dev11;
+  - quay về dữ liệu sau khi nâng.
+- **Cách ly** (so với cuối dev10, `release/baseline-after.json`):
+  - registry thật `AACAD058…E01C`, SignSDK `2.3.0.dev11` và `state-23`, sổ thử dev7, checkout `wf-obs2` của Codex: không đổi;
+  - gói dev6–dev10: từng file khớp, không file lạ;
+  - thư mục review dev8/dev9/dev10 của Codex: không có file mới;
+  - không còn tiến trình của lượt phát hành.
+- **Không làm:** nâng hay đổi runtime, hook, sổ của SignSDK hay repo thật nào; sửa gói cũ; đổi quyền riêng tư; force push, ghi đè tag; merge vào nhánh bảo vệ; gọi provider trả phí; nghiệm thu; công bố stable.
+
+---
+
 # Bàn giao OBS-2 dev10 — khép P2 của review dev9: lần sao chép cũ trả lỗi muộn không còn sao chép dự phòng, 05/11/2026
 
 **Sẵn sàng để Codex kiểm tra độc lập.** Chưa phát hành, chưa nghiệm thu, chưa push/tag, không nâng runtime thật. Chưa có review của Codex trên dev10.
