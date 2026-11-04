@@ -37,4 +37,3 @@ class WorkBrowser(unittest.TestCase):
                 result = ux.run(browser, proxy.url, 'work', width, height, profile, budget=45000)
                 (out / (size+'.json')).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
                 self.assertTrue(result.get('ok'), result)
-

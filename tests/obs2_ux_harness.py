@@ -36,4 +36,3 @@ if(S==='work'){
 '''
 
 HARNESS = base.HARNESS.replace("if(S==='ux01'){", SCENARIO + "\nif(S==='ux01'){")
-
