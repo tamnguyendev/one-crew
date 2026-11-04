@@ -42,12 +42,18 @@ class _Blobs:
     def __init__(self, reader, limitations):
         self.store, self.cache, self.limitations = Snapshots(reader.state_root), {}, limitations
 
-    def get(self, key):
+    def get(self, key, optional_json=False):
         if not isinstance(key, str):
             return None
         if key not in self.cache:
             try:
-                value = json.loads(self.store.read_blob(key))
+                raw = self.store.read_blob(key)
+                try:
+                    value = json.loads(raw)
+                except (ValueError, TypeError):
+                    if optional_json: return None
+                    raise
+                if optional_json and not isinstance(value, dict): return None
                 if not isinstance(value, dict): raise ValueError('not an object')
                 self.cache[key] = value
             except (LedgerError, OSError, ValueError, TypeError):
@@ -118,6 +124,7 @@ def _changes(reader, state, events, blobs, root):
                 row['sha'], row['from_revision'] = p.get('sha'), p.get('from_revision')
             elif kind == 'plan.revised':
                 new = blobs.get(p.get('definition'))
+                if previous_definition is None and p.get('internal_revision') == 1: row['kind'] = 'initial'
                 differences = contract_diff.changes(previous_definition or {}, new or {})
                 previous_definition = new
             else: differences = []
@@ -245,7 +252,7 @@ def _checks(reader, state, events, root, blobs, engine, limitations):
                                reviewer_data)}
         run['actors'] = []
         for check in check_rows:
-            proof = blobs.get(check.get('evidence')) if isinstance(check.get('evidence'), str) and check['authentic'] else None
+            proof = blobs.get(check.get('evidence'), optional_json=True) if isinstance(check.get('evidence'), str) and check['authentic'] else None
             if (proof and proof.get('kind') == 'candidate-reviewer-check' and proof.get('node') == nid
                     and proof.get('snapshot') == artifact and proof.get('milestone') == check['id']):
                 reviewer = blobs.get(proof.get('reviewer_receipt'))
@@ -310,13 +317,24 @@ def _outputs(state, events, root, engine, evidence_keys, checks, blobs):
     return rows
 
 
+def _finding_text(finding):
+    head = finding.get('head') or ''
+    try:
+        structured = isinstance(json.loads(head), (dict, list))
+    except (ValueError, TypeError):
+        structured = False
+    if head and not structured: return head
+    criterion = (finding.get('check') or {}).get('spec') or finding.get('criterion') or finding.get('id')
+    return 'Không đạt: ' + str(criterion or 'chưa có mô tả tiêu chí')
+
+
 def _findings(reader, conn, state, contract, engine, limitations):
     from . import findings
     try:
         value = findings._read(reader, conn, state['task_id'])
         recorded = {f['id']: f.get('status') for f in value.get('findings', [])}
         findings._refresh(value, contract, ((engine or {}).get('definition') or {}).get('nodes'))
-        return [_display(dict(f, recorded_status=recorded[f['id']], state=f.get('status'), text=f.get('head'),
+        return [_display(dict(f, recorded_status=recorded[f['id']], state=f.get('status'), text=_finding_text(f),
                          state_basis='register' if recorded[f['id']] == f.get('status') else 'current definition',
                          category=f.get('category'), duplicate_of=f.get('duplicate_of'), recurrence_of=f.get('recurrence_of')))
                 for f in value.get('findings', [])]

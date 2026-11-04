@@ -48,6 +48,8 @@ if(S==='work'){
   check('solution distinguishes latest and runnable', ['Bản đề xuất mới nhất','Bản được duyệt','Bản có thể thực hiện'].every(t=>$('#work-content').textContent.includes(t)));
   check('Gantt hidden in solution', $('#legacy-progress').hidden);
   $('#work-tab-results').click();
+  check('finding is readable instead of raw receipt JSON', $('#work-content').textContent.includes('Không đạt: Nội dung')&&!$('#work-content').textContent.includes('{"criterion"'));
+  check('plain text evidence has no false unreadable warning', !$('#detail').textContent.includes('Không đọc được receipt/definition/register'));
   check('results name cases and repair separately', ['Testcase duy nhất / lượt chạy','Finding và xử lý','Chuỗi sửa và kiểm lại'].every(t=>$('#work-content').textContent.includes(t)));
   const ev=$('#work-content button.ev-open');
   check('output offers evidence', !!ev);
@@ -55,6 +57,8 @@ if(S==='work'){
   check('results show current outputs before history', $('#work-content').textContent.indexOf('Kết quả hiện hành')<$('#work-content').textContent.indexOf('Đầu ra lịch sử'));
   check('repair has linked three-step reading flow', $$('.repair-flow>div').length===3);
   check('repair is linked to followup checks', $('#work-content').textContent.includes('Vòng sửa 1') && $('#work-content').textContent.includes('Kiểm lại sau sửa'));
+  $('#work-tab-changes').click();
+  check('initial execution plan is distinct from changes', $('#work-content').textContent.includes('Kế hoạch thực hiện ban đầu'));
   await select(second);
   check('another task resets to overview', $('#work-tab-overview').getAttribute('aria-selected')==='true');
   $('#work-tab-solution').click();

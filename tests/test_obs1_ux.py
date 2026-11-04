@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 import unittest
+from unittest.mock import patch
 import urllib.request
 from pathlib import Path
 
@@ -38,11 +39,12 @@ class OutcomeWords(EngineFixture):
         self.assertEqual(t['current_step'], 'kết thúc: plan đã đóng')
         self.assertIn('[đã đóng] P1', tracking.render_overview(tracking.overview(self.ledger.state_root)))
 
-    def test_verified_awaits_acceptance_in_its_own_word(self):
+    def test_verified_nodes_do_not_imply_root_acceptance(self):
         self.two(); self.step(); self.verify('A'); self.step(); self.verify('I')
         t = first_task(tracking.overview(self.ledger.state_root))
-        self.assertEqual((t['status']['kind'], t['status']['outcome'], t['status']['label']), ('done', 'verified', 'đã kiểm, chờ nghiệm thu'))
-        self.assertEqual(t['current_step'], 'mọi phần việc đã kiểm: chờ bạn nghiệm thu')
+        self.assertEqual((t['status']['kind'], t['status']['outcome']), ('waiting', None))
+        self.assertIn('M1', t['current_step'])
+        self.assertFalse(t['acceptance']['ready'])
         with self.ledger.transaction(write=True) as conn:
             plans.emit(self.ledger, conn, self.root_view['anchor_task'], 'plan.accepted', {'plan': 'P1', 'revision': 1, 'by': 'owner', 'artifact_sha': 'x'})
         t = first_task(tracking.overview(self.ledger.state_root))
@@ -66,6 +68,11 @@ class OutcomeWords(EngineFixture):
 
 
 class QuestionCommands(EngineFixture):
+    def setUp(self):
+        super().setUp()
+        p = patch('onecrew.v2.tracking._runtime_binding', return_value={'verified':True,'runtime':'fixture','reason':None})
+        p.start(); self.addCleanup(p.stop)
+
     def test_each_option_has_a_complete_template_with_project_state_root_and_reference(self):  # UX-03 + P2-B (dev8: the command lacked --reference)
         self.revise([node('A'), node('I', ['A'], integration=True, write=())])
         request = self.ledger.create_request(self.root_view['anchor_task'], 'retention', QUESTION)

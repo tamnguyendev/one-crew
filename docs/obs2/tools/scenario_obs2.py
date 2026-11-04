@@ -1,4 +1,4 @@
-"""Installed-wheel synthetic fixture only. No provider, hook, project registry or real ledger.
+"""Installed-wheel synthetic fixture only. No provider, real hook/registry or real ledger.
 
 Creates two roots with the same workflow shape: code and plain document output.
 Checks are explicit fixture assertions, not a real provider/pilot or a production test suite.
@@ -47,6 +47,14 @@ def create(work):
                  ('add', 'code.py', 'guide.txt'), ('commit', '-q', '-m', 'synthetic baseline')):
         subprocess.run(['git', '-C', str(project), *args], check=True, capture_output=True)
     ledger = Ledger(project, state); store = Snapshots(state); migrate(ledger); control = Control(ledger)
+    # Bind only this newly-created disposable project to the installed trial runtime.
+    # No init, user registry, global settings or existing project is touched.
+    exe = Path(sys.executable).with_name('onecrew.exe' if sys.platform == 'win32' else 'onecrew')
+    if exe.is_file():
+        from onecrew.v2 import hook_cli
+        settings = project / '.claude' / 'settings.local.json'
+        settings.parent.mkdir()
+        settings.write_text(json.dumps(hook_cli.portable_settings(exe, state)), encoding='utf-8')
     caps = ['namespaced-storage', 'finding-register', 'root-budget', 'internal-plan', 'sequential-engine']
     for name, path, goal in (('CODE', 'code.py', 'Sửa phép cộng và kiểm kết quả trước bàn giao (dữ liệu thử)'),
                              ('DOC', 'guide.txt', 'Soạn hướng dẫn bắt đầu cho người dùng mới (dữ liệu thử)')):

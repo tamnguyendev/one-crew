@@ -7,7 +7,8 @@ from onecrew.common_handoff import handoff
 from onecrew.common_verification import CandidateChecker
 from onecrew.ledger import LedgerError, canonical
 from onecrew.snapshots import Snapshots
-from onecrew.v2 import engine, internal_plan, plan, verdict
+from onecrew.v2 import engine, internal_plan, plan, verdict, tracking
+from unittest.mock import patch
 from tests.test_v2_l1 import Fixture, plan_json
 from tests.test_wf_engine import node
 
@@ -58,6 +59,11 @@ class ObservedHandoffTests(Fixture):
             actions = [json.loads(r['payload'])['kind'] for r in conn.execute('SELECT payload FROM actions')]
         self.assertEqual(actions, ['observe_verified_tree'])
         verdict.run(self.ledger, 'P1', 'M1')
+        with patch('onecrew.v2.verifiers.command.artifact_sha', side_effect=AssertionError('viewer must not hash project')):
+            shown = tracking.detail(self.ledger.state_root, 'P1')
+        self.assertTrue(shown['acceptance']['ready'], shown['acceptance'])
+        self.assertEqual(shown['acceptance']['artifact'], result['artifact'])
+        self.assertEqual([n['kind'] for n in shown['needs_user']], ['accept'])
         os.environ.pop('ONECREW_ACTOR')
         self.assertEqual(plan.accept(self.ledger, 'P1', 'owner', 'fixture existing output accepted', result['artifact'])['status'], 'accepted')
 
@@ -66,6 +72,10 @@ class ObservedHandoffTests(Fixture):
         with self.ledger.transaction(write=True) as conn:
             conn.execute('DELETE FROM actions')  # adversarial fixture: the alleged proof has no authentic action
         self.assertFalse(engine.root_ready(self.ledger, 'P1', result['artifact']))
+        verdict.run(self.ledger, 'P1', 'M1')
+        shown = tracking.detail(self.ledger.state_root, 'P1')
+        self.assertFalse(shown['acceptance']['ready'])
+        self.assertNotIn('accept', [n['kind'] for n in shown['needs_user']])
 
     def test_user_change_before_observation_is_never_reported_delivered(self):
         (self.root / 'a.txt').write_text('user edit\n')

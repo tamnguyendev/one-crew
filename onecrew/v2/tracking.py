@@ -260,11 +260,82 @@ def _quote(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 
+def _runtime_exe():
+    import sys
+    exe = Path(sys.executable).parent / ('onecrew.exe' if sys.platform == 'win32' else 'onecrew')
+    return exe if exe.is_file() else None
+
+
 def _runtime():
     """How the command names THIS runtime: the venv's onecrew.exe next to the interpreter when it exists (`& '<exe>'`), else plain `onecrew`."""
     import sys
-    exe = Path(sys.executable).parent / ('onecrew.exe' if sys.platform == 'win32' else 'onecrew')
-    return '& ' + _quote(exe) if exe.is_file() else '& ' + _quote(sys.executable) + ' -I -X utf8 -m onecrew.console'
+    exe = _runtime_exe()
+    return '& ' + _quote(exe) if exe else '& ' + _quote(sys.executable) + ' -I -X utf8 -m onecrew.console'
+
+
+def _runtime_binding(project, state_root):
+    """Read the existing init/doctor binding; never run a binary supplied by the project."""
+    from . import install
+    exe = _runtime_exe()
+    try:
+        if exe and project and state_root and install.check_hooks(Path(project), Path(state_root), exe)[0] == 'PASS':
+            return {'verified': True, 'runtime': str(exe), 'reason': None}
+    except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError):
+        pass
+    return {'verified': False, 'runtime': str(exe) if exe else None,
+            'reason': 'Chưa xác minh hook project dùng đúng runtime của trang và đúng sổ. Không cung cấp lệnh ghi quyết định. Mở trang bằng runtime đã gắn với project; không đổi hook chỉ để sao chép lệnh.'}
+
+
+def _bind_actions(needs, binding):
+    for need in needs:
+        need['runtime_binding'] = binding
+        if binding['verified']: continue
+        for entry in [need, *need.get('options', [])]:
+            entry['human_command'] = entry['reply_command'] = None
+            entry['binding_reason'] = binding['reason']
+            entry['reply_note'] = binding['reason']
+            if entry.get('action'):
+                entry['action'] = dict(entry['action'], enabled=False, template=None, note=binding['reason'])
+    return needs
+
+
+def _acceptance(reader, conn, state, contract, engine_view, level):
+    """Eligibility from recorded evidence only; the owner command rechecks the live artifact."""
+    result = {'ready': False, 'artifact': None, 'basis': 'recorded evidence; CLI rechecks current project', 'reason': None}
+    if state['status'] != 'approved' or level != 'verified' or not contract: return result
+    try:
+        views = plans.milestone_views(contract, state, state['latest'])
+        missing = [v['id'] for v in views if v['state'] != 'passed' or v.get('stale')]
+        if not views or missing:
+            result['reason'] = 'Chờ bộ thực thi kiểm mốc ' + ', '.join(missing) + '; chưa đến bước nghiệm thu.'
+            return result
+        artifacts = {(v.get('last_verdict') or {}).get('artifact_sha') for v in views}
+        if len(artifacts) != 1 or not next(iter(artifacts)):
+            result['reason'] = 'Chờ bộ thực thi kiểm các mốc trên cùng bản bàn giao.'
+            return result
+        artifact = next(iter(artifacts))
+        if not isinstance(artifact, str) or not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', artifact):
+            result['reason'] = 'Chưa xác minh định danh bản bàn giao để nghiệm thu.'
+            return result
+        if engine_view is not None:
+            from . import engine
+            proof = engine.handoff_evidence(reader, state['selector'])
+            if not proof or proof.get('delivered_artifact') != artifact:
+                result['reason'] = 'Chờ bộ thực thi hoàn tất kiểm tích hợp và bằng chứng bàn giao; chưa đến bước nghiệm thu.'
+                return result
+        views = plans.milestone_views(contract, state, state['latest'], reader, artifact=artifact, conn=conn)
+        if any(v['state'] != 'passed' or v.get('stale') for v in views):
+            result['reason'] = 'Chờ bộ thực thi kiểm lại bằng chứng các mốc của bản bàn giao.'
+            return result
+        if namespaces.has_capability(state, 'finding-register'):
+            from .findings import list_findings
+            if list_findings(reader, state['selector'], task_id=state['task_id'], open_only=True):
+                result['reason'] = 'Chờ bộ thực thi xử lý finding còn mở trước khi nghiệm thu.'
+                return result
+        result.update(ready=True, artifact=artifact, reason='Đủ bằng chứng trong sổ để trình nghiệm thu; lệnh sẽ kiểm lại hiện trạng project.')
+    except (LedgerError, OSError, ValueError, KeyError, TypeError):
+        result['reason'] = 'Chưa xác minh đủ bằng chứng nghiệm thu; cần kiểm lại mốc và bàn giao.'
+    return result
 
 
 def _action(template, expected, placeholders=(), note=None):
@@ -272,7 +343,7 @@ def _action(template, expected, placeholders=(), note=None):
             'placeholders': list(placeholders), 'expected': expected, 'note': note}
 
 
-def _needs_user(state, requests, views, level, engine_view, project=None, state_root=None, contract=None):
+def _needs_user(state, requests, views, level, engine_view, project=None, state_root=None, contract=None, acceptance=None):
     needs = []
     prefix = _runtime() + (f' --project {_quote(project)}' if project else '') + (f' --state-root {_quote(state_root)}' if state_root else '')
     complete = bool(project and state_root)
@@ -325,11 +396,9 @@ def _needs_user(state, requests, views, level, engine_view, project=None, state_
         needs.append({'kind': 'stopped', 'question': 'Đọc báo cáo dừng ở mốc ' + clean(stopped.get('milestone'), 50) + ' và quyết định (tiếp tục / amend / dừng)',
                       'source': [f"milestone.stopped:rev{state['latest']}"]})
     elif state['status'] == 'approved' and level == 'verified':
-        if engine_view is not None or (views and all(v['state'] == 'passed' for v in views)):
+        if acceptance and acceptance['ready']:
             revision = (state.get('approved') or {}).get('revision')
-            artifacts = [(v.get('last_verdict') or {}).get('artifact_sha') for v in views]
-            artifact = artifacts[0] if artifacts and len(set(artifacts)) == 1 and isinstance(artifacts[0], str) and re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', artifacts[0]) else None
-            if engine_view is not None or any(v.get('stale') or v.get('state') != 'passed' for v in views): artifact = None
+            artifact = acceptance['artifact']
             template = (f'{prefix} owner accept {_quote(selector)} --revision {revision} --artifact-sha {_quote(artifact)}'
                         + f' --reference {_quote(REFERENCE_PLACEHOLDER)} --human') if complete and selector and revision and artifact else None
             why = None if template else 'Chưa tạo lệnh nghiệm thu: nguồn hiện có chưa có một artifact bàn giao chung đã kiểm hợp lệ; không lấy snapshot node thay artifact được bàn giao. Đọc báo cáo ghim revision và đối chiếu bằng chứng trước.'
@@ -343,7 +412,7 @@ def _needs_user(state, requests, views, level, engine_view, project=None, state_
                           'action': _action(template, {'task': state.get('task_id'), 'selector': selector,
                                                        'revision': revision, 'artifact_sha': artifact}, ['reference'] if template else [], note=why),
                           'source': ['milestone.passed' if views else 'node.verification:pass']})
-    return needs
+    return _bind_actions(needs, _runtime_binding(project, state_root))
 
 
 def _level(state, engine_view, views):
@@ -360,7 +429,7 @@ def _level(state, engine_view, views):
     return 'none'
 
 
-def _status(state, engine_view, attempts, progress, waits, requests, views, verifier_runs, level, first_started):
+def _status(state, engine_view, attempts, progress, waits, requests, views, verifier_runs, level, first_started, acceptance=None):
     """(kind, reason, sources): the sourced status of a root. Order: done > blocked > activity (running / unknown attempt) > waiting > not started."""
     src = []
     if state['status'] == 'accepted':
@@ -411,7 +480,9 @@ def _status(state, engine_view, attempts, progress, waits, requests, views, veri
     if waits:
         return 'waiting', 'đang chờ: ' + '; '.join(clean(w.get('reason'), 120) or 'không rõ lý do' for w in waits), [f"{w['source']}:{w['seq']}" for w in waits]
     if level == 'verified':
-        return 'done', 'mọi mốc/node đã kiểm đạt; chờ nghiệm thu của chủ sở hữu', ['node.verification' if engine_view is not None else 'milestone.passed']
+        if acceptance and acceptance['ready']:
+            return 'done', acceptance['reason'], ['milestone.passed', 'acceptance.recorded_evidence']
+        return 'waiting', (acceptance or {}).get('reason') or 'Chờ kiểm đủ điều kiện bàn giao, chưa đến bước nghiệm thu.', ['acceptance.recorded_evidence']
     if engine_view is not None:
         produced = [nid for nid, r in engine_view['nodes'].items() if r.get('state') == 'produced']
         pending_nodes = [nid for nid, r in engine_view['nodes'].items() if r.get('phase') == 'pending']
@@ -874,7 +945,8 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     except (LedgerError, ValueError, KeyError): runs = []
     level = _level(state, engine_view, views)
     first_started = next((at for seq, kind, p, at in events if kind == 'node.started'), None)
-    kind, reason, sources = _status(state, engine_view, attempts, progress, open_waits, requests, views, runs, level, first_started)
+    acceptance = _acceptance(rd, conn, state, contract, engine_view, level)
+    kind, reason, sources = _status(state, engine_view, attempts, progress, open_waits, requests, views, runs, level, first_started, acceptance)
     last = events[-1] if events else None
     nodes = {}
     if engine_view is not None:
@@ -899,10 +971,11 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
             'status': {'kind': kind, 'label': OUTCOME_WORDS[outcome] if outcome else WORDS[kind], 'outcome': outcome, 'reason': clean(reason, 600), 'source': sources},
             'level': {'kind': level, 'label': LEVEL_WORDS[level]},
             'elapsed': _elapsed(state, events, now),
-            'current_step': clean(_current_step(kind, state, engine_view, active_rows, requests, progress), 200),
+            'current_step': clean(_current_step(kind, state, engine_view, active_rows, requests, progress) or reason, 200),
+            'acceptance': acceptance,
             'last_update': {'seq': last[0], 'kind': last[1], 'at': last[3], 'summary': clean(_summary(last[1], last[2]), 200)} if last else None,
             'last_evidence': _last_evidence(events),
-            'needs_user': _needs_user(state, requests, views, level, engine_view, project=row['project_path'], state_root=str(reader.state_root), contract=contract),
+            'needs_user': _needs_user(state, requests, views, level, engine_view, project=row['project_path'], state_root=str(reader.state_root), contract=contract, acceptance=acceptance),
             'active': active_rows,
             'nodes_summary': counts,
             'tracking': {'adapter': 'engine' if engine_root else 'milestones',

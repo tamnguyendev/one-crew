@@ -49,8 +49,8 @@ function workStage(t){var s=t.status||{},n=t.nodes_summary||{},l=(t.level||{}).k
   if(s.kind==='unknown')return 'unknown';
   if((t.active||[]).length||s.kind==='running')return 'doing';
   if(t.root_status==='proposed'||(t.needs_user||[]).some(function(n){return n.kind==='approve'}))return t.has_started||l==='verified'||l==='produced'?'doing':'todo';
-  if(l==='verified'||s.outcome==='verified')return 'accept';
-  if(l==='produced'||n.produced>0||(t.milestones||[]).some(function(m){return m.state==='ready'}))return 'check';
+  if((t.acceptance||{}).ready)return 'accept';
+  if(n.produced>0||(t.milestones||[]).some(function(m){return m.state==='ready'}))return 'check';
   if(s.kind==='blocked'||n.verified>0||n.accepted>0)return 'doing';
   if(t.has_started)return 'doing';
   if(t.root_status==='approved'||t.root_status==='proposed')return 'todo';return 'unknown'}
@@ -103,7 +103,7 @@ function workList(rows,empty){if(!rows||!rows.length)return workEmpty(empty);ret
 function diffLabel(path){var k=String(path||''),base={title:'Tên công việc',goal:'Mục tiêu',acceptance:'Điều kiện hoàn thành',nodes:'Các phần việc',version:'Phiên bản cấu trúc',scope:'Phạm vi',budget:'Ngân sách',outputs:'Đầu ra'};
   if(base[k])return base[k];if(/^nodes\[/.test(k))return k.includes('.input')?'Đầu vào của phần việc':'Nội dung một phần việc';return 'Chi tiết thay đổi'}
 function workChanges(d,w){var rows=w.changes||[];if(!rows.length)return workEmpty('Chưa ghi nhận thay đổi có nguồn. UI không suy lịch sử từ hội thoại.');
-  return '<p class="work-meta">Mới nhất trước. Điều chỉnh trong quyền đã cấp không tự tạo yêu cầu duyệt mới.</p>'+rows.slice().reverse().map(function(x){var kind={contract:'Cập nhật phương án',internal:'Điều chỉnh cách thực hiện',retry:'Thực hiện lại phần việc'}[x.kind]||x.kind;
+  return '<p class="work-meta">Mới nhất trước. Điều chỉnh trong quyền đã cấp không tự tạo yêu cầu duyệt mới.</p>'+rows.slice().reverse().map(function(x){var kind={initial:'Kế hoạch thực hiện ban đầu',contract:'Cập nhật phương án',internal:'Điều chỉnh cách thực hiện',retry:'Thực hiện lại phần việc'}[x.kind]||x.kind;
     var version=x.kind==='internal'?(x.internal_revision!=null?' · lần '+x.internal_revision:'')+(x.revision!=null?' (phương án '+x.revision+')':''):(x.revision!=null?' · bản '+x.revision:'');
     var diffs=x.diff||x.changes||[],fields=Array.from(new Set(diffs.map(function(v){return diffLabel(v.path)})));
     var h='<article class="work-row"><h4>'+workEsc(kind)+esc(version)+'</h4><p>'+workEsc(x.reason)+'</p>'

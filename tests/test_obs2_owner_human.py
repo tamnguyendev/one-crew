@@ -87,6 +87,12 @@ class HumanOwnerTests(Fixture):
 
 
 class ActionMetadataTests(Fixture):
+    def setUp(self):
+        super().setUp()
+        # Formatter/CLI tests use an explicitly bound runtime; binding denial has separate filesystem tests.
+        p = patch('onecrew.v2.tracking._runtime_binding', return_value={'verified':True,'runtime':'fixture','reason':None})
+        p.start(); self.addCleanup(p.stop)
+
     def test_proposed_action_pins_selector_revision_runtime_and_never_selects_optional_items(self):
         self.propose()
         value = tracking.detail(self.ledger.state_root, 'P1')
@@ -122,14 +128,12 @@ class ActionMetadataTests(Fixture):
         self.assertNotIn("--choose 'A'", need['reply_command'])
         self.assertIn('option-id', need['placeholders'])
 
-    def test_accept_copy_is_disabled_without_revision_bound_command(self):
+    def test_unproven_acceptance_does_not_create_an_owner_task(self):
         self.approved()
         with self.ledger.transaction() as conn: state = plan.derive(self.ledger, conn, 'P1')
-        need = tracking._needs_user(state, [], [{'state': 'passed'}], 'verified', None,
-                                   project=self.ledger.project_path, state_root=str(self.ledger.state_root), contract=plan_json())[0]
-        self.assertEqual(need['kind'], 'accept'); self.assertFalse(need['action']['enabled'])
-        self.assertIsNone(need['reply_command']); self.assertIn('revision', need['binding_reason'])
-        self.assertIn("plan report '" + state['selector'] + "' --revision 1", need['inspect_command'])
+        needs = tracking._needs_user(state, [], [{'state': 'passed'}], 'verified', None,
+                                    project=self.ledger.project_path, state_root=str(self.ledger.state_root), contract=plan_json())
+        self.assertEqual(needs, [])
 
     def test_accept_command_pins_real_common_verified_artifact(self):
         from onecrew.v2 import verdict

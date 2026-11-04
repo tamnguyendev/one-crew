@@ -21,7 +21,7 @@ function when(x){return x} function hms(x){return String(x)} function openBtn(k)
 
     def test_sourced_stages_do_not_confuse_verified_closed_and_accepted(self):
         tasks = [dict(root_status='proposed'),dict(root_status='approved',status={'kind':'running'}),
-                 dict(root_status='approved',nodes_summary={'produced':1}),dict(root_status='approved',level={'kind':'verified'}),
+                 dict(root_status='approved',nodes_summary={'produced':1}),dict(root_status='approved',level={'kind':'verified'},acceptance={'ready':True}),
                  dict(root_status='accepted'),dict(root_status='closed'),dict(status={'kind':'unknown'})]
         self.assertEqual(self.run_js(json.dumps(tasks)+'.map(workStage)'), ['todo','doing','check','accept','done','closed','unknown'])
 

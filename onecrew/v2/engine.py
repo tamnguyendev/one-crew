@@ -1399,17 +1399,17 @@ def verification_ready(ledger, selector):
     return True
 
 
-def root_ready(ledger, selector, artifact=None):
-    """Final acceptance also needs an issued handoff of the integration candidate.
+def handoff_evidence(ledger, selector):
+    """Read validated durable handoff evidence, without hashing or writing the project.
 
-    The checkout producer does not apply files. Until an authorized CAS handoff
-    adapter issues this proof, internal verification cannot accept a root.
+    This is evidence at the recorded snapshot, not a live acceptance authorization.
+    root_ready additionally checks the current project before accepting.
     """
-    if not verification_ready(ledger, selector): return False
+    if not verification_ready(ledger, selector): return None
     view = state(ledger, selector)
     with ledger.transaction() as conn:
         row = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='workflow.handoff' ORDER BY seq DESC LIMIT 1", (view['root'],)).fetchone()
-    if row is None: return False
+    if row is None: return None
     try:
         proof = json.loads(Snapshots(ledger.state_root).read_blob(json.loads(row['payload'])['receipt']))
         integration = next(node for node in view['definition']['nodes'] if node['integration'])
@@ -1418,10 +1418,20 @@ def root_ready(ledger, selector, artifact=None):
                 or proof.get('contract_sha') != view['contract_sha'] or proof.get('internal_revision') != view['internal_revision']
                 or proof.get('integration_artifact') != record['artifact'] or proof.get('generation') != record['generation']
                 or proof.get('node') != integration['id'] or proof.get('child') != record['child']):
-            return False
+            return None
         from ..common_handoff import receipt_valid
-        if not receipt_valid(ledger,proof,record): return False
-        from .verifiers import command
+        if not receipt_valid(ledger,proof,record): return None
+        return proof
+    except (OSError, ValueError, KeyError, StopIteration):
+        return None
+
+
+def root_ready(ledger, selector, artifact=None):
+    """Final acceptance needs durable handoff AND the current delivered working tree."""
+    proof = handoff_evidence(ledger, selector)
+    if not proof: return False
+    from .verifiers import command
+    try:
         observed = command.artifact_sha(ledger.project)
         return proof.get('delivered_artifact') == observed and (artifact is None or artifact == observed)
     except (OSError, ValueError, KeyError, StopIteration):

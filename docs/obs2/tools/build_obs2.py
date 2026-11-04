@@ -16,7 +16,7 @@ import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[3]
-MODULES = ('onecrew/v2/tracking.py', 'onecrew/v2/tracking_web.py',
+MODULES = ('onecrew/v2/engine.py', 'onecrew/v2/tracking.py', 'onecrew/v2/tracking_web.py',
            'onecrew/v2/tracking_work.py', 'onecrew/v2/tracking_work_web.py',
            'onecrew/v2/owner_cli.py', 'onecrew/v2/cli.py', 'onecrew/v2/plan.py', 'onecrew/v2/plan_cli.py')
 
@@ -58,7 +58,7 @@ def build(commit, out):
             for name in MODULES:
                 if zipped.read(name) != (snapshot / name).read_bytes(): raise ValueError('Wheel/source mismatch: ' + name)
         (out / 'verify').mkdir()
-        for name in ('verify_obs2.py', 'check_owner_human.py', 'scenario_obs2.py', 'viewer_obs2.ps1', 'mo-trang-obs2.ps1', 'dung-trang-obs2.ps1'):
+        for name in ('verify_obs2.py', 'check_owner_human.py', 'check_review_fixes.py', 'scenario_obs2.py', 'viewer_obs2.ps1', 'mo-trang-obs2.ps1', 'dung-trang-obs2.ps1'):
             shutil.copyfile(snapshot / 'docs/obs2/tools' / name, out / 'verify' / name)
         for name in ('mo-trang-obs1.ps1', 'dung-trang-obs1.ps1'):
             shutil.copyfile(snapshot / 'docs/obs1/tools' / name, out / 'verify' / name)
