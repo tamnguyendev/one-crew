@@ -68,6 +68,65 @@ if(S==='live'){const to=qs.get('to'), P1=rowOf('P1').dataset.plan;
   check('no horizontal page overflow', d.documentElement.scrollWidth<=w.innerWidth+1, [d.documentElement.scrollWidth,w.innerWidth]);
   }
 }
+function fakeClipboard(){const cb={calls:[],pending:[]};          // a controlled clipboard: each writeText waits until the scenario settles it
+  try{Object.defineProperty(w.navigator,'clipboard',{configurable:true,value:{writeText:t=>new Promise((res,rej)=>{cb.calls.push(t);cb.pending.push({res:res,rej:rej,t:t})})}})}catch(e){cb.error=String(e)}
+  return cb}
+function qCards(){return $$('details.need').filter(n=>n.dataset.k&&n.dataset.k.indexOf('need:request:')===0)}
+function cardOf(key){return $$('details.need').find(n=>n.dataset.k===key)||null}
+function focusAt(){const a=d.activeElement,card=a&&a.closest?a.closest('details.need'):null;
+  return {tag:a?a.tagName:null,isCopy:!!(a&&a.classList&&a.classList.contains('copy')),copy:a&&a.dataset?(a.dataset.copy||null):null,card:card?card.dataset.k:null,inDetail:!!(a&&a.closest&&a.closest('#detail')),id:a?a.id||null:null}}
+function readPos(){return narrow()?w.scrollY:$('#detailpane').scrollTop}
+function narrow(){return w.innerWidth<900}
+if(S==='focus'){const P2=rowOf('P2').dataset.plan;
+  await select('P3'); openNeeds(); await sleep(300);
+  const clip=fakeClipboard(); d.execCommand=()=>false;           // the fallback copy fails on purpose: a failure is a controlled outcome, not a headless accident
+  const cards=qCards();
+  check('precondition: two question cards, two bound options each', cards.length===2&&cards.every(n=>{const b=n.querySelectorAll('button.copy');return b.length===2&&Array.from(b).every(x=>/owner answer/.test(x.dataset.copy||''))}), cards.length);
+  check('precondition: the page writes through the controlled clipboard', !clip.error&&w.navigator.clipboard&&typeof w.navigator.clipboard.writeText==='function', clip.error);
+  const open0=$$('details.need[open]').length;
+  async function copyAt(cardIndex,optIndex){const card=qCards()[cardIndex],btn=card.querySelectorAll('button.copy')[optIndex];btn.focus();const want={copy:btn.dataset.copy,card:card.dataset.k};btn.click();await sleep(60);return want}
+  // A: second card, second option, the clipboard succeeds
+  let want=await copyAt(1,1);
+  check('A: the clipboard got exactly that option command', clip.calls.length===1&&clip.calls[0]===want.copy);
+  clip.pending.shift().res(); await sleep(400);
+  let at=focusAt(), c=cardOf(want.card);
+  check('A success: focus stays on the same option button of the same card', at.isCopy&&at.copy===want.copy&&at.card===want.card, at);
+  check('A success: copied feedback only in that card, holding that command', $$('#detail .copied').length===1&&!!c&&!!c.querySelector('.copied[data-copied]')&&c.querySelector('.copied').getAttribute('data-copied')===want.copy);
+  check('A: open sections kept', $$('details.need[open]').length===open0, [$$('details.need[open]').length,open0]);
+  // B: first card, first option, the clipboard refuses and the fallback fails
+  want=await copyAt(0,0); clip.pending.shift().rej(new Error('denied')); await sleep(400);
+  at=focusAt(); c=cardOf(want.card);
+  check('B failure: focus stays on the first option button of the first card', at.isCopy&&at.copy===want.copy&&at.card===want.card, at);
+  check('B failure: one failure note with the command to copy by hand, in that card only', $$('#detail .copied').length===1&&!!c&&!!c.querySelector('.copied[data-copy-failed]')&&c.querySelector('textarea').value===want.copy);
+  // C: the answer lands late; meanwhile the reader moved focus and scrolled
+  want=await copyAt(0,1); const tab=$('#work-tab-changes'); tab.focus(); const posClick=readPos();
+  if(narrow())w.scrollTo(0,w.scrollY+120);else $('#detailpane').scrollTop=$('#detailpane').scrollTop+120;
+  const posMoved=readPos(); check('C precondition: the reader really scrolled while the copy was pending', Math.abs(posMoved-posClick)>=60, [posClick,posMoved]);
+  clip.pending.shift().res(); await sleep(400);
+  at=focusAt();
+  check('C late answer: focus stays where the reader moved it (work tab), not pulled back', at.id==='work-tab-changes', at);
+  check('C late answer: reading position not pulled back', Math.abs(readPos()-posMoved)<=4, [readPos(),posMoved]);
+  check('C late answer: feedback for that command still appears in its card', !!cardOf(want.card)&&!!cardOf(want.card).querySelector('.copied[data-copied]')&&cardOf(want.card).querySelector('.copied').getAttribute('data-copied')===want.copy);
+  // D: the answer lands late after the reader switched task
+  want=await copyAt(1,0); rowOf('P2').click(); await settle(()=>($('#dtitle')||{}).textContent&&$('#dtitle').textContent.indexOf('P2')>=0&&!!$('#detail .dsum'),8000);
+  clip.pending.shift().res(); await sleep(400);
+  check('D task switched: P2 shows no P3 question, no copy feedback', ($('#dtitle')||{}).textContent.indexOf('P2')>=0&&!/Giữ (CV|log) P3/.test($('#detail').textContent)&&$$('#detail .copied').length===0);
+  check('D task switched: focus not pulled into a P3 card', !focusAt().card||focusAt().card.indexOf(want.card)<0, focusAt());
+  await select('P3'); openNeeds(); await sleep(300);
+  check('D back on P3: no copy feedback from before the switch', $$('#detail .copied').length===0);
+  // E: the answer lands late after the binding was lost
+  want=await copyAt(1,1); await signal('mode',{to:'missing'});
+  const gone=await settle(()=>$$('#detail button.copy').length===0,15000); await sleep(200);
+  check('E precondition: the binding loss repainted the cards while the copy was pending', gone&&clip.pending.length===1);
+  clip.pending.shift().res(); await sleep(400);
+  at=focusAt();
+  check('E late answer after binding loss: no copy feedback and no command text', $$('#detail .copied').length===0&&$$('#detail button.copy').length===0&&!/owner (answer|approve)/.test($('#detail').textContent));
+  check('E late answer after binding loss: focus on a meaningful place of the current card (its heading), not lost', at.tag==='SUMMARY'&&at.card===want.card, at);
+  await signal('mode',{to:'bound'});
+  const back=await settle(()=>$$('#detail button.copy').length>=4,15000); openNeeds(); await sleep(200);
+  check('E restore: current commands back, the old feedback does not come back', back&&$$('#detail .copied').length===0);
+  check('no horizontal page overflow', d.documentElement.scrollWidth<=w.innerWidth+1, [d.documentElement.scrollWidth,w.innerWidth]);
+}
 if(S==='slow'){const P1=rowOf('P1').dataset.plan, P2=rowOf('P2').dataset.plan;
   const trace=[];const mo=new w.MutationObserver(()=>{const s=liveSnap();trace.push({t:Date.now(),title:s.title.slice(0,4),p1q:/Giữ CV P1/.test(s.text),p2q:/Giữ CV P2/.test(s.text),cmds:s.copyButtons,copied:s.copied})});
   await select('P1'); openNeeds(); await sleep(300);
@@ -112,11 +171,12 @@ def main(work):
     for args in [('init', '-q'), ('config', 'user.name', 'Fixture'), ('config', 'user.email', 'fixture@localhost'), ('add', 'code.py'), ('commit', '-qm', 'fixture')]:
         subprocess.run(['git', '-C', str(project), *args], check=True, capture_output=True)
     ledger = Ledger(project, work / 'state')
-    for name in ('P1', 'P2'):
+    for name, questions in (('P1', ('CV',)), ('P2', ('CV',)), ('P3', ('CV', 'log'))):      # P3: two question cards (focus scenario)
         root = plan.propose(ledger, name, fixture.contract('code.py', 'Binding fixture ' + name), 'fixture')
-        ledger.create_request(root['anchor_task'], 'choice', {'schema_version': 1, 'question': 'Giữ CV ' + name + ' bao lâu?', 'reason': 'Fixture only',
-            'impact': 'Fixture', 'options': [{'id': 'a', 'label': '7 ngày'}, {'id': 'b', 'label': '30 ngày'}], 'recommendation': 'a',
-            'action': {'type': 'clarify', 'parameters': {}}})
+        for what in questions:
+            ledger.create_request(root['anchor_task'], 'choice-' + what, {'schema_version': 1, 'question': 'Giữ ' + what + ' ' + name + ' bao lâu?', 'reason': 'Fixture only',
+                'impact': 'Fixture', 'options': [{'id': 'a', 'label': '7 ngày'}, {'id': 'b', 'label': '30 ngày'}], 'recommendation': 'a',
+                'action': {'type': 'clarify', 'parameters': {}}})
     sys.path.insert(0, str(here))
     from tests import obs1_ux_harness as ux
     ux.HARNESS = ux.HARNESS.replace("if(S==='shot-list'){}", "if(S==='shot-list'){}\n" + SCENARIO, 1)
@@ -148,6 +208,7 @@ def main(work):
     try:
         runs = [('live-' + to + '-' + size, 'live', size, '&to=' + to, False) for to in ('missing', 'other-runtime', 'other-state') for size in ('desktop', 'mobile')]
         runs += [('slow-' + size, 'slow', size, '', True) for size in ('desktop', 'mobile')]
+        runs += [('focus-' + size, 'focus', size, '', False) for size in ('desktop', 'mobile')]
         for key, scenario, size, extra, realtime in runs:
             set_mode('bound')
             if not tracking._runtime_binding(project, ledger.state_root)['verified']:

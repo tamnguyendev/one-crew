@@ -1139,15 +1139,18 @@ function gside(d,g){if(!selStep)return '<span class="mut">Chọn một thanh ho�
   return h+'</details>'}
 function repaintGantt(){var d=mine();if(!d)return;var s=snapshot();var el=document.querySelector('#detail .gantt');if(el){var t=document.createElement('div');t.innerHTML=gantt(d);el.replaceWith(t.firstChild)}restore(s)}
 function snapshot(){var open={};document.querySelectorAll('#detail details[data-k]').forEach(function(x){open[x.getAttribute('data-k')]=x.open});
-  var a=document.activeElement,foc=a&&a.closest&&a.closest('[data-k]'),inner=null;
-  if(a&&foc){if(a.tagName==='SUMMARY')inner='summary';else if(a.classList.contains('copy'))inner='copy';else if(a.classList.contains('ev-open'))inner='ev-open:'+a.getAttribute('data-key');else if(a.id==='dretry')inner='dretry';else if(a.tagName==='A')inner='a'}
+  var a=document.activeElement,foc=a&&a.closest&&a.closest('[data-k]'),inner=null,copy=null;
+  if(a&&foc){if(a.tagName==='SUMMARY')inner='summary';else if(a.classList.contains('copy')){inner='copy';copy=a.getAttribute('data-copy')}else if(a.classList.contains('ev-open'))inner='ev-open:'+a.getAttribute('data-key');else if(a.id==='dretry')inner='dretry';else if(a.tagName==='A')inner='a'}
   var gs=document.querySelector('#detail .gscroll');
-  return {open:open,focus:foc?foc.getAttribute('data-k'):null,inner:inner,pane:$('#detailpane').scrollTop,win:window.scrollY,gs:gs?gs.scrollLeft:0}}
+  return {open:open,focus:foc?foc.getAttribute('data-k'):null,inner:inner,copy:copy,pane:$('#detailpane').scrollTop,win:window.scrollY,gs:gs?gs.scrollLeft:0}}
 function restore(s){if(!s)return;Object.keys(s.open).forEach(function(k){var x=document.querySelector('#detail details[data-k="'+k.replace(/"/g,'\\"')+'"]');if(x)x.open=s.open[k]});
   if(s.focus){var f=document.querySelector('[data-k="'+s.focus.replace(/"/g,'\\"')+'"]');if(f){var t=null;
-    if(s.inner==='summary'||f.tagName==='DETAILS')t=f.querySelector('summary');else if(s.inner==='copy')t=f.querySelector('button.copy');else if(s.inner&&s.inner.indexOf('ev-open:')===0)t=f.querySelector('.ev-open[data-key="'+s.inner.slice(8)+'"]');else if(s.inner==='dretry')t=f.querySelector('#dretry');else if(s.inner==='a')t=f.querySelector('a');
+    // the element the reader was on comes first; a <details> container only decides when nothing more precise was focused (dev8 P3: summary won over the copy button)
+    if(s.inner==='copy')t=Array.prototype.find.call(f.querySelectorAll('button.copy'),function(b){return b.getAttribute('data-copy')===s.copy})||null;   // the very command, never another option's button; gone (binding lost, revision changed): the card heading below
+    else if(s.inner&&s.inner.indexOf('ev-open:')===0)t=f.querySelector('.ev-open[data-key="'+s.inner.slice(8)+'"]');else if(s.inner==='dretry')t=f.querySelector('#dretry');else if(s.inner==='a')t=f.querySelector('a');
+    if(!t&&(s.inner==='summary'||s.inner==='copy'||f.tagName==='DETAILS'))t=f.querySelector('summary');
     (t||f).focus({preventScroll:true})}
-    else if(s.focus==='dstatus'){var tt=$('#dtitle');if(tt)tt.focus({preventScroll:true})}}   // P2: the status line is gone (the detail loaded): the reader lands on the task heading, not at the top of the page
+    else if(s.focus==='dstatus'||s.focus.indexOf('need:')===0){var tt=$('#dtitle');if(tt)tt.focus({preventScroll:true})}}   // P2: the status line is gone (the detail loaded) / the need card itself is gone (answered, new revision): the reader lands on the task heading, not at the top of the page
   var gs=document.querySelector('#detail .gscroll');if(gs&&s.gs)gs.scrollLeft=s.gs;
   $('#detailpane').scrollTop=s.pane;if(Math.abs(window.scrollY-s.win)>2)window.scrollTo(0,s.win)}
 function paint(d,sel,why){var s=snapshot();detailData=d;detailFor={plan:sel.plan,project:sel.project};renderDetail(d);restore(s);if(why==='select')afterSelect()}
@@ -1204,8 +1207,8 @@ function poll(){var ctl=new AbortController(),late=false,tm=setTimeout(function(
     $('#src').textContent='Sổ: '+(s.ledger||'')+' · poll '+(INTERVAL/1000)+' s · wheel '+(j.server&&j.server.version||'?');render();if(selected)loadDetail('poll');
   }).catch(function(e){if(!lostSince){lostSince=new Date();repaintGantt()}conn('bad','MẤT KẾT NỐI với server theo dõi từ '+lostSince.toLocaleTimeString()+(late?' (không trả lời trong '+OVERVIEW_TIMEOUT/60000+' phút)':'')+(lastOk?' — đang hiện dữ liệu cũ lúc '+new Date(lastOk).toLocaleTimeString():' — chưa có dữ liệu')+'; worker không bị ảnh hưởng; trang tự thử lại')})
   .then(function(){clearTimeout(tm);setTimeout(poll,INTERVAL)})}
-function copyText(text,k){var c=copied={k:k,text:text,ok:false};var s=snapshot(),sel0=selected;     // c: this copy's own record (copied is reset when the selection changes)           // the reader's focus at click time, restored after the re-render
-  function done(){var d=mine();if(!d||!sameSel(selected,sel0))return;renderDetail(d);restore(s)}
+function copyText(text,k){var c=copied={k:k,text:text,ok:false};var sel0=selected;     // c: this copy's own record (copied is reset when the selection changes)
+  function done(){var d=mine();if(!d||!sameSel(selected,sel0))return;var s=snapshot();renderDetail(d);restore(s)}   // dev8 P3: the reader's place when the result lands (focus, sections, scroll), not at the click: a late result never pulls them back
   if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){c.ok=true;done()},function(){c.ok=fallback();done()})}else{c.ok=fallback();done()}
   function fallback(){var was=document.activeElement,ta=document.createElement('textarea'),ok=false;ta.value=text;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.left='-1000px';document.body.appendChild(ta);ta.select();try{ok=document.execCommand('copy')===true}catch(e){ok=false}document.body.removeChild(ta);if(was&&was.focus)was.focus({preventScroll:true});return ok}}
 function openEvidence(key,btn){var d0=mine(),sel0=selected;if(!d0)return;if(evState[key]){delete evState[key];var s=snapshot();renderDetail(d0);restore(s);return}
