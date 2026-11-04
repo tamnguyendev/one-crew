@@ -1,4 +1,29 @@
-# Dev7 cross-review fixes — cycle7 complete for isolated trial
+# Review backend — isolated cycle 1 (in progress)
+
+Proposal source: shared ROADMAP / ROADMAP-DESIGN / ROADMAP-CLAUDE-HANDOFF, sections `review-responsibilities-20261104` and `work-history-jev-20261104`.
+Baseline: `bdb13bf` / product `6cb2fa9`. User authorized parallel work while Claude owns the OBS-2 UI patch. This branch does not certify or release that UI baseline.
+
+| ID | Requirement | Type | Implementation evidence | Test evidence | Status | Notes |
+|---|---|---|---|---|---|---|
+| RA-1 | A complete optional-review request has stable identity and conservative applicability | Data | Agent A isolated worktree | Pending | Missing | Reuse canonical hashes; no new authority/store |
+| RA-2 | Changed inputs, criteria, execution identity, policy or grant cannot reuse a result | Reliability | Agent A/B | Pending | Missing | Missing identity is not authenticated reuse |
+| RB-1 | Concurrent same-request optional reviews invoke the checker once | Reliability | Agent B | Baseline reproduction invokes twice | Missing | Existing ledger lifecycle; no double provider charging |
+| RB-2 | Interrupted/unknown calls cannot be blindly replayed; only issued receipts reconcile | Reliability | Agent B | Pending | Missing | No time-expiring claim that starts duplicate effects |
+| RB-3 | Existing mandatory checks and unrelated branches keep their semantics | Security | Existing policy/engine retained | Pending regression | Partial | Optional observations never verify nodes or grant acceptance |
+| RD-1 | Bounded Jev advice is a proposal over allowed choices, with deterministic fallback | Functional | Agent RD | Pending fake-client cases | Missing | No automatic application, actual API calls or pin changes |
+| RD-2 | v1 and v2 reuse one transport implementation without shipping v1 CLI modules | Architecture | Agent RD + integration packaging | Pending closure/wheel tests | Missing | Preserve v1 API behavior |
+| PK-1 | Selected APIs run from a fixed wheel outside the checkout | Deployment | Parent integration | Pending | Missing | Local experimental artifact, not a release or runtime upgrade |
+| SCOPE-1 | Cross-door mandatory review dedup and investigative worker wiring | Functional | Existing foundations only | Not attempted in this cycle | Partial | Remains part of 2.5-A/B, not certified by optional adapter |
+| SCOPE-2 | Runtime RD-A scheduling/cache/budget integration and labeled false-SKIP evaluation | Functional | Not part of proposal-only adapter | Not attempted | Missing | No claim advice reduces review time |
+| SCOPE-3 | OBS-2B projections and current UI patch | UI | Claude-owned separate checkout | Separate review | Not applicable | Do not edit tracking files or delay UI release |
+
+Cycle 1 validation: failing reproductions first, targeted module regression, import closure, installed-wheel integration. No full 2.2 gate, no real provider, no runtime/registry mutation. Agents own separate files/worktrees; parent owns integration and packaging.
+
+The historical UI coverage below is retained verbatim. Its U7-1/U7-2 Complete claims were superseded by REVIEW-OBS2-DEV7-20261104 (R7-1/R7-2); this branch does not fix or re-certify those UI findings.
+
+---
+
+# Dev7 cross-review fixes — historical cycle7 handover
 
 Source: shared REVIEW-OBS2-DEV6-20261104.vi.md; baseline693f114/docs0aeea9c. User authorized all2P2+3P3. Cycle6 Complete claim superseded by independent review below:3of7 remained Partial.
 

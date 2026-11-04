@@ -22,7 +22,9 @@ class ReviewDispatchTests(fixtures.EngineFixture):
 
     def optional(self, checker=None, review='extra'):
         artifact = self.engine.state(self.ledger, 'P1')['nodes']['C']['artifact']
-        return review_dispatch.optional(self.ledger, 'P1', 'C', review, checker, artifact)
+        return review_dispatch.optional(self.ledger, 'P1', 'C', review, checker, artifact,
+            execution={'method': 'adapter', 'implementation': 'fixture-checker-v1', 'configuration': {},
+                       'environment': {'fixture': 'local'}, 'provenance': {'adapter': 'test_wf_review_dispatch'}})
 
     def test_light_optional_skip_does_not_complete_node_and_required_engine_checker_runs(self):
         self.step()

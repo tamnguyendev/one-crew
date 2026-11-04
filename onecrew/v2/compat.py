@@ -27,6 +27,7 @@ CLASS_0 = (
 CLASS_A = (
     'executor.managed',
     'review.observed',
+    'review.run_started', 'review.run_result', 'review.run_finished', 'review.run_held',  # optional observations, never milestone/node authority
     'evidence.reuse',
     'adapter.violation',
     'executor.observed',

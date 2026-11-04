@@ -1239,9 +1239,9 @@ def accept_node(ledger, selector, nid):
     return state(ledger, root['selector'])['nodes'][nid]
 
 
-def review_optional(ledger, selector, nid, review_id, checker, artifact):
+def review_optional(ledger, selector, nid, review_id, checker, artifact, *, execution=None):
     from .review_dispatch import optional
-    return optional(ledger, selector, nid, review_id, checker, artifact)
+    return optional(ledger, selector, nid, review_id, checker, artifact, execution=execution)
 
 
 def request_action(ledger, selector, nid, action):
