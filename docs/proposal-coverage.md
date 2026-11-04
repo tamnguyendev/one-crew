@@ -1,4 +1,20 @@
-# Dev6 cross-review fixes — cycle6 complete for isolated trial
+# Dev7 cross-review fixes — cycle7 in progress
+
+Source: shared REVIEW-OBS2-DEV6-20261104.vi.md; baseline693f114/docs0aeea9c. User authorized all2P2+3P3. Cycle6 Complete claim superseded by independent review below:3of7 remained Partial.
+
+| ID | Requirement | Status | Evidence planned |
+|---|---|---|---|
+| U7-1 | Unbound options have no empty copy/run UI | Partial | Renderer negative + actual unbound browser desktop/mobile |
+| U7-2 | Milestone plans with verdicts are not never-started | Partial | Passed/failed/untouched/readiness controls |
+| U7-3 | Truncated structured finding remains readable | Partial | Long object/list/plain text and source preservation |
+| U7-4 | Initial plan body describes creation | Partial | Initial vs later change renderer/browser |
+| U7-5 | Restore five consumer tests without weakening guards | Partial | Real fixture hook binding, corrected readiness expectations; full affected modules |
+
+Validation: red counterexamples → focused tests → affected modules → fixed wheel/probes/browser. No full gate, real runtime edits, provider, push/tag or acceptance. Expected commit fix(obs2): close dev6 review gaps.
+
+---
+
+# Dev6 cross-review fixes — cycle6 historical handover (3 requirements reopened in cycle7)
 
 Source: `outputs/onecrew-as-qc/REVIEW-OBS2-DEV5-20261104.vi.md` (shared workspace); user authorized all 3 P2 + 4 P3. Baseline d2e592a / docs027e927. Preserve runtime/ledger/registry and dev5 package. No full gate or publish.
 

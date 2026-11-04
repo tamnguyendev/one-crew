@@ -322,7 +322,9 @@ def _finding_text(finding):
     try:
         structured = isinstance(json.loads(head), (dict, list))
     except (ValueError, TypeError):
-        structured = False
+        # The register stores only a 500-character preview. A truncated JSON
+        # object/list is still structured evidence, not a readable diagnosis.
+        structured = (finding.get('chars') or 0) > len(head) and head.lstrip().startswith(('{', '['))
     if head and not structured: return head
     criterion = (finding.get('check') or {}).get('spec') or finding.get('criterion') or finding.get('id')
     return 'Không đạt: ' + str(criterion or 'chưa có mô tả tiêu chí')

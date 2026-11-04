@@ -37,7 +37,7 @@ class FixedSnapshotTests(unittest.TestCase):
         (self.repo / 'tests').mkdir(); shutil.copyfile(REPO / 'tests/wf_wheel.py', self.repo / 'tests/wf_wheel.py')
         for name in ('obs1_ux_harness.py', 'obs2_ux_harness.py', 'obs2_artifact_browser.py'):
             (self.repo / 'tests' / name).write_text('# synthetic browser harness stub\n', encoding='utf-8')
-        for folder, names in (('docs/obs2/tools', ('verify_obs2.py', 'check_owner_human.py', 'check_review_fixes.py', 'scenario_obs2.py', 'viewer_obs2.ps1', 'mo-trang-obs2.ps1', 'dung-trang-obs2.ps1')),
+        for folder, names in (('docs/obs2/tools', ('verify_obs2.py', 'check_owner_human.py', 'check_review_fixes.py', 'check_unbound_browser.py', 'scenario_obs2.py', 'viewer_obs2.ps1', 'mo-trang-obs2.ps1', 'dung-trang-obs2.ps1')),
                               ('docs/obs1/tools', ('mo-trang-obs1.ps1', 'dung-trang-obs1.ps1'))):
             dest = self.repo / folder; dest.mkdir(parents=True, exist_ok=True)
             for name in names: (dest / name).write_text('# synthetic tooling stub\n', encoding='utf-8')

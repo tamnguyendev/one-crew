@@ -312,6 +312,8 @@ class R3Sweep(R3Fixture):
 class R3NormalValuesStay(R3Fixture):
     def test_normal_references_ids_paths_keys_and_reply_templates_come_out_unchanged(self):
         attempt = self.settled_attempt()
+        from tests.obs2_binding_fixture import bind
+        bind(self, self.ledger)
         for i, ref in enumerate(NORMAL_REFS):
             self.wait(attempt, ref, at=f'2026-11-03T10:0{i}:00+00:00', until=f'2026-11-03T10:0{i}:30+00:00')
         request = self.ledger.create_request(self.anchor(), 'retention', {'schema_version': 1, 'question': 'Giữ CV bao lâu?', 'reason': 'r', 'impact': 'i',

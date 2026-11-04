@@ -59,6 +59,9 @@ if(S==='work'){
   check('repair is linked to followup checks', $('#work-content').textContent.includes('Vòng sửa 1') && $('#work-content').textContent.includes('Kiểm lại sau sửa'));
   $('#work-tab-changes').click();
   check('initial execution plan is distinct from changes', $('#work-content').textContent.includes('Kế hoạch thực hiện ban đầu'));
+  const initialRow=$$('#work-content .work-row').find(x=>x.querySelector('h4')&&x.querySelector('h4').textContent.startsWith('Kế hoạch thực hiện ban đầu'));
+  check('initial body describes plan content not adjustment',initialRow&&initialRow.textContent.includes('Nội dung kế hoạch:')&&!initialRow.textContent.includes('Điều chỉnh đã được xử lý')&&!initialRow.textContent.includes('Nội dung thay đổi:'));
+  check('initial disclosure does not fabricate before state',initialRow&&initialRow.textContent.includes('Xem nội dung ban đầu')&&!initialRow.textContent.includes('Xem trước / sau'));
   await select(second);
   check('another task resets to overview', $('#work-tab-overview').getAttribute('aria-selected')==='true');
   $('#work-tab-solution').click();

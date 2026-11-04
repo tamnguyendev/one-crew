@@ -52,7 +52,7 @@ function workStage(t){var s=t.status||{},n=t.nodes_summary||{},l=(t.level||{}).k
   if((t.acceptance||{}).ready)return 'accept';
   if(n.produced>0||(t.milestones||[]).some(function(m){return m.state==='ready'}))return 'check';
   if(s.kind==='blocked'||n.verified>0||n.accepted>0)return 'doing';
-  if(t.has_started)return 'doing';
+  if(t.has_started||(t.milestones||[]).some(function(m){return m.state==='passed'||!!m.last_verdict}))return 'doing';
   if(t.root_status==='approved'||t.root_status==='proposed')return 'todo';return 'unknown'}
 function workStatus(t){var needs=t.needs_user||[],s=t.status||{},n=t.nodes_summary||{},stage=workStage(t),request=needs.find(function(n){return n.kind==='request'});
   if(s.kind==='blocked')return 'Có trở ngại'+((t.active||[]).length?' · phần khác vẫn thực hiện':'');
@@ -107,11 +107,11 @@ function workChanges(d,w){var rows=w.changes||[];if(!rows.length)return workEmpt
     var version=x.kind==='internal'?(x.internal_revision!=null?' · lần '+x.internal_revision:'')+(x.revision!=null?' (phương án '+x.revision+')':''):(x.revision!=null?' · bản '+x.revision:'');
     var diffs=x.diff||x.changes||[],fields=Array.from(new Set(diffs.map(function(v){return diffLabel(v.path)})));
     var h='<article class="work-row"><h4>'+workEsc(kind)+esc(version)+'</h4><p>'+workEsc(x.reason)+'</p>'
-      +(fields.length?'<p><b>Nội dung thay đổi:</b> '+esc(fields.join(', '))+'</p>':'')
+      +(fields.length?'<p><b>'+(x.kind==='initial'?'Nội dung kế hoạch:':'Nội dung thay đổi:')+'</b> '+esc(fields.join(', '))+'</p>':'')
       +(x.affected_nodes&&x.affected_nodes.length?'<p><b>Phần bị ảnh hưởng:</b> '+esc(x.affected_nodes.map(function(n){return nodeName(d,n)}).join(', '))+'</p>':'')
       +(x.reused_nodes&&x.reused_nodes.length?'<p><b>Giữ kết quả:</b> '+esc(x.reused_nodes.map(function(n){return nodeName(d,n)}).join(', '))+'</p>':'')
-      +(x.kind==='contract'?'<p class="work-warning">'+(x.approved?'Bản này đã có quyết định duyệt. Quyền hiện tại xem Solution.':'Bản đề xuất chưa duyệt. Xem thẻ quyết định ở đầu trang.')+'</p>':(x.decision&&x.decision.validity&&x.decision.validity.outcome==='in_authority'?'<p>Điều chỉnh đã được xử lý trong quyền được cấp.</p>':''));
-    h+='<details data-k="work-diff:'+esc(x.id)+'"><summary>Xem trước / sau ('+diffs.length+' mục)</summary>'+diffs.map(function(v){return '<h4>'+esc(diffLabel(v.path))+'</h4><div class="work-diff"><div><b>Trước</b><br>'+((v.before==null&&v.change==='added')?'Chưa có — nội dung mới được thêm':workEsc(v.before))+'</div><div><b>Sau</b><br>'+workEsc(v.after)+'</div></div><details><summary>Trường kỹ thuật</summary>'+workEsc(v.path)+'</details>'}).join('')+'</details>';
+      +(x.kind==='contract'?'<p class="work-warning">'+(x.approved?'Bản này đã có quyết định duyệt. Quyền hiện tại xem Solution.':'Bản đề xuất chưa duyệt. Xem thẻ quyết định ở đầu trang.')+'</p>':(x.decision&&x.decision.validity&&x.decision.validity.outcome==='in_authority'?'<p>'+(x.kind==='initial'?'Kế hoạch ban đầu nằm trong quyền được cấp.':'Điều chỉnh đã được xử lý trong quyền được cấp.')+'</p>':''));
+    h+='<details data-k="work-diff:'+esc(x.id)+'"><summary>'+(x.kind==='initial'?'Xem nội dung ban đầu':'Xem trước / sau')+' ('+diffs.length+' mục)</summary>'+diffs.map(function(v){return '<h4>'+esc(diffLabel(v.path))+'</h4>'+(x.kind==='initial'?'<div>'+workEsc(v.after)+'</div>':'<div class="work-diff"><div><b>Trước</b><br>'+((v.before==null&&v.change==='added')?'Chưa có — nội dung mới được thêm':workEsc(v.before))+'</div><div><b>Sau</b><br>'+workEsc(v.after)+'</div></div>')+'<details><summary>Trường kỹ thuật</summary>'+workEsc(v.path)+'</details>'}).join('')+'</details>';
     if(x.diff_error)h+=workEmpty(x.diff_error);
     if(x.diff_total>diffs.length)h+='<p class="work-warning">Đang hiện '+diffs.length+'/'+esc(x.diff_total)+' dòng thay đổi; phần hiển thị đã được rút gọn.</p>';
     return h+workSource(x)+(x.decision?'<details data-k="work-decision:'+esc(x.id)+'"><summary>Căn cứ quyền</summary><p>'+workEsc(x.decision)+'</p></details>':'')+'</article>'}).join('')}

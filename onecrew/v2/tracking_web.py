@@ -949,22 +949,22 @@ function cmdHtml(c,ph){var t=esc(c);(Array.isArray(ph)?ph:[ph]).filter(Boolean).
 function needTitle(n){return n.kind==='request'?'Câu hỏi: '+(n.question||'').slice(0,90)+((n.question||'').length>90?'…':''):n.kind==='approve'?'Duyệt kế hoạch':n.kind==='accept'?'Nghiệm thu':n.kind==='stopped'?'Quyết định sau khi dừng':(n.question||n.kind)}
 function needKey(n){return 'need:'+n.kind+':'+(n.id||'')+':'+(n.revision||'')}
 function commandBox(command,ph,label){return '<div class="command-box cmd"><div class="command-head"><span>PowerShell · '+esc(label||'Lệnh dành cho bạn')+'</span><button type="button" class="copy" data-copy="'+esc(command)+'">Sao chép lệnh</button></div><pre><code>'+cmdHtml(command,ph)+'</code></pre></div>'}
-function needCard(n,i){var ph=n.reference_placeholder,nk=needKey(n),command=n.human_command||n.reply_command,marks=(n.placeholders||[]).map(function(k){return k==='reference'?ph:'<'+k+'>'});if(!marks.length&&ph)marks=[ph];
+function needCard(n,i){var ph=n.reference_placeholder,nk=needKey(n),command=n.human_command||n.reply_command,hasCommand=!!command||(n.options||[]).some(function(o){return !!(o.human_command||o.reply_command)}),marks=(n.placeholders||[]).map(function(k){return k==='reference'?ph:'<'+k+'>'});if(!marks.length&&ph)marks=[ph];
   var h='<details data-k="'+esc(nk)+'" class="need" data-need-id="'+esc(n.id||'')+'" data-need-rev="'+esc(n.revision||'')+'"'+'><summary>'+esc(needTitle(n))+(n.kind==='approve'?' · bản '+esc(n.revision)+' — xem nội dung và lệnh':'')+'</summary><div class="q">'+esc(n.kind==='approve'?(n.title||'Phương án đang chờ quyết định'):(n.question||n.kind))+'</div>';
   if(n.reason)h+='<p><b>Vì sao:</b> '+esc(n.reason)+'</p>';if(n.impact)h+='<p><b>Ảnh hưởng:</b> '+esc(n.impact)+'</p>';
   if(n.kind==='approve')h+=(n.reason?'':'<p>Bản này chưa có quyết định duyệt trong sổ.</p>')+(n.impact?'':'<p class="small">Chưa có mô tả ảnh hưởng riêng. Hãy đối chiếu nội dung trước / sau.</p>')+'<button type="button" data-work-tab="changes">Xem thay đổi trước khi duyệt</button>';
   if(detailError){var pinned=[command].concat((n.options||[]).map(function(o){return o.human_command||o.reply_command})).some(function(c){return /--revision/.test(c||'')});h+='<p class="stale-tpl" '+(pinned?'data-stale-template="1"':'data-stale-data="1"')+'>Dữ liệu cũ từ '+clockMs(detailOkAt)+'. Đợi cập nhật hoặc kiểm lại trạng thái.'+(pinned?' Lệnh ghim --revision cũ sẽ bị từ chối nếu bản đã đổi. Sao chép không xác nhận yêu cầu còn hiệu lực.':'')+'</p>';}
-  if(command||(n.options||[]).length){h+='<p><b>Mở PowerShell của bạn trên máy này.</b> Không dán vào ô chat để nhờ AI duyệt.</p>';
+  if(hasCommand){h+='<p><b>Mở PowerShell của bạn trên máy này.</b> Không dán vào ô chat để nhờ AI duyệt.</p>';
     if(ph)h+='<p class="small">Thay phần <mark class="ph">'+esc(ph)+'</mark> bằng lý do xác nhận của bạn trước khi chạy. Mẫu chưa điền không phải quyết định đã duyệt.</p>';}
-  if((n.placeholders||[]).indexOf('option-id')>=0)h+='<p><b>Cần điền thêm:</b> thay <mark class="ph">&lt;option-id&gt;</mark> bằng ID phương án anh chọn trong danh sách bên dưới. Không tự chọn thay anh.</p>';
-  (n.options||[]).forEach(function(o){h+='<div class="opt"><b>'+esc(o.label)+'</b>'+(n.recommendation===o.id?' <span class="small">· đề xuất</span>':'')+commandBox(o.human_command||o.reply_command,marks,'Trả lời lựa chọn này')+'</div>'});
+  if(hasCommand&&(n.placeholders||[]).indexOf('option-id')>=0)h+='<p><b>Cần điền thêm:</b> thay <mark class="ph">&lt;option-id&gt;</mark> bằng ID phương án anh chọn trong danh sách bên dưới. Không tự chọn thay anh.</p>';
+  (n.options||[]).forEach(function(o){var c=o.human_command||o.reply_command;h+='<div class="opt"><b>'+esc(o.label)+'</b>'+(n.recommendation===o.id?' <span class="small">· đề xuất</span>':'')+(c?commandBox(c,marks,'Trả lời lựa chọn này'):'')+'</div>'});
   if(!(n.options||[]).length&&command)h+=commandBox(command,marks,n.kind==='approve'?'Duyệt bản '+n.revision:'Ghi nhận quyết định');
-  if(!command){h+='<p>'+esc(n.binding_reason||n.note||'Chưa có mẫu lệnh đủ dữ liệu để thực hiện an toàn.')+'</p>';if(n.inspect_command)h+=commandBox(n.inspect_command,null,'Chỉ xem trạng thái, chưa duyệt');}
+  if(!hasCommand){h+='<p>'+esc(n.binding_reason||n.note||'Chưa có mẫu lệnh đủ dữ liệu để thực hiện an toàn.')+'</p>';if(n.inspect_command)h+=commandBox(n.inspect_command,null,'Chỉ xem trạng thái, chưa duyệt');}
   if((n.plan_choices||[]).length)h+='<p><b>Cần chọn phương án:</b> '+n.plan_choices.map(function(o){return esc(o.id)+' — '+esc(o.title||o.summary||'Chưa có mô tả')}).join('; ')+'</p>';
   if((n.optional_items||[]).length)h+='<details><summary>Hạng mục tùy chọn — chưa tự chọn</summary><p>'+n.optional_items.map(function(o){return esc(o.id)+' — '+esc(o.title||'Chưa có mô tả')}).join('; ')+'</p></details>';
-  h+='<p class="small">Sao chép chưa phải duyệt. Chạy lệnh thành công mới ghi quyết định; trang cập nhật khi đọc được kết quả từ sổ.</p>';
-  if(n.reply_note)h+='<details><summary>Chi tiết lệnh và quyền</summary><p>'+esc(n.reply_note)+'</p></details>';
-  if(copied&&copied.k===nk){if(copied.ok)h+='<div class="copied" role="status" data-copied="'+esc(copied.text)+'">Đã sao chép lệnh. Chưa ghi nhận quyết định.</div>';
+  if(hasCommand)h+='<p class="small">Sao chép chưa phải duyệt. Chạy lệnh thành công mới ghi quyết định; trang cập nhật khi đọc được kết quả từ sổ.</p>';
+  if(hasCommand&&n.reply_note)h+='<details><summary>Chi tiết lệnh và quyền</summary><p>'+esc(n.reply_note)+'</p></details>';
+  if(hasCommand&&copied&&copied.k===nk){if(copied.ok)h+='<div class="copied" role="status" data-copied="'+esc(copied.text)+'">Đã sao chép lệnh. Chưa ghi nhận quyết định.</div>';
     else h+='<div class="copied err" role="status" data-copy-failed="1">Không sao chép được; chọn khối lệnh để sao chép thủ công.<textarea readonly rows="3" style="width:100%">'+esc(copied.text)+'</textarea></div>';}
   return h+'</details>'}
 

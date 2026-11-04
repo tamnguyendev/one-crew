@@ -123,6 +123,8 @@ class PowerShellTemplate(EngineFixture):
         with other.transaction() as conn:
             task = plans.anchor_events(other, conn, 'PS')['task_id']
         request = other.create_request(task, 'ps-q', QUESTION)
+        from tests.obs2_binding_fixture import bind
+        bind(self, other)
         need = next(t for p in tracking.overview(self.ledger.state_root)['projects'] for t in p['tasks'] if t['plan'] == 'PS')['needs_user'][0]
         template = need['options'][1]['reply_command']
         self.assertEqual(need['reply_shell'], 'PowerShell'); self.assertIn("--project 'd:\\", template.lower()); self.assertIn("''q''", template); self.assertIn('$sdk', template.lower())      # the project path is normcased; PowerShell variables are case-insensitive

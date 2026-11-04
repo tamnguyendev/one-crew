@@ -51,7 +51,9 @@ def main(work):
     def js(expression):
         source=tracking_web.PAGE
         helpers=source[source.index('function tms(t)'):source.index('function repaintGantt()')]
-        code=tracking_work_web.SCRIPT+'\n'+helpers+'\nconsole.log(JSON.stringify('+expression+'));'
+        commands=source[source.index('function cmdHtml('):source.index('function needs_open_sync')]
+        prelude="function esc(x){return String(x==null?'':x).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]))} function when(x){return x} var detailError=null,copied=null;"
+        code=prelude+tracking_work_web.SCRIPT+'\n'+helpers+'\n'+commands+'\nconsole.log(JSON.stringify('+expression+'));'
         done=subprocess.run(['node','-'],input=code,text=True,encoding='utf8',capture_output=True,timeout=20)
         if done.returncode: raise RuntimeError(done.stderr[-1000:])
         return json.loads(done.stdout)
@@ -64,6 +66,13 @@ def main(work):
     check('P3-1 finding readable',w['findings'][0]['text'].startswith('Không đạt:'))
     check('P3-2 valid text not unreadable',not any('Không đọc được receipt/definition/register' in s for s in w['limitations']))
     check('P3-3 initial plan labelled',w['changes'][0]['kind']=='initial')
+    initial=js('workChanges('+json.dumps(code)+','+json.dumps({'changes':[w['changes'][0]]})+')')
+    check('dev7 initial body not adjustment','Nội dung thay đổi:' not in initial and 'Điều chỉnh đã được xử lý' not in initial and 'Xem trước / sau' not in initial)
+    from onecrew.v2 import tracking_work
+    long_claim=json.dumps({'criterion':'C','evidence':['a'*64]*8})
+    check('dev7 long structured finding readable',tracking_work._finding_text({'head':long_claim[:500],'chars':len(long_claim),'criterion':'C'})=='Không đạt: C')
+    milestone_task={'root_status':'approved','status':{'kind':'waiting'},'nodes_summary':{},'milestones':[{'state':'passed'}],'acceptance':{'ready':False}}
+    check('dev7 milestone work not never started',js('workStage('+json.dumps(milestone_task)+')')=='doing')
     for days in (4.7,5,6,12):
         ticks=js('gTicks({w0:0,w1:'+str(days*86400000)+'})')
         check('P3-4 day ticks '+str(days),3<=len(ticks)<=6 and 'ngày' in ticks[-1]['label'],ticks)
@@ -77,6 +86,10 @@ def main(work):
             d=tracking.detail(ledger.state_root,name)
             entries=[e for n in d['needs_user'] for e in [n,*n.get('options',[])]]
             check('P2-3 '+mode+' '+name,all(not e.get('human_command') and not e.get('reply_command') and not (e.get('action') or {}).get('enabled') for e in entries))
+            for n in d['needs_user']:
+                if n['kind']=='request':
+                    html=js('needCard('+json.dumps(n)+',0)')
+                    check('dev7 unbound question renderer '+mode,'data-copy=""' not in html and 'Mở PowerShell' not in html and 'Thay phần' not in html)
     settings.write_text(bound,encoding='utf8')
     check('read operations preserve ledger',before==hashlib.sha256((ledger.state_root/'ledger.sqlite3').read_bytes()).hexdigest())
     report={'origin':tracking.__file__,'installed':Path(tracking.__file__).is_relative_to(Path(sys.prefix)),

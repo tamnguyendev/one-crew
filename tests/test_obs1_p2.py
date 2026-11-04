@@ -128,19 +128,20 @@ class OldAttemptObservation(P2Fixture):
 
 
 class EndedWaits(P2Fixture):
-    def test_a_closed_wait_is_history_and_the_verified_plan_is_done(self):              # P2-03, the probe's case
+    def test_a_closed_wait_is_history_while_root_proof_is_pending(self):              # P2-03, the probe's case
         self.two_nodes(); self.step(); att = self.attempt_of('A')
         self.wait(att, 'wait-receipt')
         self.wait(att, 'wait-receipt', until='2026-11-03T00:00:05+00:00')
         self.verify('A'); self.step(); self.verify('I')
         d = self.detail()
         self.assertEqual(d['level']['kind'], 'verified')
-        self.assertEqual(d['status']['kind'], 'done', d['status'])
+        self.assertEqual(d['status']['kind'], 'waiting', d['status'])
+        self.assertFalse(d['acceptance']['ready'])
         self.assertEqual([w for w in d['waits'] if w['open']], [])
         closed = [w for w in d['waits'] if not w['open']]
         self.assertEqual(len(closed), 1); self.assertEqual(closed[0]['until'], '2026-11-03T00:00:05+00:00')   # kept as history
         self.assertEqual([w['until'] for w in d['measure']['executor_waits']], ['2026-11-03T00:00:05+00:00'])     # and measured (executors.summary)
-        self.assertEqual([n['kind'] for n in d['needs_user']], ['accept'])
+        self.assertEqual(d['needs_user'], [])
 
     def test_independent_waits_and_duplicate_or_late_events(self):                      # P2-03: several waits, duplicates, late arrivals
         self.two_nodes(); worker, thread = self.blocking_worker(); att = self.detail()['nodes']['A']['attempt']

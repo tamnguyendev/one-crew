@@ -178,6 +178,8 @@ class EngineTests(EngineFixture):
         self.assertEqual(self.detail()['nodes']['A']['phase'], 'held')
 
     def test_pending_request_is_what_the_owner_must_decide_and_reading_does_not_answer(self):
+        from tests.obs2_binding_fixture import bind
+        bind(self, self.ledger)
         self.revise([node('A'), node('I', ['A'], integration=True, write=())])
         request = self.ledger.create_request(self.root_view['anchor_task'], 'retention', QUESTION)
         t = first_task(self.overview())
@@ -191,13 +193,15 @@ class EngineTests(EngineFixture):
         self.detail(); tracking.render_detail(self.detail())
         self.assertEqual(self.ledger.request(request['id'])['state'], 'pending')     # reading never answers
 
-    def test_verified_is_done_pending_acceptance_and_accepted_is_accepted(self):
+    def test_verified_nodes_wait_for_root_proof_and_accepted_is_accepted(self):
         self.revise([node('A'), node('I', ['A'], integration=True, write=())])
         self.step(); engine.verify(self.ledger, 'P1', 'A', self.checker)
         self.step(); engine.verify(self.ledger, 'P1', 'I', self.checker)
         t = first_task(self.overview())
-        self.assertEqual((t['status']['kind'], t['level']['kind']), ('done', 'verified'))
-        self.assertEqual([n['kind'] for n in t['needs_user']], ['accept'])
+        self.assertEqual((t['status']['kind'], t['level']['kind']), ('waiting', 'verified'))
+        self.assertEqual(t['needs_user'], [])
+        self.assertFalse(t['acceptance']['ready'])
+        self.assertIn('M1',t['current_step'])
         self.assertEqual(t['last_evidence']['kind'], 'node.verification')
         with self.ledger.transaction(write=True) as conn:
             plans.emit(self.ledger, conn, self.root_view['anchor_task'], 'plan.accepted', {'plan': 'P1', 'revision': 1, 'by': 'owner', 'artifact_sha': 'x'})
