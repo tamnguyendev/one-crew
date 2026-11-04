@@ -169,4 +169,3 @@ class OptionalLifecycle(fixtures.ReviewDispatchTests):
             compat.check_write(kind, {}, 'plan:old-reader')
         with self.assertRaises(LedgerError): compat.check_write('review.unknown_kind', {}, 'plan:old-reader')
         self.assertEqual(self.engine.state(self.ledger, 'P1')['nodes']['C']['state'], 'produced')
-
