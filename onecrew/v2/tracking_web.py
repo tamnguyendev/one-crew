@@ -30,10 +30,13 @@ success and the failure paths.
 Detail reads (P2 of Codex's review of dev12): one read at a time for the selected task. A poll, or the same task selected again, waits for the
 read in flight instead of replacing it (dev12 replaced a read older than 20 s, so answers slower than that were thrown away on every poll and
 the pane said "đang tải" for ever). Each read is awaited up to DETAIL_TIMEOUT (45 s; the loading line counts the seconds); then it is
-cancelled and the failure says so; after DETAIL_TRIES (3) such timeouts in a row the page stops reading by itself and offers a "Thử lại"
-button; an answer, another selection, the button or a reconnection of the overview starts a new series. Quick failures (network, HTTP) are
-retried on the next polls as before. Selecting another task cancels the previous task's read. The overview read has the same 45 s limit, so a
-server that never answers turns the badge to "MẤT KẾT NỐI" instead of leaving it green while nothing updates.
+cancelled and the failure says so; after DETAIL_TRIES (3) timeouts with no answer shown in between, the page stops reading by itself and
+offers a "Thử lại" button. Only an answer the page shows ends a series; a click on a task (the same one too), the button or a reconnection of
+the overview starts a new one. Quick failures (network, HTTP) neither count nor end a series and are retried after the next overview poll as
+before. While a retry is in flight the status line and the header say "đang thử lại" with the seconds waited. Selecting another task or
+closing the selection cancels the read in flight (a new selection never inherits a nearly expired read). The overview read is awaited up to
+OVERVIEW_TIMEOUT (5 minutes): a slow overview keeps working as before, one that never answers turns the badge to "MẤT KẾT NỐI" instead of
+leaving it green while nothing updates.
 
 Evidence on the page (R1): the page never maps a blob key to one entry. An event in the log lists the occurrences of THAT event (seq, key); the
 step pane lists the occurrences of that attempt (outputs, other evidence) and, apart, what it inherits with the source occurrence of each key;
@@ -857,7 +860,7 @@ details{margin:6px 0}summary{cursor:pointer;color:var(--mut)}summary:focus-visib
 var INTERVAL=@@INTERVAL@@, last=null, lastOk=null, lostSince=null, selected=null, lastViewed=null, detailData=null, detailSeq=null, detailToken=0, detailInflight=null, listSig=null, selEv=null, evState={}, copied=null;
 var selStep=null, gRange='all', gFold={}, staleNotes=[], knownNeeds={};
 var detailFor=null, detailError=null, detailOkAt=null;   // R4: the selection detailData was fetched for; the current failure streak {since,last,message}; when it last loaded
-var DETAIL_TIMEOUT=45000, DETAIL_TRIES=3, OVERVIEW_TIMEOUT=45000, detailTimeouts=0;   // P2 (Codex, dev12): a detail read is awaited up to 45 s, never replaced by a poll; after 3 reads in a row without an answer the page stops retrying and offers a retry button; the overview read has the same limit
+var DETAIL_TIMEOUT=45000, DETAIL_TRIES=3, OVERVIEW_TIMEOUT=300000, detailTimeouts=0;   // P2 (Codex, dev12): a detail read is awaited up to 45 s, never replaced by a poll; after 3 timeouts with no answer shown in between the page stops retrying and offers a retry button; an overview read is awaited up to 5 minutes (a slow overview keeps working as before; one that never answers is reported)
 var TECH=['attempt.','executor.managed','decision.recorded','execution.configured','budget.group','precondition.recorded','task.submitted','knowledge.delivered','estimate.','plan.step0_closed'];
 var $=function(s){return document.querySelector(s)};
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
@@ -888,12 +891,13 @@ function dind(){var e=$('#dconn'),k=detailState();if(k==='none'){e.hidden=true;e
   var n=nameOf(selected);e.hidden=false;
   if(k==='loading'){e.className='wait';e.textContent='chi tiết '+n+': đang tải…'}
   else if(k==='ok'){e.className='ok';e.textContent='chi tiết '+n+': cập nhật lúc '+clockMs(detailOkAt)}
-  else{e.className='bad';e.textContent='chi tiết '+n+': lỗi tải từ '+clockMs(detailError.since)+(k==='stale'?' · đang hiện dữ liệu lúc '+clockMs(detailOkAt):' · chưa có dữ liệu')}}
+  else{e.className='bad';e.textContent='chi tiết '+n+': lỗi tải từ '+clockMs(detailError.since)+(k==='stale'?' · đang hiện dữ liệu lúc '+clockMs(detailOkAt):' · chưa có dữ liệu')
+    +(reading()?' · đang thử lại':detailTimeouts>=DETAIL_TRIES?' · đã ngừng tự thử (bấm Thử lại)':'')}}   // P2: a read in flight or the stop, also in the header
 function pendingPane(sel){var t=taskOf(sel),e=detailError;   // the selected task's own heading while its detail is loading or failed; nothing of any other task
   var h='<div class="dhead"><button type="button" id="back">← Danh sách</button><h2 id="dtitle" data-k="dtitle" tabindex="-1">'+esc(nameOf(sel))+(t?' '+st(t.status):'')+'</h2><button type="button" id="close" class="small" title="bỏ chọn task">Đóng</button></div>';
   var since=detailInflight&&sameSel(detailInflight.sel,sel)?detailInflight.since:Date.now();
-  h+=e?'<div id="dstatus" class="dstatus err" role="status" data-state="error">Không tải được chi tiết task này ('+esc(e.message)+') từ '+clockMs(e.since)+', lần thử gần nhất <span id="dlast">'+clockMs(e.last)+'</span>; '+(e.note||retryNote())+'. Chưa có dữ liệu chi tiết nào của task này nên không có câu hỏi hay mẫu lệnh nào để hiện.</div>'
-      :'<div id="dstatus" class="dstatus" role="status" data-state="loading">đang tải chi tiết… <span class="mut">(đã chờ <span data-live="0" data-live-at="'+since+'">0s</span>, tối đa '+DETAIL_TIMEOUT/1000+' s)</span></div>';
+  h+=e?'<div id="dstatus" class="dstatus err" role="status" data-state="error" data-k="dstatus" tabindex="-1">Không tải được chi tiết task này ('+esc(e.message)+') từ '+clockMs(e.since)+', lần thử gần nhất <span id="dlast">'+clockMs(e.last)+'</span>; <span id="dnote">'+noteHtml()+'</span>. Chưa có dữ liệu chi tiết nào của task này nên không có câu hỏi hay mẫu lệnh nào để hiện.</div>'
+      :'<div id="dstatus" class="dstatus" role="status" data-state="loading" data-k="dstatus" tabindex="-1">đang tải chi tiết… <span class="mut">(đã chờ <span data-live="0" data-live-at="'+since+'">0s</span>, tối đa '+DETAIL_TIMEOUT/1000+' s)</span></div>';
   if(t)h+='<div class="small mut">Theo danh sách: '+esc(t.current_step||t.status.reason||'')+'</div>';
   $('#detail').innerHTML=h}
 function tasks(){var out=[];(last&&last.projects||[]).forEach(function(p){p.tasks.forEach(function(t){out.push(t)})});return out}
@@ -964,7 +968,7 @@ function groups(d){var g={},order=[];function add(key,title,e){if(!g[key]){g[key
 function renderDetail(d){
   var P=prov(d);
   var h=['<div class="dhead"><button type="button" id="back">← Danh sách</button><h2 id="dtitle" data-k="dtitle" tabindex="-1">'+esc(d.plan)+' '+st(d.status)+'</h2><button type="button" id="close" class="small" title="bỏ chọn task">Đóng</button></div>'];
-  if(detailError)h.push('<div id="dstatus" class="dstatus stale" role="status" data-state="stale">Chi tiết chưa cập nhật từ '+clockMs(detailOkAt)+': lỗi tải chi tiết ('+esc(detailError.message)+', lần thử gần nhất <span id="dlast">'+clockMs(detailError.last)+'</span>); đang hiện dữ liệu lúc '+(d.generated_at?clock(d.generated_at):clockMs(detailOkAt))+'. Mẫu lệnh trả lời bên dưới là của lúc đó: nếu câu hỏi đã được trả lời hoặc đổi bản, OneCrew từ chối lệnh nhờ --revision. '+cap(detailError.note||retryNote())+'.</div>');
+  if(detailError)h.push('<div id="dstatus" class="dstatus stale" role="status" data-state="stale" data-k="dstatus" tabindex="-1">Chi tiết chưa cập nhật từ '+clockMs(detailOkAt)+': lỗi tải chi tiết ('+esc(detailError.message)+', lần thử gần nhất <span id="dlast">'+clockMs(detailError.last)+'</span>); đang hiện dữ liệu lúc '+(d.generated_at?clock(d.generated_at):clockMs(detailOkAt))+'. Mẫu lệnh trả lời bên dưới là của lúc đó: nếu câu hỏi đã được trả lời hoặc đổi bản, OneCrew từ chối lệnh nhờ --revision. <span id="dnote" data-cap="1">'+cap(noteHtml())+'</span>.</div>');
   h.push('<div class="small mut">Đang xem task <b>'+esc(d.plan)+'</b> của project <span title="'+esc(d.project)+'">'+esc(short(d.project))+'</span> · <a href="'+esc(urlOf({plan:d.selector,project:d.project_id}))+'">liên kết tới task này</a></div>');
   var needs=d.needs_user||[],nq=needs.filter(function(n){return n.kind==='request'}).length,nother=needs.length-nq;
   h.push('<div class="dsum"><span class="step">'+esc(d.current_step||d.status.reason||'')+'</span>'+(needs.length?'<a href="#needs" class="small">'+(nq?nq+' câu hỏi chờ bạn':'')+(nq&&nother?' · ':'')+(nother?nother+' việc cần bạn':'')+'</a>':'<span class="small mut">không cần bạn lúc này</span>')+'</div>');
@@ -1086,52 +1090,57 @@ function gside(d,g){if(!selStep)return '<span class="mut">Chọn một thanh ho�
 function repaintGantt(){var d=mine();if(!d)return;var s=snapshot();var el=document.querySelector('#detail .gantt');if(el){var t=document.createElement('div');t.innerHTML=gantt(d);el.replaceWith(t.firstChild)}restore(s)}
 function snapshot(){var open={};document.querySelectorAll('#detail details[data-k]').forEach(function(x){open[x.getAttribute('data-k')]=x.open});
   var a=document.activeElement,foc=a&&a.closest&&a.closest('[data-k]'),inner=null;
-  if(a&&foc){if(a.tagName==='SUMMARY')inner='summary';else if(a.classList.contains('copy'))inner='copy';else if(a.classList.contains('ev-open'))inner='ev-open:'+a.getAttribute('data-key');else if(a.tagName==='A')inner='a'}
+  if(a&&foc){if(a.tagName==='SUMMARY')inner='summary';else if(a.classList.contains('copy'))inner='copy';else if(a.classList.contains('ev-open'))inner='ev-open:'+a.getAttribute('data-key');else if(a.id==='dretry')inner='dretry';else if(a.tagName==='A')inner='a'}
   var gs=document.querySelector('#detail .gscroll');
   return {open:open,focus:foc?foc.getAttribute('data-k'):null,inner:inner,pane:$('#detailpane').scrollTop,win:window.scrollY,gs:gs?gs.scrollLeft:0}}
 function restore(s){if(!s)return;Object.keys(s.open).forEach(function(k){var x=document.querySelector('#detail details[data-k="'+k.replace(/"/g,'\\"')+'"]');if(x)x.open=s.open[k]});
   if(s.focus){var f=document.querySelector('[data-k="'+s.focus.replace(/"/g,'\\"')+'"]');if(f){var t=null;
-    if(s.inner==='summary'||f.tagName==='DETAILS')t=f.querySelector('summary');else if(s.inner==='copy')t=f.querySelector('button.copy');else if(s.inner&&s.inner.indexOf('ev-open:')===0)t=f.querySelector('.ev-open[data-key="'+s.inner.slice(8)+'"]');else if(s.inner==='a')t=f.querySelector('a');
-    (t||f).focus({preventScroll:true})}}
+    if(s.inner==='summary'||f.tagName==='DETAILS')t=f.querySelector('summary');else if(s.inner==='copy')t=f.querySelector('button.copy');else if(s.inner&&s.inner.indexOf('ev-open:')===0)t=f.querySelector('.ev-open[data-key="'+s.inner.slice(8)+'"]');else if(s.inner==='dretry')t=f.querySelector('#dretry');else if(s.inner==='a')t=f.querySelector('a');
+    (t||f).focus({preventScroll:true})}
+    else if(s.focus==='dstatus'){var tt=$('#dtitle');if(tt)tt.focus({preventScroll:true})}}   // P2: the status line is gone (the detail loaded): the reader lands on the task heading, not at the top of the page
   var gs=document.querySelector('#detail .gscroll');if(gs&&s.gs)gs.scrollLeft=s.gs;
   $('#detailpane').scrollTop=s.pane;if(Math.abs(window.scrollY-s.win)>2)window.scrollTo(0,s.win)}
 function paint(d,sel,why){var s=snapshot();detailData=d;detailFor={plan:sel.plan,project:sel.project};renderDetail(d);restore(s);if(why==='select')afterSelect()}
 function afterSelect(){setView();if(narrow())window.scrollTo(0,0);else{var r=$('#detailpane').getBoundingClientRect();if(r.top<0||r.top>window.innerHeight*0.8)$('#detailpane').scrollIntoView({block:'start'})}
   if(selected&&selected.focusDetail){selected.focusDetail=false;var t=$('#dtitle');if(t)t.focus({preventScroll:true})}}
-function retryNote(){return detailTimeouts>=DETAIL_TRIES?'trang đã thử '+DETAIL_TRIES+' lần liền, mỗi lần chờ '+DETAIL_TIMEOUT/1000+' s, và ngừng tự thử: <button type="button" id="dretry">Thử lại</button>'
-  :'trang tự thử lại'+(detailTimeouts?' (lần '+(detailTimeouts+1)+'/'+DETAIL_TRIES+', mỗi lần chờ tối đa '+DETAIL_TIMEOUT/1000+' s)':' mỗi '+(INTERVAL/1000)+' s')}   // P2: what happens next, said with the failure
+function restNote(){return detailTimeouts>=DETAIL_TRIES?'trang đã thử '+DETAIL_TRIES+' lần liền, mỗi lần chờ '+DETAIL_TIMEOUT/1000+' s, và ngừng tự thử: <button type="button" id="dretry">Thử lại</button>'
+  :'trang tự thử lại'+(detailTimeouts?' (lần '+(detailTimeouts+1)+'/'+DETAIL_TRIES+', mỗi lần chờ tối đa '+DETAIL_TIMEOUT/1000+' s)':' sau mỗi lần làm mới danh sách (mỗi '+(INTERVAL/1000)+' s khi kết nối tốt)')}   // P2: what happens next, said with the failure
+function reading(){return detailInflight&&selected&&sameSel(detailInflight.sel,selected)?detailInflight:null}   // the read in flight for the selected task, if any
+function noteHtml(){var r=reading();return r?'đang thử lại… (đã chờ <span data-live="0" data-live-at="'+r.since+'">'+hms((Date.now()-r.since)/1000)+'</span>, tối đa '+DETAIL_TIMEOUT/1000+' s)':restNote()}
+function refreshNote(){var n=$('#dnote');if(n){var a=document.activeElement,inside=!!(a&&n.contains(a)),h=noteHtml();n.innerHTML=n.getAttribute('data-cap')?cap(h):h;if(inside){var ds=$('#dstatus');if(ds)ds.focus({preventScroll:true})}}dind()}   // a read started or the series was reset: the status line says so (focus stays in the status line)
 function cap(s){s=String(s);return s.charAt(0).toUpperCase()+s.slice(1)}
 function loadDetail(why){if(!selected)return;
   if(detailInflight&&sameSel(detailInflight.sel,selected))return;   // P2 (Codex, dev12): one read at a time for the selected task: a poll (or the same task selected again) waits for the read in flight instead of replacing it. Replacing a read slower than 20 s threw its answer away on every poll and left "đang tải" for ever; the read ends by itself: its answer, its failure or DETAIL_TIMEOUT
   if(why==='poll'&&detailTimeouts>=DETAIL_TRIES)return;             // DETAIL_TRIES reads in a row without an answer: no more automatic reads; the reader's "Thử lại", another selection or a reconnection starts again
   if(detailInflight){clearTimeout(detailInflight.timer);detailInflight.ctl.abort()}   // the read of a task no longer selected is cancelled; its answer or failure never touches the page (token + selection below)
   var token=++detailToken,sel={plan:selected.plan,project:selected.project},ctl=new AbortController(),me={token:token,sel:sel,since:Date.now(),ctl:ctl,late:false};
-  me.timer=setTimeout(function(){me.late=true;ctl.abort()},DETAIL_TIMEOUT);detailInflight=me;
+  me.timer=setTimeout(function(){me.late=true;ctl.abort()},DETAIL_TIMEOUT);detailInflight=me;if(detailError)refreshNote();
   function current(){return token===detailToken&&sameSel(sel,selected)}
   function settle(){clearTimeout(me.timer);if(detailInflight&&detailInflight.token===token)detailInflight=null}      // a reply OR a failure of a superseded request / a task no longer selected never touches the page
   fetch('/api/task?plan='+encodeURIComponent(sel.plan)+(sel.project?'&project_id='+encodeURIComponent(sel.project):'')+'&timeline=300',{cache:'no-store',signal:ctl.signal})
   .then(function(r){return r.text().then(function(t){var j=null;try{j=JSON.parse(t)}catch(e){}return {ok:r.ok,status:r.status,j:j}})})
-  .then(function(x){settle();if(!current())return;detailTimeouts=0;
+  .then(function(x){settle();if(!current())return;
       if(!x.ok||!x.j||typeof x.j!=='object')return detailFailed(sel,'HTTP '+x.status+(x.j&&x.j.error?': '+x.j.error:x.ok?': trả lời không đọc được':''));
       var prev=mine(),prevFor=detailFor,prevOk=detailOkAt,prevSeq=detailSeq,prevErr=detailError,prevNotes=staleNotes.slice(),prevKnown=Object.assign({},knownNeeds),prevCopied=copied;
-      try{detailLoaded(sel,x.j,why)}catch(e){if(!current())return;                 // a reply the page cannot show: the error path with everything as it was before it, never 'đang tải' forever
+      try{detailLoaded(sel,x.j,why);detailTimeouts=0}catch(e){if(!current())return;                 // only an answer the page shows ends a timeout series; a reply the page cannot show: the error path with everything as it was before it, never 'đang tải' forever
         detailData=prev;detailFor=prev?prevFor:null;detailOkAt=prevOk;detailSeq=prevSeq;detailError=prevErr;staleNotes=prevNotes;knownNeeds=prevKnown;copied=prevCopied;
         detailFailed(sel,'không hiển thị được chi tiết: '+String(e&&e.message||e).slice(0,160))}},
     function(){settle();if(!current())return;
-      if(me.late){detailTimeouts++;return detailFailed(sel,'quá '+DETAIL_TIMEOUT/1000+' s không có trả lời')}    // P2: the wait ends with a clear reason; after DETAIL_TRIES of these the page stops (retryNote)
-      detailTimeouts=0;detailFailed(sel,'mất kết nối khi tải chi tiết')})}
+      if(me.late){detailTimeouts++;return detailFailed(sel,'quá '+DETAIL_TIMEOUT/1000+' s không có trả lời')}    // P2: the wait ends with a clear reason; after DETAIL_TRIES of these the page stops (restNote)
+      detailFailed(sel,'mất kết nối khi tải chi tiết')})}     // a quick failure neither counts nor ends a timeout series (alternating hang/error stops too)
 function detailLoaded(sel,j,why){var had=mine(),wasErr=!!detailError,seq=j.source&&j.source.last_seq;detailError=null;detailOkAt=Date.now();
   if(had&&!wasErr&&why!=='select'&&why!=='force'&&seq===detailSeq&&had.selector===j.selector&&had.project_id===j.project_id){detailData=j;if(j.gantt&&j.gantt.axis&&(j.gantt.axis.extends_to_now||$('#gstale')))repaintGantt();dind();return}   // nothing moved in the ledger: keep what the reader is looking at; only the server clock parts of the timeline move (P2-A)
   detailSeq=seq;paint(j,sel,had?why:'select');dind()}      // recovery from a stale state re-renders once (warning and template marks go; snapshot/restore keep the reader's place)
-function detailFailed(sel,msg){var now=Date.now(),note=retryNote(),changed=!detailError||detailError.message!==msg||detailError.note!==note,d=mine(),s;   // a new retry state (try 2/3, stopped) is shown too
+function detailFailed(sel,msg){var now=Date.now(),note=restNote(),changed=!detailError||detailError.message!==msg||detailError.note!==note,d=mine(),s;   // a new retry state (try 2/3, stopped) is shown too
   detailError={since:detailError?detailError.since:now,last:now,message:msg,note:note};
   if(d){if(changed){s=snapshot();renderDetail(d);restore(s)}else{var l=$('#dlast');if(l)l.textContent=clockMs(now)}}     // the task already shown: its data stays, marked stale
   else if(changed||!$('#dstatus')||$('#dstatus').getAttribute('data-state')!=='error'){s=snapshot();pendingPane(sel);restore(s)}   // never loaded: its own heading + the error, nothing else
   else{var l2=$('#dlast');if(l2)l2.textContent=clockMs(now)}
   dind()}
-function select(sel,opts){opts=opts||{};if(!sel){if(selected){lastViewed=selected}selected=null;selEv=null;evState={};copied=null;detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailSeq=null;detailTimeouts=0;$('#detail').innerHTML='<div id="nodetail">Chọn một task ở danh sách để xem chi tiết, timeline và bằng chứng.</div>';setView();render(true);dind();
+function select(sel,opts){opts=opts||{};if(!sel){if(detailInflight){clearTimeout(detailInflight.timer);detailInflight.ctl.abort();detailInflight=null}   // closing cancels the read: selecting the task again starts a fresh one (never a nearly expired one)
+    if(selected){lastViewed=selected}selected=null;selEv=null;evState={};copied=null;detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailSeq=null;detailTimeouts=0;$('#detail').innerHTML='<div id="nodetail">Chọn một task ở danh sách để xem chi tiết, timeline và bằng chứng.</div>';setView();render(true);dind();
     if(!opts.silent&&location.search)history.pushState({},'',location.pathname);return}
-  var other=!sameSel(selected,sel);
+  var other=!sameSel(selected,sel);detailTimeouts=0;      // a click on a task (the same one too) is the reader asking again: a new series of tries
   if(other){selEv=null;evState={};copied=null;detailSeq=null;selStep=null;gFold={};staleNotes=[];knownNeeds={};detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailTimeouts=0}
   selected={plan:sel.plan,project:sel.project||'',focusDetail:!!opts.focusDetail};setView();render(true);
   if(!mine()){pendingPane(selected);afterSelect()}dind();     // another task: its heading + "đang tải" at once, never the previous task's content
@@ -1143,7 +1152,7 @@ function poll(){var ctl=new AbortController(),late=false,tm=setTimeout(function(
     last=j;lastOk=Date.now();if(lostSince)detailTimeouts=0;lostSince=null;var s=j.source||{};    // reconnected: the detail of the selection is read again (a new, bounded series of tries)
     if(s.status!=='ok'){conn('src','NGUỒN '+(s.status||'?')+': '+(s.detail||''))}else{conn('ok','kết nối OK · dữ liệu lúc '+new Date(j.generated_at).toLocaleTimeString()+' · seq '+s.last_seq+' · đọc '+(j.server&&j.server.read_ms)+' ms')}
     $('#src').textContent='Sổ: '+(s.ledger||'')+' · poll '+(INTERVAL/1000)+' s · wheel '+(j.server&&j.server.version||'?');render();if(selected)loadDetail('poll');
-  }).catch(function(e){if(!lostSince){lostSince=new Date();repaintGantt()}conn('bad','MẤT KẾT NỐI với server theo dõi từ '+lostSince.toLocaleTimeString()+(late?' (không trả lời trong '+OVERVIEW_TIMEOUT/1000+' s)':'')+(lastOk?' — đang hiện dữ liệu cũ lúc '+new Date(lastOk).toLocaleTimeString():' — chưa có dữ liệu')+'; worker không bị ảnh hưởng; trang tự thử lại')})
+  }).catch(function(e){if(!lostSince){lostSince=new Date();repaintGantt()}conn('bad','MẤT KẾT NỐI với server theo dõi từ '+lostSince.toLocaleTimeString()+(late?' (không trả lời trong '+OVERVIEW_TIMEOUT/60000+' phút)':'')+(lastOk?' — đang hiện dữ liệu cũ lúc '+new Date(lastOk).toLocaleTimeString():' — chưa có dữ liệu')+'; worker không bị ảnh hưởng; trang tự thử lại')})
   .then(function(){clearTimeout(tm);setTimeout(poll,INTERVAL)})}
 function copyText(text,k){var c=copied={k:k,text:text,ok:false};var s=snapshot(),sel0=selected;     // c: this copy's own record (copied is reset when the selection changes)           // the reader's focus at click time, restored after the re-render
   function done(){var d=mine();if(!d||!sameSel(selected,sel0))return;renderDetail(d);restore(s)}
@@ -1154,7 +1163,7 @@ function openEvidence(key,btn){var d0=mine(),sel0=selected;if(!d0)return;if(evSt
   btn.textContent='đang tải…';fetch(evHref(key).replace('&format=text',''),{cache:'no-store'}).then(function(r){return r.json().then(function(j){return [r.ok,j]})}).then(function(x){
     show(x[0]?x[1].text:'không mở được: '+(x[1].error||''))}).catch(function(){show('không mở được (mất kết nối)')})}
 document.addEventListener('click',function(ev){var t=ev.target;
-  if(t.id==='dretry'){detailTimeouts=0;t.disabled=true;t.textContent='đang thử lại…';loadDetail('retry');return}   // P2: the reader starts a new, bounded series of tries
+  if(t.id==='dretry'){detailTimeouts=0;loadDetail('retry');return}   // P2: the reader starts a new, bounded series of tries (the status line then says "đang thử lại…" and keeps the focus)
   var li=t.closest&&t.closest('li.task');if(li){select({plan:li.dataset.plan,project:li.dataset.project});return}
   if(t.id==='back'||t.id==='close'){var k=selected;select(null);var again=k&&document.querySelector('[data-k="task:'+k.project+':'+k.plan+'"]');if(again)again.focus();return}
   if(t.classList&&t.classList.contains('copy')){copyText(t.getAttribute('data-copy'),t.closest('.need').getAttribute('data-k'));return}
