@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-R5-STEP0-2",
+ "file": "tests/test_wf_r01_step0_compat.py",
+ "old_sha256": "f131e424a3350ad9abaaa7c35276b1b11a12351f4d3178f8cb193bcbf995963f",
+ "new_sha256": "762fce6a47a34eff1c74083b9c97e5384820cadf9da5b9663090b8654c1317a9",
+ "reason": "Round 5 (audit 92: W30a/W31a/W47): a technical choice may be decided silently only with a resolvable real grant on a root that declares authority (fixtures now approve such a root and cite its grant; T1 is escalated in the compat test and the decision is recorded explicitly from a terminal); open unknowns on plan-ns proposals need affected+required_by (two asserts of the old 'unscoped is accepted' behaviour inverted; the test_v2_l3 fixture scopes its unknowns). These are behaviour fixes for audited defects; no acceptance weakened.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị lượt 5 sau xác nhận Codex 3 P1 + 2 P2): 'Tôi ủy quyền bạn tự quyết và thực hiện các thay đổi local cần thiết: sửa code, bổ sung test/phản chứng, điều chỉnh cách triển khai, cập nhật hợp đồng/roadmap/bộ kiểm cho nhất quán... Không hỏi tôi duyệt từng task'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 5 commit on codex/wf-development",
+ "at": "2026-10-25"
+}

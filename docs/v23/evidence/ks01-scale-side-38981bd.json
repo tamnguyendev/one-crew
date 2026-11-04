@@ -1,0 +1,153 @@
+{
+ "kind": "v23-ks01-scale",
+ "checkout": "38981bd3ab0a69ae63dea7b4c41badb03a26ce89",
+ "dirty": false,
+ "python": "3.13.15",
+ "platform": "win32",
+ "machine_shared": true,
+ "note": "wall time on a shared Windows machine (other sessions running); rows inserted directly; 20% code-bound entries cite 20 files",
+ "rows": [
+  {
+   "ledger_entries_project": 100,
+   "ledger_entries_other_project": 0,
+   "wiki_sections": 0,
+   "seconds_min": 0.1769,
+   "seconds_max": 0.3005,
+   "candidates": 100,
+   "eligible": 80,
+   "delivered": 0,
+   "omitted_total": 100,
+   "context_retrieve_200_new_s": 0.1399,
+   "context_retrieve_200_base_s": 0.1418
+  },
+  {
+   "ledger_entries_project": 1000,
+   "ledger_entries_other_project": 1000,
+   "wiki_sections": 200,
+   "seconds_min": 0.7824,
+   "seconds_max": 4.5084,
+   "candidates": 1200,
+   "eligible": 921,
+   "delivered": 16,
+   "omitted_total": 1184,
+   "context_retrieve_200_new_s": 0.3039,
+   "context_retrieve_200_base_s": 0.2067
+  },
+  {
+   "ledger_entries_project": 5000,
+   "ledger_entries_other_project": 5000,
+   "wiki_sections": 1000,
+   "seconds_min": 1.752,
+   "seconds_max": 6.5948,
+   "candidates": 6000,
+   "eligible": 4132,
+   "delivered": 25,
+   "omitted_total": 5975,
+   "context_retrieve_200_new_s": 0.3452,
+   "context_retrieve_200_base_s": 0.3577
+  },
+  {
+   "ledger_entries_project": 10000,
+   "ledger_entries_other_project": 10000,
+   "wiki_sections": 1000,
+   "seconds_min": 5.3344,
+   "seconds_max": 10.5227,
+   "candidates": 11000,
+   "eligible": 8151,
+   "delivered": 25,
+   "omitted_total": 10975,
+   "context_retrieve_200_new_s": 0.5506,
+   "context_retrieve_200_base_s": 0.7002
+  },
+  {
+   "ledger_entries_project": 20000,
+   "ledger_entries_other_project": 20000,
+   "wiki_sections": 2000,
+   "seconds_min": 8.9109,
+   "seconds_max": 10.4494,
+   "candidates": 22000,
+   "eligible": 16205,
+   "delivered": 25,
+   "omitted_total": 21975,
+   "context_retrieve_200_new_s": 1.0437,
+   "context_retrieve_200_base_s": 1.1807
+  },
+  {
+   "ledger_entries_project": 50000,
+   "ledger_entries_other_project": 50000,
+   "wiki_sections": 2000,
+   "seconds_min": 20.6695,
+   "seconds_max": 27.2663,
+   "candidates": 52000,
+   "eligible": 40564,
+   "delivered": 25,
+   "omitted_total": 51975,
+   "context_retrieve_200_new_s": 3.0978,
+   "context_retrieve_200_base_s": 5.0475
+  }
+ ],
+ "pages_rows": [
+  {
+   "wiki_pages": 1001,
+   "ledger_entries_project": 0,
+   "seconds_min": 0.3489,
+   "seconds_max": 2.5433,
+   "candidates": 1001,
+   "eligible": 21,
+   "delivered": 2,
+   "omitted_total": 999,
+   "mandatory_delivered": [
+    "required-last"
+   ],
+   "wiki": null
+  },
+  {
+   "wiki_pages": 2001,
+   "ledger_entries_project": 0,
+   "seconds_min": 0.5904,
+   "seconds_max": 5.2345,
+   "candidates": 2000,
+   "eligible": 20,
+   "delivered": 1,
+   "omitted_total": 1999,
+   "mandatory_delivered": [],
+   "wiki": null
+  },
+  {
+   "wiki_pages": 2002,
+   "ledger_entries_project": 0,
+   "seconds_min": 0.7464,
+   "seconds_max": 4.7769,
+   "candidates": 2000,
+   "eligible": 20,
+   "delivered": 1,
+   "omitted_total": 1999,
+   "mandatory_delivered": [],
+   "wiki": null
+  },
+  {
+   "wiki_pages": 5001,
+   "ledger_entries_project": 0,
+   "seconds_min": 2.3944,
+   "seconds_max": 3.5544,
+   "candidates": 2000,
+   "eligible": 20,
+   "delivered": 1,
+   "omitted_total": 1999,
+   "mandatory_delivered": [],
+   "wiki": null
+  },
+  {
+   "wiki_pages": 10001,
+   "ledger_entries_project": 0,
+   "seconds_min": 1.394,
+   "seconds_max": 5.1254,
+   "candidates": 2000,
+   "eligible": 20,
+   "delivered": 1,
+   "omitted_total": 1999,
+   "mandatory_delivered": [],
+   "wiki": null
+  }
+ ]
+}

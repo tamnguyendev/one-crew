@@ -1,0 +1,63 @@
+{
+ "kind": "v23-ks01-scale",
+ "checkout": "4182ee53d3cf5e1e62009c5a8080ff03fbcd783a",
+ "dirty": false,
+ "python": "3.13.15",
+ "platform": "win32",
+ "machine_shared": true,
+ "note": "wall time on a shared Windows machine (other sessions running); rows inserted directly; 20% code-bound entries cite 20 files",
+ "rows": [
+  {
+   "ledger_entries_project": 100,
+   "ledger_entries_other_project": 0,
+   "wiki_sections": 0,
+   "seconds_min": 0.0635,
+   "seconds_max": 0.1006,
+   "candidates": 100,
+   "eligible": 80,
+   "delivered": 0,
+   "omitted_total": 100,
+   "context_retrieve_200_new_s": 0.0531,
+   "context_retrieve_200_base_s": 0.0594
+  },
+  {
+   "ledger_entries_project": 1000,
+   "ledger_entries_other_project": 1000,
+   "wiki_sections": 200,
+   "seconds_min": 0.3286,
+   "seconds_max": 0.3785,
+   "candidates": 1200,
+   "eligible": 921,
+   "delivered": 16,
+   "omitted_total": 1184,
+   "context_retrieve_200_new_s": 0.0826,
+   "context_retrieve_200_base_s": 0.0871
+  },
+  {
+   "ledger_entries_project": 5000,
+   "ledger_entries_other_project": 5000,
+   "wiki_sections": 1000,
+   "seconds_min": 0.7804,
+   "seconds_max": 0.9044,
+   "candidates": 6000,
+   "eligible": 4132,
+   "delivered": 25,
+   "omitted_total": 5975,
+   "context_retrieve_200_new_s": 0.1462,
+   "context_retrieve_200_base_s": 0.2161
+  },
+  {
+   "ledger_entries_project": 20000,
+   "ledger_entries_other_project": 20000,
+   "wiki_sections": 2000,
+   "seconds_min": 2.461,
+   "seconds_max": 2.748,
+   "candidates": 22000,
+   "eligible": 16222,
+   "delivered": 25,
+   "omitted_total": 21975,
+   "context_retrieve_200_new_s": 0.5388,
+   "context_retrieve_200_base_s": 0.667
+  }
+ ]
+}

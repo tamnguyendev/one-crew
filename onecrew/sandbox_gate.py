@@ -52,7 +52,7 @@ def command(argv, directory, timeout, guard=None, environment_extra=None):
         if environment_extra:
             if set(environment_extra) - {'JAVA_HOME', 'ANDROID_HOME', 'ANDROID_SDK_ROOT', 'FLUTTER_ROOT',
                                          'GRADLE_USER_HOME', 'CI', 'FLUTTER_SUPPRESS_ANALYTICS', 'DART_SUPPRESS_ANALYTICS',
-                                         'PUB_CACHE','PUB_HOSTED_URL',
+                                         'PUB_CACHE','PUB_HOSTED_URL','PYTHONUTF8','PYTHONIOENCODING',
                                          # Node recipe mock e2e step (node_change.E2E_ENV), operator-pinned values only.
                                          'CHROME_PATH','CHROME_ARGS','NA_PYTHON','NA_BACKEND_DIR','NA_E2E_BACKEND_PORT',
                                          'NA_MOCK_PORT','NA_PROXY_PORT'}:

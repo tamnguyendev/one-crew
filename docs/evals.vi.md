@@ -84,6 +84,33 @@ python -m onecrew --project D:\path\to\task-project --state-root C:\path\to\OneC
 không cấp quyền hoặc resume. Key idempotent; dùng lại key với nội dung khác bị từ chối.
 `observe` không xuất reason tự do. Không có note vẫn **không** được suy là không can thiệp.
 
+## Scorecard ba trục (autopilot, 12/10/2026)
+
+```powershell
+python -m onecrew --state-root C:\path\to\OneCrew eval scorecard --task TASK-<ID> --replay-compare D:\OneCrewEvals\comparison.json --output D:\OneCrewEvals\scorecard
+```
+
+Ba trục tách riêng, không gộp thành một số:
+1. `runtime_tests`: chỉ lấy từ file compare (known-case fixture), không phải hoàn thành task.
+2. `task_completion`: phase, AC, gate, mục `not_run`/thiếu, lớp kết quả `autonomous_complete`
+   (hoàn thành, plan do OneCrew lập, không can thiệp entry, runtime không đổi), `assisted_complete`,
+   `correct_block`, `incomplete`, `unknown`.
+3. `entry_dependencies`: can thiệp `control.intervention` theo actor/lệnh, `eval assistance`,
+   nguồn gốc plan, đổi runtime, khởi động lại coordinator theo người khởi động, quyết định đã trả
+   lời theo nguồn (`decisions_by_source`).
+
+Mức hoàn thành và mức hỗ trợ chấm riêng; chỉ `complete` + `autonomous` là `autonomous_complete`.
+Nguồn của mỗi câu trả lời (đợt 2, Codex review 12/10): `user` — người dùng tự trả lời (actor `user`);
+`relayed` — entry gửi quyết định của người dùng (`--decided-by user`, nên trích tin nhắn gốc ở
+`--reference`); `entry` — entry tự quyết theo ủy quyền (`--decided-by entry`); `unknown` — không
+chứng minh được ai quyết (bản ghi cũ, hoặc người gửi không quy được actor). `entry`/`relayed` làm task
+thành `assisted`; `unknown` làm mức hỗ trợ `unknown` nếu không có bằng chứng hỗ trợ khác. Câu trả lời
+của chính người dùng không phải hỗ trợ.
+
+Can thiệp được ghi tự động từ CLI/MCP (`ONECREW_ACTOR`), runtime ghi hash mã ở `runner.started`.
+Corpus v3 thêm hai lỗi review Codex (đỏ bằng assertion trên 356fb82) và các case autopilot; probe
+có module mới ở mức module được chấm `capability_unavailable`, không phải tái hiện hành vi.
+
 ## Mở rộng năng lực bằng eval
 
 Với mỗi thay đổi runtime/recipe/skill: pin before/after, chạy corpus này, review

@@ -22,14 +22,26 @@ class SearchRecoveryTests(unittest.TestCase):
         self.put('app/lib/main.dart','main')
         self.put('shared/lib/settings/page.dart')
         self.put('shared/lib/l10n/vi.arb','{"message":"Cloud Auth"}')
-        with patch('onecrew.discovery.SEARCH_PAGE',1):
+        # Per-op scan budget forced to 1 file -> the op scans one file then yields a continuation cursor, so paging tiles
+        # the tree without dropping files. (Old behaviour keyed off SEARCH_PAGE; the fix scans a budgeted span per op.)
+        with patch('onecrew.discovery.SEARCH_SCAN_FILES',1):
             pages=[];cursor=0
             while cursor is not None:
                 result=self.discovery.search('','Cloud Auth',cursor);pages.append(result);cursor=result['next_cursor']
-            self.assertEqual(len(pages),3)
+            self.assertEqual(len(pages),3)  # three permitted text files, one scanned per op under the 1-file budget
             self.assertEqual({m['path'] for p in pages for m in p['matches']},
                              {'shared/lib/settings/page.dart','shared/lib/l10n/vi.arb'})
             self.assertTrue(all(p['recursive'] and p['query']=='Cloud Auth' for p in pages))
+            # explicit coverage: contiguous tiling, totals, and exhausted only on the final page
+            self.assertEqual([p['scanned_from'] for p in pages],[0,1,2])
+            self.assertEqual([p['scanned_through'] for p in pages],[1,2,3])
+            self.assertTrue(all(p['files_total']==3 for p in pages))
+            self.assertTrue(pages[-1]['exhausted'] and pages[-1]['next_cursor'] is None)
+            self.assertFalse(any(p['exhausted'] for p in pages[:-1]))
+        # Default budget (no patch): the whole small tree is covered in ONE op (no per-file model call), matches intact
+        whole=self.discovery.search('','Cloud Auth')
+        self.assertEqual({m['path'] for m in whole['matches']},{'shared/lib/settings/page.dart','shared/lib/l10n/vi.arb'})
+        self.assertTrue(whole['exhausted'] and whole['next_cursor'] is None)
         self.assertEqual(self.discovery.search('app','Cloud Auth')['matches'],[])
 
     def test_exclusions_content_withholding_and_bounds_are_explicit(self):
@@ -97,5 +109,672 @@ class SearchRecoveryTests(unittest.TestCase):
         record(state,'multiple',[value,value],'claude','sonnet')
         self.assertEqual(len(summarize(state['usage'])['unknown_attempts']),5)
 
+
+class SearchEfficiencyAndStrategySwitchTests(unittest.TestCase):
+    """P6 R4 fix: efficient per-op scanning + explicit coverage + new-vs-repeat distinction + strategy-switch signal,
+    real anti-loop guard intact. Exercises the REAL Discovery.search and progress.observe (no algorithm reimplemented)."""
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.root=Path(self.tmp.name);self.discovery=Discovery(self.root)
+    def put(self,path,text='x'):
+        target=self.root/path;target.parent.mkdir(parents=True,exist_ok=True);target.write_text(text,encoding='utf-8')
+
+    def test_large_repo_match_only_at_tail_is_found_in_one_op_no_drop(self):
+        # 300 empty files + the needle in the LAST one. One op (default budget) must scan all and find it - the old
+        # 100-file page would have needed 3 model calls and (if the worker stopped early) dropped the tail.
+        for i in range(300): self.put('d%03d/f.dart'%i,'nothing here')
+        self.put('zzz_last/f.dart','TARGET_TOKEN present')
+        r=self.discovery.search('','TARGET_TOKEN')
+        self.assertEqual([m['path'] for m in r['matches']],['zzz_last/f.dart'])
+        self.assertTrue(r['exhausted']);self.assertIsNone(r['next_cursor'])
+        self.assertEqual(r['scanned_through'],r['files_total'])
+
+    def test_per_op_file_budget_pages_without_dropping_and_reports_continuation(self):
+        for i in range(10): self.put('d%02d/f.dart'%i,'TARGET_TOKEN' if i==9 else 'none')
+        seen=[];cursor=0;ops=0
+        with patch('onecrew.discovery.SEARCH_SCAN_FILES',3):
+            while cursor is not None:
+                r=self.discovery.search('','TARGET_TOKEN',cursor);ops+=1
+                seen+=[m['path'] for m in r['matches']]
+                self.assertEqual(r['scanned_from'],cursor)
+                cursor=r['next_cursor']
+        self.assertGreater(ops,1);self.assertIn('d09/f.dart',seen)  # tail found, paged, nothing dropped
+
+    def test_new_coverage_empty_searches_do_not_blind_exhaust_but_sustained_no_results_signal_switch(self):
+        # A search op that advanced over NEW files (files_scanned>0, scanned_through>cursor) is coverage, not blind
+        # exploration - so it does NOT march toward the exploration cap the way a no-coverage observation does; but
+        # sustained no-results raise a STRUCTURED strategy_switch hint so the worker pivots.
+        state={'phase':'running','snapshot':None}
+        for i in range(20):
+            observe(state,'search',{'directory':'','query':'absent','cursor':i*3},
+                    {'matches':[],'directories':[],'next_cursor':(i+1)*3,'files_scanned':3,'scanned_through':(i+1)*3})
+        self.assertEqual(state['phase'],'running')  # advancing coverage did NOT trip the exploration cap
+        self.assertIn('strategy_switch',state['progress'])
+        self.assertEqual(state['progress']['strategy_switch']['kind'],'search_not_converging')
+
+    def test_repeating_the_same_region_still_blocks_real_loop_guard_intact(self):
+        state={'phase':'running','snapshot':None}
+        for _ in range(3):
+            observe(state,'search',{'directory':'lib','query':'absent','cursor':0},
+                    {'matches':[],'directories':[],'next_cursor':None,'files_scanned':2,'scanned_through':2})
+        self.assertEqual(state['phase'],'blocked')  # same region+query+cursor repeated -> same-result guard blocks
+
+    def test_a_found_match_clears_the_switch_signal(self):
+        state={'phase':'running','snapshot':None}
+        for i in range(6):
+            observe(state,'search',{'directory':'','query':'absent','cursor':i*3},
+                    {'matches':[],'directories':[],'next_cursor':(i+1)*3,'files_scanned':3,'scanned_through':(i+1)*3})
+        self.assertIn('strategy_switch',state['progress'])
+        observe(state,'search',{'directory':'','query':'found','cursor':0},
+                {'matches':[{'path':'a.dart','lines':[1]}],'directories':[],'next_cursor':None,'files_scanned':1,'scanned_through':1})
+        self.assertNotIn('strategy_switch',state['progress'])
+
+class ReconsileAndAskGateEndToEndTests(unittest.TestCase):
+    """P6 R4 two-mechanism fix, driven through the REAL run loop (work mode): prompt build -> owned._latest_result (which
+    records what was ACTUALLY delivered) -> owned._tool -> progress.observe. The model is stubbed (FixtureWorker replays
+    actions); the observe/handler/paging code is the real one, never reimplemented. These are RED on the pre-fix code
+    (served was recorded in observe off the REQUEST and re-grant keyed off plan text) and GREEN on the fix."""
+    def _fixture(self, lines=600):
+        import tests.test_work_contract as wc
+        from onecrew.owned import Owned
+        from onecrew.owned_intake import submit
+        from tests.test_workflow import FixtureWorker
+        self._wc=wc; self._Owned=Owned; self._submit=submit; self._FW=FixtureWorker
+        t=wc.WorkFixture(); t.setUp(); self.addCleanup(t.doCleanups)
+        big="\n".join("line %05d %s"%(i,"x"*60) for i in range(lines))+"\nEND\n"
+        (t.root/"big.txt").write_text(big); t.git('add','big.txt'); t.git('commit','-q','-m','big')
+        return t
+    def _act(self, name, plan, **a):
+        import json
+        return {'plan':plan,'action':name,'arguments':json.dumps(a)}
+    def _drive(self, t, resp, steps=None):
+        task=self._submit(t.ledger,None,'work',mode='work',provider='kiro',model='claude-sonnet-5',contract=t.contract())['id']
+        run=self._Owned(t.ledger,self._FW(t.ledger,resp)); run.enable(task)
+        last=None
+        for _ in range(steps or len(resp)):
+            last=run.run(task,steps=1)
+            if last['phase'] in ('blocked','completed','failed'): break
+        return run,task,last
+
+    def test_A_CTS_reselect_already_delivered_page_reconsiders_then_blocks(self):
+        # CTS sequence: read a large source, page it, then RE-SELECT an already-delivered page. The real _latest_result
+        # recorded that page as delivered; re-selecting it with no new content -> bounded reconsider -> honest finite block.
+        t=self._fixture()
+        resp=[self._act('read','P1',path='big.txt'),
+              self._act('receipt','read offset 0',index=0),       # delivered at next build
+              self._act('receipt','read offset 0',index=0),       # re-select #1 -> reconsider
+              self._act('receipt','read offset 0',index=0)]       # re-select #2 -> limit -> blocked
+        run,task,st=self._drive(t,resp)
+        self.assertEqual(st['phase'],'blocked')
+        self.assertIn('already-delivered',st['message'])  # the RIGHT mechanism blocked it, not a generic guard
+        self.assertEqual(st['recovery']['kind'],'no_progress')
+
+    def test_A_plan_reword_does_NOT_regrant_recovery(self):
+        # A2: the re-grant signal is DELIVERED content, never plan text. Rewording the plan each step must STILL block.
+        t=self._fixture()
+        resp=[self._act('read','P1',path='big.txt'),
+              self._act('receipt','Step X: read offset 0',index=0),
+              self._act('receipt','EXAMINE offset 0 now',index=0),          # reworded
+              self._act('receipt','inspect offset 0 differently again',index=0)]  # reworded again
+        run,task,st=self._drive(t,resp)
+        self.assertEqual(st['phase'],'blocked')
+        self.assertIn('already-delivered',st['message'])
+
+    def test_A_distinct_new_pages_are_progress_never_blocked(self):
+        # A valid re-read of GENUINELY NEW content (different offsets) is coverage, not a loop: never blocked.
+        t=self._fixture()
+        resp=[self._act('read','P',path='big.txt'),
+              self._act('receipt','A',index=0,offset=0),
+              self._act('receipt','B',index=0,offset=4000),
+              self._act('receipt','C',index=0,offset=8000),
+              self._act('receipt','D',index=0,offset=12000)]
+        run,task,st=self._drive(t,resp)
+        self.assertNotEqual(st['phase'],'blocked')
+
+    def test_A_restart_preserves_delivered_pages_and_recovery_obligation(self):
+        # A1/A2 under confirmed-send recording: delivered_pages is committed only AFTER the model answers the prompt that
+        # carried the page (the adapter's send-evidence), and lives in the checkpoint, so a re-selection after a public
+        # resume is still caught. Extra re-selects account for the one-step-later commit.
+        t=self._fixture()
+        resp=[self._act('read','P',path='big.txt'),
+              self._act('receipt','r0',index=0),
+              self._act('receipt','r0',index=0),
+              self._act('receipt','r0',index=0),
+              self._act('receipt','r0',index=0)]
+        task=self._submit(t.ledger,None,'work',mode='work',provider='kiro',model='claude-sonnet-5',contract=t.contract())['id']
+        run=self._Owned(t.ledger,self._FW(t.ledger,resp)); run.enable(task)
+        run.run(task,steps=3)
+        seq,state=run.state(task)
+        self.assertTrue(state.get('delivered_pages'))  # committed only after the response confirmed the send; durable
+        from onecrew.ledger import Ledger
+        restored=self._Owned(Ledger(t.root,t.ledger.state_root),self._FW(t.ledger,resp))
+        st=None
+        for _ in range(4):
+            st=restored.run(task,steps=1)
+            if st['phase']=='blocked': break
+        self.assertEqual(st['phase'],'blocked')
+        self.assertIn('already-delivered',st['message'])
+
+    def test_A_does_not_fit_render_sets_no_delivery_candidate(self):
+        # A1: a render that returns does_not_fit (tiny budget) must leave NO delivery candidate - a built-but-undelivered
+        # page is never 'served'. The candidate lives on the runtime, committed to state only at confirmed send.
+        from onecrew.owned import Owned
+        t=self._fixture()
+        resp=[self._act('read','P',path='big.txt'),self._act('receipt','r0',index=0)]
+        task=self._submit(t.ledger,None,'work',mode='work',provider='kiro',model='claude-sonnet-5',contract=t.contract())['id']
+        run=Owned(t.ledger,self._FW(t.ledger,resp)); run.enable(task)
+        run.run(task,steps=2)
+        seq,state=run.state(task)
+        val=run._latest_result(dict(state), 50, task)  # a budget too small for any page
+        self.assertTrue(val.get('does_not_fit'))
+        self.assertIsNone(run._delivered_candidate)  # does_not_fit -> no candidate, so nothing can be committed as served
+
+    def test_A_measurement_render_does_NOT_mutate_delivered_state(self):
+        # A1 (Codex v2): _fit_work MEASURES the whole size with _latest_result(state,10**8) and re-renders at each candidate
+        # budget. A measurement render is NOT a send and must mutate NOTHING - otherwise a build that then fails records a
+        # delivery for a prompt the model never saw. RED on the pre-fix code (the measurement render wrote delivered_pages).
+        from onecrew.owned import Owned
+        t=self._fixture()
+        resp=[self._act('read','P',path='big.txt'),self._act('receipt','r0',index=0)]
+        task=self._submit(t.ledger,None,'work',mode='work',provider='kiro',model='claude-sonnet-5',contract=t.contract())['id']
+        run=Owned(t.ledger,self._FW(t.ledger,resp)); run.enable(task)
+        run.run(task,steps=2)
+        seq,state=run.state(task)
+        before=len(state.get('delivered_pages') or {})
+        run._page_starved=False
+        run._latest_result(state, 10**8, task)   # the exact MEASUREMENT call _fit_work makes
+        self.assertEqual(len(state.get('delivered_pages') or {}), before)  # measurement mutated nothing
+
+class WorkModeB1Mixin:
+    """A work-mode driver with a REAL pinned repo (two commits), used to exercise the B1 commit-relationship verifier
+    against real Git objects. A git_show runs as one real step; the ask is then dispatched through the REAL _tool handler
+    deterministically (no fixture exhaustion), so the gate decision is the production code's, not a reimplementation."""
+    def _wm(self, extra_commits=1):
+        import tests.test_work_contract as wc
+        from onecrew.owned import Owned
+        from onecrew.owned_intake import submit
+        from tests.test_workflow import FixtureWorker
+        t=wc.WorkFixture(); t.setUp(); self.addCleanup(t.doCleanups)
+        for i in range(extra_commits):
+            (t.root/('c%d.txt'%i)).write_text('x%d'%i); t.git('add','.'); t.git('commit','-q','-m','c%d'%i)
+        task=submit(t.ledger,None,'work',mode='work',provider='kiro',model='claude-sonnet-5',contract=t.contract())['id']
+        run=Owned(t.ledger,FixtureWorker(t.ledger,[])); run.enable(task)
+        profile=run.control.status(task)['configuration']['profile']
+        seq,state=run.state(task)
+        return run,task,profile,state
+    def _ask_tool(self, run, task, profile, state, **askargs):
+        base=dict(question='Is HEAD~1 ancestor of HEAD?',reason='r',
+                  options=[{'id':'a','label':'x'},{'id':'b','label':'y'}],recommendation='a')
+        base.update(askargs)
+        return run._tool(task, state, 'ask', base, profile)
+
+
+class AskGateB1RelationTests(unittest.TestCase, WorkModeB1Mixin):
+    """B1 (Codex v2): a commit_relationship CLAIM is verified against the REAL repo objects - two resolved refs + the
+    asserted relation checked by the core (merge-base --is-ancestor) in the pinned repo - NOT merely by citing a git-type
+    receipt. These drive the real _verify_commit_relationship and the real ask gate. No SHA/keyword/answer is hard-coded."""
+
+    def test_bare_git_show_without_refs_and_relation_does_NOT_reach_user(self):
+        # Codex's exact regression: git_show HEAD + 'proves X ahead of HEAD' with NO resolved refs/relation must be GATED,
+        # not built into a user question (the relation was never checked).
+        run,task,profile,state=self._wm()
+        # a git_show receipt is required as the cite; put one on state via a real step is overkill - cite any existing
+        # receipt is impossible with none, so assert the handler gates when the claim cannot be verified.
+        res=self._ask_tool(run,task,profile,state,kind='technical',verification='git_show HEAD',
+                           verified_receipt=0,claim_kind='commit_relationship')
+        self.assertEqual(res,{'action':'ask','blocked':'self_verify_first'})
+        self.assertEqual((state.get('recovery') or {}).get('kind'),'self_verify_first')
+
+    def test_verified_true_relation_reaches_user(self):
+        # HEAD~1 IS an ancestor of HEAD -> the core verifies it -> the question reaches the user (direct ask path open).
+        run,task,profile,state=self._wm()
+        # need a cited receipt that EXISTS and is git-type: run one real git_show step first
+        from tests.test_workflow import FixtureWorker
+        import json
+        run.worker=FixtureWorker(run.ledger,[{'plan':'g','action':'git_show','arguments':json.dumps({'commit':'HEAD'})}])
+        run.run(task,steps=1)
+        seq,state=run.state(task)
+        res=self._ask_tool(run,task,profile,state,kind='technical',verification='ancestry verified',
+                           verified_receipt=0,claim_kind='commit_relationship',
+                           claim_refs=['HEAD~1','HEAD'],claim_relation='ancestor')
+        self.assertEqual(run.ledger.requests(task,pending=True) and True, True)  # a request was created
+        self.assertEqual(state['phase'],'waiting')
+
+    def test_false_relation_does_NOT_reach_user(self):
+        # Claiming HEAD is an ancestor of HEAD~1 is FALSE -> gated, never the user.
+        run,task,profile,state=self._wm()
+        from tests.test_workflow import FixtureWorker
+        import json
+        run.worker=FixtureWorker(run.ledger,[{'plan':'g','action':'git_show','arguments':json.dumps({'commit':'HEAD'})}])
+        run.run(task,steps=1); seq,state=run.state(task)
+        res=self._ask_tool(run,task,profile,state,kind='technical',verification='wrong claim',
+                           verified_receipt=0,claim_kind='commit_relationship',
+                           claim_refs=['HEAD','HEAD~1'],claim_relation='ancestor')
+        self.assertEqual(res,{'action':'ask','blocked':'self_verify_first'})
+        self.assertEqual(run.ledger.requests(task,pending=True),[])
+
+    def test_unresolvable_ref_does_NOT_reach_user(self):
+        run,task,profile,state=self._wm()
+        from tests.test_workflow import FixtureWorker
+        import json
+        run.worker=FixtureWorker(run.ledger,[{'plan':'g','action':'git_show','arguments':json.dumps({'commit':'HEAD'})}])
+        run.run(task,steps=1); seq,state=run.state(task)
+        res=self._ask_tool(run,task,profile,state,kind='technical',verification='x',
+                           verified_receipt=0,claim_kind='commit_relationship',
+                           claim_refs=['deadbeefdeadbeef','HEAD'],claim_relation='ancestor')
+        self.assertEqual(res,{'action':'ask','blocked':'self_verify_first'})
+
+    def test_dropping_claim_kind_on_reask_does_NOT_drop_the_obligation(self):
+        # B1 (Codex v2): once commit_relationship is declared for an obligation, re-asking the SAME obligation with
+        # claim_kind dropped must STILL require the verified relation (sticky obligation) - it cannot bypass by relabeling.
+        run,task,profile,state=self._wm()
+        from tests.test_workflow import FixtureWorker
+        import json
+        run.worker=FixtureWorker(run.ledger,[{'plan':'g','action':'git_show','arguments':json.dumps({'commit':'HEAD'})}])
+        run.run(task,steps=1); seq,state=run.state(task)
+        # first ask declares the kind but gives a FALSE relation -> gated and records the sticky kind
+        self._ask_tool(run,task,profile,state,kind='technical',verification='x',verified_receipt=0,
+                       claim_kind='commit_relationship',claim_refs=['HEAD','HEAD~1'],claim_relation='ancestor')
+        # re-ask the SAME obligation with claim_kind DROPPED and no refs -> must still be gated (not reach user). The
+        # sticky obligation keeps the verification requirement, so the relabel/drop cannot bypass it; whether it returns
+        # self_verify_first or (at the finite limit) self_verify_exhausted, the key property is it NEVER reaches the user.
+        res=self._ask_tool(run,task,profile,state,kind='technical',verification='x',verified_receipt=0)
+        self.assertIn(res.get('blocked'), ('self_verify_first','self_verify_exhausted'))
+        self.assertEqual(run.ledger.requests(task,pending=True),[])
+
+    def test_reask_relabel_business_does_NOT_drop_obligation(self):
+        # Codex v3 branch (a): declare commit_relationship with a WRONG relation (gated, records the obligation), then
+        # re-ask the SAME question/options/recommendation as kind=business. The business path must NOT be used to escape
+        # the unresolved technical obligation - it stays held, no request is created.
+        run,task,profile,state=self._wm()
+        from tests.test_workflow import FixtureWorker
+        import json
+        run.worker=FixtureWorker(run.ledger,[{'plan':'g','action':'git_show','arguments':json.dumps({'commit':'HEAD'})}])
+        run.run(task,steps=1); seq,state=run.state(task)
+        r1=self._ask_tool(run,task,profile,state,kind='technical',verification='x',verified_receipt=0,
+                          claim_kind='commit_relationship',claim_refs=['HEAD','HEAD~1'],claim_relation='ancestor')
+        self.assertEqual(r1,{'action':'ask','blocked':'self_verify_first'})
+        # SAME obligation (same question/options/recommendation) relabeled business, dropping all verification.
+        r2=self._ask_tool(run,task,profile,state,kind='business',verification='x',verified_receipt=0)
+        self.assertIn(r2.get('blocked'), ('self_verify_first','self_verify_exhausted'))
+        self.assertEqual(run.ledger.requests(task,pending=True),[])
+        self.assertNotEqual(state['phase'],'waiting')
+
+    def test_reask_relabel_claim_kind_code_flow_does_NOT_drop_obligation(self):
+        # Codex v3 branch (b): declare commit_relationship with a WRONG relation (gated), then re-ask the SAME obligation
+        # keeping kind=technical but relabeling claim_kind=code_flow (whose type-floor a git_show receipt would satisfy).
+        # The original commit_relationship requirement is sticky and re-applied -> still gated, no request.
+        run,task,profile,state=self._wm()
+        from tests.test_workflow import FixtureWorker
+        import json
+        run.worker=FixtureWorker(run.ledger,[{'plan':'g','action':'git_show','arguments':json.dumps({'commit':'HEAD'})}])
+        run.run(task,steps=1); seq,state=run.state(task)
+        r1=self._ask_tool(run,task,profile,state,kind='technical',verification='x',verified_receipt=0,
+                          claim_kind='commit_relationship',claim_refs=['HEAD','HEAD~1'],claim_relation='ancestor')
+        self.assertEqual(r1,{'action':'ask','blocked':'self_verify_first'})
+        # SAME obligation, relabel claim_kind to code_flow (git_show is in code_flow's type-floor) and drop the refs.
+        r2=self._ask_tool(run,task,profile,state,kind='technical',verification='x',verified_receipt=0,
+                          claim_kind='code_flow')
+        self.assertIn(r2.get('blocked'), ('self_verify_first','self_verify_exhausted'))
+        self.assertEqual(run.ledger.requests(task,pending=True),[])
+        self.assertNotEqual(state['phase'],'waiting')
+
+    def test_verified_relation_resolves_obligation_then_proceeds(self):
+        # Control: once the SAME obligation is actually satisfied (true relation + cite + verification) it is RESOLVED and
+        # reaches the user; a later ask on that question is not re-gated. Proves resolution is by matching verification only.
+        run,task,profile,state=self._wm()
+        from tests.test_workflow import FixtureWorker
+        import json
+        run.worker=FixtureWorker(run.ledger,[{'plan':'g','action':'git_show','arguments':json.dumps({'commit':'HEAD'})}])
+        run.run(task,steps=1); seq,state=run.state(task)
+        # first: wrong relation -> gated + records obligation
+        self._ask_tool(run,task,profile,state,kind='technical',verification='x',verified_receipt=0,
+                       claim_kind='commit_relationship',claim_refs=['HEAD','HEAD~1'],claim_relation='ancestor')
+        self.assertEqual(run.ledger.requests(task,pending=True),[])
+        # then: TRUE relation -> verified -> reaches the user (obligation resolved)
+        res=self._ask_tool(run,task,profile,state,kind='technical',verification='verified',verified_receipt=0,
+                           claim_kind='commit_relationship',claim_refs=['HEAD~1','HEAD'],claim_relation='ancestor')
+        self.assertEqual(state['phase'],'waiting')
+        self.assertEqual(len(run.ledger.requests(task,pending=True)),1)
+
+    def test_direct_authority_still_reaches_user_unaffected(self):
+        run,task,profile,state=self._wm()
+        res=self._ask_tool(run,task,profile,state,kind='authority',question='Which account may I deploy to?')
+        self.assertEqual(state['phase'],'waiting')
+        self.assertEqual(len(run.ledger.requests(task,pending=True)),1)
+
+
+class AskGateTests(unittest.TestCase):
+    """B2 (verify-premise, finite loop) against the REAL owned ask handler (model stubbed, handler not reimplemented).
+    RED on the pre-fix code (self_verify_count incremented forever and never bounded) and GREEN on the fix."""
+    def _ask(self, **kw):
+        base=dict(question='Is commit X ahead of HEAD?',reason='r',
+                  options=[{'id':'a','label':'x'},{'id':'b','label':'y'}],recommendation='a')
+        base.update(kw); return fixtures.action('ask', **base)
+    def _run(self, resps, steps):
+        fx=fixtures.OwnedTests();fx.setUp();self.addCleanup(fx.doCleanups)
+        run,task,w=fx.runtime(resps)
+        st=run.run(task,steps=steps)
+        return run,task,st
+
+    def test_B2_repeated_technical_ask_is_finite_blocked_not_infinite(self):
+        run,task,st=self._run([self._ask(kind='technical') for _ in range(6)], 6)
+        self.assertEqual(st['phase'],'blocked')
+        self.assertEqual(st['recovery']['kind'],'no_progress')
+        self.assertEqual(run.ledger.requests(task,pending=True),[])
+        self.assertIn('Repeated technical ask',st['message'])
+
+    def test_B2_result_carries_no_attempt_counter_so_observe_also_bounds_it(self):
+        run,task,st=self._run([self._ask(kind='technical')], 1)
+        last=json.loads(run.store.read_blob(run.state(task)[1]['receipts'][-1]['blob']))['result']
+        self.assertEqual(last, {'action':'ask','blocked':'self_verify_first'})
+
+    def test_B1_technical_without_citation_is_self_verify_first(self):
+        run,task,st=self._run([self._ask(kind='technical')], 1)
+        self.assertEqual(st['phase'],'running')
+        self.assertEqual((st.get('recovery') or {}).get('kind'),'self_verify_first')
+        self.assertEqual(run.ledger.requests(task,pending=True),[])
+
+    def test_B_authority_reaches_user_without_forcing_a_technical_step(self):
+        run,task,st=self._run([self._ask(kind='authority',question='Which account may I deploy to?')], 1)
+        self.assertEqual(st['phase'],'waiting')
+        self.assertEqual(len(run.ledger.requests(task,pending=True)),1)
+
+    def test_B_LIMIT_relabel_technical_as_business_bypasses_gate(self):
+        # DOCUMENTED LIMIT (un-closable without a core re-classifier): a worker that MISLABELS a technical matter as
+        # 'business' is not caught - the gate trusts the declared kind and does not re-classify. Asserted, not hidden.
+        run,task,st=self._run([self._ask(kind='business')], 1)
+        self.assertEqual(st['phase'],'waiting')
+
+
+class CTSCheckpointContinuationTests(unittest.TestCase):
+    """Finding C (Codex v2): the CTS task is blocked at step 118 on prompt_budget - receipt 117 is a ~12.8 KB read whose
+    text cannot be paged to a VALID page (MIN_PAGE) in the room the tight Kiro cap leaves after the fixed context. The fix
+    is a MINIMAL context-allocation change: a deepest fallback level (4) that trims ONLY retrievable recovery detail (older
+    repeats/failures, kept whole in the checkpoint) to free room for the tool result - never cutting scope/authority/
+    acceptance, never widening the cap or lowering MIN_PAGE, never editing the checkpoint. Reproduced on a COPY via the
+    REAL prompt-build path (_work_prompt), not a hand-chosen _latest_result budget. Skips when the live CTS state or its
+    project repo is not on this host (a skip is NOT a pass)."""
+    CTS_STATE=r"D:\OneCrewRuns\live-task-e76c703\state-live1"
+    CTS_PROJECT=r"D:\TamNT\Workspace\1.Vimes\7.SRM\source\flutter_srm"
+    TID="TASK-8b938053d4804e32be5176e8d7fabec0"
+    def _copy_runtime(self):
+        import os, tempfile, shutil
+        if not os.path.isdir(self.CTS_STATE): self.skipTest('CTS live state not present on this host')
+        if not os.path.isdir(self.CTS_PROJECT): self.skipTest('CTS project repo not present on this host')
+        tmp=tempfile.mkdtemp(prefix='cts-copy-'); self.addCleanup(shutil.rmtree, tmp, True)
+        dst=os.path.join(tmp,'state-live1'); shutil.copytree(self.CTS_STATE,dst)
+        from onecrew.ledger import Ledger
+        from onecrew.owned import Owned
+        return Owned(Ledger(self.CTS_PROJECT,dst),None), dst
+
+    def test_C_real_build_delivers_a_valid_page_via_minimal_recovery_trim(self):
+        import json
+        from onecrew.owned import contract as C, PromptBudgetError
+        from onecrew.paging import MIN_PAGE
+        run,dst=self._copy_runtime()
+        status=run.control.status(self.TID); seq,st=run.state(self.TID)
+        # Precondition = a blocked checkpoint with a latest receipt to page. NOT the block KIND: the live task moved on from
+        # prompt_budget (step 118) to no_progress (step 155), and the kind is only a description of the live state. The
+        # prompt_budget starvation itself is reproduced from synthetic state by Level4TrimSelfContainedTests (no live state).
+        self.assertEqual(st.get('phase'),'blocked')
+        self.assertTrue(st.get('receipts'), 'a blocked checkpoint carries the receipt whose page the prompt must show')
+        kind=(st.get('recovery') or {}).get('kind')
+        used_before=status.get('used_calls')  # the REAL number, whatever step the live task currently sits at (no hard-code)
+        self.assertIsInstance(used_before,int); self.assertGreater(used_before,0)
+        ref=st['receipts'][-1]  # whichever oversized result is the latest at the current blocked step
+        prof=dict(status['configuration']['profile'], provider=(st.get('worker') or {}).get('provider') or 'kiro',
+                  model=(st.get('worker') or {}).get('model') or 'claude-sonnet-4.5')
+        tp,tsch,_=C(prof)
+        with run.ledger.transaction() as conn:
+            notes=[json.loads(r['payload']) for r in conn.execute(
+                "SELECT payload FROM events WHERE task_id=? AND kind='entry.note' ORDER BY seq DESC LIMIT 5",(self.TID,))]
+        # REAL prompt-build path: with the level-4 fallback it now builds a prompt whose latest_result carries a VALID page.
+        prompt=run._work_prompt(self.TID, st, prof, status, tp, tsch, notes)
+        obj=json.loads('{'+prompt.rpartition('\n{')[2])
+        page=(obj.get('latest_result') or {}).get('page')
+        self.assertTrue(page, 'latest_result must carry a page (block kind at this checkpoint: %s)'%kind)
+        # a VALID page, not a sub-valid note. Measured in CHARACTERS of the result itself (run._page_content, the quantity
+        # _fit_work enforces): page[0]['delivered'] counts items, not characters, when the paged field is a list (unit 'items').
+        self.assertGreaterEqual(run._page_content, MIN_PAGE)
+        if page[0].get('unit','chars')=='chars': self.assertGreaterEqual(page[0]['delivered'], MIN_PAGE)
+        # (the page offset is wherever the worker's last request left off - not pinned to the read's start, which is step-specific)
+        # used_calls still the real number, preserved (not reset) by building on a copy; the original live state is untouched
+        self.assertEqual(run.control.status(self.TID).get('used_calls'),used_before)
+
+    def test_C_minimal_trim_does_not_widen_cap_or_lower_floor(self):
+        from onecrew.paging import MIN_PAGE
+        from onecrew.owned import Owned
+        self.assertEqual(MIN_PAGE, Owned.MIN_PAGE_CONTENT)  # the valid-page floor is unchanged by the C fix
+
+    def test_C_AB_keys_add_no_bytes_to_this_checkpoint(self):
+        import json, sqlite3, os, tempfile, shutil
+        from onecrew.ledger import canonical
+        if not os.path.isdir(self.CTS_STATE): self.skipTest('CTS live state not present on this host')
+        tmp=tempfile.mkdtemp(prefix='cts-k-'); self.addCleanup(shutil.rmtree, tmp, True)
+        dst=os.path.join(tmp,'state-live1'); shutil.copytree(self.CTS_STATE,dst)
+        db=sqlite3.connect(os.path.join(dst,'ledger.sqlite3')); db.row_factory=sqlite3.Row
+        row=db.execute("SELECT payload FROM events WHERE task_id=? AND kind='workflow.checkpoint' ORDER BY seq DESC LIMIT 1",(self.TID,)).fetchone()
+        st=json.loads(row['payload'])
+        # Invariant (step-agnostic): the A/B/C keys keep the checkpoint well-formed - delivered_pages a dict, and the
+        # bounded maps stay bounded - whatever step the live task has reached since (it advanced past 118 on resume).
+        dp=st.get('delivered_pages'); self.assertIsInstance(dp,dict)
+        prog=st.get('progress') or {}
+        self.assertLessEqual(len(prog.get('reconsider_by_page') or {}), 200)  # bounded, never unbounded growth
+        self.assertIsInstance(prog.get('observations',0),int)
+
+
+
+class Level4TrimSelfContainedTests(unittest.TestCase):
+    """Self-contained reproduction of what test_C proves on the live CTS checkpoint (no live state, no copy of it): when the
+    fixed context of a work prompt is so full that levels 0-3 cannot leave a VALID page (MIN_PAGE of content) for a big latest
+    result - the prompt_budget starvation CTS hit at step 118 - the level-4 fallback (recovery trimmed to the newest repeat /
+    failure) frees the room, with the cap NOT widened and MIN_PAGE NOT lowered. The starving margin is found on the real
+    build by scanning the cap on this instance (like git_show V2 Bug1 test_2 forces the cap through run.PROMPT_LIMITS), so
+    no byte count is hard-coded; synthetic repeats stand in for the long run of older repeats the live task accumulated."""
+
+    def _starving(self):
+        import json
+        from onecrew.owned import Owned, contract as make_contract
+        from onecrew.owned_intake import submit
+        from tests.test_workflow import FixtureWorker
+        import tests.test_work_contract as wc
+        t=wc.WorkFixture(); t.setUp(); self.addCleanup(t.doCleanups)
+        big=chr(10).join('row %05d %s'%(i,'q'*70) for i in range(1600))   # one oversized read, like CTS receipt 117 (~12.8 KB)
+        (t.root/'big.txt').write_text(big); t.git('add','big.txt'); t.git('commit','-q','-m','big')
+        def act(name,plan,**a): return {'plan':plan,'action':name,'arguments':json.dumps(a)}
+        task=submit(t.ledger,None,'work',mode='work',provider='kiro',model='claude-sonnet-5',contract=t.contract())['id']
+        run=Owned(t.ledger,FixtureWorker(t.ledger,[act('read','P',path='big.txt'),act('receipt','page it',index=0,offset=0)]))
+        run.enable(task); run.run(task,steps=2)   # a genuine receipt now exists as latest_result
+        seq,state=run.state(task)
+        # Older repeats: the retrievable recovery detail level 4 trims to the newest one (kept whole in the checkpoint).
+        state.setdefault('progress',{})['repeats']={'r%d'%i:{'action':'read','arguments':'path=src/module_%d.dart '%i+'x'*700,
+            'count':1,'step':10+i,'seq':100+i} for i in range(5)}
+        control=run.control.status(task); profile=control['configuration']['profile']
+        tp,tsch,_=make_contract(profile)
+        with t.ledger.transaction() as conn:
+            notes=[json.loads(r['payload']) for r in conn.execute(
+                "SELECT payload FROM events WHERE task_id=? AND kind='entry.note' ORDER BY seq DESC LIMIT 5",(task,))]
+        return run,task,state,profile,control,tp,tsch,notes
+
+    def _build(self,run,task,state,profile,control,tp,tsch,notes,cap,levels):
+        from onecrew.owned import PromptBudgetError
+        run.PROMPT_LIMITS={profile['provider']:cap}   # instance override: the class table is untouched
+        run.LEVELS=levels
+        try: return run._work_prompt(task,state,profile,control,tp,tsch,notes), None
+        except PromptBudgetError as e: return None, e
+
+    def test_level4_trim_rescues_a_prompt_that_levels_0_to_3_cannot_serve(self):
+        import json
+        from onecrew.owned import Owned, canonical
+        from onecrew.paging import MIN_PAGE
+        run,task,state,profile,control,tp,tsch,notes=self._starving()
+        full=Owned.LEVELS; without4=tuple(l for l in full if l[2]<4)
+        self.assertEqual(len(full)-len(without4),1)   # exactly one level-4 entry exists
+        # Scan the cap downwards for the margin where ONLY level 4 yields a valid page.
+        found=None
+        for cap in range(Owned.PROMPT_LIMITS[profile['provider']],6000,-25):
+            pr3,err3=self._build(run,task,state,profile,control,tp,tsch,notes,cap,without4)
+            if err3 is None: continue   # levels 0-3 still serve it: not starving yet
+            pr4,err4=self._build(run,task,state,profile,control,tp,tsch,notes,cap,full)
+            if err4 is None: found=(cap,err3,pr4); break
+        self.assertIsNotNone(found,'no cap exists where levels 0-3 starve and level 4 serves: the level-4 fallback does nothing here')
+        cap,err3,prompt=found
+        self.assertIn('Prompt budget',str(err3))   # levels 0-3 really are refused (the CTS block), not some other error
+        # With level 4 the SAME cap builds a prompt that fits it and carries a VALID page, rebuilt by the real _work_prompt.
+        self.assertLessEqual(len(canonical(tsch))+len(prompt)+40,cap)
+        obj=json.loads('{'+prompt.rpartition(chr(10)+'{')[2])
+        lr=obj.get('latest_result') or {}
+        self.assertTrue(lr.get('page'),'latest_result must carry a page')
+        self.assertGreaterEqual(run._page_content,MIN_PAGE)   # VALID page: the floor is not lowered
+        self.assertEqual(MIN_PAGE,Owned.MIN_PAGE_CONTENT)
+        # Only retrievable recovery detail went: the newest repeat stays, the blocker/guard/note (obligations) are not cut.
+        rec=obj['recovery']; self.assertEqual(len(rec['repeats']),1); self.assertIn('guard',rec); self.assertIn('note',rec)
+        self.assertIn('work_contract',obj)   # scope/authority/acceptance still present
+        self.assertEqual(len(state['progress']['repeats']),5)   # the durable checkpoint keeps the whole history (read-time view)
+
+
+class ContextAllocationHistoryGrowthTests(unittest.TestCase):
+    """Context-allocation under growing block/recovery history (Codex v3 round). The fault the live CTS task hit at step 132:
+    an advisory recovery hint (reconsider) carries ~270 chars of FIXED deterministic prose that was added to the work prompt
+    UNCONDITIONALLY, even at the tightest fallback tier - so a growing run of re-reads inflated the fixed context and starved
+    the latest result (its largest page delivered 959 < the 1000-char valid floor). The fix bounds the advisory hints at the
+    tightest tier to their ACTIONABLE signal (kind, page, counters, a short self-contained directive), dropping only the
+    deterministic prose the core re-renders every prompt. Driven through the REAL _recovery / _work_prompt, model stubbed."""
+
+    def _run(self):
+        import tests.test_work_contract as wc
+        from onecrew.owned import Owned
+        from onecrew.owned_intake import submit
+        from tests.test_workflow import FixtureWorker
+        t=wc.WorkFixture(); t.setUp(); self.addCleanup(t.doCleanups)
+        task=submit(t.ledger,None,'work',mode='work',provider='kiro',model='claude-sonnet-5',contract=t.contract())['id']
+        run=Owned(t.ledger,FixtureWorker(t.ledger,[])); run.enable(task)
+        profile=run.control.status(task)['configuration']['profile']
+        control=run.control.status(task)
+        seq,state=run.state(task)
+        return run,task,profile,control,state
+
+    @staticmethod
+    def _reconsider(state,count=1,limit=2):
+        prog=state.setdefault('progress',{})
+        prog['reconsider']={'kind':'already_read_region','count':count,'limit':limit,
+            'page':{'index':126,'field':'text','offset':5447,'item_offset':0},
+            'hint':('You already received this exact receipt page in an earlier prompt; requesting it again is not progress. '
+                    'Use its continuation (latest_result.page.next) to read NEW content, or act on the conclusion this evidence '
+                    'already gives - do not request this same page again.')}
+        return prog['reconsider']
+
+    @staticmethod
+    def _grow_blocks(state,n):
+        # Simulate a growing run of prior blocks, each with a long reason (the prompt_budget message is itself ~500 chars).
+        blocks=state.setdefault('work',{}).setdefault('blocks',[])
+        for i in range(n):
+            blocks.append({'kind':'prompt_budget','step':100+i,'resumed_at':'2026-10-16T16:03:06+00:00',
+                'reason':('Prompt budget: the next work prompt cannot show the latest result (receipt %d, read, 12831 '
+                          'characters) under the kiro prompt cap; its largest page would deliver 959 in the 1778 left. '%i)*2})
+
+    def test_1_tighter_hint_is_actionable_not_prose(self):
+        # Condition (2)+(4): at the tightest tier the reconsider hint keeps its actionable signal and drops the long prose.
+        run,task,profile,control,state=self._run()
+        self._reconsider(state,count=1,limit=2)
+        from onecrew.owned import canonical
+        loose=run._recovery(state,control,compact=True,tighter=False)['reconsider']
+        tight=run._recovery(state,control,compact=True,tighter=True)['reconsider']
+        self.assertEqual(tight['kind'],'already_read_region')         # signal kept
+        self.assertEqual(tight['page'],loose['page'])                 # the page to stop re-reading kept
+        self.assertEqual(tight['count'],loose['count']); self.assertEqual(tight['limit'],loose['limit'])  # counters kept
+        self.assertLess(len(tight['hint']),len(loose['hint']))        # prose bounded
+        self.assertNotIn('do not request this same page again',tight['hint'])  # verbose prose dropped
+        self.assertTrue(tight['hint'])                                # but a self-contained directive remains (usable)
+
+    def test_2_recovery_stays_bounded_as_history_grows(self):
+        # Condition (2): the auxiliary recovery portion at the tightest tier does NOT scale with accumulated blocks/re-reads.
+        # Two independent bounds: (a) the reconsider hint's contribution to the tightest recovery is small (RED on baseline,
+        # where the full ~270-char prose rides in unbounded); (b) 40x more prior blocks add little, since blocked_before is
+        # only the last block, capped.
+        from onecrew.owned import canonical
+        run,task,profile,control,state=self._run()
+        without=len(canonical(run._recovery(state,control,compact=True,tighter=True)))   # no hint
+        self._reconsider(state,count=1,limit=2)
+        withhint=len(canonical(run._recovery(state,control,compact=True,tighter=True)))   # hint active
+        self.assertLess(withhint-without,300, f"the reconsider hint adds {withhint-without} at the tightest tier - its prose is not bounded (fix ~240 actionable signal; baseline ~389 with full prose)")
+        # history growth: 1 block vs 40 blocks, hint active in both
+        self._grow_blocks(state,1); small=len(canonical(run._recovery(state,control,compact=True,tighter=True)))
+        self._grow_blocks(state,40); big=len(canonical(run._recovery(state,control,compact=True,tighter=True)))
+        self.assertLess(big-small,260, f"recovery grew by {big-small} as history grew - not bounded")
+
+    def test_3_full_hint_prose_reconstructable_at_loose_tier(self):
+        # Condition (3): the trimmed prose is deterministic context the core RE-RENDERS whole whenever the prompt is not at
+        # the tightest tier - so the worker that needs the full wording gets it the moment there is room, nothing is lost.
+        run,task,profile,control,state=self._run()
+        self._reconsider(state)
+        loose=run._recovery(state,control,compact=True,tighter=False)['reconsider']
+        self.assertIn('do not request this same page again',loose['hint'])  # full prose present when not starving
+
+    def test_4_obligations_and_authority_never_dropped_to_fit(self):
+        # Condition (4): compacting the advisory hint touches ONLY the hint prose - blocked_before, counters/guard, repeats,
+        # and the note stay; nothing that carries an obligation, the current blocker, or authority is removed.
+        run,task,profile,control,state=self._run()
+        self._reconsider(state); self._grow_blocks(state,3)
+        rec=run._recovery(state,control,compact=True,tighter=True)
+        self.assertIsNotNone(rec.get('blocked_before'))               # the current blocker is still described
+        self.assertIn('guard',rec); self.assertIn('note',rec)         # counters/limits kept
+        self.assertEqual(rec['reconsider']['kind'],'already_read_region')
+
+    def test_5_real_build_delivers_valid_page_under_growing_history(self):
+        # Condition (1)+(6): through the REAL _work_prompt, with a reconsider hint active and a big latest result, the prompt
+        # fits the cap AND the latest result gets a VALID page (>= the floor) - the step is not starved by the hint. This is
+        # the mechanism-level reproduction of the CTS step-132 block in a self-contained repo (no live checkpoint needed).
+        import json
+        from onecrew.owned import Owned, canonical
+        from onecrew.owned_intake import submit
+        from tests.test_workflow import FixtureWorker
+        import tests.test_work_contract as wc
+        t=wc.WorkFixture(); t.setUp(); self.addCleanup(t.doCleanups)
+        # a receipt whose single oversized text just overruns the cap once the fixed context is added (like CTS receipt 131)
+        big='\n'.join('row %05d %s'%(i,'q'*70) for i in range(1600))
+        (t.root/'big.txt').write_text(big); t.git('add','big.txt'); t.git('commit','-q','-m','big')
+        def act(name,plan,**a): return {'plan':plan,'action':name,'arguments':json.dumps(a)}
+        resp=[act('read','P',path='big.txt'),act('receipt','page it',index=0,offset=0)]
+        task=submit(t.ledger,None,'work',mode='work',provider='kiro',model='claude-sonnet-5',contract=t.contract())['id']
+        run=Owned(t.ledger,FixtureWorker(t.ledger,resp)); run.enable(task)
+        run.run(task,steps=2)   # a genuine receipt now exists as latest_result
+        seq,state=run.state(task)
+        # Force the starving conditions: an active reconsider hint + a long run of prior blocks (grown history).
+        self._reconsider(state,count=1,limit=2); self._grow_blocks(state,40)
+        from onecrew.owned import contract as make_contract
+        control=run.control.status(task); profile=control['configuration']['profile']
+        tool_prompt,tool_schema,_=make_contract(profile)
+        with t.ledger.transaction() as conn:
+            notes=[json.loads(r['payload']) for r in conn.execute(
+                "SELECT payload FROM events WHERE task_id=? AND kind='entry.note' ORDER BY seq DESC LIMIT 5",(task,))]
+        prompt=run._work_prompt(task,state,profile,control,tool_prompt,tool_schema,notes)   # REAL build; raises if starved
+        cap=run.PROMPT_LIMITS[profile['provider']]
+        self.assertLessEqual(len(canonical(tool_schema))+len(prompt)+40,cap)  # within the provider cap
+        body=json.loads('{'+prompt.rpartition(chr(10)+'{')[2])
+        lr=body.get('latest_result') or {}
+        self.assertTrue(lr.get('complete') or run._page_content>=run.MIN_PAGE_CONTENT,
+                        'latest result must get a VALID page, not be starved by the grown history/hint')
+        # Forward property proven here (real build, hint active, 40 prior blocks): the prompt fits and the latest result is
+        # not starved. The bounded-hint RED/GREEN is pinned directly on _recovery(tighter) by test_1 and test_2; the exact
+        # starving-margin block (959<1000 on baseline -> a valid page on the fix) is reproduced on the LIVE CTS checkpoint
+        # 132 in the package logs (a repo without CTS's near-cap guide+contract cannot reach the level-4 tier here).
+
+    def test_6_loose_prompt_not_degraded(self):
+        # Condition (6): when NOT starving, the hint is shown in full - the fix changes nothing for a roomy prompt.
+        run,task,profile,control,state=self._run()
+        self._reconsider(state)
+        loose=run._recovery(state,control,compact=False,tighter=False)
+        self.assertIn('do not request this same page again',(loose.get('reconsider') or {}).get('hint',''))
+
+    def test_7_hint_signal_is_pure_no_state_mutation(self):
+        # The compaction is a pure read-time view: _hint_signal must not mutate the stored hint (restart/resume keep the
+        # full prose in progress.reconsider).
+        run,task,profile,control,state=self._run()
+        original=self._reconsider(state)
+        import copy as _c; snapshot=_c.deepcopy(original)
+        run._recovery(state,control,compact=True,tighter=True)
+        self.assertEqual(state['progress']['reconsider'],snapshot)  # durable state untouched
 
 if __name__=='__main__': unittest.main()

@@ -1,0 +1,29 @@
+{
+ "version": 1,
+ "note": "release -> testcase -> test module(s). Each testcase is required unless it says optional. Frozen releases are pinned by kit-guard per testcase entry: add entries freely, change or remove none without a U1.",
+ "releases": {
+  "R00": {
+   "kit_files": [
+    "wfkit/__init__.py",
+    "wfkit/kitguard.py",
+    "wfkit/gate.py",
+    "wfkit/doccheck.py",
+    "tests/wf_wheel.py",
+    "tests/wf_oldversion.py",
+    "tests/wf_rollback.py"
+   ],
+   "testcases": {
+    "T20": {"kind": "unittest", "modules": ["tests.test_wf_decisions"]},
+    "T13a": {"kind": "unittest", "modules": ["tests.test_wf_events"]},
+    "T49a": {"kind": "unittest", "modules": ["tests.test_wf_compat_scan"]},
+    "T48a": {"kind": "unittest", "modules": ["tests.test_wf_plan_names"]},
+    "T09a": {"kind": "unittest", "modules": ["tests.test_wf_advisor_errors"]},
+    "T33a": {"kind": "unittest", "modules": ["tests.test_wf_packaging"]},
+    "T13b": {"kind": "unittest", "modules": ["tests.test_wf_rollback"]},
+    "T49b": {"kind": "unittest", "modules": ["tests.test_wf_rollback"]},
+    "T45a": {"kind": "unittest", "modules": ["tests.test_wf_kit"]},
+    "T38a": {"kind": "doccheck"}
+   }
+  }
+ }
+}

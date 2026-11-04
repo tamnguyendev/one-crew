@@ -82,13 +82,15 @@ class DeliveryTests(unittest.TestCase):
     def test_missing_evidence_blocks_instead_of_complete(self):
         r,t=self.create();r.run(t)
         with patch('onecrew.delivery_steps.execute',return_value={'passed':False,'detail':'Required test skipped'}):s=r.run(t)
-        self.assertEqual(s['phase'],'blocked');self.assertNotIn('report_file',s)
+        self.assertEqual(s['phase'],'waiting');self.assertNotIn('report_file',s)
+        self.assertEqual(s['delivery']['nodes']['tests']['phase'],'blocked')
 
     def test_source_drift_is_not_silently_accepted(self):
         r,t=self.create();r.run(t)
         (self.root/'app/main.dart').write_text('external edit')
         with patch('onecrew.delivery_steps.execute') as op:s=r.run(t);op.assert_not_called()
-        self.assertEqual(s['phase'],'blocked');self.assertIn('drift',s['message'])
+        self.assertEqual(s['phase'],'waiting');self.assertIn('drift',s['message'])
+        self.assertEqual(s['delivery']['escalation']['class'],'drift')
 
     def test_root_budget_is_effective_in_core(self):
         r,t=self.create(max_calls=1)
@@ -182,20 +184,26 @@ class DeliveryTests(unittest.TestCase):
         r.control.pause(t)
         with self.assertRaises(LedgerError):cr.control.reserve(child,cr.control.status(child)['revision'],'x',{'stage':'fixture'})
 
-    def test_crash_in_build_never_replays_blindly(self):
+    def test_crash_in_build_replays_once_then_asks(self):
+        # A build writes only into a fresh OneCrew capture, so one interrupted run replays; a second asks the user.
         r,t=self.create();r.run(t)
         seq,s=r.state(t)
-        # Simulate a sealed native operation whose intent was persisted before process loss.
         s['plan']['nodes'][0]['kind']='build';s['delivery']['nodes']['tests']['phase']='running';r.persist(t,seq,s)
         with patch('onecrew.delivery_steps.execute') as op:result=r.run(t);op.assert_not_called()
-        self.assertEqual(result['delivery']['nodes']['tests']['phase'],'uncertain')
-        with self.assertRaisesRegex(LedgerError,'may have run'):r.resume(t)
+        self.assertEqual(result['delivery']['nodes']['tests']['phase'],'pending')
+        self.assertEqual(result['phase'],'waiting_operation');self.assertEqual(result['delivery']['recoveries'][-1]['action'],'replay')
+        seq,s=r.state(t);s['delivery']['nodes']['tests']['phase']='running';s['delivery']['retry_after']=None;r.persist(t,seq,s)
+        with patch('onecrew.delivery_steps.execute') as op:result=r.run(t);op.assert_not_called()
+        self.assertEqual(result['phase'],'waiting');self.assertTrue(self.ledger.requests(t,pending=True))
+        self.assertEqual(result['delivery']['escalation']['class'],'interrupted')
 
     def test_stale_passed_receipt_cannot_finish(self):
         r,t=self.create();r.run(t);seq,s=r.state(t)
         for name in ('tests','review'):s['delivery']['nodes'][name].update(phase='passed',receipt={'passed':True,'source':'old'})
         r.persist(t,seq,s);result=r.run(t)
-        self.assertEqual(result['phase'],'blocked');self.assertNotIn('report_file',result)
+        # Stale evidence is a runtime defect: one question, never a completion.
+        self.assertEqual(result['phase'],'waiting');self.assertNotIn('report_file',result)
+        self.assertEqual(result['delivery']['escalation']['class'],'runtime_bug')
 
     def test_repair_retains_history_and_invalidates_downstream(self):
         self.change_plan();r,t=self.create();r.run(t);s=r.state(t)[1]
@@ -241,8 +249,15 @@ class DeliveryTests(unittest.TestCase):
     def test_missing_dependency_blocks_preflight_without_worker(self):
         (self.root/'app/.dart_tool/package_config.json').write_text(json.dumps({'packages':[{'name':'missing','rootUri':'file:///no-such-onecrew-dependency'}]}))
         r,t=self.create();result=r.run(t)
-        self.assertEqual(result['phase'],'blocked');self.assertIn('cache unavailable',result['message'])
+        # Environment failures retry read-only with backoff, then ask once naming the missing item; no worker call.
+        self.assertEqual(result['phase'],'waiting_operation');self.assertIn('environment',result['message'])
+        for _ in range(3):
+            seq,s=r.state(t);s['delivery']['retry_after']=None;r.persist(t,seq,s);result=r.run(t)
+        self.assertEqual(result['phase'],'waiting')
+        request=self.ledger.requests(t,pending=True)[0]
+        self.assertIn('cache unavailable',request['question']['reason'])
         self.assertEqual(r.control.status(t)['used_calls'],0)
+        self.assertEqual(len(self.ledger.requests(t,pending=True)),1)
 
     def test_child_wait_does_not_grow_checkpoints_or_embed_manifest(self):
         self.change_plan();r,t=self.create();r.run(t)
@@ -356,6 +371,7 @@ class DeliveryTests(unittest.TestCase):
                 if args[:3]==['shell','pm','path']:return 0,'package:/data/app/base.apk',''
                 if args[:2]==['shell','sha256sum']:return 0,r.state(t)[1]['delivery']['nodes']['build']['receipt']['sha256']+' /data/app/base.apk',''
                 if args[0]=='exec-out':return 0,'<?xml version="1.0"?><hierarchy><node text="READY" package="example.app" bounds="[0,0][100,100]" enabled="true"/></hierarchy>',''
+                if args[:2]==['shell','pidof']:return 0,'1234',''  # the launched app is running (round 2 checks it)
             return 0,'',''
         with ExitStack() as stack:
             stack.enter_context(patch('onecrew.solution_delivery.Owned',side_effect=child_runtime))

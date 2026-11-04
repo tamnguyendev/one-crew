@@ -1,0 +1,497 @@
+{
+ "round": "r7",
+ "branch": "wf/r7-c1",
+ "base": "734acdc",
+ "date": "2026-10-25",
+ "method": "Each E id of outputs/onecrew-as-qc/workflow-chung/05-TESTCASES.vi.md was matched to tests whose assertions check that behaviour (the test was read, not only its name). New counter-examples patch the product function inside the test and assert that the same check goes red. Every module or class listed under runs was run on its own and is green; no new test skips.",
+ "runs": [
+  "tests.test_wf_r01_report.HandoverByAcceptanceTests + PlanPresentTests (24 OK)",
+  "tests.test_wf_r01_step0_survey (22 OK)",
+  "tests.test_wf_r01_step0_proposal (14 OK)",
+  "tests.test_wf_r01_card (10 OK)",
+  "tests.test_v2_report (25 OK)",
+  "tests.test_wf_r02_resume (10 OK)",
+  "tests.test_wf_r02_retrieval (9 OK)",
+  "tests.test_wf_r02_boundaries (8 OK)",
+  "tests.test_wf_questions (5 OK)",
+  "tests.test_wf_r02_outcome, per class (18 OK)",
+  "tests.test_wf_w23b_outcome_window (2 OK)",
+  "tests.test_wf_r7_t35a (4 OK)",
+  "tests.test_wf_r7_t42 (2 OK)",
+  "tests.test_wf_r7_t46a (4 OK)",
+  "tests.test_wf_r7_t46b (4 OK)",
+  "tests.test_wf_r7_t47b (3 OK)",
+  "tests.test_wf_r7_t49d (11 OK)",
+  "tests.test_wf_r7_t51b (3 OK)"
+ ],
+ "not_run": [
+  "tests.test_wf_r01_report.InstalledCommandTests (builds a wheel and a venv: forbidden in this round's machine window; not cited for any E)",
+  "tests.test_wf_namespace_compat and tests.test_wf_upgrade_drill (cited for T49d E17 as the registry already had them; not re-run, upgrade_drill does real installs)"
+ ],
+ "cases": [
+  {
+   "release": "R01",
+   "case": "T24a",
+   "proposed_status": "complete",
+   "evidence_matrix": {
+    "E1": [
+     "tests.test_wf_r01_report.HandoverByAcceptanceTests.test_e1_each_acceptance_is_in_its_state_with_evidence_link"
+    ],
+    "E2": [
+     "tests.test_wf_r01_report.HandoverByAcceptanceTests.test_e2_limits_are_listed_and_name_the_open_acceptances"
+    ],
+    "E3": [
+     "tests.test_wf_r01_report.HandoverByAcceptanceTests.test_e3_nothing_but_fresh_evidence_is_reported_as_ok",
+     "tests.test_wf_r01_report.HandoverByAcceptanceTests.test_counter_a_report_that_ignores_the_artifact_would_call_ac2_ok",
+     "tests.test_wf_r01_report.HandoverByAcceptanceTests.test_a_receipt_that_cannot_be_read_does_not_count_as_evidence"
+    ]
+   },
+   "uncovered": {},
+   "scope": "Temporary ledger with three command milestones (AC1 passed on the artifact now, AC2 passed on an older artifact, AC3 never ran); the handover report is compared with verdicts read straight from sqlite, and a report without the artifact check is shown to call AC2 ok.",
+   "new_modules": [],
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "R01",
+   "case": "T27",
+   "proposed_status": "complete",
+   "evidence_matrix": {
+    "E1": [
+     "tests.test_wf_r01_step0_survey.SurveyTests.test_e1_an_answer_that_refutes_the_hypothesis_is_a_success_with_evidence"
+    ],
+    "E2": [
+     "tests.test_wf_r01_step0_survey.SurveyTests.test_e2_no_answer_inside_the_time_cap_is_a_blocker_that_stops_at_the_cap",
+     "tests.test_wf_r01_step0_survey.SurveyTests.test_the_budget_cap_stops_the_survey_too"
+    ],
+    "E3": [
+     "tests.test_wf_r01_step0_survey.SurveyTests.test_e3_a_write_attempt_is_denied_with_the_read_only_reason",
+     "tests.test_wf_r01_step0_survey.SurveyTests.test_swallowing_a_write_refusal_does_not_turn_it_into_a_success",
+     "tests.test_wf_r01_step0_survey.SurveyTests.test_a_write_made_behind_the_context_is_detected_and_blocks"
+    ],
+    "E4": [
+     "tests.test_wf_r01_step0_survey.SurveyTests.test_e1_an_answer_that_refutes_the_hypothesis_is_a_success_with_evidence"
+    ],
+    "E5": [
+     "tests.test_wf_r01_step0_survey.SurveyTests.test_e2_no_answer_inside_the_time_cap_is_a_blocker_that_stops_at_the_cap",
+     "tests.test_wf_r01_step0_survey.SurveyTests.test_e5_an_answer_that_arrives_after_the_cap_is_discarded",
+     "tests.test_wf_r01_step0_survey.SurveyTests.test_a_worker_that_swallows_the_cap_cannot_go_on"
+    ],
+    "E6": [
+     "tests.test_wf_r01_step0_survey.SurveyTests.test_e6_every_closed_survey_has_an_answer_or_a_blocker_with_evidence"
+    ]
+   },
+   "uncovered": {},
+   "scope": "Fake worker and fake clock on a temporary ledger (interface and end rules only, not answer quality): (a) a refuted hypothesis is a success with file:line evidence; (b) the time or call cap ends in a blocker with spent = cap and no operation after it; (c) a write is denied with the read-only reason and the tree hash unchanged; six bad worker results all close as blockers. The 25/10 registry note (only tests.test_wf_w31a_audit) is outdated: tests.test_wf_r01_step0_survey holds E1-E6.",
+   "new_modules": [],
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "R01",
+   "case": "T42",
+   "proposed_status": "complete",
+   "evidence_matrix": {
+    "E1": [
+     "tests.test_wf_r01_report.PlanPresentTests.test_e1_e4_plain_text_page_for_every_plan_exit_zero",
+     "tests.test_wf_r01_report.PlanPresentTests.test_e1_e7_no_model_is_called"
+    ],
+    "E2": [
+     "tests.test_wf_r01_report.PlanPresentTests.test_e2_five_sections_in_order_for_every_plan"
+    ],
+    "E3": [
+     "tests.test_wf_r01_report.PlanPresentTests.test_e3_a_pending_revision_shows_the_diff_and_the_reason",
+     "tests.test_wf_r01_report.PlanPresentTests.test_e3_counter_a_plan_without_a_pending_revision_has_no_diff_block",
+     "tests.test_wf_r7_t46b.SharedPendingChangeTests.test_e2_present_page_calls_the_same_function"
+    ],
+    "E4": [
+     "tests.test_wf_r01_report.PlanPresentTests.test_e1_e4_plain_text_page_for_every_plan_exit_zero",
+     "tests.test_wf_r01_report.PlanPresentTests.test_e4_an_old_2_1_plan_is_presented",
+     "tests.test_wf_r01_report.PlanPresentTests.test_e4_an_unreadable_contract_prints_no_data_instead_of_crashing"
+    ],
+    "E5": [
+     "tests.test_wf_r01_report.PlanPresentTests.test_e5_e8_every_fact_matches_plan_show",
+     "tests.test_wf_r01_report.PlanPresentTests.test_e5_milestone_facts_on_the_stale_plan_are_the_plan_show_ones"
+    ],
+    "E6": [
+     "tests.test_wf_r01_report.PlanPresentTests.test_e6_plan_report_is_the_full_page_and_present_does_not_change_it",
+     "tests.test_wf_r7_t42.ReportUnchangedByW23aTests.test_e6_plan_report_is_the_same_before_and_after_w23a",
+     "tests.test_wf_r7_t42.ReportUnchangedByW23aTests.test_e6_counter_a_report_that_grew_the_present_page_is_caught"
+    ],
+    "E7": [
+     "tests.test_wf_r01_report.PlanPresentTests.test_e1_e7_no_model_is_called"
+    ],
+    "E8": [
+     "tests.test_wf_r01_report.PlanPresentTests.test_e5_e8_every_fact_matches_plan_show"
+    ],
+    "E9": [
+     "tests.test_wf_r01_report.PlanPresentTests.test_e1_e4_plain_text_page_for_every_plan_exit_zero",
+     "tests.test_wf_r01_report.PlanPresentTests.test_e4_an_old_2_1_plan_is_presented",
+     "tests.test_wf_r01_report.PlanPresentTests.test_e4_an_unreadable_contract_prints_no_data_instead_of_crashing"
+    ],
+    "E10": [
+     "tests.test_wf_r01_report.PlanPresentTests.test_e10_no_html_graph_or_timeline"
+    ]
+   },
+   "uncovered": {},
+   "scope": "CLI `plan present` on a temporary ledger (pending amendment, accepted, proposed, missing contract, and a plan made by the real v2.1.0 code) with a fake model counter at 0; the pending diff on the page equals the diff of the two ledger revisions path by path; `plan report` equals the output of the unmodified pre-W23a archive (54b802c, parent of 1b4f4c6) on the same ledger. tests.test_v2_report (25) green.",
+   "new_modules": [
+    "tests/test_wf_r7_t42.py",
+    "tests/test_wf_r7_t46b.py"
+   ],
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "R01",
+   "case": "T50a",
+   "proposed_status": "complete",
+   "evidence_matrix": {
+    "E1": [
+     "tests.test_wf_r01_step0_proposal.ProposalCheckTests.test_e1_p1_passes_with_a_table_and_the_optional_in_the_backlog"
+    ],
+    "E2": [
+     "tests.test_wf_r01_step0_proposal.ProposalCheckTests.test_e2_p2_hidden_menu_is_not_enough",
+     "tests.test_wf_r01_step0_proposal.ProposalCheckTests.test_counter_proofs_the_samples_pass_when_their_rule_is_removed"
+    ],
+    "E3": [
+     "tests.test_wf_r01_step0_proposal.ProposalCheckTests.test_e3_p3_a_hide_flag_is_not_a_permanent_deletion",
+     "tests.test_wf_r01_step0_proposal.ProposalCheckTests.test_counter_proofs_the_samples_pass_when_their_rule_is_removed"
+    ],
+    "E4": [
+     "tests.test_wf_r01_step0_proposal.ProposalCheckTests.test_e4_p4_a_change_tied_to_nothing_is_caught_and_named",
+     "tests.test_wf_r01_step0_proposal.ProposalCheckTests.test_counter_proofs_the_samples_pass_when_their_rule_is_removed"
+    ],
+    "E5": [
+     "tests.test_wf_r01_step0_proposal.ProposalCheckTests.test_e5_p5_clear_work_in_authority_needs_no_options_and_asks_nothing"
+    ],
+    "E6": [
+     "tests.test_wf_r01_step0_proposal.ProposalCheckTests.test_e6_a_blocking_unknown_is_scoped_and_blocks_the_choice",
+     "tests.test_wf_r01_step0_survey.SurveyTests.test_e6_of_t50a_the_capped_survey_stands_before_the_choice"
+    ],
+    "E8": [
+     "tests.test_wf_r01_step0_proposal.ProposalCheckTests.test_e8_dropping_or_loosening_an_acceptance_is_refused",
+     "tests.test_wf_r01_step0_proposal.ProposalCheckTests.test_counter_proofs_the_samples_pass_when_their_rule_is_removed"
+    ],
+    "E9": [
+     "tests.test_wf_r01_step0_proposal.ProposalCheckTests.test_e4_p4_a_change_tied_to_nothing_is_caught_and_named",
+     "tests.test_wf_r01_step0_proposal.ProposalCheckTests.test_counter_proofs_the_samples_pass_when_their_rule_is_removed"
+    ],
+    "E10": [
+     "tests.test_wf_r01_step0_proposal.ProposalCheckTests.test_e3_p3_a_hide_flag_is_not_a_permanent_deletion",
+     "tests.test_wf_r01_step0_proposal.ProposalCheckTests.test_counter_proofs_the_samples_pass_when_their_rule_is_removed"
+    ],
+    "E12": [
+     "tests.test_wf_r01_step0_proposal.ProposalCheckTests.test_e12_no_model_call"
+    ],
+    "E13": [
+     "tests.test_wf_r01_step0_proposal.ProposalCheckTests.test_e13_p6_missing_declaration_is_refused",
+     "tests.test_wf_r01_step0_proposal.ProposalCheckTests.test_counter_proofs_the_samples_pass_when_their_rule_is_removed"
+    ]
+   },
+   "uncovered": {},
+   "scope": "Fixture proposals p1-p6 for \"remove the old report export\" (no model) checked by the step-0 proposal check on a temporary ledger and repo; each rule has a counter-proof (the sample passes once its rule is removed; hide-counts-as-delete lets p3 through); the second request opens a capped read-only survey before the choice.",
+   "new_modules": [],
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "R01",
+   "case": "T50b",
+   "proposed_status": "complete",
+   "evidence_matrix": {
+    "E7": [
+     "tests.test_wf_r01_card.CardTests.test_e7_one_card_with_six_fields_and_two_technical_choices_recorded",
+     "tests.test_wf_r01_card.CardTests.test_two_important_choices_are_merged_into_one_card"
+    ],
+    "E11": [
+     "tests.test_wf_r01_card.CardTests.test_e7_one_card_with_six_fields_and_two_technical_choices_recorded",
+     "tests.test_wf_r01_card.CardTests.test_e11_no_question_for_a_technical_choice",
+     "tests.test_wf_r01_card.CardTests.test_e11_the_same_decision_is_never_two_cards"
+    ]
+   },
+   "uncovered": {},
+   "scope": "One business choice (keep or delete the CSV export) plus two technical choices on the approved root's own grant: exactly one card with the six fields, two HD-05 decision records (decisions.record) and no question for the technical ones; the same decision never gets a second card.",
+   "new_modules": [],
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "R02",
+   "case": "T35a",
+   "proposed_status": "complete",
+   "evidence_matrix": {
+    "E4": [
+     "tests.test_wf_r02_outcome.OutcomeEndTests.test_e4_each_root_has_one_v1_format_outcome",
+     "tests.test_wf_r02_outcome.OutcomeEndTests.test_e14_second_write_adds_nothing_and_goes_through_the_v1_merge_rule"
+    ],
+    "E5": [
+     "tests.test_wf_r02_resume.ResumePackTests.test_e7_e8_e10_the_pack_writes_nothing_and_answers_nothing",
+     "tests.test_wf_r02_resume.ResumePackTests.test_e6_every_fact_matches_plan_show",
+     "tests.test_wf_r7_t46a.ResumePackWatchedFilesTests.test_e7_the_watched_files_exist_and_are_unchanged_by_the_pack"
+    ],
+    "E13": [
+     "tests.test_wf_r02_outcome.OutcomeEndTests.test_e13_three_ends_match_their_end_event",
+     "tests.test_wf_r02_outcome.OutcomeEndTests.test_e13_counter_acceptance_only_writer_is_caught"
+    ],
+    "E14": [
+     "tests.test_wf_r02_outcome.OutcomeEndTests.test_e14_second_write_adds_nothing_and_goes_through_the_v1_merge_rule",
+     "tests.test_wf_r02_outcome.OutcomeEndTests.test_e14_stopped_at_1_then_accepted_at_2_has_two_rows",
+     "tests.test_wf_r7_t35a.DedupeKeyMutantTests.test_e14_real_writer_keeps_one_row_per_end",
+     "tests.test_wf_r7_t35a.DedupeKeyMutantTests.test_e14_counter_a_plan_only_key_is_red"
+    ],
+    "E15": [
+     "tests.test_wf_r02_outcome.OutcomeEndTests.test_e15_no_lesson_no_skill_no_model"
+    ],
+    "E16": [
+     "tests.test_wf_r02_outcome.OldCodeReproductionTests.test_e16_accepting_leaves_no_outcome_before_w23b_and_one_after"
+    ],
+    "E17": [
+     "tests.test_wf_r02_outcome.OutcomeFailureTests.test_e17_an_outcome_failure_does_not_block_acceptance"
+    ],
+    "E18": [
+     "tests.test_wf_r02_outcome.OutcomeFailureTests.test_e18_late_outcome_does_not_change_report_or_digest"
+    ],
+    "E19": [
+     "tests.test_wf_r02_outcome.OutcomeFailureTests.test_e19_one_intervention_through_interventions_record",
+     "tests.test_wf_r02_outcome.OutcomeFailureTests.test_e19_an_owner_actor_cannot_be_recorded_from_an_ai_session",
+     "tests.test_wf_r7_t35a.InterventionWiringMutantTests.test_e19_real_writer_goes_through_interventions_record",
+     "tests.test_wf_r7_t35a.InterventionWiringMutantTests.test_e19_counter_a_module_that_writes_the_event_itself_is_red"
+    ],
+    "E39": [
+     "tests.test_wf_r02_outcome.ClassAAgainstOldVersionTests.test_e39_old_version_keeps_S_G_C_with_the_class_A_events",
+     "tests.test_wf_r02_outcome.ClassAAgainstOldVersionTests.test_e39_v1_consumers_give_the_same_answers_for_v1_tasks"
+    ],
+    "E40": [
+     "tests.test_wf_r02_outcome.ClassAAgainstOldVersionTests.test_e40_a_v2_outcome_never_matches_a_v1_goal_but_a_forged_one_would",
+     "tests.test_wf_w23b_outcome_window.OutcomeWindowTests.test_w23b_more_than_limit_v2_outcomes_keep_v1_recommendation_exact"
+    ],
+    "E41": [
+     "tests.test_wf_r02_outcome.OutcomeEndTests.test_e41_outcome_creates_no_request"
+    ]
+   },
+   "uncovered": {},
+   "scope": "Two temporary ledgers built with the real v2 functions (accepted / stopped_with_report / failed roots, plus a root stopped at revision 1 and accepted at 2); the old version is the unmodified archive of ee46539 (S/G/C) and of f7dfbe4 (code before W23b, E16); the v1 consumers run on the same ledger. Counter-examples: an acceptance-only writer, a plan-only dedupe key, a module writing control.intervention itself, an outcome forging a v1 goal identity. The registry gap text (E40 counter-example not asserted) is outdated: test_e40_a_v2_outcome_never_matches_a_v1_goal_but_a_forged_one_would asserts it.",
+   "new_modules": [
+    "tests/test_wf_r7_t35a.py",
+    "tests/test_wf_r7_t46a.py"
+   ],
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "R02",
+   "case": "T46a",
+   "proposed_status": "complete",
+   "evidence_matrix": {
+    "E1": [
+     "tests.test_wf_r02_resume.ResumePackTests.test_e1_five_sections_with_the_facts_of_the_fixture",
+     "tests.test_wf_r02_resume.ResumePackTests.test_e1_counter_a_pack_without_the_open_question_section_is_caught"
+    ],
+    "E3": [
+     "tests.test_wf_r02_resume.ResumePackTests.test_e3_all_four_plans_and_who_moves"
+    ],
+    "E4": [
+     "tests.test_wf_r02_resume.ResumePackTests.test_e4_header_says_data_not_authority_with_the_largest_seq"
+    ],
+    "E5": [
+     "tests.test_wf_r02_resume.ResumePackTests.test_e5_a_read_only_verb_of_the_wheel_that_runs_in_an_ai_session"
+    ],
+    "E6": [
+     "tests.test_wf_r02_resume.ResumePackTests.test_e6_every_fact_matches_plan_show"
+    ],
+    "E7": [
+     "tests.test_wf_r02_resume.ResumePackTests.test_e7_e8_e10_the_pack_writes_nothing_and_answers_nothing",
+     "tests.test_wf_r7_t46a.ResumePackWatchedFilesTests.test_e7_the_watched_files_exist_and_are_unchanged_by_the_pack",
+     "tests.test_wf_r7_t46a.ResumePackWatchedFilesTests.test_e7_counter_a_pack_that_re_exports_the_active_plan_is_caught"
+    ],
+    "E8": [
+     "tests.test_wf_r02_resume.ResumePackTests.test_e7_e8_e10_the_pack_writes_nothing_and_answers_nothing"
+    ],
+    "E9": [
+     "tests.test_wf_r02_resume.ResumePackTests.test_e9_the_pack_is_not_authority"
+    ],
+    "E10": [
+     "tests.test_wf_r02_resume.ResumePackTests.test_e7_e8_e10_the_pack_writes_nothing_and_answers_nothing",
+     "tests.test_wf_r02_resume.ResumePackTests.test_e10_the_code_starts_no_worker_and_calls_no_provider",
+     "tests.test_wf_r7_t46a.ResumePackWatchedFilesTests.test_e10_no_child_process_other_than_read_only_git",
+     "tests.test_wf_r7_t46a.ResumePackWatchedFilesTests.test_e10_counter_a_pack_that_starts_a_process_is_caught"
+    ],
+    "E11": [
+     "tests.test_wf_r02_resume.ResumePackTests.test_e11_pending_change_and_reason_come_from_the_ledger"
+    ]
+   },
+   "uncovered": {},
+   "scope": "Four plans on a temporary ledger (running with an approval, open and answered questions; pending amendment; accepted; stopped); `onecrew continue` through the wheel router in-process with the simulated AI-session marker (interface/permission only); the active-plan exports, the hook settings and .onecrew/config.json exist and keep hash and mtime; every child process is recorded (only read-only git). Counter-examples: a missing section, a re-export of the active plan, a spawned process.",
+   "new_modules": [
+    "tests/test_wf_r7_t46a.py"
+   ],
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "R02",
+   "case": "T51b",
+   "proposed_status": "complete",
+   "evidence_matrix": {
+    "E4": [
+     "tests.test_wf_r02_retrieval.RetrievalTests.test_e4_symbol_gone_at_c2_is_stale_with_the_reason",
+     "tests.test_wf_r02_retrieval.RetrievalTests.test_e4_counter_without_the_symbol_check_the_c1_symbol_would_stay_verified",
+     "tests.test_wf_r02_retrieval.RetrievalTests.test_a_cited_line_that_changed_makes_a_file_line_entry_stale"
+    ],
+    "E5": [
+     "tests.test_wf_r02_retrieval.RetrievalTests.test_e5_projects_are_not_mixed",
+     "tests.test_wf_r7_t51b.ProjectFilterMutantTests.test_e5_real_retrieval_passes_the_check",
+     "tests.test_wf_r7_t51b.ProjectFilterMutantTests.test_e5_counter_without_the_project_filter_the_check_is_red"
+    ],
+    "E6": [
+     "tests.test_wf_r02_retrieval.RetrievalTests.test_e6_one_mechanism_and_no_automatic_transfer"
+    ],
+    "E7": [
+     "tests.test_wf_r02_retrieval.RetrievalTests.test_e7_a_new_session_answers_from_the_pack_only"
+    ],
+    "E8": [
+     "tests.test_wf_r02_retrieval.RetrievalTests.test_e8_e13_command_shaped_memory_is_data_not_authority"
+    ],
+    "E11": [
+     "tests.test_wf_r02_retrieval.RetrievalTests.test_e11_nothing_with_a_stale_reason_is_labelled_verified",
+     "tests.test_wf_r02_retrieval.RetrievalTests.test_e4_symbol_gone_at_c2_is_stale_with_the_reason"
+    ],
+    "E12": [
+     "tests.test_wf_r02_retrieval.RetrievalTests.test_e5_projects_are_not_mixed",
+     "tests.test_wf_r7_t51b.ProjectFilterMutantTests.test_e5_counter_without_the_project_filter_the_check_is_red",
+     "tests.test_wf_r7_t51b.ProjectFilterMutantTests.test_e12_the_private_entry_never_enters_the_general_scope",
+     "tests.test_wf_r02_retrieval.RetrievalTests.test_e6_one_mechanism_and_no_automatic_transfer",
+     "tests.test_wf_r02_retrieval.RetrievalTests.test_a_general_entry_must_be_generalised_by_hand_and_keep_no_private_detail",
+     "tests.test_wf_r02_boundaries.Boundaries.test_generalisation_does_not_publish_a_private_basename",
+     "tests.test_wf_r02_boundaries.Boundaries.test_same_name_projects_keep_context_and_resume_pack_separate"
+    ],
+    "E13": [
+     "tests.test_wf_r02_retrieval.RetrievalTests.test_e8_e13_command_shaped_memory_is_data_not_authority"
+    ],
+    "E14": [
+     "tests.test_wf_r02_retrieval.RetrievalTests.test_e6_one_mechanism_and_no_automatic_transfer"
+    ]
+   },
+   "uncovered": {},
+   "scope": "Two projects on one temporary state root (P1 repo at c1/c2 renaming svc.export, P2 with a private and a generalised entry, a command-shaped entry); retrieval and the resume pack as the simulated new session (interface/permission only), no model. Counter-examples: no symbol check, the project filter removed from the source of context.retrieve (compiled mutant), an instruction built by pasting entry texts.",
+   "new_modules": [
+    "tests/test_wf_r7_t51b.py"
+   ],
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "KN",
+   "case": "T46b",
+   "proposed_status": "complete",
+   "evidence_matrix": {
+    "E2": [
+     "tests.test_wf_r7_t46b.SharedPendingChangeTests.test_e2_pack_and_present_use_the_one_shared_function",
+     "tests.test_wf_r7_t46b.SharedPendingChangeTests.test_e2_present_page_calls_the_same_function",
+     "tests.test_wf_r7_t46b.SharedPendingChangeTests.test_e2_counter_a_pack_that_computes_its_own_identical_diff_is_red",
+     "tests.test_wf_r7_t46b.SharedPendingChangeTests.test_e2_counter_a_hand_rolled_top_level_diff_is_red_on_content",
+     "tests.test_wf_r02_boundaries.SharedContractDiff.test_full_text_and_id_list_reorder_use_one_comparison"
+    ]
+   },
+   "uncovered": {},
+   "scope": "A real amendment waiting for the owner on a temporary ledger: while `continue p2 --json` runs, a counter on onecrew.contract_diff.diff (the W23a function behind report._diff) records at least one call on exactly the two revisions; the pack equals the ledger diff entry by entry and the present page lists the same paths in the same order. A pack computing an identical diff through a private copy of the algorithm is red on the counter; a hand-rolled top-level diff is red on content.",
+   "new_modules": [
+    "tests/test_wf_r7_t46b.py"
+   ],
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "KN",
+   "case": "T47b",
+   "proposed_status": "complete",
+   "evidence_matrix": {
+    "E10": [
+     "tests.test_wf_r7_t47b.PackIsNotAnswerAuthorityTests.test_e10_answer_after_the_pack_is_still_refused_and_changes_nothing",
+     "tests.test_wf_r7_t47b.PackIsNotAnswerAuthorityTests.test_e10_the_refusal_after_the_pack_is_the_same_as_before_it",
+     "tests.test_wf_r7_t47b.PackIsNotAnswerAuthorityTests.test_e10_counter_the_owner_terminal_answer_is_written"
+    ]
+   },
+   "uncovered": {},
+   "scope": "A stopped_with_report plan with its owner question on a temporary ledger; in the simulated AI session (interface/permission only) `owner answer` before and right after `continue` of that plan is refused identically (exit 2; the function raises) and the requests table and events are identical before/after; the same command from the simulated owner terminal writes one request.answered.",
+   "new_modules": [
+    "tests/test_wf_r7_t47b.py"
+   ],
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "R04",
+   "case": "T49d",
+   "proposed_status": "complete",
+   "evidence_matrix": {
+    "E6": [
+     "tests.test_wf_r7_t49d.T49dRollbackRollForward.test_e6_n5_n6_last_scan_zero_with_the_ledger_hash_of_the_rollback_start",
+     "tests.test_wf_r7_t49d.T49dRollbackRollForward.test_e6_counter_a_receipt_from_before_the_last_change_does_not_match",
+     "tests.test_wf_r7_t49d.T49dRollbackRollForward.test_e6_r1_reads_and_continues_with_the_old_version",
+     "tests.test_wf_r7_t49d.T49dRollbackRollForward.test_e6_frozen_roots_answer_no_plan_named",
+     "tests.test_wf_r7_t49d.T49dRollbackRollForward.test_e6_accepted_r4_and_dupk_refuse_amend_and_p1_dup_changes_only_by_dupa",
+     "tests.test_wf_r7_t49d.T49dRollbackRollForward.test_e6_propose_dup_from_p2_refused_and_propose_r2_creates_a_new_legacy_root"
+    ],
+    "E7": [
+     "tests.test_wf_r7_t49d.T49dRollbackRollForward.test_e7_roll_forward_keeps_ids_revisions_evidence_and_budget",
+     "tests.test_wf_r7_t49d.T49dRollbackRollForward.test_e7_roll_forward_continues_r3",
+     "tests.test_wf_r7_t49d.T49dRollbackRollForward.test_e7_plan_show_r2_in_p2_names_both_anchors_and_explicit_anchors_work",
+     "tests.test_wf_r7_dupk.DupkReadable.test_counter_pre_fix_rule_reads_p1_file_and_fails_with_the_hash_text",
+     "tests.test_wf_r7_dupk.DupkReadable.test_dupk_show_reads_p3_files_and_the_hash_matches",
+     "tests.test_wf_r7_dupk.DupkReadable.test_dupa_still_reads_the_shared_path_exactly_as_before",
+     "tests.test_wf_r7_dupk.DupkReadable.test_digest_shows_dupk_with_real_milestones",
+     "tests.test_wf_r7_dupk.DupkReadable.test_dupk_verdict_runs_and_is_accepted_on_its_own_files",
+     "tests.test_wf_r7_dupk.DupkReadable.test_dupk_amend_writes_only_its_own_directory_and_active_file",
+     "tests.test_wf_r7_dupk.DupkReadable.test_reads_other_root_warning_for_dupa_stays_a_warning",
+     "tests.test_wf_r7_dupk.DupkReadable.test_mutant_per_project_file_absent_fails_naming_the_project_not_p1_file",
+     "tests.test_wf_r7_dupk.DupkReadable.test_mutant_identical_content_in_p1_does_not_make_p1_file_dupk",
+     "tests.test_wf_r7_dupk.DupkReadable.test_legacy_root_with_a_namespaced_peer_in_its_project_and_no_directory_is_refused"
+    ],
+    "E12": [
+     "tests.test_wf_r7_t49d.T49dRollbackRollForward.test_e7_roll_forward_keeps_ids_revisions_evidence_and_budget",
+     "tests.test_wf_r7_t49d.T49dRollbackRollForward.test_e12_counter_a_roll_forward_that_resets_spent_budget_is_red",
+     "tests.test_wf_r7_t49d.T49dRollbackRollForward.test_e12_counter_a_roll_forward_that_rewrites_a_revision_file_is_red"
+    ],
+    "E17": [
+     "tests.test_wf_namespace_compat.NamespaceCompatTests.test_n1_to_n7_gate_branches",
+     "tests.test_wf_upgrade_drill.UpgradeDrillTests.test_stale_scan_is_rejected_before_any_install_swap"
+    ],
+    "E16": [
+     "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_real_report_one_line_per_root_and_the_check_passes",
+     "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_real_report_labels_agree_with_the_archived_old_binary",
+     "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_wrong_sample_read_ok_for_a_root_the_scan_keeps_preserved_only",
+     "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_wrong_sample_root_missing",
+     "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_wrong_sample_diagnosed_by_old_for_a_root_the_old_binary_reads_fine",
+     "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_wrong_sample_lost_for_a_root_whose_data_is_kept"
+    ],
+    "E5": [
+     "tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_refused_cases_exit_3_and_name_the_exact_remaining_block_set",
+     "tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_n5_allowed_exit_0",
+     "tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_n4_pause_and_stopped_with_report_release_neither_b1_nor_b3",
+     "tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_counter_a_script_whose_gate_skips_b2_goes_red_at_n3_and_n7",
+     "tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_unreadable_state_is_an_error_never_a_permission",
+     "tests.test_wf_r7_t49d_e5.InstalledVenv.test_e5_installed_refusals_leave_the_new_venv_package_list_unchanged",
+     "tests.test_wf_r7_t49d_e5.InstalledVenv.test_e5_installed_n5_allowed"
+    ]
+   },
+   "uncovered": {},
+   "scope": "S2 of tests.test_wf_namespace_compat (seven roots, three projects) with the unmodified archive of d3120c6 as the old code: N5 and N6 scan 0 with the receipt hash equal to the ledger at rollback start; after N5 the old code continues R1, answers No plan named for R2/R3/DUPb, refuses amend on accepted R4/DUPk (P1's plans/dup/ changes only through the DUPa amend), refuses propose dup and creates plan:r2 from P2; roll-forward by the checkout keeps every row and file. No installation swap (E5) and no rollback report (E16). Round 7 E: DUPk is read, verdict-run, accepted and amended by the new code on plans/<P3>/dup/ (tests.test_wf_r7_dupk). Round 7 F: rollback script wfkit/rollback_cli.py (exit 0/3/2, message names the remaining block set; calls rollback_drill or guard_swap, no second rule) and per-root rollback report + wfkit/rollback_report_check.py (labels from compat_scan old_readable; \"mất\" / \"đã chẩn đoán bởi bản cũ\" refused, 05 T49 E13 and 00 §6.1). See docs/wf/r7-f-notes.md.",
+   "e7_fix": "Round 7 branch E (wf/r7-e) fixed the gap C1 recorded under uncovered.E7 ('revision 1 does not match the recorded hash' on DUPk; 'mốc ?/?' in plan digest): namespaces.legacy_location maps a `plan:` anchor to its OWN project's files. The shared plans/<name>/ belongs to the earliest plan:<name> anchor of the ledger (DUPa, unchanged); another project's plan:<name> (DUPk) reads plans/<its project_id>/<name>/ and never another project's file, even a same-hash one. test_e7_roll_forward_keeps_ids_revisions_evidence_and_budget now requires DUPk readable (accepted, own id) before and after the rollback instead of 'read the same way'. See docs/wf/r7-e-notes.md.",
+   "new_modules": [
+    "tests/test_wf_r7_t49d.py",
+    "tests/test_wf_r7_dupk.py",
+    "wfkit/rollback_cli.py",
+    "wfkit/rollback_report_check.py",
+    "tests/test_wf_r7_t49d_e5.py",
+    "tests/test_wf_r7_t49d_e16.py"
+   ],
+   "changed_pinned_files": [],
+   "product_fixes": [
+    "onecrew/v2/namespaces.py (legacy_location; plan_dir and active_file use it)",
+    "onecrew/v2/contract.py (read_revision: a missing per-project file names the project)"
+   ]
+  }
+ ]
+}

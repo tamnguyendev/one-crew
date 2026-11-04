@@ -7,17 +7,7 @@ from .ledger import LedgerError, content_hash
 from .budget import remaining
 
 
-def blocks(conn, task_id, unit='root'):
-    rows = conn.execute("SELECT payload FROM requests WHERE task_id=? AND state='pending'", (task_id,)).fetchall()
-    for row in rows:
-        action = json.loads(row['payload'])['action']
-        affected = action['parameters'].get('affected_tasks')
-        scoped = action['type'] == 'workflow.branch' and isinstance(affected, list) and affected and all(isinstance(x, str) for x in affected)
-        if not scoped or unit == 'root':
-            return True
-        if unit != 'scheduler' and (not unit.startswith('task:') or unit[5:] in affected):
-            return True
-    return False
+from .admission_core import blocks
 
 
 def record_failure(state, record, error):

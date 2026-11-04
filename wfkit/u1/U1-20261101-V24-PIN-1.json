@@ -1,0 +1,18 @@
+{
+ "id": "U1-20261101-V24-PIN-1",
+ "file": "tests/test_g1_core.py",
+ "old_sha256": "1d454de4743e4f145662e1beba1a392259a469badf8ccf6bfce163c94bddcf31",
+ "new_sha256": "175b887408f359d767563ddf1d91ddec0ee12c3fbdac90acdb9b653a43f4e30b",
+ "reason": "OneCrew 2.4 line (branch claude/onecrew-2.4): PackagingTests.test_metadata pins the version line of a 2.3 dev build (2\\.3\\.0\\.dev\\d+, itself U1-20261029-V23-PIN-1 over the 2.2 pin); the 2.4 line is 2.4.0.devN, so the pattern becomes 2\\.4\\.0\\.dev\\d+ (and its comment). One line; the name, console entry and empty dependency assertions and every other test of the module are unchanged; no check removed or loosened. Counterexample: the same test fails on the 2.4 pyproject with the 2.3 pattern (version 2.4.0.dev1 does not match 2\\.3\\.0\\.dev\\d+).",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 01/11/2026, chỉ thị dán nguyên văn (tiếp quản 2.4-S1/S2/A/B/C), mục 6: \"Nếu sửa để phục vụ bộ kiểm 2.4, tôi cho phép ngoại lệ U1 hẹp trên nhánh 2.4 cho test/bộ kiểm trực tiếp liên quan, kèm hash, lý do và phản chứng. Không nới guard runtime, bỏ assertion hoặc skip để làm xanh; không đổi bộ kiểm beta cũ.\" Quyết định kỹ thuật theo ủy quyền đó; không phải chữ ký trực tiếp của chủ sở hữu, không phải nghiệm thu.",
+ "applied_by": "claude (entry, Fable 5.1), OneCrew 2.4 dev1, branch claude/onecrew-2.4 only (not claude/onecrew-2.3, not codex/wf-development, not the 2.2 beta kit)",
+ "evidence": {
+  "base": "fe0a044c4170d0fb627f3eddca1e883d2534dbb0",
+  "commit": "f0f5807 (amended with this record)",
+  "diff": "git diff fe0a044 HEAD -- tests/test_g1_core.py pyproject.toml",
+  "red": "tests.test_g1_core.PackagingTests.test_metadata with the 2.3 pattern on version 2.4.0.dev1: AssertionError (D:/OneCrewRuns/v24/logs/u1-pin-red.txt)",
+  "green": "tests.test_g1_core 24/24 OK (D:/OneCrewRuns/v24/logs/u1-pin-green.txt)"
+ },
+ "note": "sha256 of the LF form (the committed blob), as kit-guard pins it; the Windows worktree holds CRLF (core.autocrlf=true)",
+ "at": "2026-11-01"
+}

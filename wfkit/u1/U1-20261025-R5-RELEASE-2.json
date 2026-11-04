@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-R5-RELEASE-2",
+ "file": "tests/test_wf_release_bundle.py",
+ "old_sha256": "8da66548fe51a2117ffc7ab365543e675769184aa319db0270129c974b7ac063",
+ "new_sha256": "fe63cb34b8405e3f7686cca52d715ef40e13578b5ab9c06d06a531efd4595043",
+ "reason": "Round 5 (directive §6 first-delivery bootstrap, audit W40-*/W41): release_check gains the explicit first-release path (condition INPUTS(bootstrap), pinned compat baseline, refused when any gate_history exists or the baseline is labelled delivered/accepted) and inputs_summary/inputs_sentence helpers; gate.decide writes gate id CG-<release>, simulated and provenance so a passing gate is readable as history; upgrade_drill.guard_swap refuses when the installed build's own scan reports blocks. Ordinary INPUTS rule unchanged; owner_acceptance stays false. Tests: bootstrap counter-examples (i)-(vii), delivery-gate round-trip, forged venv report.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị lượt 5 sau xác nhận Codex 3 P1 + 2 P2): 'Tôi ủy quyền bạn tự quyết và thực hiện các thay đổi local cần thiết: sửa code, bổ sung test/phản chứng, điều chỉnh cách triển khai, cập nhật hợp đồng/roadmap/bộ kiểm cho nhất quán... Không hỏi tôi duyệt từng task'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 5 commit on codex/wf-development",
+ "at": "2026-10-25"
+}

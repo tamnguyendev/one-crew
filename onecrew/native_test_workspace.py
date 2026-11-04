@@ -6,14 +6,19 @@ This is input separation, not an OS sandbox for trusted project tests.
 """
 import json
 import os
+import re
 from pathlib import Path
 from urllib.parse import urljoin
 
-from .discovery import EXCLUDED
+from .discovery import EXCLUDED, permitted
 from .ledger import canonical
 from .native_audit import workspace_path
 from .sandbox_gate import GateUnavailable
 from .snapshots import safe_file, bytes_hash, durable_write
+
+
+MAX_ASSET_FILES=500
+MAX_ASSET_BYTES=20_000_000
 
 
 def check_inputs(runtime, state):
@@ -21,6 +26,67 @@ def check_inputs(runtime, state):
     for name,digest in native.get('local_test_sources',{}).items():
         if bytes_hash(safe_file(runtime.ledger.project,name).read_bytes())!=digest:
             raise GateUnavailable('Local compiler-only source changed; preserve candidate and reconcile: '+name)
+    for name,digest in native.get('local_test_assets',{}).items():
+        if bytes_hash(safe_file(runtime.ledger.project,name).read_bytes())!=digest:
+            raise GateUnavailable('Local test asset changed; preserve candidate and reconcile: '+name)
+
+
+def pubspec_assets(text):
+    """Asset and font paths a pubspec declares under its top-level `flutter:` key (minimal reader, no YAML library):
+    `assets:` list items and `asset:` entries of font families. Paths are relative to the package directory."""
+    found=[];inside=False;mode=None;key_indent=0;item_indent=None
+    for raw in text.splitlines():
+        line=raw.split(' #')[0].rstrip();body=line.strip()
+        if not body or body.startswith('#'):continue
+        indent=len(line)-len(line.lstrip(' '))
+        if indent==0 and not body.startswith('-'):
+            inside=body=='flutter:';mode=None;continue
+        if not inside:continue
+        if body=='assets:':
+            mode='assets';key_indent=indent;item_indent=None;continue
+        item=re.match(r'^(?:-\s*)?asset:\s*(.+)$',body)
+        if item:
+            found.append(item.group(1).strip().strip('\'"'));continue
+        if mode=='assets' and body.startswith('-') and indent>=key_indent:
+            if item_indent is None:item_indent=indent
+            if indent!=item_indent:continue  # nested list (e.g. a transformer's own entries), not an asset
+            value=body[1:].strip()
+            if value.startswith('path:'):value=value[5:].strip()  # asset with transformers: `- path: x`
+            found.append(value.strip('\'"'));continue
+        if mode and not body.startswith('-') and indent<=key_indent:mode=None
+    return found
+
+
+def declared_assets(runtime,recipe,taken):
+    """Bytes of the package's declared assets/fonts, read from the project (never via capture/discovery, so they stay out
+    of prompts and worker blobs). A directory entry means its direct files. Capped at 500 files / 20 MB."""
+    project=runtime.ledger.project;package=recipe['package']
+    pubspec=safe_file(project,package+'/pubspec.yaml')
+    if not pubspec.is_file():return {},[]
+    assets={};total=0;warnings=[]
+    for declared in pubspec_assets(pubspec.read_text(encoding='utf-8-sig')):
+        relative=declared.replace('\\','/')
+        if not relative or relative.startswith('/') or ':' in relative or '..' in relative.split('/'):
+            raise GateUnavailable('Unsupported asset path in pubspec: '+declared[:120])
+        if not permitted(package+'/'+relative.rstrip('/')):continue  # private/control names never cross
+        target=safe_file(project,package+'/'+relative.rstrip('/'))
+        if target.is_dir():
+            names=sorted(leaf.name for leaf in target.iterdir() if leaf.is_file() and not leaf.is_symlink())
+            names=[package+'/'+relative.rstrip('/')+'/'+leaf for leaf in names]
+        elif target.is_file():names=[package+'/'+relative]
+        else:
+            path=package+'/'+relative.rstrip('/')  # a warning, not a block: only a test that reads it can fail
+            if len(warnings)<50 and path not in {w['path'] for w in warnings}:
+                warnings.append({'code':'asset_missing','path':path,
+                                 'detail':'Declared in pubspec but not found in the project; a test that reads it will fail.'})
+            continue
+        for name in names:
+            if name in assets or name in taken or not permitted(name):continue
+            data=safe_file(project,name).read_bytes();total+=len(data)
+            if len(assets)>=MAX_ASSET_FILES:raise GateUnavailable('Test assets exceed the limit of 500 files.')
+            if total>MAX_ASSET_BYTES:raise GateUnavailable('Test assets exceed the limit of 20 MB.')
+            assets[name]=bytes_hash(data)
+    return assets,warnings
 
 
 def prepare(runtime,state,recipe):
@@ -50,6 +116,11 @@ def prepare(runtime,state,recipe):
     if 'local_test_sources' in native and native['local_test_sources']!=omitted:
         raise GateUnavailable('Local compiler input set changed; preserve prior verification evidence.')
     native['local_test_sources']=omitted
+    assets,warnings=declared_assets(runtime,recipe,set(expected)|set(omitted))
+    native['asset_warnings']=warnings
+    if 'local_test_assets' in native and native['local_test_assets']!=assets:
+        raise GateUnavailable('Local test asset set changed; preserve prior verification evidence.')
+    native['local_test_assets']=assets
     destination=workspace_path(runtime.ledger.state_root,'native-test')
     destination.mkdir(parents=True,exist_ok=False)
     for name,digest in expected.items():
@@ -59,6 +130,10 @@ def prepare(runtime,state,recipe):
     for name,digest in omitted.items():
         data=safe_file(runtime.ledger.project,name).read_bytes()
         if bytes_hash(data)!=digest:raise GateUnavailable('Local input changed while staging compiler inputs: '+name)
+        durable_write(safe_file(destination,name),data)
+    for name,digest in assets.items():
+        data=safe_file(runtime.ledger.project,name).read_bytes()
+        if bytes_hash(data)!=digest:raise GateUnavailable('Test asset changed while staging compiler inputs: '+name)
         durable_write(safe_file(destination,name),data)
     config_path=safe_file(worker,recipe['package']+'/.dart_tool/package_config.json')
     config=json.loads(config_path.read_text(encoding='utf-8'))
@@ -71,14 +146,15 @@ def prepare(runtime,state,recipe):
     files={recipe['package']+'/.dart_tool/package_config.json':canonical(config).encode(),
            recipe['package']+'/.dart_tool/package_graph.json':
                safe_file(worker,recipe['package']+'/.dart_tool/package_graph.json').read_bytes()}
-    expected=dict(expected,**omitted)
+    expected=dict(expected,**omitted,**assets)
     for name,data in files.items():
         durable_write(safe_file(destination,name),data);expected[name]=bytes_hash(data)
     native['verification_workspace']=str(destination)
     native['verification_inputs']=expected
     check_inputs(runtime,state)
     return destination,{'compiler_input_manifest_sha256':bytes_hash(canonical(expected).encode()),
-                        'compiler_input_count':len(expected),'local_only_source_count':len(omitted)}
+                        'compiler_input_count':len(expected),'local_only_source_count':len(omitted),
+                        'local_only_asset_count':len(assets),'asset_warnings':warnings}
 
 
 def check_workspace(state):

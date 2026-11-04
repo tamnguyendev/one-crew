@@ -1,0 +1,77 @@
+# Bãi đỗ v2 — phát hiện ngoài phạm vi L1 (không tự làm)
+
+Một dòng mỗi mục; `L#` là lát dự kiến.
+
+- L2: AI có shell gõ được `--by owner` (chỉ bị chặn khi `ONECREW_ACTOR` khai là AI); cần hook PreToolUse + permission deny cho `plans/`, `ledger.sqlite3`, `policy.json`.
+- L2: AI sửa trực tiếp file trong `<state-root>/plans/` hoặc sqlite: file bị phát hiện qua hash khi đọc, sqlite thì không; cần quyền ghi.
+- L2: `policy.json` do shell bất kỳ ghi được (tắt cổng); `plan enforce off` chỉ là lệnh owner, không phải khóa cứng.
+- L2: ngân sách theo mục và `attention` theo loại ở lớp ledger; L1 chỉ đếm câu hỏi `v2.plan_stopped` của chính plan.
+- L2: `budget.max_calls/time` trong hợp đồng mới chỉ được lưu; chưa nối với `control.reserve`.
+- L2: `should` đã tick/chưa tick chỉ ghi và hiển thị (`runs`); chưa có gì chặn việc ngoài `must` + `should` đã tick.
+- L2: `scope.owned`, `non_goals` chưa được cưỡng bức (cửa nhận `qc_intake.scope_check` chưa nối).
+- L1.1: `plan_cli` chưa có lệnh `plan list`; xem danh sách bằng `task list` (task neo `plan:*` lẫn với job thường).
+- L1.1: tên plan trùng giữa hai project dùng chung state-root: thư mục `plans/<tên>` không có project id; cổng kiểm `project_id` qua task neo nhưng file thì dùng chung tên.
+- L1.1: ghi verdict rồi mới tạo câu hỏi là hai giao dịch (create_request mở giao dịch riêng); sập giữa chừng thì plan đã `stopped_with_report` nhưng chưa có câu hỏi (khóa idempotent `v2q-…`, chạy lại verdict bị từ chối); cần lệnh `plan ask` hoặc gộp giao dịch.
+- L1.1: `until_pass` và `once` hiện cùng trần `max_repairs`; khác biệt chỉ xuất hiện khi có ngân sách theo mục.
+- L1.1: `inconclusive` tính là một lần chạy hỏng (tránh vòng lặp không trần); có thể cần trần riêng cho lỗi môi trường.
+- L1.1: amend làm mất hiệu lực mọi verdict cũ (verdict gắn revision); amend nhỏ buộc chạy lại mọi mốc.
+- L1.1: sha artifact = cây Git của working tree (đã trừ .gitignore); chỉ hợp cho dự án Git; artifact không phải mã (APK, PR) chờ verifier L4+.
+- L1.1: `accept` chỉ buộc mốc cuối vào đúng artifact được nghiệm thu; các mốc trước có thể đã kiểm trên artifact khác.
+- L1.1: cổng dispatch ghi từ chối vào `plans/refusals.jsonl` (không thể ghi sqlite trong giao dịch sắp rollback); sự kiện `dispatch.refused_no_plan` xuất hiện sau lần chạy lệnh `plan`/`verdict` kế tiếp.
+- L3: `understanding` mới là văn bản tự do; chưa có echo cơ học, tiền kiểm, PoC, brainstorm.
+- L4: tác giả/reviewer: `--author` ở propose chỉ ghi, chưa có kiểm "reviewer khác tác giả"; verdict từ reviewer LLM chưa có.
+- v1 (không sửa): `test_sandbox_gate` 4 test đỏ khi đường dẫn worktree dài (`.oc-*.tmp` > MAX_PATH); 4 test đỏ có sẵn ở 6aac8ea: test_incremental, test_search_recovery, test_evaluation, test_git_show_recovery_v2.
+- L2 (F7, review Opus 1): tên plan cho phép `:` nên `d:x` thành đường dẫn tương đối theo ổ D:, ra ngoài state-root; cần regex riêng cho tên plan.
+- L2 (F8): `amend`/`propose` ghi file `v<N>.json` trước khi commit ledger; sập giữa chừng để lại file mồ côi, mọi `amend` sau báo `FileExistsError`.
+- L2 (F9): sự kiện `plan.accepted` chưa ghi `actor_env` (`plan.approved` có), nên accept DEMO không phân biệt được với accept thật; coi `state-v2-dev` là dùng một lần.
+- L2 (F10): `plans/<tên>` thuộc state-root không thuộc project, NTFS không phân biệt hoa/thường; nên đặt `plans/<project_id>/<tên>`.
+- L2 (F11): task neo `plan:<tên>` là job audit v1; khi cổng tắt `job start` trên nó chạy được và nó hiện trong danh sách job; cần đánh dấu không dispatch được.
+- L2 (C2 của review): chưa có `plan enforce status` / trường trong `job status` cho biết cổng v2 có hiệu lực hay không.
+- L2 (C3): `--by owner`, `ONECREW_ACTOR`, sửa `policy.json`/sqlite chưa có hàng rào thật (hook PreToolUse + permission deny).
+- L2 (hook, Bash không phải ranh giới): `hook check` chỉ đọc chữ của lệnh; `cd x && echo > f`, script Python ghi file, `git apply` không lộ đường dẫn. Chưa làm: Stop hook quét `git status` so với nền lúc duyệt (cần mốc nền để không báo nhầm thay đổi sẵn có của chủ sở hữu).
+- L2 (hook, chưa kiểm): tên trường `tool_input` của `MultiEdit` và `NotebookEdit` không có trong tài liệu hook (chỉ Edit/Write: `file_path`; `notebook_path` có ở trang permissions); hook đọc `file_path|notebook_path|path`, thiếu cả ba thì chặn ở enforce. `args` (dạng exec) chưa rõ từ phiên bản nào; `onFailure` cần Claude Code ≥ 2.1.295 (máy có 2.1.299).
+- L2 (hook): PreCompact không có cách thêm ngữ cảnh được tài liệu hóa; `hook session` chỉ in cho SessionStart (source=compact chạy sau nén), nên `install --print` không đăng ký PreCompact.
+- L2 (hook): sau `plan accept` không ai xuất lại `active-plan.json` (plan.py chỉ được thêm đúng hai dòng, ở approve/amend); `hook stop` và `hook session` làm mới từ sổ cái, `hook check` đọc file. Hai plan trong một project: `.onecrew/active-plan.json` giữ bản xuất sau cùng.
+- L2 (ngân sách theo mục): hợp đồng chưa có trường ngân sách theo mục và `stop{max_stuck,max_repairs_total}` (contract.py thuộc L3); trần mỗi mục chia đều phần (max_calls − repair_reserve 20%) cho các mục chạy được. `max_stuck` và `max_repairs_total`: đã làm ở gói v2-fix. `operation.item` do bên gọi `Control.reserve` đặt; `workflow._invoke` chưa đặt, nên call của worker native chưa gắn mục (chỉ tính vào tổng).
+- L2 (sửa ngoài danh sách cho phép): `control.reserve` +2 dòng (gọi `v2.items.check_operation`) và `solution_gate.question` +3 dòng (`delta`, gọi `v2.changes.check_request`); cả hai là no-op khi cổng v2 tắt. Ngoài ràng buộc "chỉ budget.py/control.py cho C7"; chủ sở hữu quyết giữ hay dời.
+- L2 (artifact): `.onecrew/` bị loại khỏi sha artifact (file hook không đổi được sha); nội dung `.onecrew/` của dự án không được verdict phủ. `questions.jsonl` và `refusals.jsonl` chưa bao giờ bị cắt.
+- L2 (hook, permission): luật `git tag` chỉ nằm ở hook (regex chặn tạo tag, cho phép `git tag`, `-l`, `--list`), vì luật permission không phân biệt `git tag -l` với `git tag v1`; `Edit(.onecrew/**)` bị thu hẹp còn ba file hook để `.onecrew/scratch/` ghi được (lần chạy `claude -p` tìm ra cả hai).
+- L2 đã đóng từ bãi đỗ: C3 (phần hook + permission deny: `hook install --print`), `scope.owned` và `non_goals` được hook cưỡng bức, `budget.max_calls/time` nối với extend và cổng (C7), ngân sách theo mục (cho bên gọi đặt `operation.item`). Chưa đóng: F7-F11, C2 (`plan enforce status`), `policy.json` ghi tay (chỉ chặn được trong phiên có hook), `stop{}` trong hợp đồng.
+- L2 r2 (review Opus 1, F7): ngân sách theo mục chưa có hiệu lực trên job thật vì `workflow._invoke` không đặt `operation.item`; gói ghi "xong ở mức cổng `Control.reserve`", chưa chạy trên job thật. Lát đích: lát nào chạm `workflow.py` (v1).
+- L2 r2 (F9): `stop{max_stuck,max_repairs_total}` và ngân sách theo mục khai trong hợp đồng cần sửa `contract.py`; lát đích duy nhất: L3 (cùng đợt thêm trường `understanding`/`assessment`).
+- L2 r2 (F10, v1): `test_budget.test_concurrent_extensions_have_one_revision_winner` chập chờn trên Windows (`PermissionError` trong `workflow.task_lock`) khi máy tải; không do v2.
+- L2 r2 (F11): trần Stop là "2 lần chặn mỗi lượt dừng": sau khi cho qua, bộ đếm về 0, lần dừng sau lại bị chặn (có test, ghi ở `docs/v2-l2-hooks.vi.md`).
+- L3 (C12 residual, việc thật đầu tiên): kiểm bằng chứng nay chỉ phán được con trỏ có giải được không (file và dòng có thật, URL có host thật, blob có trong kho); vẫn không phán được nội dung có ủng hộ khẳng định hay không — `onecrew/v2/step0.py:38` trỏ đúng cho mọi giả định nào. Chủ sở hữu vẫn là người đọc; một file `x.py:1` có thật nhưng không liên quan vẫn qua. Và `3.11:5` (số phiên bản) trông như `file:line` nên bị từ chối vì không có file.
+- L2 r2 (C3): `CLAUDE_CODE_CHILD_SESSION` là một biến môi trường; AI chạy `env -u` hoặc gọi trực tiếp `python -m onecrew.v2.plan_cli` (không qua `cli.py`) thì vượt lớp tiến trình, chỉ còn luật hook/permission. Cần một xác nhận ngoài băng hoặc sửa `plan.require_owner` (plan.py, ngoài giới hạn hai dòng của lát này). `CLAUDE_ENV_FILE` (SessionStart) chưa dùng.
+- L2 r2 (F1): môi trường của verifier là danh sách cho phép (`command.KEEP_ENV`); lệnh cần `JAVA_HOME`, `ANDROID_HOME`, `FLUTTER_ROOT`... (verifier flutter/android về sau) cần tham số khai báo biến được giữ. `PATH` chỉ bỏ mục tương đối hoặc nằm trong project/thư mục tạm.
+- L2 r2 (B1): hook chỉ tìm bản sao ở state-root khi `--state-root` có trong args (`install --print` bản r2 ghi sẵn; cấu hình đã dán trước r2 cần in lại). Xóa luôn cả state-root nằm ngoài tầm hook; thư mục đó được `permissions.deny` và luật "nhắc tên" bảo vệ.
+- L2 r2 (ví dụ settings): `hook-settings.example.json` gắn đường dẫn tuyệt đối của Python và worktree; xóa worktree thì PreToolUse (`onFailure: block`) chặn mọi công cụ. Đúng ý fail-closed, nhưng chủ sở hữu cần biết.
+- v2-fix (đã đóng): C9 (git.exe/send-pack), C10 (ghi file lồng chuỗi), C11 (`require_owner` kiểm biến phiên AI, sự kiện ghi `ai_session`), C12 (bằng chứng giả định/phương án), C13 (`--by owner` của L3 trong hook và `refuse_argv`), `stop{max_stuck,max_repairs_total}`.
+- v2-fix (còn hở, đã biết): các lớp "script Python" vẫn đọc chữ: `python -c` dựng lệnh bằng ghép chuỗi (`getattr`, `"app"+"rove"`) hoặc gỡ biến phiên AI rồi gọi hàm thì qua lớp hook; chỉ còn biến môi trường (và `permissions.deny`) là rào. Gỡ biến (`env -u`) làm `ai_session` thành `"unknown"`, không phải `false`.
+- v2-fix: `max_stuck` coi hai verdict cùng `artifact_sha` là "không đổi gì"; artifact không phải cây Git (APK, PR) sẽ có sha riêng của verifier L4+ nên cần xem lại định nghĩa lúc đó. `inconclusive` tính là thất bại cho cả hai trần.
+- v2-fix: `content_author` chỉ phân biệt owner và không-owner theo lời khai `--author` (AI trong phiên có biến bị từ chối khai owner; ngoài phiên có biến thì lời khai là lời khai).
+- v2-fix: quy tắc `plan unknown close*owner*` trong `permissions.deny` chặn cả lệnh có chữ "owner" ở chỗ khác (ví dụ trong `--evidence`); lỗi theo hướng chặn.
+- v2-fix: `nested quoted` heuristic: chuỗi trong ngoặc ngắn hơn 3 ký tự không được xét; ghép chuỗi lệnh ở lớp thực thi (`iex ("s"+"c README.md x")`) không đọc được.
+- v2-fix: bằng chứng `owner_statement` của unknown (`unknown close --by owner`) vẫn chỉ cần ≥10 ký tự; L4 reviewer nên đọc.
+- v2-fix (nguồn biến phiên AI, đọc lại 2026-10-18 tại code.claude.com/docs/en/env-vars): `CLAUDE_CODE_CHILD_SESSION=1` do Claude Code đặt cho tiến trình con của công cụ Bash/PowerShell/Monitor, hook và status line; **không** đặt cho tiến trình con của MCP server stdio (sống lâu hơn phiên). Một công cụ MCP chạy lệnh shell cho AI sẽ không mang biến này, nên lớp tiến trình không thấy phiên AI qua đường đó; chỉ còn hook/permission (chỉ phủ công cụ Bash/PowerShell/Edit...) và `ONECREW_ACTOR`.
+- v2-fix (C14 xong; còn hở, đã biết): `git` đổi tên hoặc gọi gián tiếp, và alias nạp từ file cấu hình có sẵn (`~/.gitconfig` chưa trong danh sách bảo vệ) vẫn là lớp đọc chữ. `ownership.in_ai_session` dùng tính truthy: marker rỗng coi như không có (review Opus F2: nên đổi thành 'có biến là phiên AI', một dòng).
+- Reviewer (item 3, phương án A): một verifier mỗi mốc (command và reviewer là hai mốc); chưa có "hai verifier một mốc". Bộ lệnh `plan` (file CLI của v2, ngoài phạm vi hợp đồng này) chưa có `--author-model`, nên model tác giả chỉ biết khi `--author` chính là mã model (`claude-sonnet-5-5`) hoặc sự kiện có `author_model`; tác giả `claude` trơn + reviewer Claude bị từ chối (đúng luật qc_gate, nhưng gây vướng).
+- Reviewer: cây gốc là `plan.approved.base_artifact` (mới, ghi lúc duyệt); plan duyệt trước đó dùng commit cuối trước giờ duyệt (so giờ commit với giờ duyệt, có thể lệch nếu đồng hồ commit lệch). Cây gốc là đối tượng Git chưa có ref, `git gc` có thể xóa sau vài tuần.
+- Reviewer: mỗi lần gọi `claude -p` (không công cụ) vẫn tốn ~9k token vào cache do prompt hệ thống của Claude Code (đo 2026-10-18: cache_creation ~5.9k + cache_read ~3.4k + output ~110, khoảng 0,05 USD, 4-5 giây). Chưa kiểm `evidence.file` có nằm trong diff không; model có thể trích file không có thật.
+- Reviewer: `--setting-sources user` vẫn nạp hook cấp người dùng nếu có; cwd là thư mục tạm trống nên CLAUDE.md/hook của dự án không nạp. Diff quá 120 KB không được review một phần (inconclusive, không tốn call).
+- Hook (nhầm): luật `\bplan_cli\b` chặn cả lệnh Bash chỉ ĐỌC hoặc GHI TÀI LIỆU có nhắc tên module (grep, heredoc vào file docs trong phạm vi); lỗi theo hướng chặn, tránh bằng cách không gõ tên đó trong lệnh shell.
+
+## Job 4 (ghi chú)
+- S1 (`NAME=value; cmd` bị coi là đường dẫn ngoài phạm vi): các dạng `O=/tmp/x; echo hi`, `O=/tmp/x cat a.txt`, `O=/tmp/x && echo hi` không bị chặn trong code hiện tại; test `test_a_compound_command_starting_with_an_assignment_is_not_a_path` ghi lại. Dạng gốc gây chặn ở việc 3 chưa tái hiện được (có thể đi kèm một lệnh ghi như `mkdir "$O"` bị `unresolvable_target`).
+- Trạng thái dừng không cho `NAME=value cmd` (allowlist không đoán biến môi trường); cần thì thêm sau.
+- Hook chặn cả lệnh shell chỉ chứa văn bản có chữ "git ... push" hay dấu lớn hơn (bash_deny và dò redirect khớp text lệnh, không phân biệt dữ liệu với lệnh): đúng theo thiết kế, nhưng ồn khi ghi tài liệu bằng shell; dùng Write/Edit cho docs.
+- Bản 4 của job 4: allowlist shell khi kế hoạch dừng đã bị gỡ (ba vòng review M2 vẫn tìm ra lối lách: dấu nháy thoát, tên chương trình trùng, `cd` trước script). Khi dừng, đọc bằng Read/Grep/Glob.
+
+## Việc 4 (ghi chú)
+- Báo cáo `plan report`/`plan digest` (`docs/v2-report.vi.md`): chưa đếm số lệnh/token, "chạy ngoài kiểm soát" chỉ xấp xỉ (HEAD, theo giây), "chờ" của digest là suy đoán; chưa có HTML (việc sau).
+
+## Job 9 (ghi chú)
+- Cố vấn (`docs/v2-advisor.vi.md`): luật nguồn/origin/cố vấn chỉ áp cho hợp đồng dùng trường mới hoặc khi `<state-root>/plans/owner-rules.md` tồn tại (để không phá hợp đồng cũ và test cũ); chưa `plan rules init` thì approve vẫn như cũ. Phản đối không chặn; chưa có chỗ nào buộc chủ sở hữu đọc lời phản đối trước khi duyệt ngoài việc `plan show` in ra.
+
+## Job 11a (ghi chú)
+- `plan lint` mới báo ký tự điều khiển trong `argv`, chưa đưa vào `contract.validate` (propose vẫn nhận `\x07`; chỉ `\0` và xuống dòng bị từ chối); một mốc `command` im lặng (không in gì) luôn `inconclusive` dù thật sự đạt, nên mốc kiểm phải in kết quả; `command.MIN_SECONDS` (2 giây) hiện chỉ đổi tên luật (`fast_and_silent`), không thêm điều kiện nào; hook `Stop` chỉ thấy biên lai SAU khi lệnh xong (chưa có sự kiện "bắt đầu chạy").

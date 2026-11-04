@@ -1,0 +1,19 @@
+{
+  "id": "M2",
+  "title": "an independent reviewer answers narrow questions about the diff",
+  "mode": "once",
+  "max_repairs": 1,
+  "covers": ["O1"],
+  "verifier": {
+    "type": "reviewer",
+    "config": {
+      "provider": "claude",
+      "model": "claude-haiku-5-5",
+      "max_minutes": 10,
+      "criteria": [
+        {"id": "R1", "question": "In tests/test_x.py, does every new test assert on a result and not only run without an error? fail if one only runs a call."},
+        {"id": "R2", "question": "Does the diff delete any line from onecrew/v2/gate.py? fail if any line is removed."}
+      ]
+    }
+  }
+}

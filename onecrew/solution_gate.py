@@ -20,7 +20,13 @@ def check(ledger,task_id,conn=None):
     guard(ledger,conn,task_id)
     if conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='solution.stopped'",(task_id,)).fetchone():
         raise LedgerError('Task stopped by a solution decision; it cannot resume.')
+    from .v2.gate import require_plan  # v2: with enforcement on, no approved plan means no dispatch, in every mode (incl. work)
+    require_plan(ledger,conn,task)
     b=bound(ledger,conn,task_id)
+    from .v2 import solution_link
+    root_authority = solution_link.check_task(ledger, conn, task, b)
+    if root_authority is not None:
+        return root_authority
     if not b:
         if payload.get('solution_required')=='spec':
             from .specs import Project
@@ -45,6 +51,10 @@ def check(ledger,task_id,conn=None):
 
 def context(ledger,task_id):
     with ledger.transaction() as conn:
+        from .v2 import solution_link
+        root_authority = solution_link.check_task(ledger, conn, ledger._task(conn, task_id))
+        if root_authority is not None:
+            return dict(root_authority, instruction='The approved root revision is the authority and acceptance contract. The linked SOL is source material only; it grants no independent scope, tools or budget.')
         b=bound(ledger,conn,task_id)
         if not b:return {'binding':'legacy_or_read_only','authority':'existing sealed grant'}
         sol=c._solution(ledger,conn,b['solution'],b['revision'])
@@ -68,7 +78,8 @@ def publish(ledger,conn,task_id,state):
         c._event(conn,b['conversation'],'task-output:'+content_hash(record),'task.output',record)
 
 
-def question(ledger,cid,key,text,reason,affected_tasks,source,kind='solution_change'):
+def question(ledger,cid,key,text,reason,affected_tasks,source,kind='solution_change',delta=None):
+    from .solution_changes import check_request;check_request(ledger,cid,kind,reason,delta)  # v2: delta required, 200-char reason, at most 2 per conversation
     if kind not in ('solution_change','technical_review','clarification'):raise LedgerError('Invalid discussion request type.')
     c.clean(text,'question',1500);c.clean(reason,'reason',3000);c.clean(source,'source',100)
     if not isinstance(affected_tasks,list) or len(affected_tasks)>20 or len(set(affected_tasks))!=len(affected_tasks):raise LedgerError('Invalid affected task list.')
@@ -82,6 +93,7 @@ def question(ledger,cid,key,text,reason,affected_tasks,source,kind='solution_cha
         affected=sorted({r['task_id'] for r in conn.execute('SELECT * FROM solution_bindings WHERE conversation=?',(cid,)) if r['solution'] in solutions})
         payload=dict(question=text,reason=reason,affected_tasks=affected,source=source,kind=kind,solution=row['current_solution'],
             options=['continue_unchanged','stop','revise_solution'],hold='requested; runtime checks admission/mutation boundaries, active process may still be settling')
+        if delta is not None:payload['delta']=delta
         old=conn.execute('SELECT payload FROM conversation_events WHERE conversation=? AND request_key=?',(cid,key)).fetchone()
         if old:
             value=json.loads(old['payload'])

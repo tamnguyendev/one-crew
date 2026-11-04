@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-R5-PKGCHECK-1",
+ "file": "tests/test_wf_package_check.py",
+ "old_sha256": "04b3ddbeb025ad59eedc3374790e794e9296f5f8ec8fc2433664613d87f015e0",
+ "new_sha256": "b1dee68ffd27a093c4322a36c8b2ce96f58375de7b988edbd75035716fd363df",
+ "reason": "Round 5 (Codex P1-1): the package-check judge and the legacy-continuation judge now hold the oracle themselves (required steps, per-step ok rules recomputed from recorded facts, the negative expectation); the report only supplies observations. The pinned test modules' good_report() builders now record the runner's facts, test viii keeps its point (an optional step outside the oracle never decides) and adds that demoting an oracle step is refused, RealPackageTests reads WF_PACKAGE and skips when unset (no hard-coded old package path). No assertion weakened; the two Codex bypasses and 9 variants are refused (tests.test_wf_package_oracle).",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị lượt 5 sau xác nhận Codex 3 P1 + 2 P2): 'Tôi ủy quyền bạn tự quyết và thực hiện các thay đổi local cần thiết: sửa code, bổ sung test/phản chứng, điều chỉnh cách triển khai, cập nhật hợp đồng/roadmap/bộ kiểm cho nhất quán... Không hỏi tôi duyệt từng task'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 5 commit on codex/wf-development",
+ "at": "2026-10-25"
+}

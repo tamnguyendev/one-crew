@@ -1,0 +1,25 @@
+{
+ "version": 1,
+ "file": "tests/test_wf_plan_names.py",
+ "old_commit": "8e0d52c825866383d507f17c535326307cdb5612",
+ "old_sha256": "0ae1d8b96f6339146a965962e4cba4f6055404006eb9a3f0318451a968503f1c",
+ "new_commit": "1b4f4c6af8d887c2987571b1972783ebf8198dac",
+ "new_sha256": "cf0b016235305fa0b5c06429c1181b6d2df07da73d8e8a1bec5b227fdd90a0b4",
+ "source_tasks": [
+  "W12b"
+ ],
+ "source_testcases": [
+  "T48b"
+ ],
+ "reason": "W12b moves new roots into project namespaces. Original R00 cross-project refusal remains executable at its original commit; current name checks and historical CLI refusal remain executable in the successor. This preserves history, not a waiver.",
+ "sources": [
+  {
+   "path": "docs/wf/sources/04-TASKS.vi.md",
+   "sha256": "c1d8f8ae40cdbef2cce620c668f4551e778a103f001c71f432106dfb049758ff"
+  },
+  {
+   "path": "docs/wf/sources/05-TESTCASES.vi.md",
+   "sha256": "0e208d2fb77c91e54824706fb43a50188869a3d6e4d856b75d1b191f2101ce3b"
+  }
+ ]
+}

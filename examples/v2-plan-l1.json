@@ -1,0 +1,30 @@
+{
+  "schema_version": 2,
+  "title": "OneCrew v2 slice L1: plan, milestone verdict, dispatch gate",
+  "understanding": "Add the v2 AI work contract as an opt-in package onecrew/v2: plan propose/show/approve/accept/amend, verdict record/run, a command verifier, ledger events, and a dispatch gate that also covers work mode. v1 behaviour is unchanged.",
+  "output": [
+    "onecrew plan and onecrew verdict verbs exist and refuse as the six invariants require",
+    "tests/test_v2_l1 proves each invariant cannot be bypassed",
+    "docs/v2-vs-v1.vi.md explains how to run v1 only"
+  ],
+  "scope": {"owned": ["onecrew/v2/", "tests/test_v2_l1.py", "docs/v2-vs-v1.vi.md", "docs/v2-parking-lot.vi.md", "onecrew/cli.py", "onecrew/solution_gate.py"]},
+  "non_goals": ["hooks (L2)", "per-item budget (L2)", "step 0 (L3)", "independent reviewer (L4)", "report (L5)"],
+  "items": [
+    {"id": "A1", "title": "contract, plan lifecycle, gate, verdicts, command verifier, CLI", "tier": "must", "milestone": "M1"},
+    {"id": "A2", "title": "tests for each invariant and docs", "tier": "must", "milestone": "M1"},
+    {"id": "S1", "title": "plan list command", "tier": "should"},
+    {"id": "W1", "title": "any hook work", "tier": "wont"}
+  ],
+  "milestones": [
+    {
+      "id": "M1",
+      "title": "new v2 unit-test group is green",
+      "mode": "once",
+      "max_repairs": 1,
+      "verifier": {"type": "command", "config": {"argv": ["D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.venv\\Scripts\\python.exe", "-X", "utf8", "-m", "unittest", "tests.test_v2_l1"], "max_minutes": 10}}
+    }
+  ],
+  "budget": {"max_calls": 60, "time": 240},
+  "attention": {"questions": 1},
+  "profile_version": null
+}

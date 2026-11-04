@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261024-PN",
+ "file": "wfkit/development-testcases.json#R08/check.parallel_native",
+ "old_sha256": "17bc2a48c32df83787a0e20d9aa5723170b18850d7ade684fa79d7a6145f2e0b",
+ "new_sha256": "5b71e19153fbce8a7acebc0ae2db915496c8e8934475c65fc2af7cd8cdd69460",
+ "reason": "check.parallel_native was registered with installed=true in error (a0d378e): tests.test_wf_parallel_native drives the public managed batch CLI on the checkout with two local supervised processes and never consumes the gate wheel. installed=false is the truthful registration; the test, its module pin and its T04d mapping are unchanged.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 24/10/2026: \"Tôi cấp U1 cho hai sửa đó (estimate.baseline trong E8 của test_wf_r03a_run_started; check.parallel_native installed=false). Hãy ghi U1 theo mẫu kit-guard với lý do, áp dụng và chạy lại gate development.\"",
+ "applied_by": "claude (entry), commit on codex/wf-development",
+ "at": "2026-10-24"
+}

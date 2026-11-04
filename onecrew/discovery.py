@@ -9,16 +9,18 @@ EXCLUDED = {'.git', '.onecrew', '.ssh', '.aws', '.azure', '.config', '.codex',
             '.claude', '.kiro', '.venv', 'venv', 'node_modules', '__pycache__',
             'build', 'dist', '.dart_tool', '.idea', '.vscode'}
 PRIVATE = re.compile(r'(credential|secret|token|password|private.?key|id_rsa|id_ed25519|^auth\.json$)', re.I)
-SECRET = re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY|'
-                    r'\b(?:ghp_|github_pat_|sk-proj-|sk-ant-|apikey_)[A-Za-z0-9_-]{15,}|'
-                    r'(?im:^\s*(?:[A-Z_]*(?:PASSWORD|SECRET|API_KEY|ACCESS_TOKEN))\s*[=:]\s*["\x27]?[^\s"\x27]{8,})|'
-                    r'(?i:["\x27](?:[a-z_]*(?:password|secret|api_key|access_token|refresh_token|auth_token))["\x27]\s*:\s*["\x27][^"\x27]{8,})')
+from .display_core import SECRET
 TEXT = {'.py','.js','.mjs','.cjs','.ts','.mts','.cts','.tsx','.jsx','.json','.md','.txt','.toml','.yaml','.yml',
         '.dart','.xml','.sql','.xsql','.html','.css','.scss','.go','.rs','.java',
         '.kt','.cs','.cpp','.c','.h','.sh','.ps1','.bat','.ini','.cfg','.lock','.arb'}
 
 SEARCH_ENTRIES = 10000
 SEARCH_PAGE = 100
+# Per-op scan budget: one search op scans up to SEARCH_SCAN_FILES files (or until SEARCH_SCAN_BYTES of content
+# is read), so a large repo is covered in a few ops instead of one model call per 100-file page. Output stays
+# capped (matches truncated); files are never dropped - next_cursor resumes exactly where scanning stopped.
+SEARCH_SCAN_FILES = 2000
+SEARCH_SCAN_BYTES = 8_000_000
 
 
 def permitted(name):
@@ -126,20 +128,34 @@ class Discovery:
                     files.append(name)
                 else: omitted += 1
             stack.extend(reversed(pending))
-        matches = []; scanned = 0; unreadable = 0
-        for name in files[cursor:cursor+SEARCH_PAGE]:
+        matches = []; scanned = 0; unreadable = 0; bytes_read = 0; pos = cursor
+        # Scan a budgeted span this op: up to SEARCH_SCAN_FILES files or SEARCH_SCAN_BYTES of content, whichever first.
+        # Covering many files per op (not 100) is what stops a large repo from costing one model call per page; the
+        # byte budget keeps a single op bounded, and next_cursor resumes at the exact file so nothing is skipped.
+        while pos < len(files) and scanned < SEARCH_SCAN_FILES and bytes_read < SEARCH_SCAN_BYTES:
+            name = files[pos]; pos += 1
             try:
                 value = scan_text(self.data(name))
             except (LedgerError, OSError):
                 unreadable += 1; continue
-            scanned += 1
+            scanned += 1; bytes_read += len(value)
             hits = [i+1 for i,line in enumerate(value.splitlines()) if query.casefold() in line.casefold()]
             if hits:
                 matches.append({'path': name, 'lines': hits[:20], 'total_matches':len(hits)})
-        end = cursor+SEARCH_PAGE
+        end = pos
+        exhausted = end >= len(files) and not truncated
+        stop_reason = ('scanned the whole permitted tree' if exhausted else
+            ('file budget for one op reached' if scanned >= SEARCH_SCAN_FILES else
+             ('content byte budget for one op reached' if bytes_read >= SEARCH_SCAN_BYTES else
+              ('enumeration truncated: narrow directory' if truncated else 'more files remain'))))
         return {'matches':matches, 'directories':directories[:100], 'directory':directory,
                 'query':query, 'cursor':cursor, 'recursive':True,
                 'next_cursor':end if end < len(files) else None,
+                'files_total':len(files), 'scanned_from':cursor, 'scanned_through':end,
                 'files_scanned':scanned, 'files_withheld_or_unreadable':unreadable,
                 'entries_excluded':omitted, 'tree_truncated':truncated,
-                'coverage':'Only this page of permitted readable text files; follow next_cursor, or narrow directory if tree_truncated.'}
+                'exhausted':exhausted, 'stop_reason':stop_reason,
+                'coverage':('Scanned permitted readable text files '+str(cursor)+'..'+str(end)+' of '+str(len(files))+' in '
+                    +'this directory scope ('+stop_reason+'). If next_cursor is set, MORE FILES REMAIN - follow it to keep '
+                    +'scanning, or narrow directory / change query / view structure / check git history. Empty matches mean '
+                    +'NOT FOUND in the scanned range only, never the whole repo unless exhausted=true.')}

@@ -1,0 +1,18 @@
+{
+ "id": "U1-20261031-V23-GATECOUNT-1",
+ "file": "wfkit/gate.py",
+ "old_sha256": "6d1d555c95e86f3fc9f6436c31c3d3e84f36f9117ac1be7472f71ea128b04f0c",
+ "new_sha256": "0dbed48f7ea91ce0ab7beb441fd9f129b28a50111549b6dee50912d815734cfd",
+ "reason": "OneCrew 2.3 line (branch claude/onecrew-2.3), Codex review of beta 2.3.0.dev9, P2: parse_unittest read `OK (expected failures=1)` as run=1, passed=1 and _counts_pass accepted the receipt; an unexpected success was not counted. Now failures+errors, skipped, expected failures and unexpected successes are counted apart (passed = the rest); a receipt records the two new counts; an unexpected success fails the receipt; expected failures pass only up to the testcase's explicit allow_expected_failures (0 when absent). The gate criterion is not loosened: every receipt that passed before with no expected failure and no unexpected success passes the same way; no testcase, check or acceptance is removed.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 31/10/2026, chỉ thị dán nguyên văn (xử lý review Codex trên beta 2.3.0.dev9), mục 3 \"Quyền U1\": \"Trong yêu cầu này, tôi cho phép ngoại lệ U1 hẹp nếu bộ khóa hiện hành yêu cầu, chỉ cho thay đổi bộ đếm gate và test trực tiếp liên quan để khép P2 này. Ghi rõ file, hash cũ/mới, lý do, bằng chứng và phạm vi nhánh 2.3. Không dùng quyền này để bỏ test, nới acceptance, sửa các test khóa không liên quan hoặc thay bộ kiểm beta 2.2.\" Quyết định kỹ thuật theo ủy quyền đó; không phải chữ ký trực tiếp của chủ sở hữu, không phải nghiệm thu.",
+ "applied_by": "claude (entry, Opus 5.5), OneCrew 2.3 beta after dev9, branch claude/onecrew-2.3 only (not codex/wf-development, not the 2.2 beta kit or package)",
+ "evidence": {
+  "base": "d35b8108ea19a40eaac349210803b1edfb4318c6",
+  "commit": "563e0a4",
+  "diff": "git diff 06f55e5 563e0a4 -- wfkit/gate.py",
+  "red": "D:\\OneCrewRuns\\v23\\beta2\\logs\\p2-red-d705001.txt (tests/test_v23_gate_counts.py on the dev9 code: expected failure counted run=1 passed=1)",
+  "green": "D:\\OneCrewRuns\\v23\\beta2\\logs\\p2-green.txt; D:\\OneCrewRuns\\v23\\beta2\\logs\\p2-affected.txt (the gate's own tests, 131 OK)",
+  "reviewed_by": "Codex review of beta 2.3.0.dev9 (finding P2, wfkit/gate.py:196 and :122)"
+ },
+ "at": "2026-10-31"
+}

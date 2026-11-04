@@ -1,0 +1,237 @@
+{
+ "kind": "v23-ke01-wiki-comparison",
+ "checkout": "4eb76b7ffc9ca4c8f8ded9cd747c80d6a1b1147c",
+ "dirty": true,
+ "wheel_sha256_built_for_run": "912f08bc199037e5657239051c5a541ceddbb1ae6e85bd2123ce99988373a187",
+ "rows": [
+  {
+   "condition": "none",
+   "state": "produced",
+   "seconds": 1.418,
+   "verdict": "fail",
+   "written": "naive",
+   "prompt_chars": 715,
+   "knowledge_chars": 0,
+   "delivered": [],
+   "declared_used": [],
+   "violations": [],
+   "usage": [
+    {
+     "fake": true,
+     "input_tokens": 179,
+     "output_tokens": 50
+    }
+   ],
+   "misled": false,
+   "rework_needed": true,
+   "provider": "fake",
+   "repeat": 0
+  },
+  {
+   "condition": "none",
+   "state": "produced",
+   "seconds": 1.35,
+   "verdict": "fail",
+   "written": "naive",
+   "prompt_chars": 715,
+   "knowledge_chars": 0,
+   "delivered": [],
+   "declared_used": [],
+   "violations": [],
+   "usage": [
+    {
+     "fake": true,
+     "input_tokens": 179,
+     "output_tokens": 50
+    }
+   ],
+   "misled": false,
+   "rework_needed": true,
+   "provider": "fake",
+   "repeat": 1
+  },
+  {
+   "condition": "correct",
+   "state": "produced",
+   "seconds": 1.451,
+   "verdict": "pass",
+   "written": "right",
+   "prompt_chars": 2519,
+   "knowledge_chars": 1791,
+   "delivered": [
+    [
+     "a-word",
+     "fact",
+     "applies"
+    ]
+   ],
+   "declared_used": [
+    "a-word"
+   ],
+   "violations": [],
+   "usage": [
+    {
+     "fake": true,
+     "input_tokens": 630,
+     "output_tokens": 50
+    }
+   ],
+   "misled": false,
+   "rework_needed": false,
+   "provider": "fake",
+   "repeat": 0
+  },
+  {
+   "condition": "correct",
+   "state": "produced",
+   "seconds": 1.527,
+   "verdict": "pass",
+   "written": "right",
+   "prompt_chars": 2519,
+   "knowledge_chars": 1791,
+   "delivered": [
+    [
+     "a-word",
+     "fact",
+     "applies"
+    ]
+   ],
+   "declared_used": [
+    "a-word"
+   ],
+   "violations": [],
+   "usage": [
+    {
+     "fake": true,
+     "input_tokens": 630,
+     "output_tokens": 50
+    }
+   ],
+   "misled": false,
+   "rework_needed": false,
+   "provider": "fake",
+   "repeat": 1
+  },
+  {
+   "condition": "stale",
+   "state": "produced",
+   "seconds": 1.367,
+   "verdict": "fail",
+   "written": "naive",
+   "prompt_chars": 2581,
+   "knowledge_chars": 1825,
+   "delivered": [
+    [
+     "a-word",
+     "lead",
+     "recheck"
+    ]
+   ],
+   "declared_used": [],
+   "violations": [],
+   "usage": [
+    {
+     "fake": true,
+     "input_tokens": 645,
+     "output_tokens": 50
+    }
+   ],
+   "misled": false,
+   "rework_needed": true,
+   "provider": "fake",
+   "repeat": 0
+  },
+  {
+   "condition": "stale",
+   "state": "produced",
+   "seconds": 1.611,
+   "verdict": "fail",
+   "written": "naive",
+   "prompt_chars": 2581,
+   "knowledge_chars": 1825,
+   "delivered": [
+    [
+     "a-word",
+     "lead",
+     "recheck"
+    ]
+   ],
+   "declared_used": [],
+   "violations": [],
+   "usage": [
+    {
+     "fake": true,
+     "input_tokens": 645,
+     "output_tokens": 50
+    }
+   ],
+   "misled": false,
+   "rework_needed": true,
+   "provider": "fake",
+   "repeat": 1
+  },
+  {
+   "condition": "wrong",
+   "state": "produced",
+   "seconds": 1.461,
+   "verdict": "fail",
+   "written": "wrong",
+   "prompt_chars": 2519,
+   "knowledge_chars": 1791,
+   "delivered": [
+    [
+     "a-word",
+     "fact",
+     "applies"
+    ]
+   ],
+   "declared_used": [
+    "a-word"
+   ],
+   "violations": [],
+   "usage": [
+    {
+     "fake": true,
+     "input_tokens": 630,
+     "output_tokens": 50
+    }
+   ],
+   "misled": true,
+   "rework_needed": true,
+   "provider": "fake",
+   "repeat": 0
+  },
+  {
+   "condition": "wrong",
+   "state": "produced",
+   "seconds": 1.369,
+   "verdict": "fail",
+   "written": "wrong",
+   "prompt_chars": 2519,
+   "knowledge_chars": 1791,
+   "delivered": [
+    [
+     "a-word",
+     "fact",
+     "applies"
+    ]
+   ],
+   "declared_used": [
+    "a-word"
+   ],
+   "violations": [],
+   "usage": [
+    {
+     "fake": true,
+     "input_tokens": 630,
+     "output_tokens": 50
+    }
+   ],
+   "misled": true,
+   "rework_needed": true,
+   "provider": "fake",
+   "repeat": 1
+  }
+ ],
+ "limits": "fake rows: deterministic test double, plumbing only; real rows: one task, few repeats, no statistical claim"
+}

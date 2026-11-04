@@ -5,9 +5,8 @@ import json
 
 from .ledger import LedgerError, content_hash, key_field, text_field
 
-# Comparable sentinel for existing deadline consumers, only selected by an
-# explicit operator event. Original grants/deadlines remain immutable.
-UNBOUNDED_DEADLINE = dt.datetime.max.replace(tzinfo=dt.timezone.utc).isoformat()
+# The reads (local_current, current, remaining, UNBOUNDED_DEADLINE) live in budget_core: the core imports no v1 module.
+from .budget_core import UNBOUNDED_DEADLINE, current, local_current, remaining  # noqa: F401  (re-exported)
 
 
 def remove_deadline(control, task_id, revision, request_key, reason):
@@ -34,6 +33,8 @@ def remove_deadline(control, task_id, revision, request_key, reason):
             raise LedgerError('Stop and reconcile every attempt before changing the budget.')
         if conn.execute("SELECT 1 FROM requests WHERE task_id=? AND state='pending'",(task_id,)).fetchone():
             raise LedgerError('Resolve the pending question before changing its budget revision.')
+        from .v2.gate import check_extension  # v2 (C7): "no time limit" is wider than any approved plan
+        check_extension(control.ledger,conn,task,old['limits']['max_calls'],None)
         budget={'limits':dict(old['limits'],max_seconds=None),'deadline':UNBOUNDED_DEADLINE,
                 'time_unlimited':True,'revision':content_hash({'task_revision':task['revision'],'proposal':proposal})}
         receipt={**proposal,'proposal_revision':digest,'previous_deadline':old['deadline'],
@@ -42,32 +43,6 @@ def remove_deadline(control, task_id, revision, request_key, reason):
                  'authority':{'actor':getpass.getuser(),'trust':'local_operator'}}
         control.ledger._event(conn,task_id,'grant.extended',receipt)
         return receipt
-
-
-def local_current(conn, task):
-    row = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='grant.extended' ORDER BY seq DESC LIMIT 1", (task['id'],)).fetchone()
-    if row:
-        return json.loads(row['payload'])['budget']
-    grant = json.loads(task['payload'])['grant']
-    return {'limits': grant['limits'], 'deadline': task['deadline'],
-            'revision': content_hash({'task_revision': task['revision'], 'grant': grant, 'deadline': task['deadline']})}
-
-
-def current(conn, task):
-    result = local_current(conn,task)
-    from .goal_budget import group
-    shared = group(conn,task['id'])
-    if shared:
-        result['local_revision'] = result['revision']
-        result['revision'] = content_hash({'local_revision':result['revision'],'goal_revision':shared['revision']})
-        result['deadline'] = min(result['deadline'],shared['deadline'],key=dt.datetime.fromisoformat)
-        result['goal'] = shared
-    return result
-
-
-def remaining(budget, used, reserved):
-    left = budget['limits']['max_calls']-used-reserved
-    return min(left,budget['goal']['remaining_calls']) if budget.get('goal') else left
 
 
 def extend(control, task_id, revision, request_key, max_calls, deadline, reason, *, restart_expired=False):
@@ -104,7 +79,9 @@ def extend(control, task_id, revision, request_key, max_calls, deadline, reason,
             raise LedgerError('Terminal/cancelled work cannot receive an extension.')
         if conn.execute("SELECT 1 FROM attempts WHERE task_id=? AND status!='settled'", (task_id,)).fetchone():
             raise LedgerError('Stop and reconcile every attempt before extending; unknown usage is retained.')
-        if conn.execute("SELECT 1 FROM requests WHERE task_id=? AND state='pending'", (task_id,)).fetchone():
+        pending = [json.loads(r['payload'])['action'] for r in conn.execute("SELECT payload FROM requests WHERE task_id=? AND state='pending'", (task_id,))]
+        # A delivery's own budget question asks for exactly this extension; any other pending question must be answered first.
+        if any(not (a['type'] == 'delivery.recovery' and a['parameters'].get('class') == 'budget') for a in pending):
             raise LedgerError('Resolve the pending question before changing its budget revision.')
         created = dt.datetime.fromisoformat(task['created_at'])
         seconds = (end-created).total_seconds()
@@ -118,6 +95,8 @@ def extend(control, task_id, revision, request_key, max_calls, deadline, reason,
             raise LedgerError('Extension must preserve used/old limits and stay within eight hours of original submission, or of explicit expired-task restart.')
         if end == old_end and max_calls == old['limits']['max_calls']:
             raise LedgerError('Extension must increase calls or deadline.')
+        from .v2.gate import check_extension  # v2 (C7): with the gate on, an extension never exceeds the approved plan's budget
+        check_extension(control.ledger, conn, task, max_calls, seconds)
         budget = {'limits': {'max_calls': max_calls, 'max_seconds': seconds}, 'deadline': end.isoformat(),
                   'revision': content_hash({'task_revision': task['revision'], 'proposal': proposal})}
         receipt = {'request_key': request_key, 'proposal_revision': proposal_revision, 'previous_revision': revision,

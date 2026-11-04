@@ -86,7 +86,8 @@ def clean_environment(home):
     env = {k:v for k,v in os.environ.items() if k.upper() in keep}
     for name in ('TEMP', 'TMP', 'LOCALAPPDATA', 'APPDATA', 'USERPROFILE', 'ONECREW_DESKTOP_HOME'):
         p = home/name.lower(); p.mkdir(parents=True, exist_ok=True); env[name] = str(p)
-    env.update(PYTHONUTF8='1', GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull,
+    # Local attribution (getpass) needs a user name; a fixed one keeps probes identical across machines.
+    env.update(USERNAME='onecrew-eval', PYTHONUTF8='1', GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull,
                GIT_TERMINAL_PROMPT='0', FLUTTER_SUPPRESS_ANALYTICS='true', DART_SUPPRESS_ANALYTICS='true')
     return env
 
@@ -107,15 +108,21 @@ def execute_probe(runtime, harness, selector, destination, timeout):
             os.killpg(process.pid, signal.SIGKILL)
         process.kill()
         process.communicate(timeout=15)
-        return {'selector':selector, 'status':'timed_out', 'tests':0,
+        return {'selector':selector, 'status':'timed_out', 'tests':0, 'errors':[{'type':'TimeoutExpired','capability':False}],
                 'elapsed_seconds':round(time.monotonic()-start, 6), 'diagnostic':'Probe deadline exceeded.'}
     if process.returncode != 0 or not destination.is_file():
-        return {'selector':selector, 'status':'harness_error', 'tests':0,
+        return {'selector':selector, 'status':'harness_error', 'tests':0, 'errors':[], 'exit_code':process.returncode,
                 'diagnostic':(stdout+stderr).decode('utf-8', errors='replace')[-16000:]}
     value = json.loads(destination.read_text(encoding='utf-8'))
-    if value.get('selector') != selector or value.get('status') not in STATUSES:
+    if value.get('selector') != selector or value.get('status') not in STATUSES or not valid_errors(value.get('errors', [])):
         raise ValueError('Invalid probe receipt.')
     return value
+
+
+def valid_errors(errors):
+    # Exception class names only; receipts from older harnesses carry no 'errors'.
+    return isinstance(errors, list) and all(isinstance(e, dict) and set(e) == {'type', 'capability'} and
+        isinstance(e['type'], str) and e['type'].isidentifier() and type(e['capability']) is bool for e in errors)
 
 
 def seal(value):
@@ -202,7 +209,7 @@ def compare(before, after):
         for r in rows.values():
             c = next(c for c in value['corpus']['cases'] if c['id'] == r['case'])
             if ([p['selector'] for p in r['probes']] != c['tests'] or
-                    any(p['status'] not in STATUSES for p in r['probes']) or
+                    any(p['status'] not in STATUSES or not valid_errors(p.get('errors', [])) for p in r['probes']) or
                     case_status(r['probes']) != r['status'] or r['revision'] != value['targets'][r['case']]):
                 raise ValueError('Inconsistent case/probe evidence.')
             if any(p['status'] == 'passed' and (p.get('tests') != 1 or p.get('skipped',0)) for p in r['probes']):
@@ -253,6 +260,8 @@ def main(argv=None):
     diff = sub.add_parser('compare'); diff.add_argument('--before',type=Path,required=True); diff.add_argument('--after',type=Path,required=True)
     diff.add_argument('--output',type=Path,required=True)
     obs = sub.add_parser('observe'); obs.add_argument('--task',action='append',required=True); obs.add_argument('--output',type=Path,required=True)
+    card = sub.add_parser('scorecard'); card.add_argument('--task',action='append',required=True); card.add_argument('--replay-compare',type=Path)
+    card.add_argument('--output',type=Path,required=True,help='Directory for scorecard.json and scorecard.md')
     note = sub.add_parser('assistance');note.add_argument('--task',required=True);note.add_argument('--key',required=True)
     note.add_argument('--actor',choices=['codex','claude','human','other-entry'],required=True)
     note.add_argument('--category',choices=['runtime','environment','product-code','tests','build','device','decision'],required=True)
@@ -270,6 +279,14 @@ def main(argv=None):
         if a.command == 'replay':
             path,value = replay(a.project,a.output,a.ref,a.harness_ref,a.case,a.repeat,a.timeout)
             print(json.dumps({'result':str(path),'counts':value['counts'],'product_autonomy_rate':None})); return 0
+        if a.command == 'scorecard':
+            from .eval_scorecard import scorecard, markdown as card
+            if not a.state_root: raise ValueError('scorecard requires explicit --state-root.')
+            value = scorecard(a.state_root,a.task,read_result(a.replay_compare) if a.replay_compare else None)
+            a.output.mkdir(parents=True,exist_ok=True); result,report = a.output/'scorecard.json',a.output/'scorecard.md'
+            with result.open('x',encoding='utf-8') as f: f.write(json.dumps(seal(value),ensure_ascii=False,indent=2))
+            with report.open('x',encoding='utf-8') as f: f.write(card(value))
+            print(json.dumps({'result':str(result),'report':str(report)})); return 0
         if a.command == 'compare':
             value = compare(read_result(a.before),read_result(a.after))
         else:

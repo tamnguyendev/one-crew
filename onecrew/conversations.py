@@ -105,7 +105,12 @@ def append(ledger,cid,request_key,text,source,kind='proposal',reply_to=None,base
 
 
 def validate_solution(value):
-    exact_fields(value,('brief','detail','acceptance','non_goals','assumptions','questions'),'Solution')
+    # Optional typed delivery envelope: hashed into the revision, so approving the SOL approves it.
+    if not isinstance(value,dict):raise LedgerError('Solution must be an object.')
+    exact_fields({k:v for k,v in value.items() if k!='envelope'},('brief','detail','acceptance','non_goals','assumptions','questions'),'Solution')
+    if 'envelope' in value:
+        from .delivery_planner import validate_envelope
+        validate_envelope(value['envelope'],value)
     clean(value['brief'],'brief',6000);clean(value['detail'],'detail',24000)
     if len(value['brief'].split())>350:raise LedgerError('Solution brief exceeds 350 words.')
     for field in ('acceptance','non_goals','assumptions','questions'):
@@ -162,6 +167,12 @@ def show_solution(ledger,sid):
 def decide(ledger,sid,revision,choice,source,reference):
     if choice not in ('approve','request_changes'):raise LedgerError('Invalid solution decision.')
     clean(source,'source',100);clean(reference,'actual user reference',1000)
+    # W03: approved() reads any 'approve' row as the user's approval, so an AI tool session can record no approval, and no decision
+    # under an owner-like source; it may still ask for changes under its own name. Same marker as Ledger.reply.
+    from .interventions import in_ai_session,refuse_owner_claim
+    refuse_owner_claim(source,'solution decision')
+    if choice=='approve' and in_ai_session():
+        raise LedgerError('solution approval refused: the user\'s approval cannot be recorded from inside an AI tool session (CLAUDE_CODE_CHILD_SESSION is set).')
     with ledger.transaction(write=True) as conn:
         sol=_solution(ledger,conn,sid,revision);row=_row(ledger,conn,sol['conversation'])
         if row['current_solution']!=sid:raise LedgerError('Cannot decide an outdated solution.')

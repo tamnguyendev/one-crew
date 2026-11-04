@@ -1,0 +1,71 @@
+{
+  "schema_version": 2,
+  "title": "OneCrew v2 slice L3: step 0 enforced by code",
+  "size": "M",
+  "understanding": {
+    "restated_goal": "Make `plan approve` refuse to approve a contract whose step 0 is not done: low confidence, an open unknown, an assumption without evidence, options without the owner's choice, a red precondition or a target that does not exist. Every refusal lists all reasons. Unknowns are closed by a ledger event (doc, PoC or owner), not by editing the file. The owner's choice among options exists only in the approval event.",
+    "target": {
+      "repo": ".",
+      "ref": "claude/v2-l3-step0-feee6f",
+      "paths": ["onecrew/v2/contract.py", "onecrew/v2/plan.py", "onecrew/v2/plan_cli.py", "onecrew/conversations.py", "onecrew/qc_intake.py", "tests/test_v2_l1.py"]
+    },
+    "assumptions": [
+      {"text": "Preconditions can run before the ledger write transaction opens, so a slow command never holds the sqlite lock.", "evidence": "onecrew/v2/plan.py:138"},
+      {"text": "The L1 regression suite stays valid once its fixture contract carries a small step 0.", "evidence": "tests/test_v2_l1.py:34"}
+    ],
+    "confidence": "medium",
+    "unknowns": [
+      {"id": "U1", "question": "Can conversations.decide be reused to record the owner's choice among options?", "status": "open", "closed_by": null, "evidence": null},
+      {"id": "U2", "question": "Does qc_intake.locate work when the project is a sub-directory of a Git repository and not its root?", "status": "open", "closed_by": null, "evidence": null}
+    ]
+  },
+  "options": {
+    "recommended": "A",
+    "reason": "Smallest change to the L1 files; the new rules live in one module that can be tested alone.",
+    "items": [
+      {"id": "A", "summary": "New module step0.py holds the rules; contract.py gets the schema; plan.approve calls step0.evaluate.",
+       "evidence": ["onecrew/v2/plan.py:138"], "strengths": ["one place for the gate", "plan.py stays small"], "weaknesses": ["approve now does a read, a check and a write"],
+       "unknowns": [], "cost": "about 540 lines of code", "risk": "low"},
+      {"id": "B", "summary": "Put every check inside plan.approve.",
+       "evidence": ["onecrew/v2/plan.py:138"], "strengths": ["no new module"], "weaknesses": ["plan.py is shared with the L2 slice: merge conflicts"],
+       "unknowns": [], "cost": "about 480 lines", "risk": "medium"},
+      {"id": "C", "summary": "Record options and the choice as v1 conversation proposals and decisions.",
+       "evidence": ["onecrew/conversations.py:167"], "strengths": ["reuses v1"], "weaknesses": ["decide has no option id; the plan would depend on a conversation"],
+       "unknowns": ["can decide carry a choice?"], "cost": "about 300 lines", "risk": "medium"}
+    ]
+  },
+  "preconditions": [
+    {"id": "P1", "check": "repo_exists", "args": {"path": "."}, "why": "the work happens in the right repository, not in a look-alike"},
+    {"id": "P2", "check": "ref_resolves", "args": {"repo": ".", "ref": "claude/v2-l3-step0-feee6f"}, "why": "the slice branch exists"},
+    {"id": "P3", "check": "command_ok",
+     "args": {"argv": ["D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.venv\\Scripts\\python.exe", "-X", "utf8", "-m", "unittest", "tests.test_v2_l1"], "max_minutes": 30},
+     "why": "the base (L1) is green before L3 builds on it"}
+  ],
+  "output": [
+    "plan approve refuses a contract whose step 0 is not done and lists every reason",
+    "unknown close / poc record / precheck / brainstorm table exist",
+    "tests/test_v2_l3 proves each gate"
+  ],
+  "scope": {"owned": ["onecrew/v2/contract.py", "onecrew/v2/plan.py", "onecrew/v2/plan_cli.py", "onecrew/v2/step0.py", "tests/test_v2_l3.py", "tests/test_v2_l1.py", "examples/", "docs/"]},
+  "non_goals": ["hooks, per-item budget, stop conditions (L2)", "independent reviewer (L4)", "report (L5)", "automatic PoC lane"],
+  "items": [
+    {"id": "I1", "title": "schema, step0 module, approve gate and commands", "tier": "must", "milestone": "M1"},
+    {"id": "I2", "title": "tests for each gate and the real run", "tier": "must", "milestone": "M1"},
+    {"id": "S1", "title": "docs/v2-vs-v1 note for step 0", "tier": "should"},
+    {"id": "W1", "title": "automatic PoC lane", "tier": "wont"}
+  ],
+  "milestones": [
+    {
+      "id": "M1",
+      "title": "L3 and L1 unit-test groups are green",
+      "mode": "once",
+      "max_repairs": 1,
+      "covers": ["O1", "O2", "O3"],
+      "verifier": {"type": "command", "config": {"argv": ["D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.venv\\Scripts\\python.exe", "-X", "utf8", "-m", "unittest", "tests.test_v2_l1", "tests.test_v2_l3"], "max_minutes": 15}}
+    }
+  ],
+  "budget": {"max_calls": 60, "time": 300},
+  "attention": {"questions": 1},
+  "stop": {"max_stuck": 3, "max_repairs_total": 8},
+  "profile_version": null
+}

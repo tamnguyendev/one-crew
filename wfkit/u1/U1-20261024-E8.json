@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261024-E8",
+ "file": "tests/test_wf_r03a_run_started.py",
+ "old_sha256": "8b4ad12e44dd2cd8f652846397dfa5fdb661f8542ae129764439c73d656d88a6",
+ "new_sha256": "8e0fef17a0def3de2bf883ee8eb61dc408384a2f23883caf6961afd27bf11fee",
+ "reason": "T41 [E8] allowed-kinds set gains estimate.baseline: W32a (T36b) writes the estimate baseline once at plan.approved, before any run; the test compared every kind in the ledger, so the baseline read as an event of the run. The run itself still writes only the declared kinds. Not a weakening of E8: progress/notice kinds remain forbidden.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 24/10/2026: \"Tôi cấp U1 cho hai sửa đó (estimate.baseline trong E8 của test_wf_r03a_run_started; check.parallel_native installed=false). Hãy ghi U1 theo mẫu kit-guard với lý do, áp dụng và chạy lại gate development.\"",
+ "applied_by": "claude (entry), commit on codex/wf-development",
+ "at": "2026-10-24"
+}

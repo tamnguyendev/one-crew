@@ -1,0 +1,142 @@
+{
+ "kind": "t38a-doc-closure",
+ "round": "R14b",
+ "not_a_gate_decision": true,
+ "note": "Links T38a receipts run after gate 34eb7c4 to that baseline. The gate decision.json and its document-selfcheck.json are historical and unchanged.",
+ "baseline": {
+  "commit": "34eb7c4bb0552626f699a9fbf054e32dba18e036",
+  "version": "2.2.0.dev18",
+  "wheel_sha256": "0346577e4847a1388e1843765edd48a0fcf1e453ca25fdf13342e07323ef9bd2",
+  "gate_out": "D:\\OneCrewRuns\\wf-gates\\wf-snapshot-gate-20261028-34eb7c4",
+  "package": "D:\\OneCrewRuns\\wf-handover-34eb7c4"
+ },
+ "historical_gate": {
+  "decision_sha256": "ef60f602ced9e1a2dbdec54358b708ee260da30cd1630665156b043f0b859628",
+  "decision": "refused",
+  "problem_kinds": {
+   "acceptance-blocked": 10,
+   "acceptance-partial": 13,
+   "document-selfcheck": 1
+  },
+  "document_selfcheck_sha256": "3dcaa14134ad8035143cfceb818011113ad9e8cc9af53f65ba3e44b5fd926f9f",
+  "document_selfcheck": {
+   "at": "2026-10-27T23:53:43Z",
+   "result": "fail",
+   "problems": 1
+  }
+ },
+ "receipts": {
+  "codex": {
+   "path": "D:\\OneCrewRuns\\wf-doc-closure-dev18-20261028\\T38a.json",
+   "sha256": "e1ebaec485a7bf2594c545e2242e8fbc1554290cdea978a91393f0cc09f28316",
+   "at": "2026-10-28T04:35:33Z",
+   "result": "pass",
+   "problems": 0,
+   "counterexamples": {
+    "caught": 155,
+    "total": 155,
+    "controls_ok": 18,
+    "controls_total": 18
+   },
+   "changed_in_doc_dir": [],
+   "run_from": "wf-codex checkout (Codex: HEAD 8515235, clean)"
+  },
+  "claude": {
+   "path": "D:\\OneCrewRuns\\wf-r14b-closure\\T38a-claude-34eb7c4.json",
+   "sha256": "65378964b9f3888ea8b3910d490b93168bc6fc9d2ab77db4200b936a3d4e83d8",
+   "at": "2026-10-28T05:14:06Z",
+   "result": "pass",
+   "problems": 0,
+   "counterexamples": {
+    "caught": 155,
+    "total": 155,
+    "controls_ok": 18,
+    "controls_total": 18
+   },
+   "changed_in_doc_dir": [],
+   "run_from": "clean detached worktree of 34eb7c4bb0552626f699a9fbf054e32dba18e036",
+   "doc_dir_unchanged_during_run": true
+  }
+ },
+ "identity": {
+  "kit_manifest_at_commit_sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+  "gate_receipt": {
+   "block_sha256": "482bf8a38d77ea5b518b8eb87d36583c790950269c495cc324221238fc5e136d",
+   "manifest_sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+   "kit_guard_ok": true,
+   "kit_guard_manifest": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+   "u1": [
+    "U1-20261027-DOCCHECK-OWNERNEG"
+   ],
+   "command": "C:\\Users\\NUC\\AppData\\Local\\Programs\\Python\\Python313\\python.exe -I -X utf8 - < section-7 block 482bf8a38d77ea5b (cwd=D:\\TamNT\\Workspace\\11.OneCrew\\outputs\\onecrew-as-qc\\workflow-chung)"
+  },
+  "codex": {
+   "block_sha256": "482bf8a38d77ea5b518b8eb87d36583c790950269c495cc324221238fc5e136d",
+   "manifest_sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+   "kit_guard_ok": true,
+   "kit_guard_manifest": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+   "u1": [
+    "U1-20261027-DOCCHECK-OWNERNEG"
+   ],
+   "command": "C:\\Users\\NUC\\AppData\\Local\\Programs\\Python\\Python313\\python.exe -I -X utf8 - < section-7 block 482bf8a38d77ea5b (cwd=D:\\TamNT\\Workspace\\11.OneCrew\\outputs\\onecrew-as-qc\\workflow-chung)"
+  },
+  "claude": {
+   "block_sha256": "482bf8a38d77ea5b518b8eb87d36583c790950269c495cc324221238fc5e136d",
+   "manifest_sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+   "kit_guard_ok": true,
+   "kit_guard_manifest": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+   "u1": [
+    "U1-20261027-DOCCHECK-OWNERNEG"
+   ],
+   "command": "C:\\Users\\NUC\\AppData\\Local\\Programs\\Python\\Python313\\python.exe -I -X utf8 - < section-7 block 482bf8a38d77ea5b (cwd=D:\\TamNT\\Workspace\\11.OneCrew\\outputs\\onecrew-as-qc\\workflow-chung)"
+  },
+  "same_kit_block_u1_command": true,
+  "kit_paths_changed_commit_to_head": [],
+  "head": "8515235c3778685df213e56272fbad849407abb7"
+ },
+ "documents": {
+  "changed_since_gate_run": {
+   "../ROADMAP-CLAUDE-HANDOFF.vi.md": [
+    "27d6ef3779211646",
+    "b6e9ff0a32feb184"
+   ]
+  },
+  "codex_equals_claude": true,
+  "codex_equals_disk_now": true,
+  "files": 22
+ },
+ "same_judge": {
+  "how": "wfkit.development_gate.decide at 34eb7c4 on the gate's recorded build/receipts/install/kit-guard; only the document receipt varies",
+  "with_gate_receipt": {
+   "acceptance-blocked": 10,
+   "acceptance-partial": 13,
+   "document-selfcheck": 1
+  },
+  "with_codex_receipt": {
+   "acceptance-blocked": 10,
+   "acceptance-partial": 13
+  },
+  "with_claude_receipt": {
+   "acceptance-blocked": 10,
+   "acceptance-partial": 13
+  }
+ },
+ "gate_rerun_reproduces_wheel": false,
+ "gate_rerun_evidence": "D:\\OneCrewRuns\\wf-r14b-closure\\wheel-rebuild.txt",
+ "linked": true,
+ "gate_rerun": {
+  "what": "tests/wf_wheel.build_wheel run twice from a clean worktree of 34eb7c4, 3 s apart (as every gate run does: it always builds a fresh wheel)",
+  "rebuilt_sha256": [
+   "5c8e054afb3cde67375127ec876d49157e75e06c1f6e0021f5bd2641949666fa",
+   "b08fa5f0a3ee0995d107125b362386a3417f2a438d09e53a06ee4b0f13bf6e0c"
+  ],
+  "delivered_sha256": "0346577e4847a1388e1843765edd48a0fcf1e453ca25fdf13342e07323ef9bd2",
+  "members_same_names_and_bytes_as_delivered": true,
+  "why_different": "zip entries carry the build time (zipfile.writestr with a name stamps time.localtime())",
+  "consequence": "a gate re-run cannot reproduce wheel 0346577e; T38a is linked to the baseline by kit identity instead"
+ },
+ "copies_in_checkout": {
+  "D:\\OneCrewRuns\\wf-doc-closure-dev18-20261028\\T38a.json": "docs/wf/evidence/t38a-dev18/T38a-codex-20261028T043533Z.json",
+  "D:\\OneCrewRuns\\wf-r14b-closure\\T38a-claude-34eb7c4.json": "docs/wf/evidence/t38a-dev18/T38a-claude-34eb7c4-20261028T051406Z.json"
+ }
+}

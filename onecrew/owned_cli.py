@@ -6,6 +6,41 @@ from .ledger import Ledger, LedgerError
 from .owned_intake import submit
 
 
+TRANSIENT_PAUSES=(0.5,1,2,4,8)  # entry start/resume retries after a busy ledger (Codex review 07d7ad6, R3)
+
+
+def _busy(error):
+    import sqlite3
+    return isinstance(error,sqlite3.OperationalError) and any(w in str(error).lower() for w in ('locked','busy'))
+
+
+def _retrying(work):
+    """Run an idempotent entry step again while the ledger is busy, a bounded number of times."""
+    import time
+    for attempt,pause in enumerate((0,)+TRANSIENT_PAUSES):
+        if pause: time.sleep(pause)
+        try: return work()
+        except Exception as error:
+            if not _busy(error): raise
+            if attempt==len(TRANSIENT_PAUSES):
+                raise LedgerError(f'The ledger stayed busy ({error}) through {attempt+1} attempts. Repeating the command is safe: '
+                                  'the host admits at most one runner per task.') from error
+
+
+def _diagnose(ledger,argv,error):
+    """Full evidence of an entry failure (the live WinError 5 of 13/10 left no stack): appended to the state root."""
+    import datetime as dt,sys,traceback
+    try:
+        path=Path(ledger.state_root)/'diagnostics'/'entry-errors.jsonl';path.parent.mkdir(parents=True,exist_ok=True)
+        record={'at':dt.datetime.now(dt.timezone.utc).isoformat(),'argv':list(argv if argv is not None else sys.argv[1:]),
+                'type':type(error).__name__,'error':str(error)[:1000],'winerror':getattr(error,'winerror',None),
+                'filename':getattr(error,'filename',None),'trace':traceback.format_exc()[-6000:]}
+        with path.open('a',encoding='utf-8') as stream: stream.write(json.dumps(record,ensure_ascii=False)+'\n')
+        return str(path)
+    except OSError:
+        return None
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser()
     parser.add_argument('--project',type=Path,default=Path.cwd())
@@ -13,8 +48,9 @@ def main(argv=None):
     group=parser.add_subparsers(dest='group',required=True).add_parser('job')
     commands=group.add_subparsers(dest='command',required=True)
     p=commands.add_parser('submit')
-    p.add_argument('--goal',required=True);p.add_argument('--key',required=True)
-    p.add_argument('--mode',choices=['audit','change','delivery','branch'],default='audit')
+    p.add_argument('--goal');p.add_argument('--key',required=True)
+    p.add_argument('--mode',choices=['audit','change','delivery','branch','work'],default='audit')
+    p.add_argument('--contract',type=Path,help='Work contract JSON (mode work): goal, scope, preserve, acceptance, authority.')
     p.add_argument('--provider',choices=['codex','claude','kiro'])
     p.add_argument('--model')
     p.add_argument('--max-calls',type=int,help='New-job default: 100; explicit value overrides; replay retains original.')
@@ -43,13 +79,19 @@ def main(argv=None):
         if args.command=='submit':
             build=json.loads(args.android_build_config.read_text(encoding='utf-8-sig')) if args.android_build_config else None
             change=json.loads(args.native_change_config.read_text(encoding='utf-8-sig')) if args.native_change_config else None
+            if args.contract:
+                from .work_contract import load
+                contract=load(args.contract)
+            else:contract=None
+            if args.goal is None and contract is None:raise LedgerError('--goal is required (or --contract in mode work).')
             result=submit(ledger,args.goal,args.key,**{k:getattr(args,k) for k in
-                ('mode','provider','model','max_calls','max_seconds','image','branch','remote','solution_id','solution_revision')},android_build=build,native_change=change)
+                ('mode','provider','model','max_calls','max_seconds','image','branch','remote','solution_id','solution_revision')},
+                android_build=build,native_change=change,contract=contract)
             if args.start or args.terminal:
                 from .owned import Owned
                 from .runner import start
-                Owned(ledger).enable(result['id'])
-                result['runner']=start(ledger,result['id'])
+                _retrying(lambda: Owned(ledger).enable(result['id']))
+                result['runner']=_retrying(lambda: start(ledger,result['id']))
         elif args.command=='status':
             result=ledger.task(args.task,full=True)
         else:
@@ -75,17 +117,20 @@ def main(argv=None):
                 runtime.enable(args.task);result=runtime.run(args.task,steps=100)
             else:
                 from .runner import start
-                runtime.enable(args.task)
-                if args.command=='resume': runtime.resume(args.task)
-                result=start(ledger,args.task)
+                _retrying(lambda: runtime.enable(args.task))
+                if args.command=='resume': _retrying(lambda: runtime.resume(args.task))
+                result=_retrying(lambda: start(ledger,args.task))
         if getattr(args,'terminal',False):
             from .monitor import open_terminal
             try: result['terminal']=open_terminal(ledger)
             except (ValueError,OSError) as error:
                 result['terminal']={'status':'unavailable','error':str(error),'runner_unaffected':True}
         print(json.dumps(result,ensure_ascii=False,indent=2));return 0
-    except (ValueError,OSError) as error:
-        print(json.dumps({'error':str(error)},ensure_ascii=False));return 2
+    except Exception as error:
+        import sqlite3
+        if not isinstance(error,(ValueError,OSError,sqlite3.Error)): raise
+        print(json.dumps({'error':str(error),'type':type(error).__name__,'diagnostic':_diagnose(ledger,argv,error)},ensure_ascii=False))
+        return 2
 
 
 def output_card(runtime,task_id,state):

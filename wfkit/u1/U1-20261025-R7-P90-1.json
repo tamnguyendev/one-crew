@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-R7-P90-1",
+ "file": "tests/test_wf_t36b_gaps.py",
+ "old_sha256": "934b9bad768b202e2a7be63c3cd9c7bd331bb3663a23414a1b8df7a305b0df66",
+ "new_sha256": "a2e183a0401d846c77ef496cd5ec3fa1e7bf336dd93d0e30aae0670dd326ec28",
+ "reason": "Round 7 (gate 734acdc R03/check.t36b_gaps FAILED: test_e18 searched the WHOLE rendered page for 'p90' and the heading printed the fixture project path ...\\Temp\\tmp90_k9lpz\\project; evidence D:/OneCrewRuns/wf-dev-logs/evidence-734acdc). The test now checks the estimate block itself (report.forecast_lines, the same lines both renderers print; must contain the estimate and 'chưa hiệu chỉnh') and the page with only heading identifiers masked (project path, title, plan name, request key, task id, revision sha); banned list and percent regex unchanged. New T36bIdentifierPaths: identifiers containing p90/P85 pass; injecting P90/'đã hiệu chỉnh'/'xác suất'/'80% khả năng'/p85 into the estimate or a P90 claim into the risk section is caught. Not a rename of the temp dir, not a rerun. No assertion weakened.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị lượt 7 25/10 'Tiếp tục OneCrew theo cách làm song song... Tôi ủy quyền bạn tự chia task, phân agent/model, chọn phương án kỹ thuật, sửa code/test, tích hợp và đóng gói trong phạm vi đã giao. Không hỏi tôi duyệt từng việc' — cùng phạm vi ủy quyền lượt 5): 'Tôi ủy quyền bạn tự quyết và thực hiện các thay đổi local cần thiết: sửa code, bổ sung test/phản chứng, điều chỉnh cách triển khai, cập nhật hợp đồng/roadmap/bộ kiểm cho nhất quán... Không hỏi tôi duyệt từng task'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 7 integration commit on codex/wf-development (branches wf/r7-a, wf/r7-b, wf/r7-c1, wf/r7-c2)",
+ "at": "2026-10-25"
+}

@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261026-R10-13",
+ "file": "docs/wf/audit/tools/legacy_continuation.py",
+ "old_sha256": "d67f72020254141db5a489b555c70c16e453bd0c52482d38286cb4f3d4e5e0c1",
+ "new_sha256": "80e234ab636a5760781dbcc5c4df682a1e07ceeb559521bf0a2e7e631171edea",
+ "reason": "R10-D: locate_root() tìm root cũ ở cả plan:/plan-ns: (dev8 ghi plan-ns:legacy nên lookup plan:legacy trả None → TypeError); dùng khóa tìm được cho anchor/show/verdict/baseline; bước legacy_root_built ghi request_key, previous_wheel, shape_produced_by. Không đổi điều kiện chứng minh.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 26/10/2026 ~13:30, chỉ thị lượt 10 của Codex (ủy quyền một lần; không hỏi duyệt từng việc). Quyết định kỹ thuật theo ủy quyền.",
+ "applied_by": "claude (entry) + agent D (claude-sonnet), round 10",
+ "at": "2026-10-26"
+}

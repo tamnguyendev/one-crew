@@ -1,6 +1,7 @@
 """Keep existing spec CLI backwards compatible; add autonomous task commands."""
 import sys
 from . import specs
+from .v2.cli import GROUPS, HELP_LINES, route
 
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
@@ -28,6 +29,9 @@ def main(argv=None):
               '  eval       cases / replay / compare / observe / assistance (evidence, no auto-promotion)\n'
               '  skills     list / scan / review / approve / reject (recurring-task evidence)\n'
               '  job        submit / start / run / status / outputs / cancel / resume (runtime-owned goals)\n'
+              '  qc         submit / status (judge a candidate branch built outside OneCrew: scope, fixed gate, independent review)\n'
+              + HELP_LINES +
+              '  host       install / register / start / stop / status / uninstall / run (runs jobs outside chat sessions)\n'
               '  delivery   submit / start / resume / status / cancel (solution-level execution)\n'
               '  core       migrate / status / cancel / reconcile\n'
               '  work       enable / plan / run / start / runner / status / outputs / cancel / pause / resume / switch\n'
@@ -38,7 +42,13 @@ def main(argv=None):
               '  monitor    grouped workers / --verbose / --terminal / --all-projects\n'
               'Use <group> <command> --help for options. Durable commands accept --state-root before group.')
         return 0
+    if len(args)>index and args[index]=='host':
+        from .host import main as host_main
+        return host_main(args[index:])
     if len(args)>index and args[index]=='eval':
+        if args[index:index+2] == ['eval', 'plan-metrics']:
+            from .v2.metrics import main as metrics_main
+            return metrics_main(args)
         from .evaluation import main as eval_main
         return eval_main(args)
     if len(args)>index and args[index]=='desktop':
@@ -68,6 +78,14 @@ def main(argv=None):
     if len(args)>index and args[index]=='job':
         from .owned_cli import main as job_main
         return job_main(args)
+    if len(args)>index and args[index]=='qc':
+        from .qc_cli import main as qc_main
+        return qc_main(args)
+    if len(args)>index and args[index]=='engine':
+        from .common_engine_cli import main as engine_main
+        return engine_main(args)
+    if len(args)>index and args[index] in GROUPS:  # v2 (docs/v2-vs-v1.vi.md); no v1 verb is named plan, verdict or hook
+        return route(args,index)
     if len(args)>index and args[index]=='entry':
         from .entry_cli import main as entry_main
         return entry_main(args)

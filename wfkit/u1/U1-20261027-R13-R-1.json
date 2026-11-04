@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261027-R13-R-1",
+ "file": "tests/test_wf_r10_output_refs.py",
+ "old_sha256": "bfc0c709c2306eef71aaf13565a4e754660b54f180dc99cf87f0edf98e016934",
+ "new_sha256": "1580633d7b36996a576ea210dc94bf897673f644f2b5484406014473878665fa",
+ "reason": "R13 (Codex review 27/10, P1 dotfile references): test_urls_and_host_ports_are_not_references kept its intent (host:port tokens are never counted) but scan() now carries shape-weak tokens such as example.com:443 for check() to decide against the tree; the test filters the weak '~' kinds and additionally asserts through check() that total=0, no offenders, ignored=0. No assertion weakened.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 27/10/2026 ~15:45, chỉ thị lượt 13 của Codex (dán nguyên văn): \"Tôi ủy quyền bạn tự quyết cách sửa, chia agent, chạy test, xử lý lỗi phát sinh trong phạm vi, commit local và dựng gói. Không hỏi tôi duyệt từng việc.\" Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry) + agents V2/R2/D2 (round 13), integration commit on codex/wf-development",
+ "at": "2026-10-27"
+}

@@ -4,15 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .control import CapacityWait
 from .ledger import LedgerError, content_hash, canonical
 from .supervisor import Supervisor
-
-
-def ready_batch(state):
-    ready = [r for r in state['plan']['tasks'] if r['id'] not in state['done'] and r['id'] not in state.get('branch_errors', {}) and set(r['depends_on']) <= set(state['done'])]
-    if len(ready) < 2:
-        return ready[:1]
-    first = ready[0]
-    second = next((r for r in ready[1:] if not set(r['owned']) & set(first['owned'])), None)
-    return [first, second] if second else [first]
+from .dependency_core import ready_batch  # one source, shared with the common workflow adapter
 
 
 def round(workflow, task_id, sequence, state, ready, common, profile):

@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-RC-VALIDATOR",
+ "file": "wfkit/release_check.py",
+ "old_sha256": "69cf17b5c6041178e53316217b97cb3f27cc627f5e34cbd80d117a6956f3df13",
+ "new_sha256": "26fb65deab4c1f8f3d55fb69a377d31dfae9ed0d588bde6a86179a88578d71a2",
+ "reason": "Review a2476ab P1 (T54.1 import-only, T54.3 incomplete events): T54.1 now requires installed BEHAVIOUR scenarios (assertions all passed, declared event kinds really written, clean module boundary, venv interpreter, every inventory task proven) and refuses import-only probes; T54.3 compares the OBSERVED kinds against the validator's own inventory wfkit/release_events.json, needs a classified sample per kind and an old-binary S/G/C comparison per class-A kind, and a declared reason + passing regression scenarios for releases without new kinds. STRICTER only: every former refusal is kept. Evidence: tests.test_wf_release_check 17/17 (incl. new counter-examples), tests.test_wf_t55_cases 44/44, tests.test_wf_finalgate; R01 bundle under the new rules passes T54.1-T54.5 (%TEMP%/wf-bundle-smoke2-R01-012003).",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị sau review Codex a2476ab): 'Tôi ủy quyền bạn tự quyết các sửa đổi kỹ thuật cần thiết... Sửa code, adapter, CLI, validator, harness, test và fixture... Nếu cần bản ghi U1/lineage, tự xử lý đúng cơ chế và ghi \"quyết định theo ủy quyền\", không giả owner trực tiếp duyệt.' Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 2 commit on codex/wf-development",
+ "at": "2026-10-25"
+}

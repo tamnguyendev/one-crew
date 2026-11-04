@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261027-R12-D-1",
+ "file": "tests/test_wf_package_check.py",
+ "old_sha256": "d1e3e16bdf9c1d09929590a2d8009a2df9fd13b44d8612b3b8743a3dd5dd6172",
+ "new_sha256": "d0c20cb2d7d7eb3317f95803c75878dd0f988dec5534969ca429f784af13473e",
+ "reason": "R12 (Codex review 27/10, P2-D + item 7): fixture receipts now carry wheel_sha256 (and wheel_used) because every receipt must name commit AND wheel; the old receipt-commit test adapted to the new refusal text; decision counts in the r11 build fixture 2/2 so the registry x decision required set matches; test_build_package_no_longer_hard_codes_the_inputs_sentence rewritten as a behaviour test on a built package (README Bundle T54 line == release_check.inputs_sentence(produced results), refused bundle listed but not counted). No test weakened.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 27/10/2026 ~03:45, chỉ thị lượt 12 của Codex (dán nguyên văn): \"Tôi ủy quyền tự chia task, chọn cách sửa, bổ sung test, chạy agent phù hợp, xử lý lỗi phát sinh trong phạm vi, commit local, dựng và kiểm gói. Không hỏi tôi duyệt từng file, task, test hoặc commit.\" Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry) + agents V/R/D/P (round 12), integration commit on codex/wf-development",
+ "at": "2026-10-27"
+}

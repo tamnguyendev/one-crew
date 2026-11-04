@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261027-R11-2",
+ "file": "tests/test_wf_package_check.py",
+ "old_sha256": "4c0724d69efd5791c7a2194d9316cd55f9e0b95617d6643b5e34ebce82f2f76b",
+ "new_sha256": "d1e3e16bdf9c1d09929590a2d8009a2df9fd13b44d8612b3b8743a3dd5dd6172",
+ "reason": "R11 (Codex review 26/10 findings A/B/D): test_wf_r10_output_refs test_d/test_d2 re-aimed at the R11 rule (required output missing / required output empty without the artifact declaring it) — still assert fail; test_wf_package_check adds PackageIdentityStepTests + PreviousWheelIsWhatItClaimsTests; test_wf_package_verifier_shipped test_4 passes a consistent --audit because the builder now refuses an audit of another commit. No test weakened.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 26/10/2026 ~19:40, chỉ thị lượt 11 của Codex (dán nguyên văn): \"Tôi ủy quyền tự chia task, chọn cách sửa, chạy agent phù hợp, bổ sung test, xử lý lỗi, commit local và dựng/kiểm gói trong phạm vi dưới đây. Không hỏi tôi duyệt từng file, task, test hoặc commit.\" Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry) + agents V/D (round 11), integration commit on codex/wf-development",
+ "at": "2026-10-27"
+}

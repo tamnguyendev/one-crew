@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-R7-TIER1-1",
+ "file": "tests/test_wf_pilot_tools.py",
+ "old_sha256": "2bc2da0c468c63ee6ff2ff59817d003d0ea9d88f391c3dac9b2a1c08e7356d9b",
+ "new_sha256": "cffda7babb982f0da11490895af3e43fe003d5cf027671b17dccd270067e689d",
+ "reason": "Round 7 (Codex P2 on 734acdc: the tier-1 composite comparison took computed_from as the jobs having every part but summed pilot_count over ALL jobs and used min k as denominator — deleting J3's amend_authoring_error still counted J3's amend_requirement_change, 1/9; the checker repeated the same formula). Rule: a composite is counted only over the jobs that have a value for every part (numerator, denominator and computed_from from ONE job set; a job missing any part is excluded and listed per part under `missing`; a real 0 counts; fewer than 10 jobs => 'so sánh một phần', never a full baseline comparison). The checker rebuilds the job set and sums from the parts' per-job cells and verifies every new field and the rendered line. Tests with hand-computed literals: tests.test_wf_pilot_tier1 (10; red on 734acdc: (1, 9, 0.111) != (0, 9, 0.0), (9, 9, 1.0) != (4, 7, 0.571), 'pass' != 'refused') and the AggregateGeneratorTests sub-case on the real generator; fixture helpers in test_wf_pilot_report produce the new report shape and the E29 link line — no existing assertion changed.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị lượt 7 25/10 'Tiếp tục OneCrew theo cách làm song song... Tôi ủy quyền bạn tự chia task, phân agent/model, chọn phương án kỹ thuật, sửa code/test, tích hợp và đóng gói trong phạm vi đã giao. Không hỏi tôi duyệt từng việc' — cùng phạm vi ủy quyền lượt 5): 'Tôi ủy quyền bạn tự quyết và thực hiện các thay đổi local cần thiết: sửa code, bổ sung test/phản chứng, điều chỉnh cách triển khai, cập nhật hợp đồng/roadmap/bộ kiểm cho nhất quán... Không hỏi tôi duyệt từng task'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 7 integration commit on codex/wf-development (branches wf/r7-a, wf/r7-b, wf/r7-c1, wf/r7-c2)",
+ "at": "2026-10-25"
+}

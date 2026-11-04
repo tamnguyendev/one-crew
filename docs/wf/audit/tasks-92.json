@@ -1,0 +1,4135 @@
+{
+ "source_04_sha256_12": "c1d8f8ae40cd",
+ "count": 92,
+ "tasks": [
+  {
+   "id": "WK0",
+   "release": "R00",
+   "survey": false,
+   "gap": "G01, G05",
+   "outcome": "Làm trong bước trình, trước khi duyệt (03 §6). Khung kit của chương trình: kit-guard (manifest sha256, chỉ thêm sau khi đóng băng, provenance; làm yếu thì từ chối trừ khi có bản ghi U1); bộ tự kiểm tài liệu (06 §7) thành lệnh kit (T38a); kiểm T39 (đếm yêu cầu gửi chủ sở hữu từ sổ và nhật ký)",
+   "reuse": "Mẫu `kit-manifest-r8.json`, kiểm manifest của `g4_m1_r8.py`, `handover_check.py`",
+   "edit_scope": "`verify-kit\\wf\\`",
+   "depends": "—",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T38a": "DoD",
+    "T39": "DoD"
+   },
+   "registry": {
+    "T38a": [
+     {
+      "release": "R00",
+      "status": "R00-gate",
+      "checks": [],
+      "gaps": []
+     }
+    ],
+    "T39": [
+     {
+      "release": "R01",
+      "status": "complete",
+      "checks": [
+       "check.program_transition"
+      ],
+      "gaps": []
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Kit-guard cho qua một lần sửa làm yếu kỳ vọng",
+   "grep_hits": [
+    "onecrew/v2/boundary.py:16",
+    "tests/test_wf_kit.py:1",
+    "tests/test_wf_program_transition.py:1",
+    "wfkit/doccheck.py:1",
+    "wfkit/kitguard.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "WK00",
+   "release": "R00",
+   "survey": false,
+   "gap": "G07, G10, G01",
+   "outcome": "Bộ kiểm R00: T09a, T13a, T13b, T20, T33a, T45a, T48a, T49a, T49b",
+   "reuse": "mẫu kit, `g1_check` (wheel trong venv sạch)",
+   "edit_scope": "`verify-kit\\wf\\r00_check.py`",
+   "depends": "WK0",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {},
+   "registry": {},
+   "stop": "vượt 50 phút một lệnh → tách phần tích hợp nặng thành lệnh riêng của cùng release",
+   "not_done_when": "Phần `năng lực mới` hay `sửa lỗi` không có phản chứng",
+   "grep_hits": [
+    "tests/test_wf_kit.py:1",
+    "wfkit/gate.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W03",
+   "release": "R00",
+   "survey": false,
+   "gap": "G01",
+   "outcome": "Bản ghi quyết định (chủ thể thật, căn cứ, bằng chứng, phạm vi, hiệu lực); `interventions` vào wheel; từ chối `by=owner` trong phiên AI",
+   "reuse": "TD26, TD01, `v2/ownership.py`",
+   "edit_scope": "`onecrew/v2/` (module quyết định mới, nhỏ), `pyproject.toml`",
+   "depends": "WK00",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {
+    "T20": "DoD",
+    "T16a": "kiểm chung"
+   },
+   "registry": {
+    "T20": [
+     {
+      "release": "R00",
+      "status": "R00-gate",
+      "checks": [
+       "tests.test_wf_decisions"
+      ],
+      "gaps": []
+     }
+    ],
+    "T16a": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.r04a_authority",
+       "check.engine"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Còn đường ghi quyết định AI mang danh owner",
+   "grep_hits": [
+    "onecrew/interventions.py:13",
+    "onecrew/interventions.py:101",
+    "onecrew/v2/cards.py:12",
+    "onecrew/v2/compat.py:36",
+    "onecrew/v2/decisions.py:1",
+    "onecrew/v2/review_policy.py:1",
+    "onecrew/v2/review_policy.py:64",
+    "tests/test_interventions.py:35",
+    "tests/test_wf_decisions.py:1",
+    "tests/test_wf_decisions.py:111",
+    "tests/test_wf_program_transition.py:127",
+    "tests/test_wf_r01_card.py:5"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W11a",
+   "release": "R00",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Sổ loại sự kiện trên anchor bản cũ thấy (00 §6.1): chỉ ghi lớp 0 (giữ mọi trường cũ, cùng kiểu) hay lớp A lên anchor `plan:`, không dùng `KINDS` của `derive()` làm danh sách cho phép; bộ so bản cũ (S, G, C, H, V) để T35a, T41b, T52 và mọi T54 dùng lại. Không crash không có nghĩa là đọc đúng",
+   "reuse": "TD03",
+   "edit_scope": "`onecrew/v2/plan.py`, `contract.py`, bộ so trong kit",
+   "depends": "WK00",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {
+    "T13a": "DoD"
+   },
+   "registry": {
+    "T13a": [
+     {
+      "release": "R00",
+      "status": "R00-gate",
+      "checks": [
+       "tests.test_wf_events"
+      ],
+      "gaps": []
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Sự kiện lớp B hay payload lớp 0 đổi dạng trên anchor `plan:`",
+   "grep_hits": [
+    "onecrew/v2/compat.py:1",
+    "onecrew/v2/plan.py:43",
+    "tests/test_wf_events.py:1",
+    "tests/wf_oldversion.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W12a",
+   "release": "R00",
+   "survey": false,
+   "gap": "G10, G01",
+   "outcome": "Kiểm tên plan trước khi ghi (từ chối `:`, ký tự đường dẫn, dạng ổ đĩa, đường dẫn tuyệt đối) ở mọi đường tạo; hai project cùng state root mà trùng tên plan thì lệnh tạo thứ hai từ chối và nêu project kia, không ghi gì (thay vì va nhau). Không đổi đường dẫn lưu; hỗ trợ trùng tên đầy đủ ở W12b (R04)",
+   "reuse": "TD17, TD03",
+   "edit_scope": "`onecrew/v2/contract.py`, `plan.py`",
+   "depends": "WK00",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {
+    "T48a": "DoD"
+   },
+   "registry": {
+    "T48a": [
+     {
+      "release": "R00",
+      "status": "R00-gate",
+      "checks": [
+       "tests.test_wf_plan_names"
+      ],
+      "gaps": []
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Một tên thử ghi ra ngoài state root; hai project trùng tên ghi chung một thư mục",
+   "grep_hits": [
+    "onecrew/v2/plan.py:270",
+    "onecrew/v2/plan.py:299",
+    "onecrew/v2/plan.py:319",
+    "tests/test_wf_plan_names.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W46a",
+   "release": "R00",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Lệnh chỉ đọc `compat scan` trong wheel: mỗi root anchor `plan:` có ba tính chất (giữ nguyên, bản cũ đọc được, bản cũ tiếp tục được), trạng thái theo luật bản cũ, loại sự kiện theo lớp, và điều kiện chặn tách hai loại: chặn đọc (B4: lịch sử bản cũ không đọc được, kể cả root `accepted`) và chặn tiếp tục (B2); dự đoán cho từng lệnh của bản cũ theo bảng lệnh của T49. Bản cũ là bản rollback, không sửa, không wrapper; chạy từ venv song song; không sửa sổ, không xoá lịch sử",
+   "reuse": "TD03 (reader của v2)",
+   "edit_scope": "`onecrew/v2/` (lệnh chỉ đọc mới)",
+   "depends": "W11a, WK00",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T49a": "DoD"
+   },
+   "registry": {
+    "T49a": [
+     {
+      "release": "R00",
+      "status": "R00-gate",
+      "checks": [
+       "tests.test_wf_compat_scan"
+      ],
+      "gaps": []
+     }
+    ]
+   },
+   "stop": "vượt trần → tách: ba tính chất và lớp; điều kiện chặn",
+   "not_done_when": "Báo \"đọc thành công\" cho root mà bản cũ không đọc được; coi `accepted` hay tạm dừng là đã giải phóng điều kiện chặn đọc; ghi vào sổ",
+   "grep_hits": [
+    "onecrew/v2/compat_cli.py:1",
+    "onecrew/v2/compat_scan.py:1",
+    "tests/test_wf_compat_scan.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W27a",
+   "release": "R00",
+   "survey": false,
+   "gap": "G07",
+   "outcome": "Lỗi provider của cố vấn có kiểu (không dùng được, quá giờ, sai schema): verdict `inconclusive` kèm lý do, không còn thành `advice_missing` chặn duyệt (`v2:step0.py:265-270`); không đổi provider đã pin",
+   "reuse": "TD19, TD21",
+   "edit_scope": "`onecrew/v2/step0.py`, `verifiers/`",
+   "depends": "WK00",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {
+    "T09a": "DoD"
+   },
+   "registry": {
+    "T09a": [
+     {
+      "release": "R00",
+      "status": "R00-gate",
+      "checks": [
+       "tests.test_wf_advisor_errors"
+      ],
+      "gaps": []
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Lỗi provider làm người dùng phải chạy thêm một vòng duyệt",
+   "grep_hits": [
+    "onecrew/v2/step0.py:282",
+    "onecrew/v2/verifiers/advisor.py:151",
+    "onecrew/v2/verifiers/advisor.py:166",
+    "onecrew/v2/verifiers/advisor.py:169",
+    "onecrew/v2/verifiers/advisor.py:184",
+    "tests/test_wf_advisor_errors.py:1",
+    "tests/test_wf_decisions.py:59",
+    "tests/test_wf_decisions.py:76",
+    "tests/test_wf_decisions.py:85",
+    "tests/test_wf_decisions.py:95"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W40",
+   "release": "R00",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Khung đóng gói và kiểm bản cài, dùng lại cho mọi release: module cần thiết vào wheel (hoặc tách module mới để tránh `V1_ONLY`); kịch bản của R00 chạy bằng lệnh của bản cài đặt; kiểm ranh giới module lúc chạy (T33a): tên theo `shipped()` của `test_g1_core` (gồm package cha) và `RECORD`, mốc stdlib suy từ interpreter, không miễn module nạp lúc khởi động",
+   "reuse": "TD18, TD22, TD26, TD27; `tests/test_g1_core.py`",
+   "edit_scope": "`pyproject.toml`, module tách, kịch bản trong kit",
+   "depends": "W03, W11a, W12a, W46a, W27a, WK00",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T33a": "DoD"
+   },
+   "registry": {
+    "T33a": [
+     {
+      "release": "R00",
+      "status": "R00-gate",
+      "checks": [
+       "tests.test_wf_packaging"
+      ],
+      "gaps": []
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Kịch bản chỉ chạy từ checkout; báo nhầm package cha hay extension chuẩn ngoài `Lib`",
+   "grep_hits": [
+    "onecrew/v2/boundary.py:1",
+    "tests/test_wf_decisions.py:5",
+    "tests/test_wf_packaging.py:1",
+    "tests/wf_wheel.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W41",
+   "release": "R00",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Khung diễn tập nâng cấp, rollback và roll-forward trên bản sao sổ, dùng lại cho mọi release; ở R00 là 2.1 → 2.2.x. `compat scan` (W46a) chạy từ venv song song; kịch bản rollback từ chối khi còn bất kỳ điều kiện chặn nào (đọc hay tiếp tục) và chỉ chạy khi lần scan cuối báo 0; nhánh từ chối và nhánh thành công tách riêng (T49b)",
+   "reuse": "TD03",
+   "edit_scope": "kịch bản trong bộ kiểm",
+   "depends": "W40, W46a",
+   "estimate": "1–2 h / 2 h",
+   "testcases": {
+    "T13b": "DoD",
+    "T49b": "DoD"
+   },
+   "registry": {
+    "T13b": [
+     {
+      "release": "R00",
+      "status": "R00-gate",
+      "checks": [
+       "tests.test_wf_rollback"
+      ],
+      "gaps": []
+     }
+    ],
+    "T49b": [
+     {
+      "release": "R00",
+      "status": "R00-gate",
+      "checks": [
+       "tests.test_wf_rollback"
+      ],
+      "gaps": []
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Đụng tới sổ thật; rollback khi còn điều kiện chặn hay dựa vào lần scan cũ",
+   "grep_hits": [
+    "tests/test_wf_rollback.py:1",
+    "tests/wf_rollback.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "WK01",
+   "release": "R01",
+   "survey": false,
+   "gap": "G02, G11",
+   "outcome": "Bộ kiểm R01: T24a, T27, T33b, T38b, T42, T50a, T50b, T54a",
+   "reuse": "mẫu kit",
+   "edit_scope": "`verify-kit\\wf\\r01_check.py`",
+   "depends": "WK0",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {},
+   "registry": {},
+   "stop": "mặc định",
+   "not_done_when": "Phần `năng lực mới` không có phản chứng",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W47",
+   "release": "R01",
+   "survey": false,
+   "gap": "G02",
+   "outcome": "Đề xuất vừa đủ ở bước 0: một phương án ưu tiên, kết quả trước–sau, căn cứ chọn phương án ít tác động mà đủ đạt; mỗi thay đổi nối với một acceptance, ràng buộc hay dependency; cải thiện tùy chọn vào backlog; luật ngữ nghĩa phá hủy (xóa vĩnh viễn không thành ẩn; ẩn menu không đủ khi URL còn dùng được), dựa trên khai báo bắt buộc của đề xuất: loại thay đổi (xóa, ẩn, sửa) và đường vào (menu, URL, API); việc rõ trong quyền thì làm, không sinh duyệt mới",
+   "reuse": "TD03 (`step0`: provenance, `options`, unknowns), TD08 (acceptance, `preserve` của `work_contract`), `solution_gate`",
+   "edit_scope": "`onecrew/v2/step0.py`, `contract.py`",
+   "depends": "WK01, W27a",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T50a": "DoD"
+   },
+   "registry": {
+    "T50a": [
+     {
+      "release": "R01",
+      "status": "partial",
+      "checks": [
+       "check.r01_step0_proposal",
+       "check.r01_step0_compat"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "vượt trần → tách: nối thay đổi–acceptance; luật ngữ nghĩa phá hủy",
+   "not_done_when": "Đề xuất bỏ một acceptance mà vẫn ghi đủ đạt; có thay đổi không nối với acceptance nào mà không vào backlog",
+   "grep_hits": [
+    "onecrew/v2/compat.py:37",
+    "onecrew/v2/plan.py:400",
+    "onecrew/v2/plan_cli.py:71",
+    "onecrew/v2/proposal.py:1",
+    "onecrew/v2/step0.py:329",
+    "onecrew/v2/step0.py:405",
+    "tests/test_wf_r01_step0_compat.py:4",
+    "tests/test_wf_r01_step0_proposal.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W23a",
+   "release": "R01",
+   "survey": false,
+   "gap": "G11",
+   "outcome": "Báo cáo bàn giao theo acceptance (HD-31) và `plan present` tối giản (P1.2): một trang sinh từ sổ, không gọi model (yêu cầu, kết quả bàn giao, rủi ro, cách nghiệm thu, bằng chứng còn thiếu); khi có revision chờ duyệt thì nêu phần đổi so với bản đã duyệt và lý do amend; đọc được plan cũ; khớp view chính thức (`plan show`). Finding còn mở trong bàn giao ở W23d (R05); dòng trạng thái và ETA ở W32a (R03)",
+   "reuse": "TD05",
+   "edit_scope": "`onecrew/v2/report.py`",
+   "depends": "WK01",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T42": "DoD",
+    "T24a": "DoD",
+    "T38b": "DoD"
+   },
+   "registry": {
+    "T42": [
+     {
+      "release": "R01",
+      "status": "partial",
+      "checks": [
+       "check.r01_report"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T24a": [
+     {
+      "release": "R01",
+      "status": "partial",
+      "checks": [
+       "check.r01_report"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T38b": [
+     {
+      "release": "R01",
+      "status": "partial",
+      "checks": [
+       "check.r01_report"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Báo cáo ghi \"đạt\" cho acceptance thiếu evidence; trang không khớp `plan show`",
+   "grep_hits": [
+    "onecrew/v2/report.py:495",
+    "tests/test_wf_r01_report.py:1",
+    "tests/test_wf_r02_resume.py:132"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W30a",
+   "release": "R01",
+   "survey": false,
+   "gap": "G02",
+   "outcome": "Một schema thẻ quyết định (REQ/CREQ/`decisions`): vấn đề, lựa chọn, đề xuất, bằng chứng, phạm vi, mốc phải quyết; bước 0 chỉ trình lựa chọn quan trọng và gộp vào một thẻ; lựa chọn kỹ thuật trong quyền ghi bản ghi HD-05 (W03)",
+   "reuse": "TD01, TD17, TD19",
+   "edit_scope": "`ledger.py` (registry kiểu), `v2/step0.py`",
+   "depends": "WK01, W03",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {
+    "T50b": "DoD"
+   },
+   "registry": {
+    "T50b": [
+     {
+      "release": "R01",
+      "status": "partial",
+      "checks": [
+       "check.r01_card"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Hai thẻ rời cho cùng một quyết định",
+   "grep_hits": [
+    "onecrew/v2/cards.py:1",
+    "onecrew/v2/plan_cli.py:67",
+    "onecrew/v2/step0.py:436",
+    "tests/test_wf_r01_card.py:1",
+    "tests/test_wf_r01_step0_compat.py:5"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W31a",
+   "release": "R01",
+   "survey": false,
+   "gap": "G02, G08",
+   "outcome": "Khảo sát/PoC ở bước 0 có trần, điều kiện kết thúc, phạm vi chỉ đọc; unknown ghi `affected`, `required_by` ngay khi đề xuất",
+   "reuse": "TD03 (`step0` unknown, PoC)",
+   "edit_scope": "`onecrew/v2/step0.py`, `contract.py`",
+   "depends": "WK01",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {
+    "T27": "DoD"
+   },
+   "registry": {
+    "T27": [
+     {
+      "release": "R01",
+      "status": "partial",
+      "checks": [
+       "check.r01_step0_survey",
+       "check.survey_worker"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Khảo sát không có trần hay điều kiện kết thúc",
+   "grep_hits": [
+    "onecrew/v2/survey.py:1",
+    "tests/test_wf_r01_step0_survey.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W40-R01",
+   "release": "R01",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Phát hành R01: module mới vào wheel, kịch bản R01 chạy từ bản cài với kiểm ranh giới module của T33a; diễn tập nâng cấp R00 → R01 và rollback trên bản sao sổ bằng W41; diễn tập đầu-cuối một root code trên bản cài, sổ tạm, dữ liệu giả (thay P-0 cũ); ghi chú phát hành, giới hạn, cách quay lại",
+   "reuse": "W40, W41",
+   "edit_scope": "kịch bản trong kit",
+   "depends": "W47, W23a, W30a, W31a, W40, W41",
+   "estimate": "1–2 h / 2 h",
+   "testcases": {
+    "T54a": "DoD",
+    "T33b": "DoD"
+   },
+   "registry": {
+    "T54a": [
+     {
+      "release": "R01",
+      "status": "partial",
+      "checks": [
+       "check.upgrade_drill",
+       "check.installed_features"
+      ],
+      "gaps": [
+       "release-evidence"
+      ]
+     }
+    ],
+    "T33b": [
+     {
+      "release": "R01",
+      "status": "partial",
+      "checks": [
+       "check.installed_features"
+      ],
+      "gaps": [
+       "release-evidence"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Kịch bản chỉ chạy từ checkout; diễn tập không chạy lại scan",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "WK02",
+   "release": "R02",
+   "survey": false,
+   "gap": "G11",
+   "outcome": "Bộ kiểm R02: T35a, T46a, T51a, T51b, T54b",
+   "reuse": "mẫu kit",
+   "edit_scope": "`verify-kit\\wf\\r02_check.py`",
+   "depends": "WK0",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {},
+   "registry": {},
+   "stop": "mặc định",
+   "not_done_when": "Phần `năng lực mới` không có phản chứng",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W23b",
+   "release": "R02",
+   "survey": false,
+   "gap": "G11",
+   "outcome": "Ghi outcome (A1, cùng định dạng `learning.outcome`) cho mọi kết cục, can thiệp (A4, `control.intervention` qua `interventions.record`), gói tiếp tục chỉ đọc (A5). `learning.outcome` và `control.intervention` là lớp A của sổ loại sự kiện: chứng minh với bản cũ và với consumer v1 trên cùng sổ là DoD của task này (T35a). Số đo hiệu quả ở W23c (R03); lesson ở W49b (R06)",
+   "reuse": "TD22, TD26",
+   "edit_scope": "module ghi outcome, CLI gói tiếp tục",
+   "depends": "W03, W11a, WK02",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T35a": "DoD",
+    "T46a": "DoD"
+   },
+   "registry": {
+    "T35a": [
+     {
+      "release": "R02",
+      "status": "partial",
+      "checks": [
+       "check.r02_outcome"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T46a": [
+     {
+      "release": "R02",
+      "status": "partial",
+      "checks": [
+       "check.r02_resume"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Outcome của root v2 làm consumer v1 lỗi hay đổi kết quả của task v1; gói tiếp tục ghi vào sổ",
+   "grep_hits": [
+    "onecrew/v2/evidence_cli.py:1",
+    "onecrew/v2/outcome.py:1",
+    "onecrew/v2/resume_pack.py:1",
+    "tests/test_wf_r02_outcome.py:1",
+    "tests/test_wf_r02_outcome.py:32",
+    "tests/test_wf_r02_outcome.py:319",
+    "tests/test_wf_r02_outcome.py:360",
+    "tests/test_wf_r02_outcome.py:361",
+    "tests/test_wf_r02_outcome.py:366",
+    "tests/test_wf_r02_resume.py:1",
+    "tests/wf_r02.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W48a",
+   "release": "R02",
+   "survey": false,
+   "gap": "G11, G04",
+   "outcome": "Ngữ cảnh ghi trong lúc làm bằng sự kiện `context.entry` (lớp A) trên anchor, không thêm bảng hay đổi version schema của sổ (`ledger.py:183`): mỗi mục có nguồn (file:dòng@revision, symbol, biên nhận, ID sự kiện), nhãn tin cậy (quan sát / giả thuyết / đã xác minh / stale / bác bỏ), cập nhật khi có thay đổi đáng kể (quyết định, symbol đã xác minh, giả thuyết bị bác bỏ, task xong), khử trùng; root, revision, artifact, việc còn lại. Thu bằng mã, không gọi model sau mỗi thao tác",
+   "reuse": "TD02 (packet có hash, `native_review_context`), TD22 (định dạng và cách ly project của `learning`; stale của v1 dựa vào `workflow.checkpoint` của runner, `learning.py:91-93`, nên stale theo revision và symbol là phần mới)",
+   "edit_scope": "module ngữ cảnh trong wheel",
+   "depends": "W23b, WK02",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T51a": "DoD"
+   },
+   "registry": {
+    "T51a": [
+     {
+      "release": "R02",
+      "status": "partial",
+      "checks": [
+       "check.r02_context"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Mục ngữ cảnh không có nguồn; ghi lại sau mỗi lệnh dù không có thay đổi đáng kể",
+   "grep_hits": [
+    "onecrew/v2/context.py:1",
+    "onecrew/v2/context.py:7",
+    "onecrew/v2/context.py:35",
+    "tests/test_wf_r02_context.py:1",
+    "tests/wf_r02.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W48b",
+   "release": "R02",
+   "survey": false,
+   "gap": "G11",
+   "outcome": "Truy xuất ngữ cảnh hai phạm vi bằng một cơ chế: project (dữ kiện riêng) và chung (nội dung đã khái quát, có điều kiện và nguồn); không tự chuyển dữ liệu riêng sang chung; khi truy xuất kiểm revision và symbol, lệch thì \"stale\"; nội dung nhớ là dữ liệu, không phải lệnh hay quyền, không ghi đè hợp đồng; phiên sau tiếp tục đúng từ gói",
+   "reuse": "TD22 (`learning` reader: cách ly project; stale theo revision và symbol là phần mới), TD02",
+   "edit_scope": "module ngữ cảnh trong wheel",
+   "depends": "W48a, WK02",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T51b": "DoD"
+   },
+   "registry": {
+    "T51b": [
+     {
+      "release": "R02",
+      "status": "partial",
+      "checks": [
+       "check.r02_retrieval",
+       "check.r02_boundaries"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Một mục của project khác xuất hiện trong truy xuất; nội dung nhớ đổi được quyền, scope hay acceptance",
+   "grep_hits": [
+    "onecrew/v2/context.py:1",
+    "onecrew/v2/context.py:11",
+    "tests/test_wf_r02_context.py:1",
+    "tests/test_wf_r02_retrieval.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W40-R02",
+   "release": "R02",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Phát hành R02: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R02; lớp A mới (`learning.outcome`, `control.intervention`) được chứng minh trên bản cài với bản cũ là R00",
+   "reuse": "W40, W41",
+   "edit_scope": "kịch bản trong kit",
+   "depends": "W23b, W48a, W48b, W40, W41",
+   "estimate": "1–2 h / 2 h",
+   "testcases": {
+    "T54b": "DoD"
+   },
+   "registry": {
+    "T54b": [
+     {
+      "release": "R02",
+      "status": "partial",
+      "checks": [
+       "check.upgrade_drill",
+       "check.installed_features"
+      ],
+      "gaps": [
+       "release-evidence"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Diễn tập dùng sổ thật",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "WK03",
+   "release": "R03",
+   "survey": false,
+   "gap": "G03, G08, G09, G11",
+   "outcome": "Bộ kiểm R03: T12, T15b, T35d, T36b, T41a, T41b, T43a, T43b, T43c, T47a, T54c",
+   "reuse": "mẫu kit",
+   "edit_scope": "`verify-kit\\wf\\r03_check.py`",
+   "depends": "WK0",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {},
+   "registry": {},
+   "stop": "mặc định",
+   "not_done_when": "Có ca gọi model thật",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W44",
+   "release": "R03",
+   "survey": false,
+   "gap": "G03, G09",
+   "outcome": "`verdict.run_started` (P1.1): ghi sự kiện bắt đầu chạy khi `verdict run` bắt đầu; Stop hook coi mốc đang chạy là đang chạy; thiết kế và kiểm đủ bốn kết cục hoàn thành / lỗi / quá giờ (bằng `verdict.receipt_issued`, `verdict.recorded` sẵn có) / tiến trình chết (`verdict.run_abandoned`, không tính vào `max_repairs`); một lần chạy mất dấu không treo trạng thái \"đang kiểm\" mãi; hai loại mới là lớp A của sổ loại sự kiện (T41b); không theo dõi tiến độ từng phần, không thông báo tiến độ. Không cần interface executor (W33b)",
+   "reuse": "TD04 (`verifiers/command.py`), TD05 (`hook_cli.py`)",
+   "edit_scope": "`onecrew/v2/verdict.py`, `hook_cli.py` (Stop)",
+   "depends": "WK03, W11a",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T41a": "DoD",
+    "T41b": "DoD"
+   },
+   "registry": {
+    "T41a": [
+     {
+      "release": "R03",
+      "status": "partial",
+      "checks": [
+       "check.r03a_run_started"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T41b": [
+     {
+      "release": "R03",
+      "status": "partial",
+      "checks": [
+       "check.r03a_run_started"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Một lần chạy bị giết để lại \"đang kiểm\"; Stop hook còn nhắc khi mốc đang chạy; lần chạy bỏ dở làm bản cũ đổi trạng thái hay số lần sửa",
+   "grep_hits": [
+    "onecrew/v2/verdict.py:335",
+    "tests/test_wf_r03a_run_started.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W33a",
+   "release": "R03",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Quan sát có nguồn: adapter khai capability (bắt đầu, dừng, pause tại điểm an toàn, cô lập, đo, recovery); ghi start/end/wait theo attempt, nguồn thời gian và thời điểm nhận; thiếu dữ liệu là unknown; phiên ngoài chỉ báo từ biên nhận, tool hay hook có thật, không suy số call, suy luận nội bộ hay trạng thái treo; không hứa pause",
+   "reuse": "TD11, TD05",
+   "edit_scope": "interface trong wheel; adapter hook",
+   "depends": "WK03",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {
+    "T15b": "DoD"
+   },
+   "registry": {
+    "T15b": [
+     {
+      "release": "R03",
+      "status": "partial",
+      "checks": [
+       "check.r03a_executors",
+       "check.observation_integration",
+       "check.shared_worker_ports"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Báo \"đã pause\" hay số call cho executor không khai capability",
+   "grep_hits": [
+    "onecrew/v2/executors.py:1",
+    "tests/test_wf_r03a_executors.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W32a",
+   "release": "R03",
+   "survey": false,
+   "gap": "G08",
+   "outcome": "Baseline ước lượng theo khoảng, ghi một lần ngay sau `plan.approved` bằng sự kiện `estimate.baseline` (lớp A; hợp đồng v2 không có trường ước lượng, `v2:contract.py:15-16, 104-106`); ETA và lý do bằng `estimate.eta`, phát sinh bằng `work.additional` (lớp A); thời gian thực thi, chờ, deadline riêng; phần còn lại; phát sinh phân loại bắt buộc / tùy chọn / vượt quyền, mỗi mục có lý do và acceptance; lịch sử ETA và lý do đổi; restart không reset baseline; thiếu quan sát là unknown, không phải 0 hay \"không tiến triển\"; dòng trạng thái trên `plan present` và report",
+   "reuse": "TD29 (budget advice, không phải dự báo), TD06, `effort_watch` (cảnh báo 70% không thành request trong workflow mới)",
+   "edit_scope": "`onecrew/v2/report.py`, module ước lượng",
+   "depends": "W33a, W44, W23a, WK03",
+   "estimate": "2 h / 2 h",
+   "testcases": {
+    "T36b": "DoD"
+   },
+   "registry": {
+    "T36b": [
+     {
+      "release": "R03",
+      "status": "partial",
+      "checks": [
+       "check.estimates"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "vượt trần → tách: baseline và ETA; phát sinh",
+   "not_done_when": "Báo cáo tính thời gian chờ là thời gian làm; restart làm mất baseline",
+   "grep_hits": [
+    "onecrew/v2/estimates.py:1",
+    "tests/test_wf_r03a_run_started.py:302",
+    "wfkit/u1/U1-20261024-E8.json:6"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W23c",
+   "release": "R03",
+   "survey": false,
+   "gap": "G11",
+   "outcome": "Số đo hiệu quả lấy từ sổ bằng hàm đánh giá v1 qua adapter (02, TD27): thời gian tới đầu ra, rework, quyết định của người dùng theo động từ và request, chi phí kiểm, lần hỏi trạng thái; chờ tách khỏi phút chủ động",
+   "reuse": "TD27",
+   "edit_scope": "adapter số đo",
+   "depends": "W44, WK03",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T35d": "DoD"
+   },
+   "registry": {
+    "T35d": [
+     {
+      "release": "R03",
+      "status": "partial",
+      "checks": [
+       "check.r03a_metrics"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Chép logic phân loại của v1 sang module mới thay vì gọi qua adapter",
+   "grep_hits": [
+    "onecrew/v2/metrics.py:1",
+    "tests/test_wf_r03a_metrics.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W24",
+   "release": "R03",
+   "survey": false,
+   "gap": "G11",
+   "outcome": "Ba trạng thái riêng `verified` / `accepted` / thông báo đã giao (HD-31); đúng một thông báo cho mỗi sự kiện cần chủ sở hữu (duyệt, câu hỏi, plan dừng, xong), bấm vào mở đúng việc; tái dùng kênh desktop Windows của v1 (outbox, chống trùng); không bật lại heartbeat",
+   "reuse": "TD24, TD25",
+   "edit_scope": "adapter thông báo, `v2/report.py`",
+   "depends": "W23a, WK03",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T12": "DoD",
+    "T43a": "DoD"
+   },
+   "registry": {
+    "T12": [
+     {
+      "release": "R03",
+      "status": "partial",
+      "checks": [
+       "check.exceptions",
+       "check.installed_notifications"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T43a": [
+     {
+      "release": "R03",
+      "status": "partial",
+      "checks": [
+       "check.exceptions",
+       "check.installed_notifications"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Thông báo lỗi làm chạy lại sản phẩm; một sự kiện hai thông báo",
+   "grep_hits": [
+    "onecrew/v2/exceptions.py:1",
+    "tests/test_wf_installed_notifications.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W24b",
+   "release": "R03",
+   "survey": false,
+   "gap": "G11, G08",
+   "outcome": "Thông báo ngoại lệ (đổi có chủ đích so với W24 cũ), ghi bằng `notice.exception` (lớp A) để outbox v1 đọc từ sổ: lệch đáng kể so với baseline, blocker, mốc đã hẹn; mỗi thông báo có lý do, bằng chứng, ETA mới và việc người dùng cần làm (nếu có); ngưỡng theo policy chốt trước; khử trùng theo nguyên nhân; thông báo đến muộn vẫn nêu thời điểm sự kiện và trạng thái hiện tại, bản đã bị thay thì gộp; không có thông báo \"đang làm\" định kỳ",
+   "reuse": "TD24, TD25",
+   "edit_scope": "adapter thông báo",
+   "depends": "W24, W32a, WK03",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T43c": "DoD"
+   },
+   "registry": {
+    "T43c": [
+     {
+      "release": "R03",
+      "status": "partial",
+      "checks": [
+       "check.exceptions",
+       "check.estimates"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Thông báo định kỳ không có ngoại lệ; hai thông báo cho cùng một nguyên nhân",
+   "grep_hits": [
+    "onecrew/v2/exceptions.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W30b",
+   "release": "R03",
+   "survey": false,
+   "gap": "G02, G06",
+   "outcome": "Câu trả lời được ghi đúng (A6, phần không đổi trạng thái): lệnh đọc và lệnh trả lời câu hỏi trong wheel (động từ của chủ sở hữu); lựa chọn ghi vào `request.answered` (lớp 0, chỉ thêm trường `choice`); trả lời \"amend\" đi qua amend và duyệt sẵn có; thông báo của câu hỏi mở đúng thẻ. Không ghi sự kiện đổi trạng thái: root `plan:` của R03 vẫn theo luật trạng thái cũ (lớp B chỉ có trên root `plan-ns:`, R04)",
+   "reuse": "TD01, TD17, TD19",
+   "edit_scope": "`ledger.py`, `v2/cli.py`",
+   "depends": "W24, W30a, WK03",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T47a": "DoD",
+    "T43b": "DoD"
+   },
+   "registry": {
+    "T47a": [
+     {
+      "release": "R03",
+      "status": "partial",
+      "checks": [
+       "check.questions"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T43b": [
+     {
+      "release": "R03",
+      "status": "partial",
+      "checks": [
+       "check.questions",
+       "check.installed_notifications"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Ghi sự kiện đổi trạng thái lên anchor `plan:`; đọc câu hỏi bị tính là trả lời",
+   "grep_hits": [
+    "onecrew/v2/cards.py:16",
+    "onecrew/v2/questions.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W40-R03",
+   "release": "R03",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Phát hành R03: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R03; `verdict.run_started`, `verdict.run_abandoned` chứng minh lớp A trên bản cài",
+   "reuse": "W40, W41",
+   "edit_scope": "kịch bản trong kit",
+   "depends": "W44, W33a, W32a, W23c, W24, W24b, W30b, W40-R01, W40, W41",
+   "estimate": "1–2 h / 2 h",
+   "testcases": {
+    "T54c": "DoD"
+   },
+   "registry": {
+    "T54c": [
+     {
+      "release": "R03",
+      "status": "partial",
+      "checks": [
+       "check.upgrade_drill",
+       "check.installed_notifications"
+      ],
+      "gaps": [
+       "release-evidence"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Diễn tập dùng sổ thật",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "WK04a",
+   "release": "R04",
+   "survey": false,
+   "gap": "G01, G08",
+   "outcome": "Bộ kiểm R04, nhóm quyền và kế hoạch: T02, T03, T04a, T16a, T17a, T19, T21, T36a, T37",
+   "reuse": "mẫu kit",
+   "edit_scope": "`verify-kit\\wf\\r04a_check.py`",
+   "depends": "WK0",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {},
+   "registry": {},
+   "stop": "mặc định",
+   "not_done_when": "Phần `năng lực mới` không có phản chứng",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "WK04b",
+   "release": "R04",
+   "survey": false,
+   "gap": "G03, G10",
+   "outcome": "Bộ kiểm R04, nhóm trạng thái và tương thích: T05, T25, T26, T32, T48b, T49c, T49d, T54d",
+   "reuse": "mẫu kit",
+   "edit_scope": "`verify-kit\\wf\\r04b_check.py`",
+   "depends": "WK0",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {},
+   "registry": {},
+   "stop": "mặc định",
+   "not_done_when": "Phần `năng lực mới` không có phản chứng",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W01 (S)",
+   "release": "R04",
+   "survey": true,
+   "gap": "G01",
+   "outcome": "Câu trả lời: ánh xạ từng trường `authority` của v1 (`edit`, `commands`, `local_branches`, `branch_at`, `apply_to_project`, `edit_tests`, `unconfined_commands`) sang root v2: trường nào thi hành ở `gate`, trường nào chỉ ghi. Hình thức đã chọn ở 00 §7 (O2); W01 kiểm lại với mã lúc làm",
+   "reuse": "TD08, TD14 `covers()`",
+   "edit_scope": "tài liệu 00/02",
+   "depends": "—",
+   "estimate": "0,5–1 h / 1 h",
+   "testcases": {},
+   "registry": {},
+   "stop": "mặc định",
+   "not_done_when": "Kết luận không có `file:dòng`",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W02",
+   "release": "R04",
+   "survey": false,
+   "gap": "G01",
+   "outcome": "Hợp đồng root có quyền cấp (ghi, lệnh, nhánh, sửa test, trần ngân sách/deadline, danh sách tự quyết); lint và niêm phong; kiểm \"kế hoạch ⊆ quyền\" kiểu `covers()`; phân loại hành động ngoài quyền thành U1–U4",
+   "reuse": "TD03, TD07, TD08, TD14",
+   "edit_scope": "`onecrew/v2/contract.py`, `step0.py`, `work_contract.py`",
+   "depends": "W01, W03, WK04a",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T17a": "DoD",
+    "T16a": "kiểm chung",
+    "T37": "kiểm chung"
+   },
+   "registry": {
+    "T17a": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.r04a_authority"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T16a": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.r04a_authority",
+       "check.engine"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T37": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.engine",
+       "check.r04a_authority"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Quyền cấp không được thi hành ở `gate`",
+   "grep_hits": [
+    "onecrew/delivery_planner.py:112",
+    "onecrew/v2/authority.py:1",
+    "onecrew/v2/gate.py:85",
+    "onecrew/work_contract.py:49",
+    "tests/test_wf_program_transition.py:127",
+    "tests/test_wf_r04a_authority.py:1",
+    "tests/test_wf_r04a_authority.py:84"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W04",
+   "release": "R04",
+   "survey": false,
+   "gap": "G01",
+   "outcome": "Revision kế hoạch nội bộ (`plan.revised`) tách khỏi revision hợp đồng; trong quyền thì không cần duyệt",
+   "reuse": "TD03",
+   "edit_scope": "`onecrew/v2/plan.py`",
+   "depends": "W02, W03, WK04a",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T16a": "DoD",
+    "T03": "kiểm chung"
+   },
+   "registry": {
+    "T16a": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.r04a_authority",
+       "check.engine"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T03": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.root_budget",
+       "check.metered_verifier",
+       "check.control_core"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Chia task tạo request cho người dùng",
+   "grep_hits": [
+    "onecrew/v2/internal_plan.py:1",
+    "tests/test_wf_engine.py:1",
+    "tests/test_wf_r04a_authority.py:1",
+    "tests/test_wf_root_budget.py:4"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W05",
+   "release": "R04",
+   "survey": false,
+   "gap": "G01, G05",
+   "outcome": "Phân loại đổi acceptance (HD-04) và phát hiện làm yếu bộ kiểm qua hash/manifest",
+   "reuse": "TD03, mẫu `kit-manifest-r8`",
+   "edit_scope": "`onecrew/v2/` (so sánh revision), bộ kiểm",
+   "depends": "W04",
+   "estimate": "1–2 h / 2 h",
+   "testcases": {
+    "T21": "DoD",
+    "T19": "DoD"
+   },
+   "registry": {
+    "T21": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.engine"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T19": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.engine"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Ca (c)–(f) của T21 không ra U1",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W06",
+   "release": "R04",
+   "survey": false,
+   "gap": "G03",
+   "outcome": "Ba trạng thái node; dependency khai `requires`; hàm \"đủ điều kiện chạy\" theo trạng thái",
+   "reuse": "TD03; trường output v1 (`v1:owned.py:393-394`); luật `passed` của delivery",
+   "edit_scope": "`onecrew/v2/plan.py` (view), `contract.py`",
+   "depends": "WK04b, W02",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T05": "DoD",
+    "T37": "DoD"
+   },
+   "registry": {
+    "T05": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.engine",
+       "check.failed_dependency"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T37": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.engine",
+       "check.r04a_authority"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "`verified` bị coi như `accepted`",
+   "grep_hits": [
+    "onecrew/v2/engine.py:1",
+    "tests/test_wf_engine.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W10",
+   "release": "R04",
+   "survey": false,
+   "gap": "G08, G09",
+   "outcome": "Ngân sách và deadline không reset qua chia/retry/restart; đóng lỗ \"khoá khác thì ngân sách mới\" trong cùng root",
+   "reuse": "TD06, TD10 (bất biến), `goal_budget`",
+   "edit_scope": "`onecrew/budget_core.py`, `task_intake.py`, `v2/gate.py`",
+   "depends": "W02, W04, WK04a",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T03": "DoD",
+    "T32": "kiểm chung"
+   },
+   "registry": {
+    "T03": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.root_budget",
+       "check.metered_verifier",
+       "check.control_core"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T32": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.root_writer",
+       "check.plan_binding",
+       "check.root_budget",
+       "check.control_core"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Một đường tạo ngân sách mới còn mở",
+   "grep_hits": [
+    "tests/test_wf_root_budget.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W11b",
+   "release": "R04",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Version workflow và capability khai trong root; plan schema 2 giữ semantics",
+   "reuse": "TD03",
+   "edit_scope": "`onecrew/v2/contract.py`, `plan.py`, `report.py`",
+   "depends": "W11a, WK04b",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {
+    "T25": "DoD"
+   },
+   "registry": {
+    "T25": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.namespace"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Root schema 2 bị áp luật mới",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W12b",
+   "release": "R04",
+   "survey": false,
+   "gap": "G01, G10",
+   "outcome": "Một nguồn duyệt (SOL liên kết như solution revision); một writer mỗi root; không gian tên theo project (A8): root mới (schema 2 và workflow mới) ở `plans/<project_id>/<tên>` với anchor `plan-ns:<tên>` (vẫn tạo bằng `task_intake.submit`), bản sao trạng thái active plan ở `plans/<project_id>/active-plan.json`; project có cả `plan:<tên>` và `plan-ns:<tên>` thì lệnh theo tên từ chối và đòi anchor tường minh (00 §6.1); hai project trùng tên được hỗ trợ (thay luật từ chối của W12a)",
+   "reuse": "TD17, TD14 (one live writer), TD03",
+   "edit_scope": "`onecrew/v2/plan.py`, `contract.py`; `solution_gate.py` (nguồn ràng buộc)",
+   "depends": "W02, W10, W11b, W12a",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T26": "DoD",
+    "T32": "DoD",
+    "T48b": "DoD"
+   },
+   "registry": {
+    "T26": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.solution_link",
+       "check.installed_solution_link"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T32": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.root_writer",
+       "check.plan_binding",
+       "check.root_budget",
+       "check.control_core"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T48b": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.namespace",
+       "check.plan_binding"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "vượt trần → tách: một nguồn duyệt và một writer; không gian tên",
+   "not_done_when": "Hai bản duyệt cùng cho phép ghi; root mới mang anchor `plan:` (bản cũ amend rẽ nhánh hay ghi sang project khác)",
+   "grep_hits": [
+    "onecrew/v2/compat.py:126",
+    "onecrew/v2/findings.py:26",
+    "onecrew/v2/findings.py:46",
+    "onecrew/v2/namespaces.py:1",
+    "onecrew/v2/plan.py:272",
+    "onecrew/v2/plan.py:301",
+    "onecrew/v2/plan.py:309",
+    "tests/test_wf_plan_binding.py:1",
+    "tests/test_wf_plan_names.py:4",
+    "tests/test_wf_plan_names.py:62",
+    "wfkit/namespace-lineage.json:9",
+    "wfkit/namespace-lineage.json:14"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W46b",
+   "release": "R04",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "`compat scan` mở rộng cho anchor `plan-ns:` (đóng băng khi rollback), tên trùng, B1 (active plan trỏ root bản cũ không thấy), B3 (anchor `plan:` có file ở đường dẫn mới, trùng tên project khác); dự đoán từng lệnh của bản cũ cho các root đó theo bảng lệnh của T49",
+   "reuse": "TD03",
+   "edit_scope": "`onecrew/v2/` (lệnh chỉ đọc)",
+   "depends": "W46a, W12b, WK04b",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {
+    "T49c": "DoD"
+   },
+   "registry": {
+    "T49c": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.namespace_compat"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Báo \"đọc được\" cho root `plan-ns:`; coi tạm dừng là đã giải phóng",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W13 (S)",
+   "release": "R04",
+   "survey": true,
+   "gap": "G05",
+   "outcome": "Câu trả lời: engine cho lát tuần tự R04 (mô hình node/cạnh/generation của delivery, `parallel.ready_batch` với một slot, hay mở rộng item/mốc v2) và điều kiện mở song song ở R08",
+   "reuse": "TD12, TD13, TD14",
+   "edit_scope": "tài liệu 02",
+   "depends": "—",
+   "estimate": "0,5–1 h / 1 h",
+   "testcases": {},
+   "registry": {},
+   "stop": "mặc định",
+   "not_done_when": "Kết luận không có `file:dòng`",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W14a",
+   "release": "R04",
+   "survey": false,
+   "gap": "G05, G03",
+   "outcome": "Root chạy task tuần tự theo engine đã chọn, dependency theo trạng thái (HD-15), một slot. Lớp mỏng nối các hàm tái dùng (`ready_batch`, mô hình node/cạnh/generation, `control.reserve`). Không viết scheduler thứ hai: nếu W13 kết luận phải viết thêm thì ghi bằng chứng vì sao từng hàm tái dùng không đáp ứng",
+   "reuse": "TD13, TD14 (mô hình), TD10, TD03",
+   "edit_scope": "lớp nối trong `onecrew/v2/`",
+   "depends": "W13, W06, WK04a",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T04a": "DoD",
+    "T16b": "kiểm chung",
+    "T17b": "kiểm chung"
+   },
+   "registry": {
+    "T04a": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.engine",
+       "check.native_executor",
+       "check.installed_native",
+       "check.engine_cli"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T16b": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.candidate_handoff",
+       "check.native_executor",
+       "check.candidate_reviewer",
+       "check.observed_handoff"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T17b": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.findings_integration",
+       "check.retention_integration"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Engine có luật theo nghiệp vụ",
+   "grep_hits": [
+    "onecrew/v2/engine.py:1",
+    "tests/test_wf_engine.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W31b",
+   "release": "R04",
+   "survey": false,
+   "gap": "G02, G08",
+   "outcome": "Unknown trong thực thi có `affected`, `required_by`, chủ thể giải; giữ cục bộ hoặc toàn cục trên engine tuần tự; unknown chặn ước lượng thì thành node khảo sát có trần trước implementation (luật PoC của `step0`, không cần W31a)",
+   "reuse": "TD03 (`step0` unknown, PoC), TD13 (`blocks`)",
+   "edit_scope": "`onecrew/v2/contract.py`, điều phối",
+   "depends": "W14a, WK04a",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T02": "DoD"
+   },
+   "registry": {
+    "T02": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.runtime_unknowns",
+       "check.installed_unknowns"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Một unknown cục bộ giữ cả root",
+   "grep_hits": [
+    "onecrew/v2/runtime_unknowns.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W32b",
+   "release": "R04",
+   "survey": false,
+   "gap": "G08",
+   "outcome": "Trường ước lượng (khoảng) cho task của kế hoạch nội bộ; trần mỗi task; luật chia (chia khi vượt trần; việc không chia được có lý do và trần riêng)",
+   "reuse": "TD29, TD06",
+   "edit_scope": "`onecrew/v2/contract.py`, `budget_core.py`",
+   "depends": "W31b, W10, W04, WK04a",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {
+    "T36a": "DoD"
+   },
+   "registry": {
+    "T36a": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.task_caps"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Task vượt trần không có lý do",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W40-R04",
+   "release": "R04",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Phát hành R04: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R04; root mới mang anchor `plan-ns:`, nên diễn tập rollback xử lý B1, B3, đóng băng và trùng tên trong cùng project (T49d)",
+   "reuse": "W40, W41",
+   "edit_scope": "kịch bản trong kit",
+   "depends": "W01, W02, W04, W05, W06, W10, W11b, W12b, W46b, W13, W14a, W31b, W32b, W40, W41",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T54d": "DoD",
+    "T49d": "DoD"
+   },
+   "registry": {
+    "T54d": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.upgrade_drill",
+       "check.installed_native"
+      ],
+      "gaps": [
+       "release-evidence"
+      ]
+     }
+    ],
+    "T49d": [
+     {
+      "release": "R04",
+      "status": "partial",
+      "checks": [
+       "check.namespace_compat",
+       "check.upgrade_drill"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "vượt trần → tách: đóng gói và kiểm bản cài; diễn tập namespace",
+   "not_done_when": "Rollback khi còn điều kiện chặn hay dựa vào lần scan cũ",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "WK05a",
+   "release": "R05",
+   "survey": false,
+   "gap": "G04, G06",
+   "outcome": "Bộ kiểm R05, nhóm evidence và finding: T06, T07a, T11, T15a, T17b, T22, T24b, T28, T31, T38c",
+   "reuse": "mẫu kit",
+   "edit_scope": "`verify-kit\\wf\\r05a_check.py`",
+   "depends": "WK0",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {},
+   "registry": {},
+   "stop": "mặc định",
+   "not_done_when": "Phần `năng lực mới` không có phản chứng",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "WK05b",
+   "release": "R05",
+   "survey": false,
+   "gap": "G06, G07, G09",
+   "outcome": "Bộ kiểm R05, nhóm vòng sửa, quyết định, tích hợp: T04c, T08a, T16b, T16c, T17c, T18a, T18b, T29, T43d, T47c, T54e",
+   "reuse": "mẫu kit",
+   "edit_scope": "`verify-kit\\wf\\r05b_check.py`",
+   "depends": "WK0",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {},
+   "registry": {},
+   "stop": "mặc định",
+   "not_done_when": "Có ca gọi model thật",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W07",
+   "release": "R05",
+   "survey": false,
+   "gap": "G04",
+   "outcome": "Biên nhận gắn thêm input, cấu hình, môi trường; stale nêu đúng thứ đổi",
+   "reuse": "TD04, TD02",
+   "edit_scope": "`onecrew/v2/verifiers/command.py`, `reviewer.py`, `plan.py`",
+   "depends": "W06, WK05a",
+   "estimate": "1–2 h / 2 h",
+   "testcases": {
+    "T06": "DoD"
+   },
+   "registry": {
+    "T06": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.evidence_binding",
+       "check.candidate_adapters",
+       "check.candidate_reuse_counter"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Môi trường vẫn không được ghi",
+   "grep_hits": [
+    "onecrew/common_verification.py:136",
+    "onecrew/v2/verification_evidence.py:1",
+    "tests/test_wf_candidate_reuse_counter.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W08",
+   "release": "R05",
+   "survey": false,
+   "gap": "G04",
+   "outcome": "Căn cứ tái dùng evidence được ghi; căn cứ chỉ là `scope.neutral` đã khai hay căn cứ theo hành vi có bằng chứng, không theo đường dẫn; không rõ thì kiểm rộng hơn",
+   "reuse": "TD03 (`covers`, `_signature`), luật fingerprint `v1:work_tools.py:1453-1470`",
+   "edit_scope": "`onecrew/v2/plan.py`",
+   "depends": "W07",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {
+    "T22": "DoD"
+   },
+   "registry": {
+    "T22": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.evidence_binding",
+       "check.candidate_reuse_counter",
+       "check.handoff_reuse"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Tái dùng không ghi căn cứ",
+   "grep_hits": [
+    "onecrew/v2/verification_evidence.py:1",
+    "tests/test_wf_candidate_reuse_counter.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W09",
+   "release": "R05",
+   "survey": false,
+   "gap": "G04",
+   "outcome": "Retention: ref cục bộ giữ cây và blob mà evidence tham chiếu; không push; không tự xoá ref, chỉ chủ sở hữu dọn; hook chặn `git push` có `refs/onecrew` (A10; mặc định ở `verify-kit\\DE-XUAT-P0B-PHAN-B.md`, chốt trong `decisions` của hợp đồng chương trình, O6)",
+   "reuse": "TD02",
+   "edit_scope": "`onecrew/v2/verifiers/command.py`, `snapshots.py`, `hook_cli.py`",
+   "depends": "WK05a",
+   "estimate": "1–2 h / 2 h",
+   "testcases": {
+    "T31": "DoD"
+   },
+   "registry": {
+    "T31": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.retention",
+       "check.retention_integration"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Cây bị `gc` dọn mất",
+   "grep_hits": [
+    "onecrew/v2/retention.py:1",
+    "tests/test_v2_trust_fixes.py:933"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W16",
+   "release": "R05",
+   "survey": false,
+   "gap": "G05",
+   "outcome": "Node chuẩn bị test từ acceptance chạy trước implementation",
+   "reuse": "TD03",
+   "edit_scope": "điều phối",
+   "depends": "W14a, WK05b",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {
+    "T04c": "DoD"
+   },
+   "registry": {
+    "T04c": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.test_preparation"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Node chuẩn bị test bị chặn chờ code",
+   "grep_hits": [
+    "onecrew/v2/test_preparation.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W17",
+   "release": "R05",
+   "survey": false,
+   "gap": "G06",
+   "outcome": "Finding register cho plan v2 (A3; phần \"không thêm cổng\" của đề xuất `DE-XUAT-LO3-A3-A5` không theo, vì HD-25 giữ nhánh bị ảnh hưởng): tách hàm thuần của `review_evidence` sang module mới; thêm mức độ và phạm vi",
+   "reuse": "TD18",
+   "edit_scope": "module mới trong wheel, `v2/verifiers/reviewer.py`, `verdict.py`",
+   "depends": "WK05a",
+   "estimate": "2 h / 2 h",
+   "testcases": {
+    "T28": "DoD",
+    "T07a": "kiểm chung"
+   },
+   "registry": {
+    "T28": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.findings",
+       "check.adapter_findings"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T07a": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.finding_scope",
+       "check.repair_tasks"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "vượt trần → tách: lưu trữ; mức độ/phạm vi",
+   "not_done_when": "Đổi code hay \"accept\" đóng được finding",
+   "grep_hits": [
+    "onecrew/v2/findings.py:1",
+    "onecrew/v2/verdict.py:111",
+    "tests/test_wf_findings.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W18",
+   "release": "R05",
+   "survey": false,
+   "gap": "G06",
+   "outcome": "Phạm vi ảnh hưởng theo dependency + phạm vi đọc/ghi; giữ nhánh (tuần tự: không chạy task bị ảnh hưởng; executor bên ngoài: chặn ghi; worker được quản lý dừng tại điểm an toàn ở R08)",
+   "reuse": "TD13",
+   "edit_scope": "điều phối, `hook_cli.py` (giữ theo phạm vi)",
+   "depends": "W14a, W17",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T07a": "DoD",
+    "T15a": "DoD",
+    "T17b": "DoD",
+    "T16b": "kiểm chung"
+   },
+   "registry": {
+    "T07a": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.finding_scope",
+       "check.repair_tasks"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T15a": [
+     {
+      "release": "R05",
+      "status": "complete",
+      "checks": [
+       "check.finding_scope",
+       "check.hook_holds_generation"
+      ],
+      "gaps": []
+     }
+    ],
+    "T17b": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.findings_integration",
+       "check.retention_integration"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T16b": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.candidate_handoff",
+       "check.native_executor",
+       "check.candidate_reviewer",
+       "check.observed_handoff"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Giữ cả root vì một nhánh",
+   "grep_hits": [
+    "onecrew/v2/executors.py:113",
+    "onecrew/v2/finding_scope.py:1",
+    "onecrew/v2/hook_cli.py:600",
+    "onecrew/v2/managed_executor.py:57",
+    "tests/test_wf_findings.py:3",
+    "tests/test_wf_hook_holds_generation.py:1",
+    "tests/test_wf_managed_hold.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W19",
+   "release": "R05",
+   "survey": false,
+   "gap": "G06",
+   "outcome": "Repair task; chạy lại ca từng hỏng trước, rồi phần bị ảnh hưởng; vô hiệu hoá theo generation",
+   "reuse": "TD14 (`_repair`), TD31 (mẫu)",
+   "edit_scope": "điều phối",
+   "depends": "W18",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T38c": "DoD",
+    "T11": "kiểm chung",
+    "T18a": "kiểm chung",
+    "T16b": "kiểm chung"
+   },
+   "registry": {
+    "T38c": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.repair_tasks"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T11": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.engine",
+       "check.candidate_handoff",
+       "check.candidate_reviewer"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T18a": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.recovery_policy"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T16b": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.candidate_handoff",
+       "check.native_executor",
+       "check.candidate_reviewer",
+       "check.observed_handoff"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Chạy lại toàn suite khi phạm vi xác định được",
+   "grep_hits": [
+    "onecrew/v2/repair_tasks.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W51",
+   "release": "R05",
+   "survey": false,
+   "gap": "G06",
+   "outcome": "Không dừng nhầm việc đang tiến triển. Tách phần dùng chung của `progress.observe` (đếm lặp theo hash kết quả công cụ; luật khảo sát: nguồn mới đặt lại đếm, đọc lặp thì dừng) thành hàm thuần trong wheel, `progress.observe` của v1 gọi lại hàm đó (một nguồn). Phần mới: liveness của lệnh dài (output hay biên nhận mới trong cửa sổ quan sát), trần số giả thuyết rồi thành blocker, phân biệt chờ và quan sát unknown (W33a). Không suy tiến triển từ số dòng sửa",
+   "reuse": "`progress.observe` (`v1:progress.py:42`, phần đếm lặp và khảo sát), `discovery.search` (v1), TD15",
+   "edit_scope": "module trong wheel; `progress.py` gọi lại hàm tách",
+   "depends": "W33a, W19, WK05b",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T18b": "DoD"
+   },
+   "registry": {
+    "T18b": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.progress"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Chép logic đếm lặp sang module mới thay vì tách một nguồn; nạp `progress.observe` nguyên khối vào wheel (nó nạp lười `work_tools`, `sandbox_gate`, `owned_git`, `review_evidence` của V1_ONLY và tự đặt `phase=blocked`, `v1:progress.py:9-11, 48, 105, 69-70, 159-160`); dừng một lệnh dài còn output mới",
+   "grep_hits": [
+    "onecrew/v2/progress_track.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W20",
+   "release": "R05",
+   "survey": false,
+   "gap": "G06",
+   "outcome": "Vòng sửa không tiến triển → tự chẩn đoán, replan trong quyền, hoặc blocker có bằng chứng",
+   "reuse": "TD15",
+   "edit_scope": "điều phối",
+   "depends": "W19, W51",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {
+    "T18a": "DoD"
+   },
+   "registry": {
+    "T18a": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.recovery_policy"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Hỏi người dùng sau mỗi vòng",
+   "grep_hits": [
+    "onecrew/v2/recovery_policy.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W21",
+   "release": "R05",
+   "survey": false,
+   "gap": "G05",
+   "outcome": "Node tích hợp: unit xanh mà tích hợp đỏ thì root chưa `verified`",
+   "reuse": "TD03",
+   "edit_scope": "điều phối, mẫu hợp đồng",
+   "depends": "W14a, W19",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {
+    "T11": "DoD"
+   },
+   "registry": {
+    "T11": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.engine",
+       "check.candidate_handoff",
+       "check.candidate_reviewer"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Root `verified` khi tích hợp đỏ",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W23d",
+   "release": "R05",
+   "survey": false,
+   "gap": "G11, G06",
+   "outcome": "Bàn giao theo finding: báo cáo và `plan present` liệt kê finding còn mở lấy từ register (W17), finding đã đóng có bằng chứng thì không",
+   "reuse": "TD05, TD18",
+   "edit_scope": "`onecrew/v2/report.py`",
+   "depends": "W23a, W17, WK05a",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {
+    "T24b": "DoD"
+   },
+   "registry": {
+    "T24b": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.findings_report"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Báo cáo thiếu một finding còn mở",
+   "grep_hits": [
+    "tests/test_wf_findings_report.py:1",
+    "tests/test_wf_r01_report.py:247"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W26",
+   "release": "R05",
+   "survey": false,
+   "gap": "G07, G10",
+   "outcome": "Lớp quyết định theo quy tắc: `SKIP`/`DEFER`/`REVIEW`/`HOLD` có lý do, bằng chứng, phạm vi, hiệu lực; cache theo (input, revision, policy); lõi giữ cổng bắt buộc; độ sâu theo policy đã duyệt ở root (HD-35; chỉ phần độ sâu của P2.2, không phải đường nhanh việc XS chỉ đọc). `SKIP` chỉ áp cho review tùy chọn theo policy đã duyệt, không theo ý kiến model",
+   "reuse": "TD15, `triage`, `effort_watch`, `routing.validate_decision`",
+   "edit_scope": "module quyết định trong wheel",
+   "depends": "WK05b, W03, W31b",
+   "estimate": "2 h / 2 h",
+   "testcases": {
+    "T29": "DoD",
+    "T16c": "DoD"
+   },
+   "registry": {
+    "T29": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.review_dispatch",
+       "check.installed_review_dispatch"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T16c": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.review_policy",
+       "check.review_dispatch"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "vượt trần → tách: bốn kết quả + cache; độ sâu",
+   "not_done_when": "Cổng bắt buộc bị bỏ",
+   "grep_hits": [
+    "onecrew/v2/compat.py:48",
+    "onecrew/v2/review_dispatch.py:1",
+    "onecrew/v2/review_policy.py:1",
+    "tests/test_wf_installed_review_dispatch.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W30c",
+   "release": "R05",
+   "survey": false,
+   "gap": "G02, G06",
+   "outcome": "Áp câu trả lời thành trạng thái trên root `plan-ns:`: trả lời \"dừng\" đóng root có lý do (`plan.closed`, lớp B); trả lời \"tiếp tục\" mở lại đúng phần bị giữ (`request.applied`, lớp B); root `plan:` tạo trước R04 giữ `stopped_with_report` và chỉ có lựa chọn đã ghi",
+   "reuse": "TD01, TD17, TD18 (giữ theo phạm vi)",
+   "edit_scope": "`v2/plan.py`, `v2/verdict.py`, điều phối",
+   "depends": "W30b, W12b, W18, WK05b",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {
+    "T47c": "DoD",
+    "T43d": "DoD"
+   },
+   "registry": {
+    "T47c": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.answer_effects"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T43d": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.answer_effects"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Request `answered` mà root `plan-ns:` vẫn chờ chủ sở hữu; ghi `plan.closed` lên anchor `plan:`",
+   "grep_hits": [
+    "onecrew/v2/answer_effects.py:1",
+    "onecrew/v2/plan.py:17",
+    "tests/test_wf_answer_effects.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W37a",
+   "release": "R05",
+   "survey": false,
+   "gap": "G09",
+   "outcome": "Reconcile tối thiểu trong vòng sửa tuần tự: lệnh có kết quả chưa rõ (crash sau dispatch, trước biên nhận) được reconcile trước mọi retry; không xác định được thì giữ và báo, không tự chạy lại",
+   "reuse": "TD16 (`action.*` của `control`)",
+   "edit_scope": "`v2/verdict.py`, điều phối",
+   "depends": "W19, WK05b",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {
+    "T08a": "DoD"
+   },
+   "registry": {
+    "T08a": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.node_actions_cli",
+       "check.installed_node_actions",
+       "check.metered_verifier"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Chạy lại thao tác chưa rõ kết quả",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W40-R05",
+   "release": "R05",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Phát hành R05: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R05; sự kiện lớp B (`HOLD`, `DEFER`, intent) chỉ trên root `plan-ns:`; roll-forward reconcile intent chưa rõ trước khi root tiếp tục",
+   "reuse": "W40, W41",
+   "edit_scope": "kịch bản trong kit",
+   "depends": "W07, W08, W09, W16, W17, W18, W19, W51, W20, W21, W23d, W26, W30c, W37a, W40-R03, W40-R04, W40, W41",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T54e": "DoD"
+   },
+   "registry": {
+    "T54e": [
+     {
+      "release": "R05",
+      "status": "partial",
+      "checks": [
+       "check.upgrade_drill",
+       "check.installed_native",
+       "check.installed_node_actions"
+      ],
+      "gaps": [
+       "release-evidence"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Roll-forward tiếp tục root trước khi reconcile",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "WK06",
+   "release": "R06",
+   "survey": false,
+   "gap": "G11",
+   "outcome": "Bộ kiểm R06: T52a, T52b, T54f",
+   "reuse": "mẫu kit",
+   "edit_scope": "`verify-kit\\wf\\r06_check.py`",
+   "depends": "WK0",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {},
+   "registry": {},
+   "stop": "mặc định",
+   "not_done_when": "Phần `năng lực mới` không có phản chứng",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W49a",
+   "release": "R06",
+   "survey": false,
+   "gap": "G11, G06",
+   "outcome": "Incident trong root: nối finding, các attempt, giả thuyết bị bác bỏ; phân biệt test đỏ có chủ đích, lỗi môi trường, lỗi sản phẩm; một incident nhiều attempt, khử trùng; ghi `learning.incident` (lớp A) qua adapter có nguồn đúng nghĩa",
+   "reuse": "TD18 (finding), TD22 (khử trùng, cách ly project), TD15",
+   "edit_scope": "module incident trong wheel",
+   "depends": "W17, W19, W48a, WK06",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T52a": "DoD"
+   },
+   "registry": {
+    "T52a": [
+     {
+      "release": "R06",
+      "status": "partial",
+      "checks": [
+       "check.r06_learning",
+       "check.node_learning",
+       "check.installed_node_learning"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Mỗi lần fail sinh một incident mới; lỗi môi trường được ghi là lỗi sản phẩm",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W49b",
+   "release": "R06",
+   "survey": false,
+   "gap": "G11",
+   "outcome": "Lesson sau khi sửa đã kiểm, trước khi root kết thúc: bản project giữ vị trí, revision, test; bản chung là ứng viên đã khái quát có điều kiện và nguồn, bỏ chi tiết riêng; task sau trong cùng root truy xuất được qua W48b; revision đổi thì cần kiểm lại; thu hồi lesson sai. Không gọi `learning.record` (cần kết cục cuối, tạo lesson `proposed`) bằng một outcome giả: adapter ghi `learning.lesson` (lớp A) với nguồn incident. Lesson không tự thành rule bắt buộc (RL)",
+   "reuse": "TD22 (định dạng, khử trùng, cách ly project của `learning`; stale theo revision là phần mới), TD23 (skills chỉ đọc)",
+   "edit_scope": "adapter lesson trong wheel",
+   "depends": "W49a, W48b, WK06",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T52b": "DoD"
+   },
+   "registry": {
+    "T52b": [
+     {
+      "release": "R06",
+      "status": "partial",
+      "checks": [
+       "check.r06_learning",
+       "check.r02_boundaries",
+       "check.installed_node_learning"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Root bị đánh dấu xong hay giả `completed` để gọi writer v1; lesson đổi quyền, cổng hay acceptance",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W40-R06",
+   "release": "R06",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Phát hành R06: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R06; `learning.incident`, `learning.lesson` của root v2 chứng minh lớp A với bản cũ và với consumer v1 (`skills`, `learning`) trên bản cài",
+   "reuse": "W40, W41",
+   "edit_scope": "kịch bản trong kit",
+   "depends": "W49a, W49b, W40-R02, W40-R05, W40, W41",
+   "estimate": "1–2 h / 2 h",
+   "testcases": {
+    "T54f": "DoD"
+   },
+   "registry": {
+    "T54f": [
+     {
+      "release": "R06",
+      "status": "partial",
+      "checks": [
+       "check.upgrade_drill",
+       "check.installed_features"
+      ],
+      "gaps": [
+       "release-evidence"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Diễn tập dùng sổ thật",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "WK07",
+   "release": "R07",
+   "survey": false,
+   "gap": "G06",
+   "outcome": "Bộ kiểm R07: T53a, T53b, T54g",
+   "reuse": "mẫu kit",
+   "edit_scope": "`verify-kit\\wf\\r07_check.py`",
+   "depends": "WK0",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {},
+   "registry": {},
+   "stop": "mặc định",
+   "not_done_when": "Tập đánh giá chứa lời giải của ca",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W50a",
+   "release": "R07",
+   "survey": false,
+   "gap": "G06",
+   "outcome": "Mô tả issue → nghi phạm: tìm chuỗi, route, symbol, thay đổi gần đây; bản đồ project tăng dần; lesson liên quan (W48b); danh sách nghi phạm (file, method) có lý do, nguồn và phép kiểm tiếp; symbol phải tồn tại ở revision đã ghim; tách quan sát khỏi giả thuyết; thiếu căn cứ thì trả \"chưa đủ dữ liệu\" kèm thứ cần thêm",
+   "reuse": "TD22, TD02 (biên nhận tìm kiếm), TD03 (`step0` evidence)",
+   "edit_scope": "module tra cứu trong wheel",
+   "depends": "W48b, WK07",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T53a": "DoD"
+   },
+   "registry": {
+    "T53a": [
+     {
+      "release": "R07",
+      "status": "partial",
+      "checks": [
+       "check.r07_localization",
+       "check.installed_localization"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Nghi phạm trỏ symbol không có ở revision ghim; sửa code chỉ vì giống một issue cũ",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W50b",
+   "release": "R07",
+   "survey": false,
+   "gap": "G06",
+   "outcome": "Ảnh issue: chỉ đọc ảnh khi provider khai capability vision; không có thì giữ luồng văn bản và không tuyên bố đã hiểu ảnh; đánh giá trên code trước bản sửa, tập giữ riêng, không đưa lời giải vào trí nhớ; đo top-k và thời gian tới nguyên nhân",
+   "reuse": "W50a, TD19 (capability provider)",
+   "edit_scope": "adapter ảnh, kịch bản đánh giá",
+   "depends": "W50a, WK07",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T53b": "DoD"
+   },
+   "registry": {
+    "T53b": [
+     {
+      "release": "R07",
+      "status": "partial",
+      "checks": [
+       "check.r07_localization",
+       "check.installed_localization"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Báo đã đọc ảnh khi provider không có vision; tập đánh giá lộ lời giải",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W40-R07",
+   "release": "R07",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Phát hành R07: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R07",
+   "reuse": "W40, W41",
+   "edit_scope": "kịch bản trong kit",
+   "depends": "W50a, W50b, W40-R02, W40, W41",
+   "estimate": "1–2 h / 2 h",
+   "testcases": {
+    "T54g": "DoD"
+   },
+   "registry": {
+    "T54g": [
+     {
+      "release": "R07",
+      "status": "partial",
+      "checks": [
+       "check.upgrade_drill",
+       "check.installed_localization"
+      ],
+      "gaps": [
+       "release-evidence"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Diễn tập dùng sổ thật",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "WK08",
+   "release": "R08",
+   "survey": false,
+   "gap": "G05, G06, G09, G10",
+   "outcome": "Bộ kiểm R08: T01, T04b, T04d, T07b, T08b, T15c, T30, T54h",
+   "reuse": "mẫu kit",
+   "edit_scope": "`verify-kit\\wf\\r08_check.py`",
+   "depends": "WK0",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {},
+   "registry": {},
+   "stop": "mặc định",
+   "not_done_when": "Có ca gọi model thật",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W14b",
+   "release": "R08",
+   "survey": false,
+   "gap": "G05",
+   "outcome": "DAG song song: nhiều slot qua `ready_batch` sau khi một slot đã đúng (W14a); phần độc lập chạy tiếp khi một nhánh bị giữ; không scheduler thứ hai",
+   "reuse": "TD13, TD14, TD10",
+   "edit_scope": "lớp nối trong `onecrew/v2/`",
+   "depends": "W14a, W18, WK08",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T04d": "DoD"
+   },
+   "registry": {
+    "T04d": [
+     {
+      "release": "R08",
+      "status": "partial",
+      "checks": [
+       "check.parallel_engine",
+       "check.parallel_native"
+      ],
+      "gaps": [
+       "acceptance-audit",
+       "final-artifact-rerun"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Hai node ghi cùng phạm vi chạy đồng thời",
+   "grep_hits": [
+    "tests/test_wf_parallel_engine.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W15",
+   "release": "R08",
+   "survey": false,
+   "gap": "G05, G04",
+   "outcome": "Review và test chạy trên snapshot cố định; code tiếp tục trên phiên bản khác",
+   "reuse": "TD04",
+   "edit_scope": "`onecrew/v2/verifiers/reviewer.py`, điều phối",
+   "depends": "W14b, W26",
+   "estimate": "1–2 h / 2 h",
+   "testcases": {
+    "T04b": "DoD",
+    "T01": "DoD"
+   },
+   "registry": {
+    "T04b": [
+     {
+      "release": "R08",
+      "status": "complete",
+      "checks": [
+       "check.parallel_engine",
+       "check.candidate_adapters",
+       "check.review_snapshot"
+      ],
+      "gaps": []
+     }
+    ],
+    "T01": [
+     {
+      "release": "R08",
+      "status": "partial",
+      "checks": [
+       "check.parallel_engine",
+       "check.review_snapshot"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Diff review lẫn thay đổi mới",
+   "grep_hits": [
+    "tests/test_wf_review_snapshot.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W33b",
+   "release": "R08",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Interface executor đầy đủ: dừng, pause tại điểm an toàn, cô lập, recovery theo capability đã khai (W33a); adapter Windows (supervisor) và adapter hook (Claude Code)",
+   "reuse": "TD11, TD05",
+   "edit_scope": "interface trong wheel; adapter v1",
+   "depends": "W33a, WK08",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T15c": "DoD"
+   },
+   "registry": {
+    "T15c": [
+     {
+      "release": "R08",
+      "status": "complete",
+      "checks": [
+       "check.managed_executor",
+       "check.managed_hold"
+      ],
+      "gaps": []
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Gửi lệnh pause tới executor không khai capability",
+   "grep_hits": [
+    "onecrew/v2/executors.py:6",
+    "onecrew/v2/executors.py:12",
+    "onecrew/v2/executors.py:84",
+    "onecrew/v2/executors.py:124",
+    "tests/test_wf_r03a_executors.py:4",
+    "tests/test_wf_r03a_executors.py:71"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W36",
+   "release": "R08",
+   "survey": false,
+   "gap": "G06, G09",
+   "outcome": "Generation; kết quả muộn hay trùng được ghi và bỏ qua; pause tại điểm an toàn cho worker được quản lý",
+   "reuse": "TD10 (fencing), TD18 (closure muộn)",
+   "edit_scope": "`control.py` (phần tách), điều phối",
+   "depends": "W33b, W18",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T07b": "DoD"
+   },
+   "registry": {
+    "T07b": [
+     {
+      "release": "R08",
+      "status": "partial",
+      "checks": [
+       "check.parallel_engine",
+       "check.managed_executor",
+       "check.managed_hold",
+       "check.engine_managed"
+      ],
+      "gaps": [
+       "acceptance-audit",
+       "final-artifact-rerun"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Tính phí hai lần",
+   "grep_hits": [
+    "onecrew/v2/compat.py:48",
+    "onecrew/v2/findings.py:6",
+    "onecrew/v2/managed_executor.py:57",
+    "onecrew/v2/verdict.py:141",
+    "tests/test_wf_findings.py:4",
+    "tests/test_wf_managed_hold.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W37b",
+   "release": "R08",
+   "survey": false,
+   "gap": "G09, G03",
+   "outcome": "Intent bền, idempotency, reconcile qua bốn điểm crash; khôi phục checkpoint khác tự khởi động sau reboot",
+   "reuse": "TD16, TD11 (`host` không hồi sinh)",
+   "edit_scope": "`v2/verdict.py`, điều phối",
+   "depends": "W33b, W37a",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T08b": "DoD",
+    "T30": "DoD"
+   },
+   "registry": {
+    "T08b": [
+     {
+      "release": "R08",
+      "status": "partial",
+      "checks": [
+       "check.managed_executor",
+       "check.node_actions_cli"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T30": [
+     {
+      "release": "R08",
+      "status": "partial",
+      "checks": [
+       "check.managed_executor",
+       "check.node_actions_cli",
+       "check.engine_managed",
+       "check.host_checkpoint"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Chạy lại thao tác chưa rõ kết quả; mất biên nhận đã lưu",
+   "grep_hits": [
+    "onecrew/v2/managed_executor.py:184",
+    "onecrew/v2/managed_executor.py:199"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W40-R08",
+   "release": "R08",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Phát hành R08: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R08; tạm dừng mới (lớp B) chỉ trên root `plan-ns:`",
+   "reuse": "W40, W41",
+   "edit_scope": "kịch bản trong kit",
+   "depends": "W14b, W15, W33b, W36, W37b, W40-R03, W40-R04, W40-R05, W40, W41",
+   "estimate": "1–2 h / 2 h",
+   "testcases": {
+    "T54h": "DoD"
+   },
+   "registry": {
+    "T54h": [
+     {
+      "release": "R08",
+      "status": "partial",
+      "checks": [
+       "check.upgrade_drill",
+       "check.installed_native"
+      ],
+      "gaps": [
+       "release-evidence"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Diễn tập dùng sổ thật",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "WKP",
+   "release": "RP",
+   "survey": false,
+   "gap": "G07",
+   "outcome": "Bộ kiểm RP: T40a, T40b, T40c, T54i",
+   "reuse": "mẫu kit",
+   "edit_scope": "`verify-kit\\wf\\rp_check.py`",
+   "depends": "WK0",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {},
+   "registry": {},
+   "stop": "mặc định",
+   "not_done_when": "Tính ô CLI giả là ô thật",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W43",
+   "release": "RP",
+   "survey": false,
+   "gap": "G07",
+   "outcome": "Reviewer và cố vấn theo nhà cung cấp (P1.0): hợp đồng khai `provider` (`claude`, `codex`, `kiro`) kèm `model`; mỗi provider là một lệnh CLI chỉ đọc; biên nhận ghi provider và model; luật độc lập xét theo hãng; không tự chuyển provider khi hết hạn mức (verdict không kết luận và báo); giữ mốc owner-manual. Bước đầu là PoC ngắn: CLI chạy không giao diện, trả JSON, không ghi file. Không phải decider (RD)",
+   "reuse": "TD04 (`verifiers/reviewer.py`), TD19, TD21",
+   "edit_scope": "`onecrew/v2/verifiers/`, `contract.py`",
+   "depends": "WKP, W27a",
+   "estimate": "2 h / 2 h",
+   "testcases": {
+    "T40a": "DoD",
+    "T40b": "kiểm chung"
+   },
+   "registry": {
+    "T40a": [
+     {
+      "release": "RP",
+      "status": "complete",
+      "checks": [
+       "check.rp_providers",
+       "check.metered_verifier",
+       "check.candidate_reviewer"
+      ],
+      "gaps": []
+     }
+    ],
+    "T40b": [
+     {
+      "release": "RP",
+      "status": "blocked",
+      "checks": [],
+      "gaps": [
+       "external-provider"
+      ]
+     }
+    ]
+   },
+   "stop": "vượt trần → tách: PoC + Codex; Kiro + luật độc lập",
+   "not_done_when": "Đổi provider cần sửa mã thay vì một trường hợp đồng; biên nhận không ghi provider",
+   "grep_hits": [
+    "onecrew/v2/contract.py:163",
+    "onecrew/v2/providers.py:1",
+    "onecrew/v2/verdict.py:103",
+    "onecrew/v2/verifiers/advisor.py:121",
+    "onecrew/v2/verifiers/advisor.py:130",
+    "onecrew/v2/verifiers/advisor.py:166",
+    "onecrew/v2/verifiers/reviewer.py:56",
+    "tests/test_wf_rp_providers.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W45",
+   "release": "RP",
+   "survey": false,
+   "gap": "G07",
+   "outcome": "Kiểm thật ma trận provider (R3): chạy mỗi ô của ma trận provider × vai trò (`claude`, `codex`, `kiro` × reviewer, cố vấn) một lần bằng CLI thật trên một artifact mẫu chỉ đọc, từ bản cài đặt, với provider/model đã pin trong hợp đồng chương trình; ghi biên nhận và hash bản dựng của từng ô. Thiếu tài khoản, hạn mức hay công cụ thì ô đó là \"chưa kiểm chứng\", không đổi provider đã pin. Xong khi ma trận đủ sáu dòng và trung thực; số ô `đạt` không phải điều kiện xong (03 §5.1)",
+   "reuse": "W43",
+   "edit_scope": "kịch bản trong bộ kiểm",
+   "depends": "W43, W40, WKP",
+   "estimate": "1–2 h / 2 h",
+   "testcases": {
+    "T40b": "DoD"
+   },
+   "registry": {
+    "T40b": [
+     {
+      "release": "RP",
+      "status": "blocked",
+      "checks": [],
+      "gaps": [
+       "external-provider"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Tính ô CLI giả là đạt; ô thiếu ghi `đạt`; ma trận thiếu dòng hay thiếu hash bản dựng; ghi P1.0 đủ khi còn ô chưa `đạt`",
+   "grep_hits": [
+    "onecrew/v2/providers.py:14",
+    "onecrew/v2/providers.py:255",
+    "tests/test_wf_rp_providers.py:5",
+    "tests/test_wf_rp_providers.py:435",
+    "wfkit/development-testcases.json:3638",
+    "wfkit/development-testcases.json:3782"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W40-RP",
+   "release": "RP",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Phát hành RP: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của RP; giao subset đã kiểm thật (T40c): ghi chú phát hành và file ma trận giao kèm nêu \"dùng được\" đúng các ô `dùng được` cho bản giao theo luật hiệu lực HL (03 §5.2), ô khác ghi trạng thái cho bản giao và lý do; giao được khi subset có ít nhất một ô; P1.0 đủ không phải điều kiện giao. Giao kèm bộ đánh giá hiệu lực chung (HL, NL) trong kit, dùng lại ở mọi cổng sau, không nhánh theo provider",
+   "reuse": "W40, W41",
+   "edit_scope": "kịch bản trong kit",
+   "depends": "W43, W45, W40, W41",
+   "estimate": "1–2 h / 2 h",
+   "testcases": {
+    "T54i": "DoD",
+    "T40c": "DoD"
+   },
+   "registry": {
+    "T54i": [
+     {
+      "release": "RP",
+      "status": "partial",
+      "checks": [
+       "check.upgrade_drill",
+       "check.release_check"
+      ],
+      "gaps": [
+       "release-evidence"
+      ]
+     }
+    ],
+    "T40c": [
+     {
+      "release": "RP",
+      "status": "partial",
+      "checks": [
+       "check.release_check",
+       "check.finalgate"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Ghi chú phát hành nhận ô chưa kiểm chứng là đạt; subset chứa ô có biên nhận của bản dựng khác; RP bị giữ chỉ vì còn ô chưa `đạt`",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "WKX1",
+   "release": "RX1",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Bộ kiểm RX1: T14a, T23, T54j",
+   "reuse": "mẫu kit",
+   "edit_scope": "`verify-kit\\wf\\rx1_check.py`",
+   "depends": "WK0",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {},
+   "registry": {},
+   "stop": "mặc định",
+   "not_done_when": "Phần `năng lực mới` không có phản chứng",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W22",
+   "release": "RX1",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Adapter kiểm cho đầu ra tài liệu dạng verifier của v2 (nguồn, cấu trúc, link/ID); lõi chặn adapter vượt quyền; không cần engine của R04",
+   "reuse": "TD04 (dạng plugin)",
+   "edit_scope": "`onecrew/v2/verifiers/` (adapter mới)",
+   "depends": "WKX1",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {
+    "T14a": "DoD",
+    "T23": "DoD"
+   },
+   "registry": {
+    "T14a": [
+     {
+      "release": "RX1",
+      "status": "partial",
+      "checks": [
+       "check.rx1_core",
+       "check.rx1_doc",
+       "check.candidate_adapters"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ],
+    "T23": [
+     {
+      "release": "RX1",
+      "status": "partial",
+      "checks": [
+       "check.rx1_core"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Lõi có nhánh `if loại == tài liệu`",
+   "grep_hits": [
+    "onecrew/v2/verifiers/doc.py:1",
+    "onecrew/v2/verifiers/port.py:1",
+    "tests/test_wf_rx1_doc.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W40-RX1",
+   "release": "RX1",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Phát hành RX1: theo quy trình chung của T54 (khung W40, W41 ở R00) cho adapter tài liệu; diễn tập đầu-cuối một root tài liệu trên bản cài (phần tài liệu của P-0 cũ)",
+   "reuse": "W40, W41",
+   "edit_scope": "kịch bản trong kit",
+   "depends": "W22, W40, W41",
+   "estimate": "1–2 h / 2 h",
+   "testcases": {
+    "T54j": "DoD"
+   },
+   "registry": {
+    "T54j": [
+     {
+      "release": "RX1",
+      "status": "partial",
+      "checks": [
+       "check.upgrade_drill",
+       "check.installed_features"
+      ],
+      "gaps": [
+       "release-evidence"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Diễn tập chạy từ checkout",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "WKX2",
+   "release": "RX2",
+   "survey": false,
+   "gap": "G10, G04",
+   "outcome": "Bộ kiểm RX2: T14b, T54k",
+   "reuse": "mẫu kit",
+   "edit_scope": "`verify-kit\\wf\\rx2_check.py`",
+   "depends": "WK0",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {},
+   "registry": {},
+   "stop": "mặc định",
+   "not_done_when": "Phần `năng lực mới` không có phản chứng",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W39",
+   "release": "RX2",
+   "survey": false,
+   "gap": "G10, G04",
+   "outcome": "Adapter kiểm cho đầu ra dữ liệu (schema, đối soát, mẫu) và vận hành (pre/postcondition, receipt, reconcile); danh tính artifact không phải Git",
+   "reuse": "TD04, TD32 (hình dạng lease)",
+   "edit_scope": "`onecrew/v2/verifiers/` (adapter)",
+   "depends": "W22, WKX2",
+   "estimate": "2 h / 2 h",
+   "testcases": {
+    "T14b": "DoD"
+   },
+   "registry": {
+    "T14b": [
+     {
+      "release": "RX2",
+      "status": "partial",
+      "checks": [
+       "check.rx2_adapters",
+       "check.candidate_adapters"
+      ],
+      "gaps": [
+       "acceptance-audit"
+      ]
+     }
+    ]
+   },
+   "stop": "vượt trần → tách: dữ liệu; vận hành",
+   "not_done_when": "Lõi có nhánh theo loại việc",
+   "grep_hits": [
+    "onecrew/v2/verifiers/data.py:1",
+    "onecrew/v2/verifiers/ops.py:1",
+    "tests/test_wf_rx2_adapters.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W40-RX2",
+   "release": "RX2",
+   "survey": false,
+   "gap": "G10",
+   "outcome": "Phát hành RX2: theo quy trình chung của T54 (khung W40, W41 ở R00) cho adapter dữ liệu và vận hành; artifact ngoài Git có định danh",
+   "reuse": "W40, W41",
+   "edit_scope": "kịch bản trong kit",
+   "depends": "W39, W40-RX1, W40, W41",
+   "estimate": "1–2 h / 2 h",
+   "testcases": {
+    "T54k": "DoD"
+   },
+   "registry": {
+    "T54k": [
+     {
+      "release": "RX2",
+      "status": "partial",
+      "checks": [
+       "check.upgrade_drill",
+       "check.installed_features"
+      ],
+      "gaps": [
+       "release-evidence"
+      ]
+     }
+    ]
+   },
+   "stop": "mặc định",
+   "not_done_when": "Artifact ngoài Git không có định danh",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "WKN",
+   "release": "KN",
+   "survey": false,
+   "gap": "G11, G08",
+   "outcome": "Bộ kiểm tích hợp giữa release: T36c, T46b, T47b. Mỗi phần chạy khi bản dựng có đủ hai release của nó",
+   "reuse": "mẫu kit",
+   "edit_scope": "`verify-kit\\wf\\kn_check.py`",
+   "depends": "WK0",
+   "estimate": "1–1,5 h / 2 h",
+   "testcases": {},
+   "registry": {},
+   "stop": "mặc định",
+   "not_done_when": "Phần tích hợp bị tính vào DoD của một release",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "WKPL",
+   "release": "PL",
+   "survey": false,
+   "gap": "G10, G11",
+   "outcome": "Bộ kiểm pilot và cổng cuối: T14c, T35b, T35c, T45b, T45c, T45d, T45e, T40d, T55a",
+   "reuse": "mẫu kit, script kiểm báo cáo",
+   "edit_scope": "`verify-kit\\wf\\pl_check.py`",
+   "depends": "WK0",
+   "estimate": "1,5–2 h / 2 h",
+   "testcases": {},
+   "registry": {},
+   "stop": "mặc định",
+   "not_done_when": "Biên nhận giả lập được tính là kết quả pilot",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W38b",
+   "release": "PL-A",
+   "survey": false,
+   "gap": "G11",
+   "outcome": "PL-A: 3 việc thật đầu tiên (code, tài liệu) do chủ sở hữu chọn, trên bản cài đặt cô lập (venv + state-root riêng) của một bản dùng thử có R02, R03, RX1 đã qua cổng giao; mỗi việc ghim phiên bản; đo theo 00 §9. Việc thật dùng thử ở các bản trước được ghi kèm phiên bản, không thay PL-A",
+   "reuse": "W23b, W23c, TD27",
+   "edit_scope": "bảng đo `DO-10-VIEC.csv`",
+   "depends": "W40-R01, W40-R02, W40-R03, W40-RX1, WKPL",
+   "estimate": "trải nhiều ngày; mỗi lần ghi ≤ 0,5 h",
+   "testcases": {
+    "T35b": "DoD",
+    "T45b": "cổng vào"
+   },
+   "registry": {
+    "T35b": [
+     {
+      "release": "PL",
+      "status": "blocked",
+      "checks": [],
+      "gaps": [
+       "external-pilot"
+      ]
+     }
+    ],
+    "T45b": [
+     {
+      "release": "PL",
+      "status": "blocked",
+      "checks": [
+       "check.finalgate"
+      ],
+      "gaps": [
+       "external-pilot"
+      ]
+     }
+    ]
+   },
+   "stop": "việc thật hỏng vì bản dùng thử → ghi, quay lại bản trước theo hướng dẫn của release, không sửa trong việc pilot",
+   "not_done_when": "Tính thời gian chờ là phút của người dùng; nhận AC3 đủ bốn loại",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W38c",
+   "release": "PL-B",
+   "survey": false,
+   "gap": "G11",
+   "outcome": "PL-B: đủ ít nhất 10 việc thật tích lũy, có ít nhất một việc dữ liệu và một việc vận hành; reviewer khác hãng dùng ô `đạt` thật trong subset của RP (T40b, T40c) cho những việc chủ sở hữu chọn; báo cáo AC theo phiên bản và giai đoạn (03 §5); mỗi bằng chứng ghi hash bản dựng đã chạy (03 §5.2)",
+   "reuse": "W23b, W23c, TD27",
+   "edit_scope": "bảng đo",
+   "depends": "W38b, W40-RX2, W40-RP, W40-R05, WKPL",
+   "estimate": "trải nhiều ngày",
+   "testcases": {
+    "T35c": "DoD",
+    "T14c": "DoD",
+    "T45c": "cổng vào"
+   },
+   "registry": {
+    "T35c": [
+     {
+      "release": "PL",
+      "status": "blocked",
+      "checks": [],
+      "gaps": [
+       "external-pilot"
+      ]
+     }
+    ],
+    "T14c": [
+     {
+      "release": "PL",
+      "status": "blocked",
+      "checks": [],
+      "gaps": [
+       "external-pilot"
+      ]
+     }
+    ],
+    "T45c": [
+     {
+      "release": "PL",
+      "status": "blocked",
+      "checks": [
+       "check.finalgate"
+      ],
+      "gaps": [
+       "external-pilot"
+      ]
+     }
+    ]
+   },
+   "stop": "như W38b",
+   "not_done_when": "Báo cáo nhận đạt một AC mà giai đoạn đã chạy không chứng minh",
+   "grep_hits": [],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  },
+  {
+   "id": "W38d",
+   "release": "KET",
+   "survey": false,
+   "gap": "G11, G10",
+   "outcome": "Đối chiếu bằng chứng pilot với artifact cuối (03 §5.2), rồi cho mọi cổng chạy trên artifact cuối dùng kết quả đó qua bộ đánh giá hiệu lực chung của W40-RP, và cho CG-KET kết hợp đủ điều kiện KQ1–KQ7 của 03 §5.3 (thử trên các ca CK của T55): phân tích ảnh hưởng từ hash bản pilot tới artifact cuối (file đổi trong wheel × bản đồ phụ thuộc của từng mục acceptance, lan theo hàm closure ảnh hưởng đã tách từ v1); mục không bị ảnh hưởng giữ bằng chứng với hash cũ; mục bị ảnh hưởng chạy kiểm bổ sung trên artifact cuối; mục còn thiếu được ghi. Không chạy lại toàn bộ pilot; không đổi hash của bằng chứng",
+   "reuse": "TD13 (`v1:amendment.py:23` `affected_tasks`, phần tách ở W14a), W41 (T13b, T49b trên bản sao sổ pilot), W45 (chạy lại ô provider bị ảnh hưởng)",
+   "edit_scope": "`verify-kit\\wf\\pl_check.py` (đối chiếu), bản đồ phụ thuộc trong báo cáo pilot",
+   "depends": "W38c, W40-R06, W40-R07, W40-R08",
+   "estimate": "1–2 h / 2 h",
+   "testcases": {
+    "T45e": "DoD",
+    "T55a": "DoD"
+   },
+   "registry": {
+    "T45e": [
+     {
+      "release": "PL",
+      "status": "blocked",
+      "checks": [
+       "check.finalgate"
+      ],
+      "gaps": [
+       "external-pilot"
+      ]
+     }
+    ],
+    "T55a": [
+     {
+      "release": "PL",
+      "status": "blocked",
+      "checks": [
+       "check.finalgate"
+      ],
+      "gaps": [
+       "external-pilot"
+      ]
+     }
+    ]
+   },
+   "stop": "vượt trần → tách: phân tích ảnh hưởng; kiểm bổ sung",
+   "not_done_when": "Kế thừa bằng chứng khi chưa có phân tích; đổi hash của bằng chứng lịch sử; bỏ kiểm bổ sung của mục bị ảnh hưởng; mặc định chạy lại cả pilot",
+   "grep_hits": [
+    "wfkit/finalgate.py:1"
+   ],
+   "audit": {
+    "status": null,
+    "classes": [],
+    "implementation": [],
+    "tests": [],
+    "missing": "",
+    "next": ""
+   }
+  }
+ ]
+}

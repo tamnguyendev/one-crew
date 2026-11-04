@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261027-R13-REG-1",
+ "file": "wfkit/development-testcases.json#R05/check.r12_output_contract_chain",
+ "old_sha256": "8b60f0abbf63df671cb1ee09ea7734be771f8ff8e0eadcd4935e81b362d9b991",
+ "new_sha256": "107cfc8228e8929714cb9569449f001ce19e1fac01a823b3faaefe48df6c8449",
+ "reason": "R13 (Codex review 27/10, P1 content preservation): the scope text of check.r12_output_contract_chain described the R12 baseline (project HEAD observed at verify time); round 13 narrows the baseline to the engine's own source capture of the attempt (check.r13_source_baseline) and the text now says so. Modules unchanged; description only.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 27/10/2026 ~15:45, chỉ thị lượt 13 của Codex (dán nguyên văn): \"Tôi ủy quyền bạn tự quyết cách sửa, chia agent, chạy test, xử lý lỗi phát sinh trong phạm vi, commit local và dựng gói. Không hỏi tôi duyệt từng việc.\" Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry) + agent V2 (round 13), integration commit on codex/wf-development",
+ "at": "2026-10-27"
+}

@@ -3,6 +3,8 @@ import argparse
 import json
 from pathlib import Path
 from .ledger import Ledger, LedgerError, canonical, content_hash, text_field
+from .task_intake import outcomes  # noqa: F401  (core; re-exported)
+from . import outcome_core
 from .usage import summarize
 
 
@@ -36,10 +38,9 @@ def record(conn, ledger, task_id, state):
     data['repair_rounds']=state.get('native_change',{}).get('repairs',state.get('native_audit',{}).get('repairs'))
     data['test_results']={'passed':sum(t.get('passed') is True for t in state.get('tests',[])),
                           'failed':sum(t.get('passed') is False for t in state.get('tests',[]))}
-    data['id']=content_hash({k:v for k,v in data.items() if k!='id'})
-    if not conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='learning.outcome' AND json_extract(payload,'$.id')=?",(task_id,data['id'])).fetchone():
-        ledger._event(conn,task_id,'learning.outcome',data)
-        event=conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+    data['id']=outcome_core.outcome_id(data)
+    event=outcome_core.append_outcome(conn,ledger,task_id,data)
+    if event is not None:
         # Facts become a proposed retrospective, never a verified procedure or
         # an automatically injected instruction/model-selection rule.
         lesson={'task':task_id,'evidence_event':event,'snapshot':data['snapshot'],
@@ -55,14 +56,6 @@ def record(conn, ledger, task_id, state):
     return False
 
 
-def outcomes(ledger,limit=50):
-    if type(limit) is not int or not 1<=limit<=200: raise LedgerError('limit must be 1-200.')
-    with ledger.transaction() as conn:
-        if conn is None: return []
-        rows=conn.execute("SELECT e.seq,e.payload FROM events e JOIN tasks t ON t.id=e.task_id WHERE t.project_id=? AND e.kind='learning.outcome' ORDER BY e.seq DESC LIMIT ?",(ledger.project_id,limit)).fetchall()
-    return [{'event':r['seq'],**json.loads(r['payload'])} for r in rows]
-
-
 def propose(ledger,task_id,evidence,text):
     text=text_field(text,'lesson',800)
     from .discovery import scan_text
@@ -76,8 +69,7 @@ def propose(ledger,task_id,evidence,text):
         value={'task':task_id,'evidence_event':evidence,'snapshot':outcome['snapshot'],
             'text':text,'status':'proposed','automatic_injection':False,'automatic_promotion':False}
         value['id']=content_hash(value)
-        if not conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='learning.lesson' AND json_extract(payload,'$.id')=?",(task_id,value['id'])).fetchone():
-            ledger._event(conn,task_id,'learning.lesson',value)
+        outcome_core.append_learning(conn,ledger,task_id,'learning.lesson',value)
     return value
 
 

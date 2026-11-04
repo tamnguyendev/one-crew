@@ -12,9 +12,7 @@ from .ledger import LedgerError
 from .snapshots import scoped_path
 
 
-class EffectUnknown(LedgerError):
-    """Retain the exact tool intent; resume may only observe its existing action."""
-
+from .effects_core import EffectUnknown
 
 def bindings(runtime, remote):
     if not remote: return {}

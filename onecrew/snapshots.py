@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import stat
 import subprocess
 import uuid
 
@@ -16,6 +17,13 @@ MAX_FILE = 2_000_000
 MAX_TOTAL = 16_000_000
 MAX_EVIDENCE = 64_000_000
 EVIDENCE_CHUNK = 1_000_000
+CONTROL_NAMES = ('.git', '.onecrew', '.ssh', '.aws')        # path components no snapshot carries ...
+CREDENTIAL_PREFIX = '.env'                                   # ... nor any component that starts with this
+
+
+def control_part(part):
+    """Is this one path component a control or credential name (`.git`, `.onecrew`, `.ssh`, `.aws`, `.env*`, any case)?"""
+    return part.lower() in CONTROL_NAMES or part.lower().startswith(CREDENTIAL_PREFIX)
 
 
 def scoped_path(value):
@@ -27,7 +35,7 @@ def scoped_path(value):
                 re.search(r'[<>:"|?*\x00-\x1f]', part) or
                 re.fullmatch(r'(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?', part, re.I)):
             raise LedgerError('Unsafe scope path.')
-        if part.lower() in ('.git', '.onecrew', '.ssh', '.aws') or part.lower().startswith('.env'):
+        if control_part(part):
             raise LedgerError('Control or credential paths cannot enter worker snapshots.')
     if PurePosixPath(value).is_absolute():
         raise LedgerError('Absolute scope paths are forbidden.')
@@ -46,16 +54,76 @@ def scope_list(paths):
     return paths
 
 
+class ControlAlias(LedgerError):
+    """The NAME passed scoped_path, but on disk it reaches a control or credential path: a Windows short (8.3) name such as ENV~1.EXA for
+    `.env.example` or GIT~1 for `.git`."""
+
+
+def is_link(path):
+    """Is this path a symbolic link or, on Windows, a junction? Neither is followed by a snapshot, a checkout listing or an adapter."""
+    return path.is_symlink() or (hasattr(path, 'is_junction') and path.is_junction())
+
+
 def safe_file(root, name):
     name = scoped_path(name)
     target = root
     for part in name.split('/'):
         target = target / part
-        if target.is_symlink() or (hasattr(target, 'is_junction') and target.is_junction()):
+        if is_link(target):
             raise LedgerError('Snapshot paths cannot traverse links or junctions.')
-    if not target.resolve().is_relative_to(root.resolve()):
+    top, real = root.resolve(), target.resolve()
+    if not real.is_relative_to(top):
         raise LedgerError('Snapshot path escaped root.')
+    if any(control_part(part) for part in real.relative_to(top).parts):          # judged by what the name reaches, not by how it is spelled
+        raise ControlAlias('Control or credential paths cannot enter worker snapshots (this name reaches one, a Windows short name).')
     return target
+
+
+def final_path(fd):
+    """The path the open file `fd` really is, as the system resolves it (links and junctions followed); None when it cannot be told."""
+    if os.name == 'nt':
+        import ctypes
+        import msvcrt
+        buffer = ctypes.create_unicode_buffer(32768)
+        size = ctypes.windll.kernel32.GetFinalPathNameByHandleW(ctypes.c_void_p(msvcrt.get_osfhandle(fd)), buffer, 32768, 0)
+        if not size or size >= 32768: return None
+        text = buffer.value
+        return '\\\\' + text[8:] if text.startswith('\\\\?\\UNC\\') else text[4:] if text.startswith('\\\\?\\') else text
+    try:
+        return os.readlink(f'/proc/self/fd/{fd}')
+    except OSError:
+        pass
+    try:
+        import fcntl                                   # macOS
+        if hasattr(fcntl, 'F_GETPATH'):
+            return fcntl.fcntl(fd, fcntl.F_GETPATH, b'\0' * 1024).split(b'\0', 1)[0].decode('utf-8', 'surrogateescape')
+    except OSError:
+        pass
+    return None
+
+
+def check_alone(fd, expected, label):
+    """Judge the open file `fd` that is about to be read as `expected`: a regular file, no other name on the disk (link count 1), and the file the path
+    as named leads to with no link or junction on the way (its final path is `expected`). A hard link may be the other name of a file every reader
+    is kept from (an ignored .env, a home folder, the ledger), and a folder made a junction after its path was checked leads anywhere; judged on the
+    handle, a change between the check and the read cannot slip through (2.3 alpha AL-01; Codex review of beta 2.3.0.dev9, P1). LedgerError otherwise."""
+    status = os.fstat(fd)
+    if not stat.S_ISREG(status.st_mode):
+        raise LedgerError(f'{label} is not a regular file, so it is not read.')
+    if status.st_nlink > 1:
+        raise LedgerError(f'{label} has another name on the disk (a hard link), so it is not read; remove the other name or use a copy.')
+    final = final_path(fd)
+    if final is None and os.name != 'nt':
+        final = os.path.realpath(str(expected))         # no handle API on this system: the path as it resolves now (a recorded limit)
+    if final is None or os.path.normcase(final) != os.path.normcase(os.path.abspath(str(expected))):
+        raise LedgerError(f'{label} is reached through a link or junction ({final or "its final path cannot be told"}), so it is not read.')
+
+
+def _alone(path, name):
+    """The bytes of a scope file, read on a handle check_alone accepted (`path` is the scope root, resolved, joined with the name)."""
+    with open(path, 'rb') as handle:
+        check_alone(handle.fileno(), path, f'Snapshot file {name}')
+        return handle.read()
 
 
 def bytes_hash(data):
@@ -180,7 +248,9 @@ class Snapshots:
             raise LedgerError('Cannot capture scoped Git state.')
         return result.stdout if result.returncode == 0 else None
 
-    def capture(self, project, paths):
+    def capture(self, project, paths, kept=None):
+        """`kept`: names of the folder that the snapshot rules keep from every reader and that are left out (artifact identity of a folder without Git,
+        beta report D8). They are named in the manifest, not read, and a manifest without any is the one there always was."""
         project = Path(project).resolve()
         paths = scope_list(paths)
         before = self._working(project, paths)
@@ -189,8 +259,9 @@ class Snapshots:
         # Non-Git folders have no index. A Git folder with unreadable index is unsafe.
         if index is None and self.git(project, 'rev-parse', '--git-dir', allow_failure=True) is not None:
             raise LedgerError('Git index unavailable.')
-        files = {p: {'working': self.blob(data) if data is not None else None, 'index': []}
-                 for p, data in before.items()}
+        # the working bytes are stored only once the second pass below agrees: a folder made a junction between the two passes leaves nothing
+        # behind in the store (review of AL-01, P3)
+        files = {p: {'working': data, 'index': []} for p, data in before.items()}
         for entry in (index or b'').split(b'\0'):
             if not entry:
                 continue
@@ -205,8 +276,10 @@ class Snapshots:
                 index != self.git(project, 'ls-files', '--stage', '-z', '--', *paths, allow_failure=True) or
                 head != self.git(project, 'rev-parse', '--verify', 'HEAD', allow_failure=True)):
             raise LedgerError('Source changed during snapshot; retry without publishing.')
+        for item in files.values():
+            if item['working'] is not None: item['working'] = self.blob(item['working'])
         return self.save({'version': 1, 'parent': None, 'source': str(project),
-                          'head': head.decode('ascii').strip() if head else None, 'files': files})
+                          'head': head.decode('ascii').strip() if head else None, 'files': files, **({'kept': list(kept)} if kept else {})})
 
     @staticmethod
     def _working(project, paths):
@@ -218,7 +291,7 @@ class Snapshots:
                 raise LedgerError('Scope must name files, not directories.')
             if path.exists() and path.stat().st_size > MAX_FILE:
                 raise LedgerError('Snapshot file exceeds size cap.')
-            result[name] = path.read_bytes() if path.exists() else None
+            result[name] = _alone(path, name) if path.exists() else None
             total += len(result[name] or b'')
             if total > MAX_TOTAL:
                 raise LedgerError('Snapshot exceeds total size cap.')

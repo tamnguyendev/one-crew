@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261026-R10-14",
+ "file": "pyproject.toml",
+ "old_sha256": "ea0f06aaa37788bbfc8143127f04523d768bf0a5fab4209b998a724584a8567e",
+ "new_sha256": "35ef0045ca95574c00dfd6b3f932853848b4cc88693e9e7f9dc34ac717029145",
+ "reason": "R10: version 2.2.0.dev11 (snapshot sau sửa bộ kiểm gói).",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 26/10/2026 ~13:30, chỉ thị lượt 10 của Codex (ủy quyền một lần; không hỏi duyệt từng việc). Quyết định kỹ thuật theo ủy quyền.",
+ "applied_by": "claude (entry) + agent D (claude-sonnet), round 10",
+ "at": "2026-10-26"
+}

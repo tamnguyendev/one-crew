@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261027-R12-REG-1",
+ "file": "wfkit/development-testcases.json#R05/check.r11_output_guard_refs",
+ "old_sha256": "9cdf2e109ebdb652e1adab711561276eae156d2bcc2150f5e5f38974af07ec4f",
+ "new_sha256": "319c92fea4d9a63ec8899fd28b24544e4cfe8b0a99c9710114ff8345d515904e",
+ "reason": "R12 (Codex review 27/10, P1-A): the scope text of check.r11_output_guard_refs described the withdrawn R11 'required output named in prose' rule; it now states that a write path named in prose carries no obligation and that existence/content requirements come from the contract's milestones (tests f-i refuse through a real NONEMPTY/EMPTY_FILE milestone). Modules unchanged; description only.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 27/10/2026 ~03:45, chỉ thị lượt 12 của Codex (dán nguyên văn): \"Tôi ủy quyền tự chia task, chọn cách sửa, bổ sung test, chạy agent phù hợp, xử lý lỗi phát sinh trong phạm vi, commit local, dựng và kiểm gói. Không hỏi tôi duyệt từng file, task, test hoặc commit.\" Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry) + agent P (round 12), integration commit on codex/wf-development",
+ "at": "2026-10-27"
+}

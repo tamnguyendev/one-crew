@@ -14,23 +14,30 @@ def schema(properties, required=()):
 STRING={'type':'string'}
 TASK=schema({'task':STRING},('task',))
 TOOLS={
-    'delivery_submit':('Submit a sealed solution-level delivery from a local JSON file; start its durable parent runner. Never creates a new approval.',
+    'delivery_submit':('Submit a solution-level delivery from a local JSON file and start its durable parent runner. '
+        '{goal,key,solution_id,solution_revision} lets OneCrew plan inside the approved SOL envelope; an explicit plan is still accepted. '
+        'Never creates a new approval.',
         schema({'file':STRING},('file',))),
     'status':('Read task context and durable questions; no worker launch.',TASK),
     'outputs':('Read evidence, changes and limitations.',TASK),
     'inbox':('Read pending questions; never answer or resume.',TASK),
     'submit':('Submit an authorized goal, return task ID and bounded background launch state. End the chat turn after dispatch.',
-        schema({'goal':STRING,'request_key':STRING,'mode':{'type':'string','enum':['audit','change','delivery','branch']},
+        schema({'goal':STRING,'request_key':STRING,'mode':{'type':'string','enum':['audit','change','delivery','branch','work']},
             'provider':{'type':'string','enum':['codex','claude','kiro']},'model':STRING,
             'max_calls':{'type':'integer','minimum':1,'maximum':10000},
             'max_seconds':{'type':'integer','minimum':1,'maximum':28800},
-            'image':STRING,'branch':STRING,'remote':STRING,'solution_id':STRING,'solution_revision':STRING},('goal','request_key'))),
-    'reply':('Record an actual user answer to the current request revision. Silence/skip is not an answer. Does not extend budget or grant new permissions.',
-        schema({'request':STRING,'revision':STRING,'choice':STRING,'reference':STRING},('request','revision','choice','reference'))),
+            'image':STRING,'branch':STRING,'remote':STRING,'solution_id':STRING,'solution_revision':STRING,
+            'contract':{'type':'object','description':'Work contract (mode work): schema_version 1, goal, scope, preserve, acceptance, checks, authority, authorized_by.'}},
+            ('request_key',))),
+    'reply':('Record an answer to the current request revision. Silence/skip is not an answer. Does not extend budget or grant new permissions. '
+        'decided_by: "user" when the user made this decision (cite their message in reference), "entry" when the entry decided under delegation.',
+        schema({'request':STRING,'revision':STRING,'choice':STRING,'reference':STRING,'decided_by':{'type':'string','enum':['user','entry']}},
+               ('request','revision','choice','reference'))),
     'resume':('Resume an authorized task without resetting counters/deadline; pending questions still block.',TASK),
     'cancel':('Request task cancellation. Read status to distinguish requested from confirmed.',TASK),
 }
 READ_ONLY={'status','outputs','inbox'}
+COMMANDS={'delivery_submit':'delivery.submit','submit':'job.submit','reply':'request.reply','resume':'task.resume','cancel':'task.cancel'}
 
 
 class Server:
@@ -48,6 +55,15 @@ class Server:
         from .conversation_mcp import READ
         return [{'name':k,'description':v[0],'inputSchema':v[1],
                  'annotations':{'readOnlyHint':k in READ_ONLY or k in READ and k!='discussion_route'}} for k,v in self.enabled().items()]
+
+    def actor(self):
+        from .interventions import actor
+        return actor(self.source)
+
+    def note(self,task,name,details=None,key=None):
+        # Evidence only, after the mutation succeeded; a recording failure never fails the tool.
+        from .interventions import note
+        return note(self.ledger,task,COMMANDS[name],actor=self.actor(),channel='mcp',details=details,key=key)
 
     def call(self,name,args):
         if name not in self.enabled():
@@ -85,13 +101,16 @@ class Server:
             runtime=Delivery(self.ledger)
             try:
                 state=runtime.enable(result['id'])
-                result['runner']=({'status':'not_started','reason':state['phase']} if state['phase'] in ('completed','failed','cancelled','blocked') else start(self.ledger,result['id']))
+                result['runner']=({'status':'not_started','reason':state['phase']} if state['phase'] in ('completed','failed','cancelled','blocked') else start(self.ledger,result['id'],initiator=self.actor()))
             except (ValueError,OSError) as error:result['runner']={'status':'unconfirmed','error':str(error)[:1000]}
+            self.note(result['id'],name,{'runner':result['runner'].get('status')},key='submit')
             return result
         if name=='submit':
             from .owned_intake import submit
             from .owned import Owned
             from .runner import start
+            args=dict(args);args.setdefault('goal',None)
+            if args['goal'] is None and 'contract' not in args:raise LedgerError('goal is required (or a contract in mode work).')
             result=submit(self.ledger,**args)
             # Replay submission does not restart a completed job.
             runtime=Owned(self.ledger);state=runtime.state(result['id'])[1]
@@ -99,19 +118,28 @@ class Server:
                 return dict(result,runner={'status':'not_started','reason':'terminal job'})
             try:
                 runtime.enable(result['id'])
-                runner=start(self.ledger,result['id'])
+                runner=start(self.ledger,result['id'],initiator=self.actor())
             except (ValueError,OSError) as error:
                 # Submission is durable even if capability/launch fails. Never lose its ID
                 # or imply the worker ran; the same request key recovers this task.
                 runner={'status':'unconfirmed','error':str(error)[:2000],
                         'next':'Inspect status before retrying with the same request key.'}
+            self.note(result['id'],name,{'runner':runner.get('status')},key='submit')
             return dict(result,runner=runner)
         if name=='reply':
-            result=self.ledger.reply(args['request'],args['revision'],args['choice'],self.source,args['reference'])
-            return result
+            from .v2.answer_effects import reply_and_apply  # P1-2: reply + mandatory workflow effect in one transaction
+            result=reply_and_apply(self.ledger,args['request'],args['revision'],args['choice'],source=self.source,reference=args['reference'],
+                                   decided_by=args.get('decided_by'),by=self.actor())
+            from .keeper import after_reply
+            try: task=self.ledger.request(args['request'])['task_id']
+            except (ValueError,OSError): return result  # the answer is recorded; evidence is best-effort
+            self.note(task,name,{'request':args['request'],'choice':args['choice'],'decided_by':args.get('decided_by')},key=result['id'])
+            continuation=after_reply(self.ledger,task)
+            return dict(result,continuation=continuation) if continuation else result
         from .runner import workflow_for
         runtime=workflow_for(self.ledger,args['task'])
-        if name=='cancel': return runtime.control.cancel(args['task'])
+        if name=='cancel':
+            result=runtime.control.cancel(args['task']);self.note(args['task'],name);return result
         if name=='outputs':
             if self.ledger.task(args['task'],full=True)['handoff'].get('solution_delivery'):return runtime.card(args['task'])
             from .owned_cli import output_card
@@ -120,7 +148,11 @@ class Server:
             return output_card(runtime,args['task'],state)
         from .runner import start
         runtime.resume(args['task'])
-        return start(self.ledger,args['task'])
+        try: result=start(self.ledger,args['task'],initiator=self.actor())
+        except (ValueError,OSError):
+            self.note(args['task'],name,{'runner':'failed'});raise  # the resume itself already happened
+        self.note(args['task'],name,{'runner':result.get('status')})
+        return result
 
     def handle(self,message):
         if not isinstance(message,dict) or message.get('jsonrpc')!='2.0':

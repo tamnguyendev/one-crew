@@ -219,7 +219,7 @@ class Ledger:
 
     def _task_view(self, conn, row, full=False):
         payload = json.loads(row['payload'])
-        from .budget import current
+        from .budget_core import current
         budget = current(conn, row)
         pending = conn.execute("SELECT COUNT(*) FROM requests WHERE task_id=? AND state='pending'",
                                (row['id'],)).fetchone()[0]
@@ -236,7 +236,7 @@ class Ledger:
         if conn.execute('PRAGMA user_version').fetchone()[0] >= 2:
             execution = conn.execute('SELECT * FROM executions WHERE task_id=?', (row['id'],)).fetchone()
             if execution:
-                from .goal_budget import cancellation_status
+                from .budget_core import cancellation_status
                 result['execution'] = cancellation_status(row['id'],execution,budget)
                 result['budget'].update(used_calls=execution['used_calls'], reserved_calls=execution['reserved_calls'])
                 result['control_revision'] = execution['revision']
@@ -383,29 +383,45 @@ class Ledger:
                 revision=revision,source=source,reference=reference,answer_recorded=False))
             return self._request_view(row)
 
-    def reply(self, request_id, revision, choice, source='terminal', reference='local user input'):
+    def reply(self, request_id, revision, choice, source='terminal', reference='local user input', *, decided_by=None, by=None, conn=None):
+        """decided_by: who made the decision ('user' or 'entry'); by: the attributed actor that sent it.
+        Both are evidence only; an unstated decider stays unknown and is never read as the user's.
+        conn: an open write transaction of this ledger. When given, the reply is written into it and committed (or rolled
+        back) by the caller together with whatever else it writes there (v2 questions.answer: reply + mandatory effect)."""
         text_field(source, 'source', 200)
         text_field(reference, 'reference')
-        with self.transaction(write=True) as conn:
-            row = self._request(conn, request_id)
-            if revision != row['revision']:
-                raise LedgerError('Stale request revision; review the current question and action.')
-            options = json.loads(row['payload'])['options']
-            if choice not in [option['id'] for option in options]:
-                raise LedgerError('Choice does not match an option in this revision.')
-            if row['state'] == 'answered':
-                receipt = json.loads(row['answer'])
-                if receipt['choice'] == choice:
-                    return receipt
-                raise LedgerError('Conflicting reply: request already answered.')
-            receipt = {'id': 'REPLY-' + uuid.uuid4().hex, 'request_id': request_id,
-                       'revision': revision, 'choice': choice, 'recorded_at': utcnow(),
-                       'provenance': {'actor': getpass.getuser(), 'source': source, 'reference': reference,
-                                      'trust': 'local_attribution_only'}, 'action_applied': False}
-            conn.execute("UPDATE requests SET state='answered',answer=?,updated_at=? WHERE id=? AND state='pending' AND revision=?",
-                         (canonical(receipt), receipt['recorded_at'], request_id, revision))
-            self._event(conn, row['task_id'], 'request.answered', receipt)
-            return receipt
+        if decided_by not in (None, 'user', 'entry'):
+            raise LedgerError('decided_by must be user or entry.')
+        if (decided_by == 'user' or (isinstance(by, str) and by in ('user', 'owner'))) and any(name in os.environ for name in ('CLAUDE_CODE_CHILD_SESSION',)):
+            # W03 (T20 E5): a reply that claims the user's decision cannot be recorded from inside an AI tool session; the owner answers in a terminal of their own
+            raise LedgerError('reply refused: a decision attributed to the user cannot be recorded from inside an AI tool session (CLAUDE_CODE_CHILD_SESSION is set).')
+        if by is not None and (not isinstance(by, str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,39}', by)):
+            raise LedgerError('Invalid reply actor.')
+        if conn is None:
+            with self.transaction(write=True) as connection:
+                return self._reply(connection, request_id, revision, choice, source, reference, decided_by, by)
+        return self._reply(conn, request_id, revision, choice, source, reference, decided_by, by)
+
+    def _reply(self, conn, request_id, revision, choice, source, reference, decided_by, by):
+        row = self._request(conn, request_id)
+        if revision != row['revision']:
+            raise LedgerError('Stale request revision; review the current question and action.')
+        options = json.loads(row['payload'])['options']
+        if choice not in [option['id'] for option in options]:
+            raise LedgerError('Choice does not match an option in this revision.')
+        if row['state'] == 'answered':
+            receipt = json.loads(row['answer'])
+            if receipt['choice'] == choice:
+                return receipt
+            raise LedgerError('Conflicting reply: request already answered.')
+        receipt = {'id': 'REPLY-' + uuid.uuid4().hex, 'request_id': request_id,
+                   'revision': revision, 'choice': choice, 'recorded_at': utcnow(),
+                   'provenance': {'actor': getpass.getuser(), 'source': source, 'reference': reference,
+                                  'trust': 'local_attribution_only', 'by': by, 'decided_by': decided_by}, 'action_applied': False}
+        conn.execute("UPDATE requests SET state='answered',answer=?,updated_at=? WHERE id=? AND state='pending' AND revision=?",
+                     (canonical(receipt), receipt['recorded_at'], request_id, revision))
+        self._event(conn, row['task_id'], 'request.answered', receipt)
+        return receipt
 
     def events(self, task_id, after=0):
         if type(after) is not int or after < 0:

@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-RC-TESTS",
+ "file": "tests/test_wf_release_check.py",
+ "old_sha256": "2c4eec6011f74c433cd16a66d6ebe2e54d1dd3ed80ffc8dbde11d0208e4465fe",
+ "new_sha256": "bc7b7babff219173dfa6add59aca8146aea1e9afdeb1496b41efd660d5032c5c",
+ "reason": "Same review: fixture gains scenario/inventory-shaped receipts (scenario(), events_receipt(), retarget()) and two counter-example tests (T54.1: no scenario / import-only / disabled feature / silent feature / failed result / checkout shadow / boundary / wrong wheel / wrong interpreter / task without scenario; T54.3: kind dropped / not observed / wrong class / class B on legacy anchor / class-0 payload field missing / comparison dropped / other release's inventory / narrowed inventory / wrong none_reason / regression not run). No assertion removed. 17/17 OK.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị sau review Codex a2476ab): 'Tôi ủy quyền bạn tự quyết các sửa đổi kỹ thuật cần thiết... Sửa code, adapter, CLI, validator, harness, test và fixture... Nếu cần bản ghi U1/lineage, tự xử lý đúng cơ chế và ghi \"quyết định theo ủy quyền\", không giả owner trực tiếp duyệt.' Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 2 commit on codex/wf-development",
+ "at": "2026-10-25"
+}

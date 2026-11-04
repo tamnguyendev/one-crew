@@ -1,6 +1,7 @@
 """Child-only subscription environment; never edit the user's credentials/settings."""
 import os
 
+UTF8_ENV = {'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8'}
 
 CODEX_AUTH_ARGS = ['-c', 'forced_login_method="chatgpt"', '-c', 'model_provider="openai"']
 CLAUDE_AUTH_ARGS = ['--restricted', '--safe-mode', '--settings',
@@ -18,4 +19,6 @@ def environment(source=None):
         return not (key.startswith(('OPENAI_', 'ANTHROPIC_', 'CLAUDE_CODE_USE_',
                                     'CLAUDE_CODE_API_KEY_HELPER'))
                     or key in {'CODEX_API_KEY', 'CHATGPT_BASE_URL', 'CLAUDE_CODE_SIMPLE'})
-    return {key: value for key, value in source.items() if allowed(key)}
+    env = {key: value for key, value in source.items() if allowed(key)}
+    env.update(UTF8_ENV)  # the CLI's Bash/Python children must not fall back to a legacy console codepage
+    return env

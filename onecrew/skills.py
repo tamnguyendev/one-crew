@@ -40,9 +40,13 @@ def similar(a, b):
 
 
 def latest(ledger, conn):
-    rows = conn.execute("SELECT e.seq,e.task_id,e.payload FROM events e JOIN tasks t ON t.id=e.task_id "
-        "WHERE t.project_id=? AND e.kind='learning.outcome' ORDER BY e.seq DESC LIMIT ?",
-        (ledger.project_id, POLICY['history_limit'])).fetchall()
+    # W23b: v1 tasks and v2 plan anchors each get their own history window, so v2 roots' outcomes cannot push v1 ones out.
+    window = ("SELECT * FROM (SELECT e.seq,e.task_id,e.payload FROM events e JOIN tasks t ON t.id=e.task_id "
+              "WHERE t.project_id=? AND e.kind='learning.outcome' AND {} (t.request_key LIKE 'plan:%' OR t.request_key LIKE 'plan-ns:%') "
+              "ORDER BY e.seq DESC LIMIT ?)")
+    limit = POLICY['history_limit']
+    rows = conn.execute(window.format('NOT') + ' UNION ALL ' + window.format('') + ' ORDER BY seq DESC',
+                        (ledger.project_id, limit, ledger.project_id, limit)).fetchall()
     result = {}
     for row in rows:
         result.setdefault(row['task_id'], dict(json.loads(row['payload']), event=row['seq']))
@@ -139,6 +143,9 @@ def review(ledger, name=None):
 
 def decide(ledger, name, revision, decision, reference):
     if decision not in ('approved', 'rejected'): raise LedgerError('Invalid skill decision.')
+    from .interventions import in_ai_session
+    if in_ai_session():         # W03: a skill decision is the operator's; Ledger.reply's rule, before anything is read or written
+        raise LedgerError('skill decision refused: the operator\'s decision cannot be recorded from inside an AI tool session (CLAUDE_CODE_CHILD_SESSION is set).')
     reference = text_field(reference, 'operator reference', 500)
     with ledger.transaction(write=True) as conn:
         value = records(ledger, conn).get(name)

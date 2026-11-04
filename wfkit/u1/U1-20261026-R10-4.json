@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261026-R10-4",
+ "file": "onecrew/v2/findings.py",
+ "old_sha256": "5d5b107e889889d467bcfe98e0a9ecbcaa1c356c9ffe7cdb7de8d073d5f2cca3",
+ "new_sha256": "982d9c0e6cdee778f26309b9a0467fb1cd71376a184c19728a1780ab8394194a",
+ "reason": "R10-A D6: finding nội bộ mới lưu check của nó; đổi spec kiểu same/wording giữ finding OPEN (ghi wording_rebound_from); changed/threshold/removed mới stale. Finding cũ (chưa lưu check) giữ luật cũ. Red: (b) stale != open.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 26/10/2026 ~13:30, dán chỉ thị lượt 10 của Codex: 'Tôi ủy quyền một lần cho công việc này. Tự chia task, sửa code/test/cấu hình, chạy kiểm chứng và xử lý lỗi trong phạm vi đã giao; không hỏi tôi duyệt từng việc.' Quyết định kỹ thuật theo ủy quyền; không phải chữ ký trực tiếp cho từng dòng.",
+ "applied_by": "claude (entry) + agents A (claude-opus), B/C (claude-sonnet), round 10 on codex/wf-development",
+ "at": "2026-10-26"
+}

@@ -1,5 +1,43 @@
 # OneCrew entry contract
 
+## Generic work contracts — 13/10/2026
+
+For new work that is not a full app delivery, write the user's terms as a work contract and dispatch it:
+`job submit --mode work --contract contract.json --key K [--provider P --model M] --start`, or MCP `submit`
+with `mode: work` and `contract`. See docs/generic-execution.vi.md.
+
+The contract holds only what the user controls:
+- goal, scope (repository, editable paths), preserve, acceptance, optional machine checks;
+- authority: edit, commands, local_branches (exact names), branch_at, apply_to_project, edit_tests;
+- `authorized_by`: where the user said it.
+
+Do not write a plan, file list, commands or a recipe. OneCrew pins the repository, works in an isolated
+workspace, re-runs verification itself and writes the handover.
+
+A user-pinned provider/model is sealed; never fall back. Do not run the requested Git/build effect yourself and
+report it as OneCrew's. Push/tag/deploy/device actions are not in work contracts.
+
+Since the Codex review of 13/10/2026 (docs/generic-execution.vi.md): commands are contained by the OS (they write only in
+the workspace) unless the USER grants `authority.unconfined_commands` (e.g. Flutter, which writes its SDK cache); never
+add it on the user's behalf. Only changes within `edit` and `scope.paths` can be delivered, whatever made them; restarts
+reconcile intents and never re-run a command of unknown outcome; verification is re-checked against the real refs and
+project files at completion. Runs outlive the chat only through the OneCrew host (`host install` is the user's one-time
+decision, `host register --state-root`); without it `job start` reports `independent_of_entry: not guaranteed`.
+
+## Delivery autopilot — 12/10/2026
+
+For new aggregate work, agree requirement, scope, acceptance, stages, device permission
+window and budget with the user, then record them as a typed `envelope` inside the solution
+payload (docs/delivery-autopilot.vi.md). Approving that SOL revision approves the envelope.
+Dispatch at goal level: `delivery submit --solution SOL --revision REV --goal "..." --key K
+--start`. Do not write the plan, recipes, owned files, tests, red patterns, SDK paths, signer
+or scenario: OneCrew discovers the environment, plans inside the envelope, recovers technical
+failures within the grant and asks one typed request when a user decision is needed. Answer
+that request (`request reply`); the runtime continues by itself, so do not call `delivery
+resume` for it. Mutating CLI/MCP commands are recorded as interventions automatically; set
+`ONECREW_ACTOR=claude|codex|user` in the entry shell. Entry-written plans remain supported
+and must fit the envelope when the SOL has one. Never widen the envelope on the user's behalf.
+
 ## Evidence-driven changes — 12/10/2026
 
 For runtime/recipe/skill improvements, use `eval cases/replay/compare` as documented

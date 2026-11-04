@@ -1,0 +1,18 @@
+{
+ "id": "U1-20261031-V23-GATECOUNT-3",
+ "file": "wfkit/gate.py",
+ "old_sha256": "0dbed48f7ea91ce0ab7beb441fd9f129b28a50111549b6dee50912d815734cfd",
+ "new_sha256": "91fde784980051ef04b477df5c7536cc6155d404c17748723600fecef2774428",
+ "reason": "Follows U1-20261031-V23-GATECOUNT-1 (same finding, Codex review of beta 2.3.0.dev9, P2). The independent review of that change found that parse_unittest took the first summary line of the log, which is stdout followed by stderr: a test that prints `OK` itself came before unittest's real summary, and expected failures then counted as passed with no allowance. parse_unittest now reads the summary after the last `Ran N tests` line. Nothing else changes; no check is removed or loosened.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 31/10/2026, chỉ thị dán nguyên văn (xử lý review Codex trên beta 2.3.0.dev9), mục 3 \"Quyền U1\": \"Trong yêu cầu này, tôi cho phép ngoại lệ U1 hẹp nếu bộ khóa hiện hành yêu cầu, chỉ cho thay đổi bộ đếm gate và test trực tiếp liên quan để khép P2 này. Ghi rõ file, hash cũ/mới, lý do, bằng chứng và phạm vi nhánh 2.3. Không dùng quyền này để bỏ test, nới acceptance, sửa các test khóa không liên quan hoặc thay bộ kiểm beta 2.2.\" Quyết định kỹ thuật theo ủy quyền đó; không phải chữ ký trực tiếp của chủ sở hữu, không phải nghiệm thu.",
+ "applied_by": "claude (entry, Opus 5.5), OneCrew 2.3 beta after dev9, branch claude/onecrew-2.3 only (not codex/wf-development, not the 2.2 beta kit or package)",
+ "evidence": {
+  "base": "563e0a4",
+  "commit": "e88b250",
+  "diff": "git diff 563e0a4 e88b250 -- wfkit/gate.py",
+  "red": "tests/test_v23_gate_counts.py c07 on 563e0a4 (wfkit extracted with git archive): 1 failure",
+  "green": "tests/test_v23_gate_counts.py 7/7 on e88b250",
+  "reviewed_by": "independent review (agent) of 06f55e5/563e0a4, finding 7"
+ },
+ "at": "2026-10-31"
+}

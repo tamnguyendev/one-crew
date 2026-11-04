@@ -147,10 +147,15 @@ def _apply_edits(runtime,original,name,edits):
     return text.encode()
 
 
-def install_candidate(runtime,state,value,recipe):
+def install_candidate(runtime,state,value,recipe,scope=None):
+    """scope='tests': a delivery repair of test evidence only (all tests already pass on the reviewed production
+    code); the patch may change test files only and production must stay byte-identical."""
     native=state['native_change'];workspace=Path(native['workspace'])
     items=value.get('files')
-    if not isinstance(items,list) or not 1<=len(items)<=len(recipe['owned']): raise LedgerError('Return a bounded complete patch set.')
+    # An empty or oversized file list is a format defect the same session can repair (bounded by the content repairs),
+    # never a hard block: nothing is installed.
+    if not isinstance(items,list) or not 1<=len(items)<=len(recipe['owned']):
+        raise PatchIncomplete('Return a bounded complete patch set: between 1 and '+str(len(recipe['owned']))+' owned files, each with text or edits.')
     replacements={}
     for item in items:
         if not isinstance(item,dict) or 'path' not in item or set(item)-{'path','text','edits'} or ('text' in item)==('edits' in item):
@@ -167,7 +172,12 @@ def install_candidate(runtime,state,value,recipe):
         if len(data)>MAX_PATCH_FILE: raise LedgerError('Patch file too large.')
         replacements[name]=runtime.store.blob(data)
     if not set(recipe['tests'])<=set(replacements): raise PatchIncomplete('Required regression tests missing from patch.')
-    if not recipe.get('caller_symbol') and not any(h!=native['originals'][p] and p not in recipe['tests'] for p,h in replacements.items()):
+    production=[p for p,h in replacements.items() if h!=native['originals'][p] and p not in recipe['tests']]
+    if scope=='tests':
+        if production:
+            raise PatchIncomplete('This repair may change only test files; production files are already reviewed and must stay '
+                                  'exactly as they are: '+', '.join(production)+'.')
+    elif not recipe.get('caller_symbol') and not production:
         raise PatchIncomplete('No production fix in patch.')
     # Each revision supplies the entire cumulative change, never stale prior edits.
     for name,original in native['originals'].items():
@@ -335,6 +345,13 @@ def advance(runtime,task_id,seq,state,profile):
     if any(r['state']=='answered' and r['answer']['choice']=='stop' for r in answered):
         state.update(phase='cancelled',message='Stopped on explicit user clarification.')
         runtime.persist(task_id,seq,state);return state
+    qc=profile.get('qc')  # a candidate built outside OneCrew: judged here, never repaired or applied (qc_gate)
+    if qc and not state.get('native_change'):
+        from . import qc_gate
+        reasons,where=qc_gate.precheck(runtime,qc,recipe)
+        if reasons:
+            qc_gate.finish(state,qc,'rejected',where,reasons)
+            runtime.persist(task_id,seq,state);return state
     if not state.get('native_change'):
         def progress(value):
             nonlocal seq
@@ -345,20 +362,34 @@ def advance(runtime,task_id,seq,state,profile):
         (node_change.prepare if node else prepare)(runtime,state,recipe,progress)
         state.setdefault('preparation',{})['status']='ready'
         state['message']=kind+' snapshot ready; worker pending.'
+        if qc:
+            state['native_change']['stage']='qc_install';state['message']=kind+' snapshot ready; candidate install pending (no worker).'
         runtime.persist(task_id,seq,state);return state
     native=state['native_change'];stage=native['stage']
+    if qc and stage in ('work','apply','build'):
+        raise LedgerError('A QC task never calls a worker or applies to the project.')
     # An explicit resume may recover a review rejected under the old combined
     # repair cap. Reuse its durable feedback rather than pay for another review.
     if (stage=='review' and state.get('message')=='Native change repair limit reached; evidence preserved.'
             and state.get('reviews') and state['reviews'][-1].get('accepted') is False):
         repair(state,state['reviews'][-1]['feedback'])
         runtime.persist(task_id,seq,state);return state
-    if stage=='verify':
+    if stage=='qc_install':
+        if not qc:raise LedgerError('Unknown native change stage.')
+        from . import qc_gate
+        reasons=qc_gate.install(runtime,state,recipe,qc)
+        if reasons:qc_gate.finish(state,qc,'rejected','install',reasons)
+        else:native['stage']='verify';state['message']='Candidate installed from '+qc['head'][:12]+'; fixed '+kind+' regression tests pending.'
+    elif stage=='verify':
         result=(node_change.verify if node else verify)(runtime,task_id,state,recipe)
         state['tests'].append(result);native['checks'].append(result)
+        environment_failure=not node and (result.get('failure_kind')=='environment' or any(s in result['detail'].lower() for s in ('could not resolve the package','unable to find git','could not find a file named','unable to locate android sdk')))
         if result['passed']: native['stage']='review';state['message']=kind+' regression tests passed; independent review pending.'
+        elif qc and not environment_failure:
+            from . import qc_gate
+            qc_gate.finish(state,qc,'rejected','gate',[qc_gate.reason('gate_failed',result['detail'][-2000:])])
         elif node: repair(state,'Fixed Node verification (tsc, vitest, build) failed. Diagnose evidence before editing; do not remove or skip assertions.\n'+result['detail'])
-        elif result.get('failure_kind')=='environment' or any(s in result['detail'].lower() for s in ('could not resolve the package','unable to find git','could not find a file named','unable to locate android sdk')):
+        elif environment_failure:
             state.update(phase='blocked',message='Flutter dependency/environment unavailable; test receipt preserved.',recovery={'kind':'environment','automatic_retry':False})
         else: repair(state,'Fixed Flutter test command failed. Diagnose evidence before editing; do not remove assertions.\n'+result['detail'])
     elif stage=='apply':
@@ -425,6 +456,9 @@ def advance(runtime,task_id,seq,state,profile):
         if not work:
             from .native_review_context import packet as review_packet
             context=review_packet(runtime,state,context)
+        if qc and not work:
+            from . import qc_gate
+            prompt+=qc_gate.review_notice(qc)
         packet=canonical(context)
         prompt+=packet
         if workspace_mode:
@@ -481,14 +515,18 @@ def advance(runtime,task_id,seq,state,profile):
                     'recommendation':'details'},profile)
                 native['feedback']='Read the actual user clarification before continuing.'
             else:
-                if not 20<=len(value['report'])<=20000: raise LedgerError('Invalid report length.')
+                # A report outside the bounds is a format defect, not a reason to block a verified-able patch: a long one
+                # is cut (the full patch is still verified and reviewed), a near-empty one gets a placeholder.
+                if len(value['report'])>20000: value['report']=value['report'][:19900]+' [report cut by the runtime at 20000 characters]'
+                if len(value['report'].strip())<20: value['report']=(value['report'].strip()+' (worker gave no report; see the patch diff)').strip()
                 task_guard(runtime.control,task_id)()
                 if workspace_mode:
                     from .workspace_worker import collect_candidate
                     value=collect_candidate(runtime,state,value,recipe)
                 else:check_snapshot(runtime,state)
                 try:
-                    install_candidate(runtime,state,value,recipe)
+                    scope=(runtime.ledger.task(task_id,full=True)['handoff'].get('owned_execution') or {}).get('delivery_scope')
+                    install_candidate(runtime,state,value,recipe,scope)
                 except PatchIncomplete as error:
                     # A partial patch on a repair round (e.g. only the test file) is repairable; keep the previous
                     # feedback so the worker still sees why the last verification failed.
@@ -508,7 +546,12 @@ def advance(runtime,task_id,seq,state,profile):
         else:
             if type(value.get('accepted')) is not bool or not isinstance(value.get('feedback'),str): raise LedgerError('Invalid native review.')
             state.setdefault('reviews',[]).append(value)
-            if value['accepted']: native['review_accepted']=True;native['stage']='apply'
+            if qc:
+                from . import qc_gate
+                if value['accepted']:
+                    native['review_accepted']=True;qc_gate.finish(state,qc,'verified_technical_only','review',[])
+                else: qc_gate.finish(state,qc,'rejected','review',[qc_gate.reason('review_rejected',value['feedback'][:2000])])
+            elif value['accepted']: native['review_accepted']=True;native['stage']='apply'
             else: repair(state,value['feedback'])
         native.pop('result_pending',None)
     else: raise LedgerError('Unknown native change stage.')

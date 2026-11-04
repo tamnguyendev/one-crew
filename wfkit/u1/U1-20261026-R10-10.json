@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261026-R10-10",
+ "file": "pyproject.toml",
+ "old_sha256": "951e5fa7c65f4cbf3671cd70adc5f21208339b51f43f366731798ef8eabc3cfd",
+ "new_sha256": "ea0f06aaa37788bbfc8143127f04523d768bf0a5fab4209b998a724584a8567e",
+ "reason": "R10: console script → onecrew.console:main; py-modules thêm onecrew.console và onecrew.v2.verifiers.output_refs; version 2.2.0.dev10.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 26/10/2026 ~13:30, dán chỉ thị lượt 10 của Codex: 'Tôi ủy quyền một lần cho công việc này. Tự chia task, sửa code/test/cấu hình, chạy kiểm chứng và xử lý lỗi trong phạm vi đã giao; không hỏi tôi duyệt từng việc.' Quyết định kỹ thuật theo ủy quyền; không phải chữ ký trực tiếp cho từng dòng.",
+ "applied_by": "claude (entry) + agents A (claude-opus), B/C (claude-sonnet), round 10 on codex/wf-development",
+ "at": "2026-10-26"
+}

@@ -1,0 +1,17 @@
+{
+ "id": "U1-20261029-V23-PIN-3",
+ "file": "tests/test_wf_r7_t51b.py",
+ "old_sha256": "ee3f22cebbd4f886ecd14c141615b7262a70d8b11d2dce86662537c0b02b00b7",
+ "new_sha256": "10023df82578ff82ff324abdf5607098df6c21aecba4164fb557f5dab19db1c2",
+ "reason": "OneCrew 2.3-A1 moved the project filter of context retrieval into SQL too (context._rows), so removing the Python line alone no longer leaks and the T51b E5 counterexample would prove nothing. The mutant now removes BOTH layers (unfiltered_retrieve + unfiltered_rows) with the same expected leak, and a new test shows each layer holds alone. The E5/E12 checks are unchanged; stricter.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 29/10/2026 (sau review Codex trên dev3 0594a43), chỉ thị dán nguyên văn, mục 3 \"Quyền xử lý U1\": \"Trong chính yêu cầu này, tôi cho phép ghi ngoại lệ U1 có phạm vi hẹp trên nhánh 2.3 cho đúng ba thay đổi đã được Codex xem diff\" (tests/test_g1_core.py, tests/test_wf_r03a_executors.py, tests/test_wf_r7_t51b.py); \"Ủy quyền này không bao gồm ngoại lệ cho file khác, thay đổi tiêu chí nghiệm thu, duyệt plan trên sổ thật, nghiệm thu sản phẩm hay phát hành.\" Quyết định kỹ thuật theo ủy quyền đó; không phải chữ ký trực tiếp của chủ sở hữu, không phải nghiệm thu.",
+ "applied_by": "claude (entry, Opus 5.5), OneCrew 2.3 dev4, branch claude/onecrew-2.3 only (not codex/wf-development, not the beta kit)",
+ "evidence": {
+  "base": "95bb7a614fa63b1ca1b3c84b95df235d1f05da21",
+  "commit": "3d96f5b",
+  "diff": "git diff 95bb7a6 3d96f5b -- tests/test_wf_r7_t51b.py",
+  "gate_refusal": "D:\\OneCrewRuns\\v23\\gates-tmp\\wf-snapshot-gate-20261029-0594a43\\gate\\kitguard.json",
+  "reviewed_by": "Codex review of 2.3.0.dev3 (owner directive 29/10: \"ba thay đổi đã được Codex xem diff\")"
+ },
+ "at": "2026-10-29"
+}

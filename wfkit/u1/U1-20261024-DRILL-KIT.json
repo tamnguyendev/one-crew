@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261024-DRILL-KIT",
+ "file": "wfkit/upgrade_drill.py",
+ "old_sha256": "ab3afc029eee5a8017f01600064f06759465e31ac5116152087b9ba9b18c9d7d",
+ "new_sha256": "cb23aa0fa63192c6d7cb95afb2599751b12bd20342af1eb6e365b23d67850369",
+ "reason": "W41 / T13b [E3]: the installed upgrade drill gains two steps, `open_finding` (a REAL open finding: the doc adapter fails on a broken link in a namespaced root created through the installed CLI, after the upgrade install) and `finding_after` (after rollback to the previous build and roll-forward: same finding id, same row, same evidence receipt bytes). Every existing step, check and refusal is unchanged; the receipt gains a `finding` block. Strengthening only; evidence: tests.test_wf_upgrade_drill 3/3 OK at 9c49010 (D:/OneCrewRuns/wf-dev-logs/upgrade-drill-finding.txt).",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 24/10/2026 đêm, mục A: 'Nếu cơ chế nội bộ yêu cầu bản ghi quyết định/U1 ... tự ghi quyết định theo ủy quyền này, nêu căn cứ và bằng chứng; không giả rằng tôi trực tiếp review hoặc ký duyệt'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), commit 9c49010 on codex/wf-development",
+ "at": "2026-10-24"
+}

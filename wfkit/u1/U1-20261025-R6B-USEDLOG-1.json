@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-R6B-USEDLOG-1",
+ "file": "tests/test_wf_release_bootstrap.py",
+ "old_sha256": "ada9b7ca21466e64571dc68dd94c1d6fbe073ee7958fad4c3473d4235d5c737c",
+ "new_sha256": "f3c19421d9fd69ea58369abc1fad3b90fddf348f38eb7fb5325da7a9711b7aca",
+ "reason": "Round 6b (snapshot gate on 73be6ee, R01/check.release_bootstrap and R01/check.delivery_gate FAILED 25/10 with 'test consumed a different wheel'): the pinned-baseline Producer reused the PREVIOUS (rollback-target) wheel while the gate's WF_WHEEL_USED_LOG was active, so the comparator wheel was recorded as the wheel the check consumed. build_source gains record_used (default = use_gate_wheel); the previous side is built with record_used=False; the gate guard itself is unchanged and stays fail-closed. Test: the used-log of a pinned Producer build never contains the baseline sha and holds at most the current wheel's sha (red on the old harness). No assertion weakened.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị lượt 6 sau xác nhận Codex 3 P1 + 1 P2 trên c18c46e, cùng phạm vi ủy quyền lượt 5): 'Tôi ủy quyền bạn tự quyết và thực hiện các thay đổi local cần thiết: sửa code, bổ sung test/phản chứng, điều chỉnh cách triển khai, cập nhật hợp đồng/roadmap/bộ kiểm cho nhất quán... Không hỏi tôi duyệt từng task'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 6b commit on codex/wf-development (follow-up of 73be6ee)",
+ "at": "2026-10-25"
+}

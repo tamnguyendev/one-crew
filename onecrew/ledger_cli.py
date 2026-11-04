@@ -45,6 +45,8 @@ def parser():
             command.add_argument('--file', type=Path, required=True)
         if name == 'reply':
             command.add_argument('--choice', required=True)
+            # Evidence for the scorecard: the user's own decision (typed by them or relayed) vs the entry deciding.
+            command.add_argument('--decided-by', choices=('user', 'entry'), default=None)
         if name in ('reply','defer'):
             command.add_argument('--source', default='terminal')
             command.add_argument('--reference', default='local user input')
@@ -72,7 +74,21 @@ def execute(args):
     if args.command == 'list':
         return {'requests': ledger.requests(args.task, args.pending)}
     if args.command == 'reply':
-        return ledger.reply(args.id, args.revision, args.choice, args.source, args.reference)
+        from .interventions import actor, note
+        from .v2.answer_effects import reply_and_apply   # P1-2: reply + mandatory workflow effect in one transaction
+        receipt = reply_and_apply(ledger, args.id, args.revision, args.choice, source=args.source, reference=args.reference,
+                                  decided_by=args.decided_by, by=actor())
+        from .keeper import after_reply
+        try:
+            task = ledger.request(args.id)['task_id']
+        except (ValueError, OSError, sqlite3.Error):
+            return receipt  # the answer is recorded; evidence and continuation are best-effort
+        evidence = note(ledger, task, 'request.reply', key=receipt['id'],
+                        details={'request': args.id, 'choice': args.choice, 'decided_by': args.decided_by})
+        if evidence.get('recorded') is False:
+            print('Intervention not recorded: ' + evidence['error'], file=sys.stderr)
+        continuation = after_reply(ledger, task)
+        return dict(receipt, continuation=continuation) if continuation else receipt
     if args.command == 'defer':
         return ledger.defer(args.id, args.revision, args.source, args.reference)
     return ledger.request(args.id)
@@ -108,7 +124,12 @@ def human(result):
             lines += [human(r) for r in result['requests']]
         return '\n\n'.join(lines)
     if 'choice' in result:
-        return f"Đã ghi nhận {result['choice']} cho {result['request_id']}. Receipt: {result['id']}. Chưa áp dụng hành động."
+        text = f"Đã ghi nhận {result['choice']} cho {result['request_id']}. Receipt: {result['id']}. Chưa áp dụng hành động."
+        runner = result.get('continuation')
+        if runner:
+            text += (f"\nĐã khởi động lại runner task tổng {runner['task']}: {runner['status']}." if runner.get('started') else
+                     f"\nRunner task tổng {runner['task']}: {runner['status']}.")
+        return text
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 

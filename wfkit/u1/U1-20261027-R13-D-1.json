@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261027-R13-D-1",
+ "file": "tests/test_wf_package_check.py",
+ "old_sha256": "d0c20cb2d7d7eb3317f95803c75878dd0f988dec5534969ca429f784af13473e",
+ "new_sha256": "c7d77f915d71810fe45884a3386ad4fb6981140bf1fbf5f218747429ecd1f67d",
+ "reason": "R13 (Codex review 27/10, P2 bundle evidence chain): a produced bundle must now carry bundle.json and its declared receipts with matching hashes and role identities, so hand-built fixtures (PackageIdentityStepTests, add_bundle/bundle_evidence/PREV_* helpers) gained that evidence; every former assertion is kept and the fixtures now satisfy the stricter rule instead of bypassing it. No assertion weakened.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 27/10/2026 ~15:45, chỉ thị lượt 13 của Codex (dán nguyên văn): \"Tôi ủy quyền bạn tự quyết cách sửa, chia agent, chạy test, xử lý lỗi phát sinh trong phạm vi, commit local và dựng gói. Không hỏi tôi duyệt từng việc.\" Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry) + agents V2/R2/D2 (round 13), integration commit on codex/wf-development",
+ "at": "2026-10-27"
+}

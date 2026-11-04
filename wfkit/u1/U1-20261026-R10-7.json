@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261026-R10-7",
+ "file": "onecrew/common_executor.py",
+ "old_sha256": "9f3ba5027d499fbca6a5914312bfc6b60039e2b42bb3a5dc0ecea110c2b6c0ed",
+ "new_sha256": "da95e89dabd0cd387de07d712fec2b0bf2544c82fbfb36ae44f92749aef9f172",
+ "reason": "R10-A D7: prepare — producer giữ provenance (artifact, receipt, generation, state) trong prompt; chỉ output ghi khai báo vào nội dung, không file đọc; đo prompt cuối tại chỗ kiểm 80000 (prompt_chars, producer_chars) và ghi vào biên nhận attempt; vượt trần → held trước khi gọi model. Red: (a),(c) held; (b) KeyError prompt_chars.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 26/10/2026 ~13:30, dán chỉ thị lượt 10 của Codex: 'Tôi ủy quyền một lần cho công việc này. Tự chia task, sửa code/test/cấu hình, chạy kiểm chứng và xử lý lỗi trong phạm vi đã giao; không hỏi tôi duyệt từng việc.' Quyết định kỹ thuật theo ủy quyền; không phải chữ ký trực tiếp cho từng dòng.",
+ "applied_by": "claude (entry) + agents A (claude-opus), B/C (claude-sonnet), round 10 on codex/wf-development",
+ "at": "2026-10-26"
+}

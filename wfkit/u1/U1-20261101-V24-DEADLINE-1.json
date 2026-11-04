@@ -1,0 +1,17 @@
+{
+ "id": "U1-20261101-V24-DEADLINE-1",
+ "file": "tests/test_wf_metered_verifier.py",
+ "old_sha256": "86710e0d11f52c8bb8ef11c6a3c4b9988a444cea09868bbd2ae8df0be234e1e7",
+ "new_sha256": "e0a64088cc79183dd46453e1180d689cfae8836c72d2d77b008a4702fe3f1968",
+ "reason": "OneCrew 2.4 line (branch claude/onecrew-2.4): MeteredVerifierTests.test_root_deadline_blocks_command_before_dispatch_and_caps_a_running_command gave the root deadline a fixed 2-second window that had to outlast the pre-dispatch identity work (verified_sha, checkout, evidence binding); on this machine under load that work takes 4-9 s, so the window elapsed before dispatch and the test failed for a reason unrelated to the property it checks (seen in the 2.3.0.dev10 gate run 1 and in 4/4 probe runs on bde505b). The window is now sized from a measured identity pass (max(2, 4*identity+2) s; 2 s on a fast machine as before), the command sleeps 6x the window, and the elapsed bound is the sleep length. What is proven is unchanged: remaining_seconds 0 never dispatches (unchanged assertion), a running command is cut at the deadline (timed_out, inconclusive) long before it would have finished. No assertion removed, no skip, no runtime guard touched.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 01/11/2026, chỉ thị dán nguyên văn (tiếp quản 2.4-S1/S2/A/B/C), mục 6: \"Test deadline đã biết ở dev10 còn flaky. Nếu sửa để phục vụ bộ kiểm 2.4, tôi cho phép ngoại lệ U1 hẹp trên nhánh 2.4 cho test/bộ kiểm trực tiếp liên quan, kèm hash, lý do và phản chứng. Không nới guard runtime, bỏ assertion hoặc skip để làm xanh; không đổi bộ kiểm beta cũ.\" Quyết định kỹ thuật theo ủy quyền đó; không phải chữ ký trực tiếp của chủ sở hữu, không phải nghiệm thu.",
+ "applied_by": "claude (entry, Fable 5.1), OneCrew 2.4, branch claude/onecrew-2.4 only (not claude/onecrew-2.3, not codex/wf-development, not the 2.2 beta kit)",
+ "evidence": {
+  "base": "bde505b",
+  "diff": "git diff bde505b HEAD -- tests/test_wf_metered_verifier.py",
+  "red": "D:/OneCrewRuns/v24/probe-mv/bde505b/probe-mv.json (the old test on bde505b under the integration load: 4/4 LedgerError 'root deadline elapsed before verifier command dispatch'); D:/OneCrewRuns/v23/gates-tmp/wf-snapshot-gate-20261031-fb3333b/gate/receipts (2.3 gate run 1, same failure)",
+  "green": "D:/OneCrewRuns/v24/logs/reg-deadline-green1-dirty.txt, reg-deadline-green2-dirty.txt (2/2 OK under the same load, 22.7 s and 18.0 s)"
+ },
+ "note": "sha256 of the LF form (the committed blob), as kit-guard pins it",
+ "at": "2026-11-01"
+}

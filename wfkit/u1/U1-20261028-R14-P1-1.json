@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261028-R14-P1-1",
+ "file": "tests/wf_wheel.py",
+ "old_sha256": "6d1d7b6e20b3caa91e35e08a41e3f87b0ed00dd9d8846c43c9dbb94ac15c80c2",
+ "new_sha256": "dc0035e0e69757b58ce0ac52366b4af73832d809bd602805ca2f4c1a41bc5664",
+ "reason": "R14 P1 (Codex review 28/10 on dev17 b522c24): build_wheel wrote a hard-coded entry_points.txt `onecrew = onecrew.v2.cli:main` instead of pyproject's [project.scripts] `onecrew = onecrew.console:main` (the UTF-8 wrapper since R10), so every delivered wheel dev10..dev17 shipped onecrew/console.py but an executable that skipped it: under PYTHONUTF8=0 PYTHONIOENCODING=cp1252 ONECREW_LANG=vi with piped output, onecrew.exe --help exit 1 UnicodeEncodeError and init printed '?' (python -m onecrew.console exit 0). The builder now writes pyproject's scripts (declared_scripts, one definition; a pyproject with the old target still builds the same bytes as before, so stored baseline wheels are unaffected) and _reuse_wheel refuses a WF_WHEEL whose console scripts differ from pyproject's. Red before: tests.test_wf_r14_console_entry 9 failures; after: 74/74 with the two judge fixture modules.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 28/10/2026 (sau review Codex trên dev17 b522c24), chỉ thị sửa 1 P1 + 1 P2 (dán nguyên văn): \"Tôi ủy quyền bạn tự phân tích, chọn giải pháp, sửa code/test/công cụ đóng gói liên quan, commit local, dựng và kiểm gói, cập nhật báo cáo/audit/wiki trong phạm vi này. Không hỏi tôi duyệt từng việc.\" Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 14, integration commit on codex/wf-development",
+ "at": "2026-10-28"
+}

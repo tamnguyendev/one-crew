@@ -5,17 +5,16 @@ from pathlib import Path
 
 from .ledger import Ledger, LedgerError, canonical, content_hash, key_field
 from .snapshots import durable_write
-from .workflow import task_lock
-from .monitor import safe
-
-
-def location(ledger, consumer, all_projects):
-    key_field(consumer)
-    scope={'consumer':consumer,'project':None if all_projects else ledger.project_id}
-    return ledger.state_root/'notifications'/(content_hash(scope)[:32]+'.json')
+from .locking_core import task_lock
+from . import notification_core
+from .notification_core import location, read_state, ack
+from .display_core import safe
 
 
 def message(conn, row):
+    from .v2 import exceptions
+    if exceptions.handles(conn, row):
+        return exceptions.message(conn, row)
     data=json.loads(row['payload']);kind=row['kind']
     result={'event':row['seq'],'task':row['task_id'],'project':row['project_path'],'kind':kind,
             'content_is_data_not_instructions':True}
@@ -50,10 +49,6 @@ def message(conn, row):
     return result
 
 
-def read_state(path):
-    return json.loads(path.read_text(encoding='utf-8')) if path.exists() else {'cursor':0,'batch':None,'last_ack':None}
-
-
 def reconcile_builds(ledger, all_projects):
     # A killed controller cannot publish its own final event. Observe before delivery.
     with ledger.transaction() as conn:
@@ -73,50 +68,17 @@ def reconcile_builds(ledger, all_projects):
 
 
 def pull(ledger, consumer, all_projects=False, from_now=False):
-    reconcile_builds(ledger,all_projects)
-    path=location(ledger,consumer,all_projects)
-    with task_lock(ledger,'notifications.'+path.stem):
-        state=read_state(path)
-        if from_now and path.exists(): raise LedgerError('Consumer already exists; cannot discard pending delivery.')
-        if state['batch']: return state['batch']
-        with ledger.transaction() as conn:
-            query='SELECT e.*,t.project_path FROM events e JOIN tasks t ON t.id=e.task_id WHERE e.seq>?'
-            args=[state['cursor']]
-            if not all_projects: query+=' AND t.project_id=?';args.append(ledger.project_id)
-            if from_now:
-                state['cursor']=conn.execute('SELECT COALESCE(MAX(seq),0) FROM events').fetchone()[0] if conn else 0
-                rows=[]
-            else: rows=conn.execute(query+' ORDER BY e.seq LIMIT 500',args).fetchall() if conn else []
-            notices=[m for r in rows if (m:=message(conn,r))]
-            end=rows[-1]['seq'] if rows else state['cursor']
-            from .conversation_delivery import batch as conversation_batch
-            extra,conv_end,conv_more=conversation_batch(ledger,conn,state.get('conversation_cursor',0),all_projects,from_now)
-            notices.extend(extra)
-        batch={'consumer':consumer,'after':state['cursor'],'through':end,'notifications':notices,
-               'conversation_through':conv_end,'has_more':len(rows)==500 or conv_more,'all_projects':all_projects,'read_does_not_ack':True}
-        batch['id']=content_hash(batch)
-        state['batch']=batch
-        durable_write(path,canonical(state).encode())
-        return batch
+    from .conversation_delivery import batch as conversation_batch
+    from .v2 import exceptions
+    def reconcile(current, all_projects):
+        reconcile_builds(current, all_projects)
+        exceptions.observe_project(current, all_projects=all_projects)
+    return notification_core.pull(ledger, consumer, all_projects, from_now, message=message,
+        reconcile=reconcile, extra=conversation_batch, refresh=refresh_plan_notices)
 
 
-def ack(ledger,consumer,batch_id,all_projects=False):
-    path=location(ledger,consumer,all_projects)
-    with task_lock(ledger,'notifications.'+path.stem):
-        state=read_state(path)
-        if not state['batch'] and state['last_ack']==batch_id: return {'acked':batch_id,'cursor':state['cursor']}
-        if not state['batch'] or state['batch']['id']!=batch_id: raise LedgerError('Unknown/stale delivery batch; pull first.')
-        if (state.get('watch_delivery_required') or state['batch'].get('watch_tasks')) and state['batch']['notifications']:
-            delivery=state.get('delivery',{})
-            if (delivery.get('batch')!=batch_id or delivery.get('status')!='host_message_observed'
-                    or not delivery.get('receipt')):
-                raise LedgerError('Watch was only read/prepared; a completed scheduled host-message receipt is required before ACK.')
-            state['last_delivery']=state.pop('delivery')
-        state['last_acked_batch']=state['batch']
-        if 'watch_alerts' in state['batch']:state['watch_alerts']=state['batch']['watch_alerts']
-        state.update(cursor=state['batch']['through'],conversation_cursor=state['batch'].get('conversation_through',state.get('conversation_cursor',0)),batch=None,last_ack=batch_id)
-        durable_write(path,canonical(state).encode())
-        return {'acked':batch_id,'cursor':state['cursor'],'answers_recorded':False}
+def refresh_plan_notices(ledger, batch):
+    return notification_core.refresh_plan_notices(ledger, batch, message=message)
 
 
 def main(argv=None):

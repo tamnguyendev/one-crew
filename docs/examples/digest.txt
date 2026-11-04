@@ -1,0 +1,5 @@
+TÓM TẮT CÁC VIỆC (14 kế hoạch) — sổ: D:\OneCrewRuns\state-v2-real
+job11a-mechanical                      proposed     mốc 0/2   cần bạn làm gì: duyệt bản 2
+demo-job9-release-decision             proposed     mốc 0/1   cần bạn làm gì: duyệt bản 1
+demo-job9-no-origin                    proposed     mốc 0/1   cần bạn làm gì: duyệt bản 1
+11 việc đã đóng: 8 nghiệm thu, 1 dừng, 2 hỏng

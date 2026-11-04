@@ -1,4 +1,307 @@
+# Dev10 dev9-review fix — cycle10 (Claude implementation, Codex to verify)
+
+Source: Codex review of dev9, D:/OneCrewRuns/obs2-codex-review-dev9-20261105-011254 (superseded_probe 20/23 and late_reject_probe 20/22 per size: a late rejection of a superseded copy ran the fallback with the old owner command). Baseline cd567d3 / docs ba61298.
+
+| ID | Requirement | Status | Evidence |
+|---|---|---|---|
+| U10-1 | A copy attempt that is no longer current starts no further clipboard write and changes nothing when its result lands late. "No longer current" means a newer copy, another task (also after coming back), a lost binding, or a new revision/command in the current data. A current attempt still copies: success; refused, then fallback; both fail, with a clear failure note. The dev9 focus fix is kept. | Complete | Installed `check_binding_live.py` late-desktop/mobile: controlled clipboard, every fallback write recorded (count and text), preconditions asserted, a real fixture amendment for the revision case, a writeText count, and a ledger that moves only inside the fixture amendments. dev9 wheel 186/196 (S1/S3/T/B/R red on both sizes) → final wheel 196/196. Codex's dev9 probes, unchanged: superseded 20/23 → 23/23, late_reject 20/22 → 22/22 per size. Codex's dev8 focus probe 16/16 |
+
+Complete1/Partial0 for this local scope (U8-4 stays Partial). Product c4951f6, version 2.5.0.dev10, wheel 57445419…79a1, 142/142 wheel files equal to the commit.
+
+Self-run on the final wheel (trial trial-c4951f6-1):
+- verify 9/9, browser 150/150, unbound 56/56;
+- binding-live + focus + late 196/196, owner refusal 2/2, lifecycle 4/4;
+- R7-2 board equal to dev9 except the version.
+
+Self-run on the c4951f6 source export: OBS-1 ux03 and stale_detail with binding, equal to dev9 check by check, with no check worse.
+- ux03: 6/10.
+- stale_detail: 58/59 per size.
+- The red checks are the outdated expectations already classified in dev9.
+
+Isolation: registry, SignSDK, dev7 trial and Codex's checkout unchanged; dev6–dev9 packages intact.
+
+Inherited, not rerun: dev9 source modules 66/66, dev9 OBS-1 13 scenarios 70/70, the dev8 module runs. Reason: only two lines of copyText changed, and no node slice reaches them.
+
+Not checked: native clipboard, a full gate, release, owner terminal, provider and pilot.
+
+---
+
+# Dev9 dev8-review fix — cycle9 (Claude implementation, Codex to verify)
+
+Source: Codex review of dev8, D:/OneCrewRuns/obs2-codex-review-dev8-20261105-001551 (focus probe 15/16: focus went to the card SUMMARY). Baseline 1380006 / docs 47ec37d.
+
+| ID | Requirement | Status | Evidence |
+|---|---|---|---|
+| U9-1 | After a copy (success or failure) focus stays on the same option button of the same card; a gone button lands on its card heading, a gone card on the task heading; a late copy result never pulls focus or scroll back; no copy feedback or command revived | Complete | Installed `check_binding_live.py` focus-desktop/mobile (controlled clipboard, 2 cards x 2 options, success/failure, late result after focus move, task switch, binding loss; preconditions asserted): dev8 wheel 134/142 (A/B/C red) → final wheel 142/142. Codex's own probe 15/16 → 16/16. OBS-1 browser suite with binding 392 → 403/435 (ux03 focus, stale_detail focus/sections/scroll) |
+| U9-2 | Honest report: dev8 OBS-1 classification and the poll-cycle claim corrected | Complete | Marked corrections in the dev8 handover; dev9 classification: confirmed product bug / outdated test with evidence / not yet classified |
+
+Complete2/Partial0 for this local scope (U8-4 stays Partial). Product cd567d3, version 2.5.0.dev9, wheel dd1fdce4…9081df. Trial trial-cd567d3-1: verify 9/9, browser 150/150, unbound 56/56, binding-live+focus 142/142, owner refusal 2/2, lifecycle 4/4; OBS-1 13 scenarios 13/13 (70/70) on the final wheel; R7-2 board unchanged. Source: 6 modules 66/66, OBS-1 browser suite 27/40 (403/435). The dev8 module runs (OBS-2 103/103, OBS-1 96/96) are inherited, not rerun: tracking.py and tracking_work*.py are unchanged. Not a full-gate, release, owner-terminal, real-clipboard, provider or pilot claim.
+
+---
+
+# Dev8 dev7-review fixes — cycle8 complete for isolated trial (Claude implementation, Codex to verify)
+
+Source: shared REVIEW-OBS2-DEV7-20261104.vi.md; Codex reproduction D:/OneCrewRuns/obs2-codex-review-dev7 (4435ec71/unbind, milestone). Baseline 6cb2fa9 / docs bdb13bf. The owner assigned implementation and self-review to Claude; Codex verifies the final handover. The cycle7 Complete claims for U7-1 and U7-2 are superseded: the independent review found both Partial (R7-1, R7-2).
+
+| ID | Requirement | Status | Evidence |
+|---|---|---|---|
+| U8-1 (R7-1) | Need cards follow a binding or command change that adds no ledger event; no old copy feedback when the binding is lost; a restored binding shows current commands only; task/tab/position kept | Complete | Installed browser `check_binding_live.py`, 8 cases (missing / other runtime / other state x desktop/mobile + 2 real-time slow-read task switches), preconditions asserted: dev7 wheel 76/102 → final wheel 102/102; unit helpers red on 6cb2fa9 → green |
+| U8-2 (R7-2) | Milestone-only roots with a check, run or attempt are not "never started"; status separates failed from waiting milestones; acceptance unchanged | Complete | Same 5 real ledgers read through each wheel's own API + JS: failed-only dev7 todo → dev8 doing; untouched stays todo; different artifacts refused; eligible accepted. Unit 3/7 red on 6cb2fa9 → 7/7 |
+| U8-3 | test_obs1_web page test (red since 025c8ca) restored without weakening | Complete | Real fixture binding + OBS-2 card words; same guards (task, status, connection, per-option templates with --reference, no secret); 8/8 |
+| U8-4 | OBS-1 browser suite runs past its template setup | Partial | Fixture binding added (p2a now passes). 13/40 scenarios still red identically on 6cb2fa9 and 1380006; not loosened; separate migration task. Correction 05/11: "OBS-1 wording/layout expectations" was wrong as a blanket reason; they include a pre-existing product focus bug (closed in cycle9) and unclassified cases, see the dev9 handover |
+
+Complete3/Partial1 for this local scope. Product 1380006 (onecrew/ byte-equal to 672cf91), version 2.5.0.dev8, wheel d5917af6…478fa2. Trial trial-1380006-1: verify 9/9, browser 150/150, unbound 56/56, binding-live 102/102, owner refusal 2/2, lifecycle 4/4; OBS-1 13 scenarios 70/70 on the final wheel. Source on the final snapshot: OBS-2 modules 103/103, OBS-1 modules 96/96 (incl. test_obs1_web 8/8), tooling 2/2, 0 skip. check_review_fixes.py cannot run inside an AI session (its fixture approves in-process); its F1–F5 cases are covered by the installed checks above. Not a full-gate, release, owner-terminal, clipboard, provider or pilot claim.
+
+---
+
+# Dev7 cross-review fixes — cycle7 complete for isolated trial
+
+Source: shared REVIEW-OBS2-DEV6-20261104.vi.md; baseline693f114/docs0aeea9c. User authorized all2P2+3P3. Cycle6 Complete claim superseded by independent review below:3of7 remained Partial.
+
+| ID | Requirement | Status | Evidence |
+|---|---|---|---|
+| U7-1 | Unbound options have no empty copy/run UI | Complete | Renderer + real hook browser8cases56/56; same browser on dev6 red4/7 in first case |
+| U7-2 | Milestone plans with verdicts are not never-started | Complete | Passed/failed/untouched/readiness controls + real two-artifact milestone fixture + wheel probe |
+| U7-3 | Truncated structured finding remains readable | Complete | Long object/list/plain text controls + old/new wheel probe; head/blob/source retained |
+| U7-4 | Initial plan body describes creation | Complete | Initial vs later renderer, installed desktop/mobile body/disclosure checks |
+| U7-5 | Restore five consumer tests without weakening guards | Complete | Real fixture hook binding, corrected readiness expectations; full affected modules116/116 |
+
+Complete5/Partial0 for this local patch scope. Product6cb2fa9; wheelaf63b151…9282ba. Validation: red counterexamples → focused9/9 + precommit41/41 → fixed snapshot exported source in installed venv116/116 (0skip, includes all4affected OBS1 modules) → package9/9 + old/new wheel18/24→24/24 + browser150/150 and binding56/56 + scoped polling14/14 + lifecycle4/4 + owner-refusal2/2. Evidence under D:/OneCrewRuns/obs2/dev7-* and trial-6cb2fa9-1; exact paths/limits in HANDOVER.vi.md. No full gate, real runtime edits, provider, push/tag or acceptance. Earlier cycle6 completion claim is historical and corrected by this cycle.
+
+---
+
+# Dev6 cross-review fixes — cycle6 historical handover (3 requirements reopened in cycle7)
+
+Source: `outputs/onecrew-as-qc/REVIEW-OBS2-DEV5-20261104.vi.md` (shared workspace); user authorized all 3 P2 + 4 P3. Baseline d2e592a / docs027e927. Preserve runtime/ledger/registry and dev5 package. No full gate or publish.
+
+| ID | Requirement | Type | Implementation evidence | Test evidence | Status |
+|---|---|---|---|---|---|
+| U6-1 | Only actual pending outputs go to checking column | UI | workStage | final-wheel WAIT + DOC controls | Complete |
+| U6-2 | Acceptance indicators agree with recorded root/milestone/handoff evidence | Reliability | tracking + reused engine handoff evidence | real engine valid/forged fixture + final-wheel readiness | Complete |
+| U6-3 | Suppress write templates unless project hooks bind viewer runtime and state | Security | existing init/doctor hook checks | final-wheel same/missing/other runtime/state | Complete |
+| U6-4 | Readable finding with original evidence retained | UI | finding text projection | final-wheel probe + desktop/mobile | Complete |
+| U6-5 | Text evidence is not called unreadable JSON | Data | optional receipt parsing | final-wheel valid text vs missing blob + browser | Complete |
+| U6-6 | Initial execution plan distinct from changes | UI | event projection/label | final-wheel initial vs later revisions + browser | Complete |
+| U6-7 | Multi-day Gantt keeps readable ticks | UI | existing gTicks | final-wheel 4.01–3650 day boundaries | Complete |
+
+Source evidence: dev6-regression1.txt 86/87, one obsolete acceptance-task expectation corrected; dev6-focused-final.txt 20/20 including that replacement, valid/forged handoff and all new requirements; tooling2/2. Old wheel same behavioural probe2/18 (16 expected failures) in dev6-counterexample-dev5-v2; initial v1 probe failed fixture schema, excluded. Final wheel18/18 in dev6-final-probe/probe/review-fixes.json; trial-693f114-1 package9/9, browser146/146, lifecycle-final4/4. Original lifecycle false report retained: full-pin comparison incorrectly included changing reused flag; re-evaluation checks stable identity and false→true transition from the same recorded responses. Owner refusal2/2.
+
+Complete7 / Partial0 for local fixes. Product693f114, wheel28d11a3f…d7052. Exact receipts, scoped slow-response regression and limits in docs/obs2/HANDOVER.vi.md. The viewer only describes recorded eligibility; owner CLI still validates the current project. No new authority or acceptance event. Not a full-gate, real-owner, provider, pilot or release claim.
+
+---
+
+# Timeline dev5 — cycle5 complete for isolated trial
+
+Source: user-approved review of dev4 (3 P2 + 2 P3), baseline525c361. Only UI and focused tests; reuse tracking, evidence door, snapshot/restore and existing artifact tools. No backend/authority/runtime changes, no full gate.
+
+| ID | Requirement | Status | Evidence |
+|---|---|---|---|
+| U5-1 | Preserve open detail/provenance across live polls | Complete | Stable disclosure keys; installed disclosure/live-poll assertions pass |
+| U5-2 | Grid lines share axis tick positions | Complete | Regression red on dev4 → unit/browser pass |
+| U5-3 | Progress shows timeline first; technical data folded | Complete | Browser first-viewport check without test scrolling |
+| U5-4 | All history reveals old rows; return action explicit | Complete | Browser controls pass |
+| U5-5 | Readable attempt, precise duration, grouped output with all provenance | Complete | Installed output/provenance/evidence checks pass |
+
+Complete5 / Partial0 for local UI scope. Product d2e592a; wheel6122d0a5…7bc20f; trial-d2e592a-1: package9/9, browser140/140, lifecycle4/4; source49/49 plus scoped OBS1 regressions. Dev4 counterexample14/70failed. No release/acceptance/provider claim. Earlier cycles below are historical.
+
+---
+
+# Timeline dev4 coverage — cycle4 complete for isolated trial
+
+Proposal docs/obs2/TIMELINE-DEV4.vi.md; baseline20b5baa; final product525c36138eaf77d5d4ef482e193322ce4be7bf3d. Receipt root `D:/OneCrewRuns/obs2/trial-525c361-1`; exact wheel/limits in docs/obs2/HANDOVER.vi.md.
+
+| ID | Status | Evidence |
+|---|---|---|
+| TL1 | Complete | Correct sourced interval labels; unknown remains unknown; final wheel browser |
+| TL2 | Complete | Adaptive unique relative ticks, ms precision, exact ISO details, pinned history; source45/45 + final browser |
+| TL3 | Complete | Node summaries/current evidence, expandable attempts; installed desktop/mobile and visual inspection |
+| TL4 | Complete | Whole-node selection, actor/source filter, inspector only when selected; installed108/108 assertions |
+| TL5 | Complete | Scoped source Gantt/live-clock disconnect/reconnect/slow25/switch pass; final wheel browser history/selection/fit |
+| TL6 | Complete | Fixed wheel9/9, browser108/108, lifecycle4/4, handover/wiki; real registry stable, no runtime upgrade |
+
+Complete6 / Partial0 / Missing0 / Blocked0 for local trial scope. No full gate, provider/pilot, real-user clipboard, acceptance or deployment claim. Older coverage below is historical.
+
+---
+
+# UX dev3 coverage — cycle 3 complete for isolated trial
+
+Proposal: `docs/obs2/UX-DEV3.vi.md`; final product `ff81554de7f3a99ae0bdc9d0fc9ef1cfc0f791c9`.
+Evidence base: `D:/OneCrewRuns/obs2/trial-ff81554-1`; see `docs/obs2/HANDOVER.vi.md` for exact hash, limitations and registry incident/recovery.
+
+| ID | Status | Implementation / validation |
+|---|---|---|
+| UX1 | Complete | Seven sourced lanes, explicit stable ordering; cards unit + installed browser45/45 each desktop/mobile |
+| UX2 | Complete | Phase vs active count vs owner attention; amended/resumed/old-pass counterexamples; installed CODE/DOC |
+| UX3 | Complete | Pinned PowerShell, highlighted placeholders, copy without approval, compact decision; installed browser |
+| UX4 | Complete | Reused owner/ownership/plan; optional human text + legacy JSON; source13/13 and stale/bound acceptance; installed refusal2/2, real-owner success still untested |
+| UX5 | Complete | Latest changes first; distinct internal revision; before/after + provenance; renderer and installed five tabs |
+| UX6 | Complete | Current outputs before history; repair link/actor source; true local verifier A-pass/B-fail; installed evidence opening |
+| UX7 | Complete | Final renderer/cards25/25; browser90/90; five desktop views inspected; source OBS-1 timing/Gantt regression retained with stated scope |
+| UX8 | Complete | Fixed wheel package9/9, lifecycle4/4, owner probe2/2, docs/wiki; real registry restored exactly then verified stable, no runtime upgrade |
+
+Complete 8 / Partial 0 / Missing 0 / Blocked 0 for this local trial scope. Not a release/acceptance/provider/real-user clipboard claim. Earlier evidence below is historical.
+
+---
+
 # Proposal Coverage
+
+Proposal source: `../../outputs/onecrew-as-qc/ROADMAP-DESIGN-20261026.vi.md` §2.13; roadmap current order 04/11.
+Last reviewed commit: `026fbda7f5da3e4c300d2ffc41b324067089ca74` (final OBS-2A/B installed trial)
+Current iteration: 2 — OBS-2A/B local implementation and installed trial complete; earlier A trial retained. MR-R separate. CP-1 last.
+
+## Summary
+
+| Status | Count |
+|---|---:|
+| Complete | 8 |
+| Partial | 0 |
+| Missing | 0 |
+| Blocked | 0 |
+| Not applicable | 0 |
+
+Verified local-slice coverage: 8/8. Complete means implementation plus scoped source and installed synthetic-fixture verification below; it does not imply provider/pilot validation, full release gate, deployment or owner acceptance. See docs/obs2/HANDOVER.vi.md for exact evidence and limits.
+
+## Requirements
+
+| ID | Proposal section | Requirement | Type | Implementation evidence | Test evidence | Status | Notes |
+|---|---|---|---|---|---|---|---|
+| OBS2-T1 | 2.13 | Separate proposed/approved/effective; exact SOL scope | Data | Existing plan/solution_link reused | tests/test_obs2_work.py focused data/actor/timing; tests/test_obs2_web.py15/15; installed9/9 + browser56/56 on026fbda | Complete | Do not promote latest |
+| OBS2-T2 | 2.13 | Contract/internal/retry history and authority | Functional | contract_diff/internal_plan reused | tests/test_obs2_work.py focused data/actor/timing; tests/test_obs2_web.py15/15; installed9/9 + browser56/56 on026fbda | Complete | No new approvals |
+| OBS2-T3 | 2.13 | Outputs with per-item proof and lineage | Data | tracking provenance reused | tests/test_obs2_work.py focused data/actor/timing; tests/test_obs2_web.py15/15; installed9/9 + browser56/56 on026fbda | Complete | Old pass is not current pass |
+| OBS2-T4 | 2.13 | Honest check/finding counts and repeated issues | Functional | finding_core reused | tests/test_obs2_work.py focused data/actor/timing; tests/test_obs2_web.py15/15; installed9/9 + browser56/56 on026fbda | Complete | Not unique bug count |
+| OBS2-T5 | 2.13 | Repair chains, unaffected branches, integration | Functional | repair_tasks reused | tests/test_obs2_work.py focused data/actor/timing; tests/test_obs2_web.py15/15; installed9/9 + browser56/56 on026fbda | Complete | Attempts are not repair rounds |
+| OBS2-T6 | 2.13 | Actual actors, receipts and closure | Security | engine receipts reused | tests/test_obs2_work.py focused data/actor/timing; tests/test_obs2_web.py15/15; installed9/9 + browser56/56 on026fbda | Complete | Unknown stays unknown |
+| OBS2-T7 | 2.13 | Read-only, scope, redaction, history and reconnect | Security | existing outbound guard/evidence gate | tests/test_obs2_work.py focused data/actor/timing; tests/test_obs2_web.py15/15; installed9/9 + browser56/56 on026fbda | Complete | Never write during reads |
+| OBS2-T8 | 2.13 | Readable coding/noncoding UI from wheel | UI | work overview and detail views | tests/test_obs2_work.py focused data/actor/timing; tests/test_obs2_web.py15/15; installed9/9 + browser56/56 on026fbda | Complete | desktop/mobile, artifact smoke |
+
+## Cycle 1
+
+Goal: expose sourced read-only work views and readable UI without altering dev13 package/runtime.
+Validation: focused data and render tests, then scoped integration and installed-wheel UI at handover; no full gate after each task.
+Models: Sol data implementation, root UI/integration, Astra bounded independent review. Source ownership is split.
+
+Data: b6acb0b + 97603cb; 18 original acceptance tests, 18 OBS1 Source/Engine regression, 2 actor checks and new zero-call reviewer regression passed. UI view tests 13/13. Real browser CODE/DOC 28 assertions × 2 sizes = 56/56; scoped OBS1 Gantt/slow25/switch/timeout desktop/mobile passed (6 runs). Fixed-snapshot installed-wheel/browser evidence remains pending; requirement statuses stay Partial until that handover check. Browser cycle 1 reached 22 green assertions then failed because test selected absent PC fixture; corrected harness to use actual CODE/DOC trial fixture, no product bypass.
+
+
+## Cycle 2
+
+OBS-2A package `D:/OneCrewRuns/obs2/pkg/onecrew-2.5.0.dev1-obs2-20cabd5` verified from its own scripts (9/9), browser56/56 at1280/390, PS lifecycle4/4 and mismatch negative. Source-backed timing refinement `be1c882`: actual admission/preparation spans exposed, unknown preserved, overlap union unchanged (2 tests). UI adds labelled per-attempt timing, unambiguous node identity for each output and explicit empty frozen set. Renderer15/15; final OBS-2B `026fbda` wheel verified9/9, browser56/56, PS lifecycle4/4; hash-mismatch negative refused without server/pin. Five installed attempts have sourced timing fields. Reports: `D:/OneCrewRuns/obs2/trial-026fbda-1/{verify-report.json,lifecycle-report.json,timing-fields-report.json,browser/browser-report.json}`. Wheel SHA256 `30e222686228005044d6becabd27843fa1d63c3681375dac2259fb92b9aeac49`. Data checks comprise18 original plus zero-call and timing additions across focused runs, not a claimed combined20/20 run. Ten detail reads p50 .049s/max .074s on this small fixture only. Product2.4/real runtime unchanged.
+
+---
+
+The following inherited coverage is retained verbatim as historical context, not new OBS-2 certification.
+
+# Proposal Coverage
+
+## WF development — Claude takeover after Codex, 2026-10-24 (afternoon)
+
+Baseline of the takeover `2bfc223` (Codex's last state, committed unchanged); final commit on `codex/wf-development` at the
+time of the combined gate: `5e1309f`. Full account, handoff-item table, limits and the Codex review guide:
+`docs/wf/TAKEOVER-CLAUDE-2026-10-24.md`; status per testcase: `docs/wf/FEATURE-SCOPE.md` (generated from
+`wfkit/development-testcases.json`).
+
+| IDs | Implementation and verification | Status | Remaining |
+|---|---|---|---|
+| W07/W08 reuse law, candidate reviewer (T22, T16b, T40a) | `common_verification.proof_mismatch/expected_of`: approved-check binding for every retained proof; reviewer branch on the candidate tree with producer-model independence and metered calls; CRLF alternates bug fixed; `incidents` typed reviewer proofs | 9 counterexamples + 4 reviewer cases, 32-case family rerun | Real provider CLI not proven (W45) |
+| W15 (T04b, T01) | Review bound to the snapshot/generation it saw; repair of the code node invalidates it; in-flight review retained | 2 cases, complete matrix | — |
+| W36/W18 (T07b E16, T15c) | `managed_executor.hold_for_findings` via `findings.after_change`; ACK only at the Supervisor safe point; no pause to non-managed attempts | 2 cases with a real local process; T15c complete | Real external session not driven |
+| W37b crash (c) | Durable `dispatching` intent; `recover()` rebuilds from settled process + base + worker.result; `failed` vs `unknown` | 2 new managed cases, 20-case managed family | Not every crash shape is recoverable; unknown stays unknown |
+| W18 hook holds generation | `workflow-holds.json` marker + `workflow_holds.register_seq`; enforce fails closed when the export is behind | 2 cases + finding_scope 15 | — |
+| T39 (R00 WK0) | `wfkit/program_contract.py`, `wfkit/owner_actions.py`, 3-case program run | complete matrix (E1–E16) | Real Codex review and real owner remain outside |
+| Pre-existing failures on 2bfc223 | repair_tasks ×3 (engine `_input_blocks`), retention owner-manual without Git, boundary `typing.io`, installed scenarios under the AI-session marker, trust-fixes tree-id vs W09 | fixed, classified by rerunning on the untouched checkpoint | — |
+| Registry / manifest | 18 checks added, 6 criteria complete with per-E matrices, development manifest frozen at `5e1309f` (`eac1f3f` withdrawn, unused) | combined gate: see the takeover document §3 | 82 partial, 10 blocked remain by policy |
+| W45, PL-A/PL-B, owner acceptance | — | Blocked | Owner permission for paid provider calls; real jobs; owner verbs |
+
+## WF development — Codex integration, 2026-10-24
+
+Source: `outputs/onecrew-as-qc/workflow-chung/00` through `06` in the parent workspace;
+task IDs and deferred boundaries remain those of `docs/wf/FEATURE-SCOPE.md`.
+Baseline `d3120c6`; isolated branch `codex/wf-development`, worktree `wf-codex`.
+The user authorized direct development and parallel model-specific work. No live
+ledger approval, acceptance, deployment, provider switch or old-job restart is part of this run.
+
+| ID | Requirement | Implementation evidence | Test evidence | Status | Remaining |
+|---|---|---|---|---|---|
+| W23c core extraction | Reuse the v1 evidence classifications in the wheel | `evaluation_core`, imported by v1 `eval_observe` and `eval_scorecard`; exact function-body extraction | Five scorecard tests before and after; shared-function identity tests | Complete | W23c runtime report and installation validation tracked separately |
+| W30a, W47 | Shared decision cards and sufficient proposals | Reused `e1b906b`, `5ecc038` as `ed91471`, `a9e54a5` | R01 card/proposal/compat tests in integration run | Partial | Recheck combined artifact and installed wheel; other R01 features remain |
+| W09/T31 | Keep Git evidence through GC; owner-scoped cleanup | `v2/retention.py`, approval/receipt/verdict/accept wiring, CLI and hook | 10 real-Git unit tests; 14 integration tests; missing-pin wiring mutant rejected | Partial | Final namespace-aware regression and wheel; opaque manual artifact hashes remain blob evidence, historical refs are not backfilled |
+| W17 | One finding lifecycle shared with v1 | `finding_core`, v1 `review_evidence`, v2 `findings`; transactional runtime hook and immutable capability opt-in | 21 reviewer/register tests; v1 register 26 before +26 after; 4 adapter finding tests; 5 reviewer regressions | Partial | Final integrated installation check; generic passes never implicitly close a finding |
+| W38d/T45d/T55 | Compute KQ1–KQ7 from evidence and actual wheel changes | `wfkit/finalgate.py`, shared `dependency_core` extracted from v1 amendment; commit `53e07f1` | 42 pinned-fixture validator tests, 2 focused identity regressions, 5 v1 amendment tests | Partial | Full release/pilot bundles remain to be produced; no real pilot claim |
+| W02 | Enforce root authority and reuse v1 authority fields | Reused `baf85c2` and hardened in `038a0b3` | 20 authority tests including actual gate/enforce counterexamples; installed module boundary passes | Complete | Root writer/budget/plan engine is separate work, not implied by this grant check |
+| W11b/W12b | Explicit capabilities, per-project namespaces, legacy selectors | `namespaces`, sealed `plan_binding`, gate/intake; default schema2 retains old semantics | 9 namespace +7 binding tests; default schema2 vs explicit finding workflow regression; hook namespace regression | Partial | One-writer and solution linkage remain separate unfinished W12b portions |
+| RP identity | An unreadable CLI executable cannot be claimed verified | `providers.cli_identity`: explicit missing hash and identity_errors; `230089a` | 2 targeted Windows identity tests; finalgate rejects incomplete CLI identity | Complete | No real provider capability claimed |
+| W26 | Rule-based optional review decisions | `review_policy`, approved optional policy, shared `routing.validate_decision`, CLI | 11 tests: four outcomes, mandatory milestone, cache input/revision/artifact, race, no request/model call | Partial | Engine consumer remains; this API alone does not execute, skip a mandatory gate, or grant authority |
+| W23a/W23d | Present/handover by acceptance, open findings visible | Stable hash snapshot from Claude R01 report, namespace and register integration | 40 combined report/compat/policy tests passed; repair-first installed tests passed; open finding stays visible after pass | Partial | Installed Git and non-Git present paths passed; full release fixtures remain |
+| W31a | Bounded discovery with scoped unknowns | Reuse Claude survey snapshot, shared step0, bounded read-only context | 72 T27/L3/proposal/closure tests plus 2 focused hardening tests passed | Partial | Actual executor adapter invocation remains; no live model or OS process containment claimed |
+| W46b | Namespace-aware rollback diagnostics | `compat_scan` / `compat_cli`; required class-0 field types, old-validator contract support | 17 namespace/legacy cases plus 8 type prerequisite tests; actual archived d3120c6 comparator | Partial | Full installed upgrade/rollback exercise still pending; source ledgers untouched |
+| W10 | Root budget survives keys/retries/revisions/restarts | Existing budget.group + Control counters, sealed memberships, approval hook | 9 root cases +2 reservation/cap checks +10 v1 goal tests; two bypass mutants detected | Partial | Engine integration and final wheel still pending; unknown reservation never refunded |
+| W44/W33a | Sourced verifier running/ended/lost observations | Reused R03a snapshot; run_started/run_abandoned; capability-driven observations | 34 initial tests; 7 focused interface/read-only repairs; 4 cross-feature regressions | Partial | Managed control/pause/recovery is W33b, not claimed by observation adapter |
+| W23c runtime | Separate wait/execution/owner evidence metrics | Installed shared v1 evaluation_core; readonly plan-metrics | 20 source/preservation tests passed; stale-artifact and overlapping-wait regressions | Partial | Installed workflow path passed with module boundary; unknown data is never inferred as zero |
+| W30b | Owner-only request answer in wheel | `questions`, owner answer routing, same v1 Ledger.reply | 4 API tests + actual CLI owner/AI and hash revision test | Partial | Installed CLI and notification-card integration pending; no root transition claimed |
+| W32a | Immutable baseline, sourced forecast and additional work | `estimates`, approval/CLI/report; mandatory-only additions, unknown observations | 5 core tests, 9 combined estimate/question tests, report range/reason/read-only test | Partial | Automatic task-progress reforecast and U2 branch holds require engine; no calibrated ETA claim |
+| W22/W39 | Same verifier lifecycle for docs/data/operations evidence | Stable RX1 snapshot hardened; port/artifact/data/ops; shared finding proof | RX1 75 initial +4 repair tests; RX2 10+large-write, Git/non-Git lifecycle; generic adapter finding4 | Partial | Installed Git workflow passed; actual non-Git approval initially failed, explicit snapshot target fixed and installed retry passed; bounded local evidence only |
+| W23b/W48 | Outcomes/context/resume shared with v1 | Stable R02 snapshot; outcome_core, historical replay, contract_diff | 57 R02 cases accounted after focused fixture/help repairs; v1 learning 3 before +3 after; installed workflow cross-feature case passed | Partial | Terminal-gap replay and installed workflow path verified; full release rollback drills remain |
+| WF remainder | All other agreed feature IDs | Existing source inventory in FEATURE-SCOPE; concurrent source branches are not evidence of completion here | No combined final-artifact evidence yet | Missing | Continue development/integration; do not call this roadmap complete |
+| PL-A/PL-B real pilot | Actual user jobs and final human acceptance | Development tooling only | Simulated fixtures explicitly labeled | Blocked | Requires actual selected jobs and owner acceptance, outside this development run |
+| RD/RR/RL/Digital Twin | Deferred roadmap programs | Existing roadmap boundary | Not in WF development scope | Not applicable | No opportunistic expansion |
+
+Workflow/model split: Sol implements bounded modules and tests; Astra examines
+cross-cutting authority/evidence invariants and repairs demonstrated failures;
+parent integrates shared files and runs cross-module/installed-package checks.
+Three agents maximum in this session. Test providers are fakes; model names in
+fixture receipts are not evidence of real provider support. Original v1 and active
+Claude worktrees remain unchanged.
+
+Combined package checkpoint: 39 G1/routing/install-boundary tests passed, including
+an offline temporary venv and actual installed CLI. These describe that tested
+snapshot, not future edits. The first long quiet mixed-source test batch was
+cancelled while implementation changed; it is not counted as a pass. Later tests
+use verbose output and bounded diagnostic tracebacks. Namespace changes intentionally
+update fresh-root fixture paths; historical R00 duplicate-name refusal is still
+tested using unmodified `d3120c6`, not removed or weakened.
+
+Foundation integration checkpoint: 51 existing v2 core/event-class tests passed (174.429s) after the shared hooks; 5 isolated-module closure tests passed. Offline wheel tests executed both the Git workflow and non-Git data lifecycle with install-boundary validation. The first non-Git install test exposed a real approval gap; explicit `target.ref=snapshot` was implemented, then that failing case passed from a rebuilt wheel. No actual ledger was approved or accepted.
+
+### WF cycle 2 — runtime connections, evidence and learning
+
+Implementation checkpoint: `d473cd2`. Further cycle-3 modules are not included in this claim.
+
+| IDs | Implementation and verification | Status | Remaining |
+|---|---|---|---|
+| W04/W06/W14a/W21 | Internal revisions preserve root contract and acceptance; shared v1 `ready_batch`, node state helpers and Control admission; one slot, dependency states, bounded advance and integration checks. Native checkout executor pins provider/model per node, reuses provider workers and scoped snapshot artifacts. Engine9/native6/owner-answer4 passed together, including closing a root during execution and retaining but not publishing its late result. | Partial | Candidate-aware configured checker, authorized CAS handoff, connected CLI and whole-root delivery still required; callback checks and fake provider tests do not prove live provider support. |
+| W24/W24b | Shared v1 notification/outbox/window/locking cores, current-state projection, question revision deduplication and forecast exceptions. V1 24 before and25 after; shared-hook44; offline wheel pull/replay/ACK/owner-answer/fake-window lifecycle passed30.304s. | Partial | Actual user display/delivery is not exercised; remaining integrated release and rollback drills. |
+| W30c | Real recorded owner answer drives idempotent close or resumes exact held generations inside the existing grant; stale revisions and unknown attempts cannot resume. Ten original answer/question cases; four workflow cases; actual archived d3120c6 comparator; installed stop/progress passed20.281s. | Partial | Finding/repair/unknown lifecycle integration remains; no answer increases grants or accepts results. |
+| W07/W08 | Verifier receipts bind observed input, acceptance, configuration and environment; precise stale reasons; explicit neutral-scope reuse has an atomic persisted basis. Twelve source cases plus nonGit corruption counterexample; offline installed input-change/stale/rerun/corrupt-retention case passed18.915s. | Partial | Environment fingerprint covers observed interpreter/platform and effective env hashes, not every OS library; whole engine candidate and release coverage remains. |
+| W51/W20 shared cores | Extracted the exact v1 progress/recovery decisions; v1 imports the shared implementation. Twenty progress cases before/after; nine new progress cases plus recovery identity; sixteen executor regression cases. Durable observation distinguishes wait/unknown, command output liveness and bounded repeated hypotheses. | Partial | Repair/replan consumer and managed process pause/recovery still required; a diagnostic observation itself cannot control an external worker. |
+| W49a/W49b | Authentic fail/environment/fix/pass receipts create one incident and a project lesson before root completion; refuted hypotheses stay separate from cause. Four whole-flow cases, v1 learning3 and actual1b4f4c6 neutral-event comparator pass. Offline wheel automatic repair→lesson→CLI read passed48.592s with clean module boundary. | Partial | Remaining release checks; no automatic global promotion, policy injection or finding closure. |
+
+Integrated cycle check: 55 answer/progress/engine/native/G1 tests passed111.003s.
+The later closed-root publication fence passed the targeted19-case integration.
+These counts overlap; they are not an aggregate completion percentage. Code in
+this checkpoint reuses the v1 cores instead of introducing parallel stores or
+dispatch schedulers. New source modules and adapter fixtures do not certify the
+unimplemented remainder or external provider cells.
+
+### WF cycle 3 — installed execution and bounded correction
+
+This checkpoint supersedes the corresponding unfinished connections in cycles 1–2;
+it does not certify all release gates, providers or actual user pilots.
+
+| IDs | Connected implementation and evidence | Status / remaining |
+|---|---|---|
+| W14a/W21/W40 | Installed `engine` CLI uses shared native providers, Control, candidate Git trees, configured command checks and the original CAS project apply. Root acceptance requires authentic integration/handoff plus its root verdict. Installed CLI→fake provider→real commands→CAS→root verdict→temporary owner acceptance passed35.640s; legacy modules absent and boundary clean. Candidate/handoff5, native/CLI16 and late-result cases passed. | Sequential command-checked delivery implemented; other configured verifier kinds in the candidate adapter, parallel scheduling and release gates remain. No live provider certification. |
+| W12b/T26/T32 | Existing Control reservations/actions enforce one root writer; immutable SOL conversation linkage makes root approval authoritative, fences pre-link live attempts, pending questions and stopped solutions. Source11 passed13.545s; installed linkage/Control configure/reserve/launch refusal passed19.053s; root writer8 passed12.375s. | Bounded linkage and writer invariant implemented. No automatic root transfer/unlink; parallel managed control follows. |
+| W31b/W32b | Scoped runtime unknowns hold declared dependencies; estimate blockers require a verified bounded survey and its exact receipt. Late settled results can publish after resolution without another provider call. Task estimates/caps/deadlines and replan admission races are enforced. Installed unknown/root-accept bypass case passed35.304s; cap3+race1 and survey2 tests passed. | Implemented paths; combined release/rollback matrix remains. |
+| W26 | Mandatory review decision precedes checker invocation; optional decisions cannot satisfy mandatory checks or accept output. Decision/result binds root, inputs and generation; late results are fenced. Nine integration cases, three reapproval/prechecker/installed cases and two unknown-hold cases passed. | Rule-based consumer implemented. Model decider remains deferred RD. |
+| W16/W19/W20 | CLI `prepare-tests`, `repair`, `diagnose`, `replan` uses ordinary nodes, unchanged acceptance, shared v1 failure policy, failed-first command checks and durable bounded replan reservations. Actual failed verification automatically records next action; generation changes never reset counters. Diagnostic replay reloads its immutable proposal and rebinds retained check order. Parent10 cases passed17.601s; installed helper workflow passed16.383s; real command diagnostic/crash replay passed9.687s. | Connected bounded correction implemented; unknown managed effects/reconciliation and branch finding integration remain in the next cycle. |
+| W50a/W50b | Installed issue CLI uses pinned revision Discovery, incremental context maps, project lessons and bounded file/method hypotheses. Vision is capability-gated; absent adapter reports text fallback. Six source cases and installed localization/boundary2 passed24.230s. | Text localization implemented; actual vision provider and real-case accuracy are unverified. Held-out fixture scores are not actual root-cause-time savings. |
+| Shared v1 cores | Exact process/provider/artifact/Git/CAS functions extracted; legacy APIs delegate. Control keeps existing attempt/action/quota/budget semantics with separate explicit root vs legacy policy. Process/provider17 before/after, workflow/ports19, fallback10, artifact/integration28 and Control34 before/after pass (Control33 passed, one environment skip). Core policy3 verifies bound launch, unbound refusal and closed-root launch fencing. | Shared implementations shipped; no parallel v1 reimplementation. G1 closure5 passed; final combined build still required. |
+
+These overlapping test counts are evidence for named paths, not a percentage of
+roadmap completion. The unrelated historical CTS prompt-budget failure and the
+environment skip are not counted as passes. R08, WK/actual upgrade drills and
+the final integrated artifact remain outstanding; real provider/pilot evidence
+requires external execution and is reported separately from fixture coverage.
 
 ## Windows completion/blocker window — 2026-10-10
 
@@ -943,3 +1246,22 @@ Cycle 1 commit: `fb14591`. First replay exposed a Windows Store executable-alias
 Cycle 2: isolated USERPROFILE/temp storage and short scratch paths; expected-failure/import-origin guards; idempotent assistance notes and parent/child call/assistance aggregation. 118 related tests passed (33.727s), then all 28 eval tests passed (6.079s) after the intervention reader additions. Initial valid replay measured 6/10 to 10/10 runtime cases twice; final frozen harness rerun pending.
 
 Cycle 3: code `d24cc52`, harness identical on each side. Final historical run `1db6e59f95374f5ca9bfed8ff4f9f785`, release-before `517c537c2c3f4164a8d4684d4a4a0b5f`, after `a3220f670ef448f79fa9aea5f439fd67`. Runtime after: 20/20 case-trials; release before: 12/20 with 8 unavailable; historical before: 2 errors + 2 assertion failures + 16 unavailable. Not a product autonomy rate. Four completed task records: 2 with known assistance, 2 unknown; physical verification is entry evidence. Final 120 tests pass (39.662s), six JSON digests and both comparison recomputations verified. Failed preliminary harness runs retained separately, excluded from final comparisons. No product dispatch, no model calls, no live ADB/server, no push.
+
+WF preservation note: the long pre-extraction v1 run had 113/114 passes; existing P6 tight prompt-cap assertion failed before extraction (824 vs1000 minimum page). The finding-register 26-before/26-after subset passed. This unrelated baseline failure is retained, not hidden or scored as a pass.
+
+## Workflow chung — development takeover, 24/10/2026 (Claude, after Codex)
+
+Branch `codex/wf-development`, worktree `wf-codex`. Source of status: `wfkit/development-testcases.json` (acceptance per testcase) and the
+92-task table `docs/wf/audit/AUDIT-92.md` (per task: implementation file:line, tests/receipts, what is missing, cause class A–E).
+
+| Group | Done | Partial | Blocked | Note |
+|---|---|---|---|---|
+| Feature tasks | 46 | 14 | 0 | 20 moved Partial → Done this round with code on the real use path + tests (see TAKEOVER §2) |
+| Kit tasks (WK*) | 11 | 6 | 0 | Partial = counterexamples/scenarios at kit level still missing |
+| Release tasks (W40-Rnn) | 0 | 11 | 0 | T54 bundles need a real previous delivery; release notes generated (`docs/wf/release-notes/`) |
+| Real provider (W45) | 0 | 0 | 1 | paid provider CLIs not authorised; validator exists |
+| Pilot / acceptance (W38b–d) | 0 | 0 | 3 | real jobs and owner acceptance outside development |
+
+Verification: development gate on one wheel (`python -m wfkit.development_gate run …`), last complete run `b2cc754` 1 074/1 073 tests;
+run on `0d296fe` in progress at the time of writing (results in `docs/wf/TAKEOVER-CLAUDE-2026-10-24.md` §3). Not run: real provider calls,
+`tests.test_v2_reviewer` RealCliTests, any real ledger. No Codex review and no owner acceptance has happened.

@@ -1,0 +1,57 @@
+Kết luận: XONG
+Vì sao: mọi mốc đạt
+Còn gì: không còn gì
+Bạn cần làm: không gì
+
+BÁO CÁO: job10-fix-open-link — bản 2/2, trạng thái accepted, cỡ S
+Tiêu đề: «Job 10 (CTS): sửa nút 'Mở trên điện thoại này' không mở được (crash khi tìm ScaffoldMessenger),
+  build 1.0.15 và cài lên Samsung»
+Dự án: d:\onecrewruns\cts-port\app\flutter_vimes
+
+1. Output đạt tới đâu
+  O1 ĐẠT [M1=pass M2=pass] «tapping 'Mở trên điện thoại này' calls the launcher with registrationUrl even when
+      no ScaffoldMessenger exists above the dialog; on failure the message 'Không mở được trình duyệt. Quét mã
+      QR bằng điện thoại khác.' is shown in the dialog (or via the messenger when one exists), never crashing»
+  O2 ĐẠT [M1=pass] «a widget test pumps the button WITHOUT a ScaffoldMessenger (no MaterialApp/Scaffold
+      ancestor) and asserts the stubbed launcher is called once with the exact Uri; the job-7 tests still
+      pass; flutter analyze has 0 errors; version 1.0.15+159»
+  O3 ĐẠT [M2=pass] «the registration URL still never reaches print, logs, Text, tooltip, SnackBar or exception
+      messages»
+  O4 ĐẠT [M3=pass] «the Samsung runs versionName 1.0.15 as a DEBUG build (owner: debug for trials, release
+      only when everything is done), verified by adb dumpsys through the check script with the debug flag; APK
+      path and SHA256 in the report»
+
+2. Mốc và verdict
+  M1 pass · by command · a02cd52 · sửa 0/1 · «flutter analyze (0 errors) and all test/features/signature tests
+      pass on the clean worktree at HEAD»
+  M2 pass · by reviewer · a02cd52 · sửa 0/1 · «an independent reviewer confirms the launch no longer depends
+      on a ScaffoldMessenger, the new test really lacks one, and the URL is not leaked»
+  M3 pass · by command · a02cd52 · sửa 0/1 · «the device runs debug 1.0.15 (adb dumpsys: versionName=1.0.15,
+      DEBUGGABLE)»
+
+3. Phút so ngân sách
+  đã chạy 29 phút (từ 2026-10-19 00:54 đến 2026-10-19 01:23, giờ máy này) / ngân sách 150 phút
+  Lệnh: chưa đếm được
+
+4. Lần chặn
+  chờ kiểm: 7 · ngoài phạm vi: 2 · khác: 1
+  ngoài phạm vi: «createState is not in the owned scope. Plan job10-fix-open-link revision 1: you may change
+      lib/features/signature/presentation/patient_cert_registration_dialog.dart, test/features/signature,
+      pubspec.yaml, build. To change this list, ask the owner: write the new revision and run `onecrew plan
+      amend job10-fix-open-link --file <revised plan.json> --reason "<why>" --author claude`; the owner
+      approves »
+  ngoài phạm vi: «The command writes to "@; git log --oneline -1 $py=", a path the hook cannot resolve; write
+      to a literal path inside the owned scope.»
+
+5. Câu hỏi
+  hạn mức hỏi chủ sở hữu: đã dùng 0/1
+  không có câu hỏi nào
+
+6. Chạy ngoài kiểm soát
+  1 commit trong khoảng 2026-10-19 00:55 → 2026-10-19 01:23; 1 khớp một biên nhận
+  không có commit nghi ngờ
+
+7. Bãi đỗ
+  should chưa có mốc đạt: không có
+  vượt hạn mức chú ý: 0 lần
+  unknown còn mở: không có

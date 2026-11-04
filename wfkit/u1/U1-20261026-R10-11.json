@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261026-R10-11",
+ "file": "tests/test_g1_core.py",
+ "old_sha256": "f0fdd043a9bc0ee7284132fa492fa93c4df17bfbc8e553b7b6b1af2786e33105",
+ "new_sha256": "8e824df826b7977b716d265e1c9718f29dd39efb4915f02b30cd7337ff065618",
+ "reason": "R10-C: console script của gói đổi từ onecrew.v2.cli:main sang onecrew.console:main (bọc UTF-8 stdout/stderr, sửa cp1252); test PackagingTests.test_metadata ghim đích script cũ nên đổi đúng một assertion sang đích mới. Không đổi assertion nào khác; test model-id giữ nguyên (tài liệu đã bỏ literal).",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 26/10/2026 ~13:30, chỉ thị lượt 10 của Codex (ủy quyền một lần; không hỏi duyệt từng việc). Quyết định kỹ thuật theo ủy quyền.",
+ "applied_by": "claude (entry) + agent C (claude-sonnet), round 10",
+ "at": "2026-10-26"
+}

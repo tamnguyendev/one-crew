@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-R6-W11B-6",
+ "file": "tests/test_wf_t19_counterexamples.py",
+ "old_sha256": "fc7bc3df772b759b75263b2d655c6d04312c92779130a003df40983a9bc19eed",
+ "new_sha256": "85304138546bb298498333dc729e219ba71dda076cb33d515f6b5280c82e54d7",
+ "reason": "Round 6 (W11b decided under delegated authority; sources 00 §6 'plan schema 2 giữ nguyên nghĩa', 05 T25 [E4] forbids 'Root schema 2 bị đối xử theo luật mới', T13b 'root cũ chạy theo semantics cũ'): T19 test-integrity applies only to workflow roots (verdict.integrity_applies). T19 fixtures now use a workflow root (one line each); t13b test_b asserts the OLD rule for a schema-2 legacy root (passes without a baseline; verdict baseline still refuses AI/foreign commit, records once, changes nothing); t08a test_vii patches integrity_applies so its interrupt injection point still exists; the bundle's legacy step expects passed under old semantics with the old build continuing. No acceptance weakened: these tests encoded a rule the contract forbids.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị lượt 5 sau xác nhận Codex 3 P1 + 2 P2): 'Tôi ủy quyền bạn tự quyết và thực hiện các thay đổi local cần thiết: sửa code, bổ sung test/phản chứng, điều chỉnh cách triển khai, cập nhật hợp đồng/roadmap/bộ kiểm cho nhất quán... Không hỏi tôi duyệt từng task'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 5 commit on codex/wf-development",
+ "at": "2026-10-25"
+}

@@ -1,5 +1,7 @@
 # OneCrew
 
+**v2.1.0:** hợp đồng công việc cho AI — xem [docs/CHANGELOG.md](docs/CHANGELOG.md) (có gì, giới hạn đã biết, cách chạy).
+
 OneCrew hướng tới một core local giữ **conversation chung → solution được duyệt → task thực thi → kết quả và phản hồi**, xuyên **Codex / Claude / Kiro** và các công cụ có adapter phù hợp. Công cụ trao đổi và worker thực hiện được chọn độc lập.
 
 **Kiến trúc hiện hành: [revision 9](docs/architecture.vi.md).** Đã triển khai conversation CLI/MCP, duyệt solution đúng hash trước job viết, consultation provider riêng chạy nền, change request và review lát đầu trước parallel DAG. Đã thử Claude review thật và hai CLI Claude/Codex đọc–ghi cùng CONV. Xem [hướng dẫn dùng và giới hạn](docs/revision9-implementation.vi.md), [evidence](docs/revision9-live-evidence.json) và [coverage](docs/proposal-coverage.md). JEV vẫn shadow; chưa có Desktop push callback hoặc Kiro MCP live evidence.
@@ -11,6 +13,26 @@ Revision 5 đã có runtime recipe Android, giới hạn lặp/repair, kiểm ev
 `job submit --start --terminal` giao việc nền và mở viewer nhóm agent. `android build --terminal` cũng chạy nền mặc định, có `android status/cancel`; một slot build chung trên state-root. Entry trả chat sau dispatch. `request defer` giữ câu hỏi pending; `notifications pull/ack` nhận thông báo bền vững mà không approve. Cầu nối chat là cấu hình host riêng, không phải callback realtime mặc định cho mọi công cụ.
 
 **Đã chạy được workflow tổng quát với Codex, Kiro và Claude:** spec-to-plan, snapshot giữ dirty bytes, tối đa hai worker, inbox theo nhánh, controller nền, review/sửa từng phần, thay đổi yêu cầu và gia hạn hữu hạn. Test chức năng trong Docker, ghép target local và kiểm tương thích bộ commit đa repo đã có evidence thật. Có ngân sách chung và hủy toàn nhóm đã duyệt. Entry connectors có xác thực, điều phối đa repo tự động, routing tự động và soak tám giờ còn chưa hoàn tất. Đây là các năng lực nền của revision 2; trạng thái hiện hành nằm trong coverage revision 3.
+
+## Bản test workflow chung (2.2.0.dev18 — beta Windows để test trên sổ riêng; Codex đã review phần entrypoint/bộ kiểm, chưa nghiệm thu, nhánh `codex/wf-development`)
+
+Đây là bản **development** (beta Windows): Codex đã review có phạm vi phần entrypoint/bộ kiểm dev18, chưa review toàn bộ, chưa nghiệm thu, chưa giao. Trạng thái và số liệu: [docs/wf/BAO-CAO-R14B-2026-10-28.vi.md](docs/wf/BAO-CAO-R14B-2026-10-28.vi.md) (gói `D:\OneCrewRuns\wf-handover-34eb7c4-hs2`, code `34eb7c4`, 2.2.0.dev18; sửa P1/P2: [BAO-CAO-R14](docs/wf/BAO-CAO-R14-2026-10-28.vi.md), gói đầu `wf-handover-34eb7c4`; tương thích dữ liệu trước R13, 5 mức theo từng bộ: [docs/wf/r13b-compat.md](docs/wf/r13b-compat.md) §0; bản trước: [BAO-CAO-R13C](docs/wf/BAO-CAO-R13C-2026-10-28.vi.md) cho `b522c24`, có đính chính 28/10; [BAO-CAO-R13](docs/wf/BAO-CAO-R13-2026-10-27.vi.md) cho `b71cea4`, có đính chính 28/10; [BAO-CAO-R12](docs/wf/BAO-CAO-R12-2026-10-27.vi.md) cho `f71ba51`, [BAO-CAO-SANG-2026-10-27](docs/wf/BAO-CAO-SANG-2026-10-27.vi.md) cho `572fd18`), 92 task: [docs/wf/audit/AUDIT-92.md](docs/wf/audit/AUDIT-92.md), release notes: [docs/wf/release-notes/](docs/wf/release-notes/README.md).
+
+Dựng wheel từ checkout sạch và thử trong venv mới (PowerShell 5.1, dán nguyên khối; không đụng sổ thật):
+
+```powershell
+$py  = "C:\Users\NUC\AppData\Local\Programs\Python\Python313\python.exe"
+$out = Join-Path $env:TEMP "onecrew-wheel"
+$venv = Join-Path $env:TEMP "onecrew venv"
+& $py -m pip wheel . --no-deps -w $out
+& $py -m venv $venv
+& "$venv\Scripts\python.exe" -m pip install (Get-ChildItem "$out\onecrew-*.whl").FullName
+& "$venv\Scripts\onecrew.exe" --help
+```
+
+Console script `onecrew` của wheel dev18 trở đi chạy qua `onecrew/console.py` (ép stdout/stderr sang UTF-8), nên không cần `PYTHONUTF8=1`. Wheel dev8 … dev17 đã giao vẫn cần `$env:PYTHONUTF8 = "1"` khi in tiếng Việt: từ dev10 chúng có `onecrew/console.py` nhưng builder của gate ghi entry point `onecrew.v2.cli:main`, nên executable bỏ qua lớp bọc [đính chính 28/10, R14]: câu cũ ở đây nói wheel dựng từ nhánh này không cần biến đó, sai cho dev10 … dev17; xem [docs/wf/BAO-CAO-R14-2026-10-28.vi.md](docs/wf/BAO-CAO-R14-2026-10-28.vi.md).
+
+**Ma trận provider thật (W45) — đúng phạm vi của nó:** chỉ chạy một lần trên wheel `6366137` (25/10): claude reviewer/cố vấn đạt, kiro reviewer/cố vấn đạt, codex 0/2 vì CLI không có → 4/6 (subset), chỉ chứng minh ô chạy được, không phải chất lượng review. **Chưa có ma trận hay so sánh cho wheel hiện hành** (dev8 `4b1b7b1` … dev18 `34eb7c4`); bundle RP ở các bản này bị từ chối T54.5 "comparison missing" (trạng thái "cần kiểm lại"). Mọi test tự động dùng CLI giả.
 
 ## Tài liệu hiện hành
 

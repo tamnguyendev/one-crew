@@ -1,0 +1,276 @@
+{
+ "package": "D:\\OneCrewRuns\\wf-handover-6366137",
+ "work": "D:\\OneCrewRuns\\wf-verify-6366137",
+ "steps": [
+  {
+   "id": "sha256sums",
+   "step": "SHA256SUMS: every listed file present and unchanged",
+   "ok": true,
+   "mandatory": true,
+   "files": 526,
+   "bad": []
+  },
+  {
+   "id": "wheel_sha",
+   "step": "wheel sha256 == manifest",
+   "ok": true,
+   "mandatory": true,
+   "sha256": "503f624f8912857f9fff2e51a725bcaa161c7c0c296dfade0ca271b7a4b31237"
+  },
+  {
+   "id": "venv",
+   "step": "venv created outside the checkout",
+   "ok": true,
+   "mandatory": true,
+   "path": "D:\\OneCrewRuns\\wf-verify-6366137\\venv",
+   "stdout_tail": "",
+   "stderr_tail": "",
+   "exit": 0
+  },
+  {
+   "id": "pip_install",
+   "step": "pip install --no-index from the package wheel",
+   "ok": true,
+   "mandatory": true,
+   "stdout_tail": "Processing d:\\onecrewruns\\wf-handover-6366137\\wheel\\onecrew-2.2.0.dev3-py3-none-any.whl\nInstalling collected packages: onecrew\nSuccessfully installed onecrew-2.2.0.dev3\n",
+   "stderr_tail": "",
+   "exit": 0
+  },
+  {
+   "id": "help",
+   "step": "onecrew --help from the venv console script",
+   "ok": true,
+   "mandatory": true,
+   "stdout_tail": "list / observe / summary (declared capabilities and observed runs)\n  executor   state / pause / stop / recover / isolate (managed attempts)\n  init       set a repo up: ledger, owner rules, Claude Code hooks (from an installed copy)\n  doctor     check this machine and repo: one PASS/WARN/FAIL line per check\n  owner      approve / accept / enforce / record (the owner's verbs; refused inside an AI session)\nUse <group> <command> --help for options. Durable commands accept --state-root before group.\n",
+   "stderr_tail": "",
+   "exit": 0
+  },
+  {
+   "id": "smoke_body",
+   "step": "smoke body ran",
+   "ok": true,
+   "mandatory": true,
+   "stdout_tail": "\"}, \"sys_path\": [\"C:\\\\Users\\\\NUC\\\\.cache\\\\codex-runtimes\\\\codex-primary-runtime\\\\dependencies\\\\python\\\\python312.zip\", \"C:\\\\Users\\\\NUC\\\\.cache\\\\codex-runtimes\\\\codex-primary-runtime\\\\dependencies\\\\python\\\\DLLs\", \"C:\\\\Users\\\\NUC\\\\.cache\\\\codex-runtimes\\\\codex-primary-runtime\\\\dependencies\\\\python\\\\Lib\", \"C:\\\\Users\\\\NUC\\\\.cache\\\\codex-runtimes\\\\codex-primary-runtime\\\\dependencies\\\\python\", \"D:\\\\OneCrewRuns\\\\wf-verify-6366137\\\\venv\", \"D:\\\\OneCrewRuns\\\\wf-verify-6366137\\\\venv\\\\Lib\\\\site-packages\"]}\n",
+   "stderr_tail": "",
+   "exit": 0
+  },
+  {
+   "id": "verdict_run",
+   "step": "verdict run through the venv console script passed M1",
+   "ok": true,
+   "mandatory": true,
+   "m1": "passed",
+   "tail": "questions_used\": 0,\n    \"exceeded\": 0\n  },\n  \"questions\": [],\n  \"anchor_task\": \"TASK-abaf7b7f420f4984b0c69c820764c7bd\",\n  \"state_root\": \"D:\\\\OneCrewRuns\\\\wf-verify-6366137\\\\state\",\n  \"workflow_version\": 1,\n  \"capabilities\": [\n    \"namespaced-storage\",\n    \"finding-register\",\n    \"root-budget\"\n  ]\n}\n",
+   "exit": 0
+  },
+  {
+   "id": "plan_report",
+   "step": "plan report renders",
+   "ok": true,
+   "mandatory": true
+  },
+  {
+   "id": "modules_from_venv",
+   "step": "every onecrew module loaded from the venv, none from a checkout",
+   "ok": true,
+   "mandatory": true,
+   "modules": 39,
+   "outside": {}
+  },
+  {
+   "id": "checkout_not_on_path",
+   "step": "checkout is not on sys.path",
+   "ok": true,
+   "mandatory": true,
+   "sys_path": [
+    "C:\\Users\\NUC\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python312.zip",
+    "C:\\Users\\NUC\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\DLLs",
+    "C:\\Users\\NUC\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\Lib",
+    "C:\\Users\\NUC\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python",
+    "D:\\OneCrewRuns\\wf-verify-6366137\\venv",
+    "D:\\OneCrewRuns\\wf-verify-6366137\\venv\\Lib\\site-packages"
+   ]
+  },
+  {
+   "id": "blocked_copy_built",
+   "step": "state-blocked: approved, unaccepted root added with the installed build",
+   "ok": true,
+   "mandatory": true,
+   "stdout_tail": "built\n",
+   "stderr_tail": "",
+   "exit": 0
+  },
+  {
+   "id": "blocked_scan",
+   "step": "compat scan on state-blocked reports blocks",
+   "ok": true,
+   "mandatory": true,
+   "blocking": {
+    "read": 0,
+    "continue": 1,
+    "total": 1
+   },
+   "block_ids": [
+    "B1"
+   ],
+   "stdout_tail": "3e737f9bf68098ae9ef10025b3e7f77a56e829b1228\\\\blocked-open\\\\v1.json\": \"1718d201349640b588e293781b8ee0a66ef0dc4651fe3c19b0bf1627d68b76e7\",\n  \"D:\\\\OneCrewRuns\\\\wf-verify-6366137\\\\state-blocked\\\\plans\\\\5713a13ac9a9e780af6de3e737f9bf68098ae9ef10025b3e7f77a56e829b1228\\\\active-plan.json\": \"f096e544fbab3b2bb243cfb7ba5e391b30d0ca38b6ab52f7210b6570a37748d7\",\n  \"D:\\\\OneCrewRuns\\\\wf-verify-6366137\\\\project\\\\.onecrew\\\\active-plan.json\": \"f096e544fbab3b2bb243cfb7ba5e391b30d0ca38b6ab52f7210b6570a37748d7\"\n }\n}\n",
+   "stderr_tail": "",
+   "exit": 0
+  },
+  {
+   "id": "blocked_refused_no_pip",
+   "step": "rollback refused on the blocked copy: 0 pip uninstall/install invocations",
+   "ok": true,
+   "mandatory": true,
+   "pip_invocations": 0
+  },
+  {
+   "id": "blocked_installed_unchanged",
+   "step": "refused branch: installed build unchanged",
+   "ok": true,
+   "mandatory": true,
+   "installed": "e8854b5fe17384243cb828ee08b826b2d2fb2eb27810186978c5db2b6faf9691"
+  },
+  {
+   "id": "blocked_copy_unchanged",
+   "step": "refused branch: nothing in state-blocked changed",
+   "ok": true,
+   "mandatory": true,
+   "tree_sha": "f3ca35d5312642cce5ba84a4ad1e64c2045251efe54640ae020ffb80b5ef9af2"
+  },
+  {
+   "id": "clear_scan",
+   "step": "compat scan on state-clear reports 0 blocks",
+   "ok": true,
+   "mandatory": true,
+   "blocking": {
+    "read": 0,
+    "continue": 0,
+    "total": 0
+   },
+   "stdout_tail": "e780af6de3e737f9bf68098ae9ef10025b3e7f77a56e829b1228\\\\smoke\\\\v1.json\": \"c711b499f61608f9a708610ce5945dc75b0c8c6a87335c16b29188c09d2f265f\",\n  \"D:\\\\OneCrewRuns\\\\wf-verify-6366137\\\\state-clear\\\\plans\\\\5713a13ac9a9e780af6de3e737f9bf68098ae9ef10025b3e7f77a56e829b1228\\\\active-plan.json\": \"cb7ef45aac3fff61fd932c0e2a1fde11bca6f9d19c97aa266c7e6c29ceee2bd4\",\n  \"D:\\\\OneCrewRuns\\\\wf-verify-6366137\\\\project\\\\.onecrew\\\\active-plan.json\": \"f096e544fbab3b2bb243cfb7ba5e391b30d0ca38b6ab52f7210b6570a37748d7\"\n }\n}\n",
+   "stderr_tail": "",
+   "exit": 0
+  },
+  {
+   "id": "clear_uninstall_current",
+   "step": "uninstall current",
+   "ok": true,
+   "mandatory": true,
+   "stdout_tail": "Found existing installation: onecrew 2.2.0.dev3\nUninstalling onecrew-2.2.0.dev3:\n  Successfully uninstalled onecrew-2.2.0.dev3\n",
+   "stderr_tail": "",
+   "exit": 0
+  },
+  {
+   "id": "clear_install_previous",
+   "step": "install previous wheel from the package",
+   "ok": true,
+   "mandatory": true,
+   "stdout_tail": "Processing d:\\onecrewruns\\wf-handover-6366137\\wheel\\previous\\onecrew-2.2.0.dev3-py3-none-any.whl\nInstalling collected packages: onecrew\nSuccessfully installed onecrew-2.2.0.dev3\n",
+   "stderr_tail": "",
+   "exit": 0
+  },
+  {
+   "id": "clear_old_digest",
+   "step": "previous build: plan digest exits 0 (legacy roots only; the namespaced smoke root is not listed)",
+   "ok": true,
+   "mandatory": true,
+   "stdout_tail": "TÓM TẮT CÁC VIỆC (0 kế hoạch) — sổ: D:\\OneCrewRuns\\wf-verify-6366137\\state-clear\nkhông có dữ liệu\n\n",
+   "stderr_tail": "",
+   "exit": 0
+  },
+  {
+   "id": "clear_old_cannot_read_plan_ns",
+   "step": "previous build cannot read the plan-ns root (plan show smoke refused: No plan named)",
+   "ok": true,
+   "mandatory": true,
+   "kind": "negative",
+   "expect": {
+    "exits": [
+     1,
+     2
+    ],
+    "reason_any": [
+     "No plan named"
+    ]
+   },
+   "stdout_tail": "{\"error\": \"No plan named smoke. Create one with: plan propose.\", \"type\": \"LedgerError\"}\n",
+   "stderr_tail": "",
+   "exit": 2
+  },
+  {
+   "id": "clear_old_copy_unchanged",
+   "step": "previous build changed nothing in state-clear",
+   "ok": true,
+   "mandatory": true
+  },
+  {
+   "id": "clear_uninstall_previous",
+   "step": "uninstall previous",
+   "ok": true,
+   "mandatory": true,
+   "stdout_tail": "Found existing installation: onecrew 2.2.0.dev3\nUninstalling onecrew-2.2.0.dev3:\n  Successfully uninstalled onecrew-2.2.0.dev3\n",
+   "stderr_tail": "",
+   "exit": 0
+  },
+  {
+   "id": "clear_reinstall_current",
+   "step": "roll-forward: current wheel reinstalled",
+   "ok": true,
+   "mandatory": true,
+   "stdout_tail": "Processing d:\\onecrewruns\\wf-handover-6366137\\wheel\\onecrew-2.2.0.dev3-py3-none-any.whl\nInstalling collected packages: onecrew\nSuccessfully installed onecrew-2.2.0.dev3\n",
+   "stderr_tail": "",
+   "exit": 0
+  },
+  {
+   "id": "clear_same_build_restored",
+   "step": "roll-forward restored the identical installed build",
+   "ok": true,
+   "mandatory": true,
+   "installed": "e8854b5fe17384243cb828ee08b826b2d2fb2eb27810186978c5db2b6faf9691"
+  },
+  {
+   "id": "clear_roll_forward_reads",
+   "step": "roll-forward reads the root again",
+   "ok": true,
+   "mandatory": true,
+   "stdout_tail": ",\n  \"origin\": null,\n  \"decisions\": null,\n  \"advice\": null,\n  \"stop\": {\n    \"max_stuck\": 3,\n    \"max_repairs_total\": 8,\n    \"repairs_used\": 0\n  },\n  \"attention\": {\n    \"questions_limit\": 1,\n    \"questions_used\": 0,\n    \"exceeded\": 0\n  },\n  \"questions\": [],\n  \"anchor_task\": \"TASK-abaf7b7f420f4984b0c69c820764c7bd\",\n  \"state_root\": \"D:\\\\OneCrewRuns\\\\wf-verify-6366137\\\\state-clear\",\n  \"workflow_version\": 1,\n  \"capabilities\": [\n    \"namespaced-storage\",\n    \"finding-register\",\n    \"root-budget\"\n  ]\n}\n",
+   "stderr_tail": "",
+   "exit": 0
+  },
+  {
+   "id": "clear_roll_forward_copy_unchanged",
+   "step": "roll-forward changed nothing in state-clear",
+   "ok": true,
+   "mandatory": true
+  }
+ ],
+ "result": "pass",
+ "previous_wheel_present": true,
+ "rollback": {
+  "blocked": {
+   "copy": "D:\\OneCrewRuns\\wf-verify-6366137\\state-blocked",
+   "scan_total": 1,
+   "decision": "refused",
+   "pip_invocations": 0,
+   "installed_before": "e8854b5fe17384243cb828ee08b826b2d2fb2eb27810186978c5db2b6faf9691",
+   "installed_after": "e8854b5fe17384243cb828ee08b826b2d2fb2eb27810186978c5db2b6faf9691",
+   "copy_before": "f3ca35d5312642cce5ba84a4ad1e64c2045251efe54640ae020ffb80b5ef9af2",
+   "copy_after": "f3ca35d5312642cce5ba84a4ad1e64c2045251efe54640ae020ffb80b5ef9af2"
+  },
+  "clear": {
+   "copy": "D:\\OneCrewRuns\\wf-verify-6366137\\state-clear",
+   "scan_total": 0,
+   "decision": "allowed",
+   "pip_invocations": 4,
+   "installed_before": "e8854b5fe17384243cb828ee08b826b2d2fb2eb27810186978c5db2b6faf9691",
+   "installed_after": "e8854b5fe17384243cb828ee08b826b2d2fb2eb27810186978c5db2b6faf9691",
+   "copy_before": "3161e41c1dcbf6eeef7f6c2ac9f5d19cb4454fc92d3a4fbb8c813bddd50fbd9c",
+   "copy_after": "3161e41c1dcbf6eeef7f6c2ac9f5d19cb4454fc92d3a4fbb8c813bddd50fbd9c"
+  }
+ },
+ "judge": {
+  "result": "pass",
+  "reasons": []
+ }
+}

@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261026-R10-6",
+ "file": "onecrew/v2/internal_plan.py",
+ "old_sha256": "53eda56076a17c88a11f1b4b39dc76894817d19f324e5020096f431d9317eaaa",
+ "new_sha256": "0d51d55b68d8e6585215704e85c6af1745ec52fd566c26ae3532e6814c0fd43f",
+ "reason": "R10-A D8: _to_come — trần revise chỉ đếm node mới, node bị đổi thế hệ và node chưa xong (pending/produced/held/running/failed, gồm integration chưa verified); node verified/accepted không đổi và input khớp = 0; so với ngân sách còn lại sau used+reserved; plan.revised mang cost{calls,seconds,counted,reused}. Red: U2 needs 9 calls but the root has 8 left (a,b,c).",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 26/10/2026 ~13:30, dán chỉ thị lượt 10 của Codex: 'Tôi ủy quyền một lần cho công việc này. Tự chia task, sửa code/test/cấu hình, chạy kiểm chứng và xử lý lỗi trong phạm vi đã giao; không hỏi tôi duyệt từng việc.' Quyết định kỹ thuật theo ủy quyền; không phải chữ ký trực tiếp cho từng dòng.",
+ "applied_by": "claude (entry) + agents A (claude-opus), B/C (claude-sonnet), round 10 on codex/wf-development",
+ "at": "2026-10-26"
+}

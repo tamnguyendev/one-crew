@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261027-R12-A-1",
+ "file": "tests/test_wf_r11_output_guard.py",
+ "old_sha256": "637eaea6442997abb4a2e2270a1b752e96a44e20bbb3a938242c36033a5e3e05",
+ "new_sha256": "fdfcd6bb935d9378c85778d944d4458bc723ddbb02223ceb6006a5d6d2b9a44c",
+ "reason": "R12 (Codex review 27/10, P1-A): the R11 rule that a write path named in node/contract prose is a REQUIRED output is withdrawn (it inferred create/keep from wording and refused a deletion the contract asked for). test_wf_r11_output_guard a/d/e no longer assert out['required']; f-i keep their intent but the refusal now comes from a real contract milestone (NONEMPTY / EMPTY_FILE command) with the structural guard passing; test_wf_r10_output_refs test_d/test_d2 now assert that naming a path in prose creates no obligation (their refusal cases moved to tests.test_wf_r12_output_contract). No behavioural assertion weakened: every former refusal is still asserted through the contract milestone in R12 tests.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 27/10/2026 ~03:45, chỉ thị lượt 12 của Codex (dán nguyên văn): \"Tôi ủy quyền tự chia task, chọn cách sửa, bổ sung test, chạy agent phù hợp, xử lý lỗi phát sinh trong phạm vi, commit local, dựng và kiểm gói. Không hỏi tôi duyệt từng file, task, test hoặc commit.\" Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry) + agents V/R/D/P (round 12), integration commit on codex/wf-development",
+ "at": "2026-10-27"
+}
