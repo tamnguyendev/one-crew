@@ -855,7 +855,7 @@ if(S==='fk_reconnect'){                                // stopped after 3 timeou
   const stopped=samples[samples.length-1];
   check('setup: stopped after 3 timeouts with the retry button', stopped.retry && treqs(P8).length===3, {reads:treqs(P8).length, stopped});
   fk.overview={fail:true}; await fadv(3000,1000,'lost'); fk.overview=null; const k=treqs(P8).length; await fadv(2000,500,'back');
-  const back=samples.filter(x=>x.tag==='back');
+  const nr=treqs(P8)[k], back=samples.filter(x=>x.tag==='back'&&nr&&x.t>=nr.start-T0);   // from the reconnection on (a sample before the next overview answer rightly still shows the stop)
   check('after the reconnection one new read starts by itself', treqs(P8).length===k+1, {reads:treqs(P8).length-k});
   check('while it runs the status line no longer says "ngừng tự thử" nor offers the button; it and the header say "đang thử lại"', back.length>0 && back.every(x=>!x.retry&&!/ngừng tự thử/.test(x.dtext||'')&&/đang thử lại/.test(x.dtext||'')&&/đang thử lại/.test(x.dconn||'')), back.slice(-2));
   fk.plans[P8]={}; await fadv(50000,1000,'end');       // the read in flight still hangs: it ends at its 45 s, the next try is answered
