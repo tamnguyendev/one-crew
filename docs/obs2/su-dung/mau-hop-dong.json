@@ -1,0 +1,27 @@
+{
+  "schema_version": 2,
+  "title": "Bài đầu tiên: thêm file docs/xin-chao.md",
+  "size": "S",
+  "origin": {"by": "owner", "at": "<ngày giờ bạn giao việc>", "quote": "<lời bạn giao việc, nguyên văn>"},
+  "understanding": {
+    "restated_goal": "Tạo file docs/xin-chao.md, nội dung đúng một dòng: Xin chao OneCrew. Không sửa file nào khác.",
+    "target": {"repo": ".", "ref": "HEAD", "paths": ["docs"]},
+    "assumptions": [],
+    "confidence": "high",
+    "unknowns": [],
+    "no_unknowns_because": "Việc chỉ tạo một file mới trong docs (thư mục onecrew init đã tạo); không đọc hay sửa file có sẵn."
+  },
+  "preconditions": [{"id": "P1", "check": "ref_resolves", "args": {"repo": ".", "ref": "HEAD"}, "why": "Repo phải có ít nhất một commit để làm điểm gốc so sánh."}],
+  "output": ["docs/xin-chao.md, nội dung đúng một dòng: Xin chao OneCrew"],
+  "scope": {"owned": ["docs/xin-chao.md"]},
+  "non_goals": ["sửa bất kỳ file nào khác trong repo"],
+  "items": [{"id": "I1", "title": "tạo docs/xin-chao.md", "tier": "must", "milestone": "M1", "source": "origin"}],
+  "decisions": [],
+  "milestones": [
+    {"id": "M1", "title": "docs/xin-chao.md có đúng nội dung", "covers": ["O1"], "mode": "once", "max_repairs": 1,
+     "verifier": {"type": "command", "config": {"argv": ["powershell", "-NoProfile", "-Command", "$t = (Get-Content -Raw -Encoding UTF8 -LiteralPath docs/xin-chao.md).Trim(); Write-Output ('noi dung: ' + $t); if ($t -eq 'Xin chao OneCrew') { exit 0 } else { exit 1 }"], "max_minutes": 2}}}
+  ],
+  "budget": {"max_calls": 20, "time": 30},
+  "attention": {"questions": 1},
+  "profile_version": null
+}

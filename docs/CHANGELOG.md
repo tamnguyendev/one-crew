@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## v2.5.0.dev10 (05/11/2026) — beta UI OBS-2 (prerelease)
+
+**Bản prerelease beta của giao diện theo dõi OBS-2, không phải bản ổn định 2.5 và không phải toàn bộ lộ trình 2.5** (MR-R, 2.5-A/B, RD-A, CP-1 không có). Tag `v2.5.0.dev10` → snapshot `c4951f6`; wheel SHA256 `57445419e7c616f8e7c9f00039c7ac1b8ccc384c4cf464a27e3bc04b9d6879a1`. Codex đã review dev10, không phát hiện blocker mới trong phạm vi bản vá. Chưa nghiệm thu.
+
+- **UI chỉ đọc:**
+  - bảng thẻ công việc theo giai đoạn;
+  - chi tiết thẻ: phương án và thay đổi, đầu ra hiện hành, kết quả kiểm, vòng kiểm/sửa;
+  - timeline và bằng chứng;
+  - "Quyết định cần bạn" có mẫu lệnh PowerShell, chỉ hiện khi hook của project khớp đúng runtime và sổ của trang.
+- **Đã khép:** P3 focus sau sao chép (dev9); P2 sao chép dự phòng từ kết quả trả muộn của lần sao chép cũ (dev10).
+- **Vấn đề đã biết:** clipboard còn chờ mà trang vẽ lại thì có thể tạm báo "Không sao chép được"; khi có kết quả thì cập nhật đúng.
+- **Chưa kiểm:** clipboard native, pilot và sổ lớn, provider thật.
+- **Tài liệu:**
+  - ghi chú phát hành và hướng dẫn sử dụng (repo mới; repo đang dùng OneCrew: chỉ mở UI hoặc nâng runtime) ở `docs/obs2/su-dung/`, cùng script kiểm gói, ghi hiện trạng và sao chép sổ an toàn;
+  - hồ sơ bàn giao ở `docs/obs2/HANDOVER.vi.md`.
+
 ## v2.4.0.dev13 (04/11/2026) — OBS-1: P2 của review Codex trên dev12 `4cdb384` (chi tiết task "đang tải" mãi khi API trả lời chậm hơn 20 s) — LOCAL, chưa tag/push
 
 - **Nguyên nhân:** `loadDetail` của trang thay lượt đọc chi tiết đang chờ quá 20 s bằng lượt mới ở mỗi poll; trả lời của lượt cũ bị bỏ. Trả lời ~25 s → lặp mãi, "đang tải chi tiết…" không bao giờ kết thúc (Codex trên wheel dev12: sau 82,47 s, 4 request đã bắt đầu, 3 trả lời đã xong, UI vẫn tải).
