@@ -45,6 +45,7 @@ import os
 import datetime as dt
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -579,6 +580,7 @@ class CandidateChecker:
     """Production check port: every node check ID names an approved milestone."""
     def __init__(self, ledger, selector):
         self.ledger, self.selector = ledger, selector
+        self._snapshot = threading.local()          # the environment execution_identity fingerprinted is the one this call's verifiers receive
 
     def execution_identity(self, item):
         """What this port executes for `item`, read from the approved contract and the effective verifier environment (2.5-B): never a
@@ -595,8 +597,15 @@ class CandidateChecker:
                 'provider': ','.join(sorted({pin[0] for pin in pins})) or None, 'model': ','.join(pin[1] for pin in pins) or None,
                 'configuration': {'contract_sha': sha, 'output_rule': OUT_RULE, 'milestones': [
                     {'id': row['id'], 'type': row['verifier']['type'], 'config': row['verifier']['config']} for row in selected]},
-                'environment': verification_evidence.environment(command.verifier_env(self.ledger.project)),
+                'environment': verification_evidence.environment(self._environment(keep=True)),
                 'provenance': {'source': 'approved-contract', 'contract_sha': sha, 'port': type(self).__name__}}
+
+    def _environment(self, *, keep=False):
+        env = getattr(self._snapshot, 'env', None)
+        if env is None:
+            env = command.verifier_env(self.ledger.project)
+        self._snapshot.env = env if keep else None
+        return env
 
     def __call__(self, item, artifact, *, previous_receipt=None):
         phase = {'dispatched': False, 'claims': {}}
@@ -625,12 +634,12 @@ class CandidateChecker:
         except Exception:                                         # noqa: BLE001
             pass
 
-    def _claim_milestones(self, root, sha, contract, view, nid, selected, tree, phase, cap_seconds):
+    def _claim_milestones(self, root, sha, contract, view, nid, selected, tree, phase, cap_seconds, env):
         """One atomic claim for every selected milestone on this tree: all of them or none. Another door running one of them means this
         whole check observes it (review_dispatch.NotDispatched: nothing ran here). Returns {milestone id: request}."""
         from .v2 import review_dispatch
         ledger = self.ledger
-        requests = {m['id']: review_dispatch._milestone_request(ledger, root['task_id'], root['name'], view['contract_revision'], sha, contract, m, tree)
+        requests = {m['id']: review_dispatch._milestone_request(ledger, root['task_id'], root['name'], view['contract_revision'], sha, contract, m, tree, env=env)
                     for m in selected}
         parent = review_dispatch.current_run()
         deadline = review_dispatch._deadline(2 * cap_seconds)
@@ -716,7 +725,7 @@ class CandidateChecker:
         tree = candidate_tree(ledger, manifest)
         retention.pin_evidence(ledger, root['selector'], tree, strict=True)
         store = Snapshots(ledger.state_root)
-        effective_environment = command.verifier_env(ledger.project)
+        effective_environment = self._environment()
         observed_env = verification_evidence.environment(effective_environment)
         inputs = {'source': {'head': manifest['head'], 'files': manifest['files']},
                   **{source: {key: value[key] for key in ('artifact', 'generation')}
@@ -730,7 +739,7 @@ class CandidateChecker:
         reused = _reuse(ledger, view, item, artifact, previous_receipt, tree, binding, sha, milestones)
         if reused is not None:
             return reused
-        _, prior = self._claim_milestones(root, sha, contract, view, nid, selected, tree, phase, item['execution_cap_seconds'])
+        _, prior = self._claim_milestones(root, sha, contract, view, nid, selected, tree, phase, item['execution_cap_seconds'], effective_environment)
         def settle(mid, *, outcome, proof=None, result=None):
             claim = phase['claims'].pop(mid, None)
             if claim is None: return
@@ -766,7 +775,7 @@ class CandidateChecker:
                     if again is not None:
                         rows.append(again)
                         continue
-                    claim = review_dispatch.claim_check(ledger, root['selector'], review_dispatch._milestone_request(ledger, root['task_id'], root['name'], view['contract_revision'], sha, contract, milestone, tree),
+                    claim = review_dispatch.claim_check(ledger, root['selector'], review_dispatch._milestone_request(ledger, root['task_id'], root['name'], view['contract_revision'], sha, contract, milestone, tree, env=effective_environment),
                                                         door='candidate', parent=review_dispatch.current_run(), deadline=review_dispatch._deadline(2 * item['execution_cap_seconds']),
                                                         subject={'milestone': milestone['id'], 'candidate': tree, 'node': nid, 'artifact': artifact})
                     if claim['status'] != 'claimed':

@@ -113,28 +113,31 @@ def _work_key(request):
     return content_hash(identity)
 
 
-def _milestone_execution(ledger, milestone, sha):
+def _milestone_execution(ledger, milestone, sha, env=None):
     """What the runtime executes for this milestone, read from the APPROVED contract and the effective verifier environment, never
-    declared by the caller: verifier type and config, the reviewer provider/model pin, the environment fingerprint."""
+    declared by the caller: verifier type and config, the reviewer provider/model pin, the environment fingerprint. `env` is the snapshot
+    the verifier will really receive, when the caller already took it."""
     from .verifiers import command
     from . import verification_evidence
+    env = command.verifier_env(ledger.project) if env is None else env
     kind, config = milestone['verifier']['type'], milestone['verifier']['config']
     method = 'command' if kind == 'command' else 'reviewer' if kind == 'reviewer' else 'adapter'
     return {'method': method, 'implementation': 'onecrew.v2.verifiers.' + (kind if kind in ('command', 'reviewer') else 'port:' + kind),
             'provider': config.get('provider', 'claude') if kind == 'reviewer' else None,
             'model': config.get('model') if kind == 'reviewer' else None,
             'configuration': {k: v for k, v in config.items() if k != 'max_minutes'},
-            'environment': verification_evidence.environment(command.verifier_env(ledger.project)),
+            'environment': verification_evidence.environment(env),
             'provenance': {'source': 'approved-contract', 'plan_sha': sha, 'milestone': milestone['id']}}
 
 
-def _milestone_request(ledger, task_id, name, revision, sha, contract, milestone, candidate):
+def _milestone_request(ledger, task_id, name, revision, sha, contract, milestone, candidate, env=None):
     """review_request.build_check for one approved milestone on one candidate; the execution facts are also the evidence inputs."""
-    subject = {'plan': name, 'milestone': milestone['id'], 'candidate': candidate, 'plan_sha': sha}
-    execution = _milestone_execution(ledger, milestone, sha)
-    acceptance = dict(zip(contracts.output_ids(contract['output']), contract['output']))
     from . import verification_evidence
     from .verifiers import command
+    subject = {'plan': name, 'milestone': milestone['id'], 'candidate': candidate, 'plan_sha': sha}
+    env = command.verifier_env(ledger.project) if env is None else env
+    execution = _milestone_execution(ledger, milestone, sha, env)
+    acceptance = dict(zip(contracts.output_ids(contract['output']), contract['output']))
     return review_request.build_check(kind='milestone', root={'project_id': ledger.project_id, 'task_id': task_id},
         contract_revision=revision, contract_sha=sha, subject=subject, required=True,
         criteria=[{'id': milestone['id'], 'covers': milestone.get('covers', []), 'verifier': milestone['verifier']['type']}],
@@ -144,7 +147,7 @@ def _milestone_request(ledger, task_id, name, revision, sha, contract, milestone
         inputs={'artifact': candidate, 'revision': revision,
                 'acceptance': {'milestone': milestone['id'], 'covers': {key: acceptance.get(key) for key in milestone.get('covers', [])}},
                 'inputs': {'milestone': milestone['id']}, 'configuration': {'plan_sha': sha, 'verifier': execution['configuration'], 'type': milestone['verifier']['type']},
-                'environment': verification_evidence.environment(command.verifier_env(ledger.project)), 'checks': [milestone['id']]},
+                'environment': verification_evidence.environment(env), 'checks': [milestone['id']]},
         execution=execution)
 
 
