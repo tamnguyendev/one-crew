@@ -216,6 +216,13 @@ def _deadline(seconds):
     return (_now() + dt.timedelta(seconds=seconds + RUN_GRACE_SECONDS)).isoformat()
 
 
+def check_deadline(cap_seconds, checks, root_deadline):
+    """Liveness allowance includes snapshot work but never extends the root."""
+    from .verifiers import command
+    limit = _deadline(2 * cap_seconds + 3 * max(1, checks) * command.snapshot_seconds())
+    return min(dt.datetime.fromisoformat(limit), dt.datetime.fromisoformat(root_deadline)).isoformat()
+
+
 def verdict_conflict(conn, task_id, request):
     """An unfinished lifecycle run of the same work (any door), for verdict._begin_run's own claim transaction; None when none."""
     key = _work_key(request)
@@ -373,7 +380,7 @@ def recheck_request(ledger, selector, finding, receipt):
     return _milestone_request(ledger, state['task_id'], state['name'], target['revision'], sha, contract, milestone, candidate, criterion=finding.get('criterion'))
 
 
-def prior_pass(conn, task_id, request):
+def prior_pass(conn, task_id, request, *, exclude_proof=None):
     """The run whose pass of exactly this request may be reused: a finished candidate claim (its proof) or a verdict.run whose issued receipt
     was recorded. {run_id, door, proof} or None. Only the NEWEST result of this work counts, across both doors: a later fail or inconclusive
     stops reuse, whatever passed before it. Exact request id and complete execution identity only: an unknown checker is never equal to
@@ -389,6 +396,7 @@ def prior_pass(conn, task_id, request):
     recorded = {body.get('receipt'): (row['seq'], body.get('result')) for row, body in ((row, json.loads(row['payload'])) for row in rows)}
     for run in run_records(conn, task_id):
         receipt = (run.get('receipt') or {}).get('receipt')
+        if receipt == exclude_proof: continue  # validate a derived receipt against its source, not against itself
         if isinstance(run.get('request'), dict) and _work_key(run['request']) == key and receipt in recorded:
             history.append((*recorded[receipt], run['request'], {'run_id': run.get('run_id'), 'door': 'verdict.run', 'proof': receipt}))
     if not history: return None
@@ -571,7 +579,8 @@ def claim_node_check(ledger, selector, nid, *, execution, door, expected):
                    'internal_revision': facts['internal_revision']}
         # the same allowance as the tools fence (engine._claim_tools): twice the node cap, the first check still has its own deadlines
         return claim_check(ledger, root['selector'], request, door=door, subject=subject, check=CHECK_NODE,
-                           deadline=_deadline(2 * item['execution_cap_seconds']), conn=conn), request
+                           deadline=check_deadline(item['execution_cap_seconds'], len(item['checks']),
+                               ip.ceilings(ledger, conn, root)['deadline']), conn=conn), request
 
 
 def node_check_view(claim, *, executed=False, reconciled=False, request=None):

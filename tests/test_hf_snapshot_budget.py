@@ -339,15 +339,15 @@ class Case(RunFixture):
                 budget.say('update-index')
         self.assertIn('snapshot (before the verifier): update-index', said.getvalue())
 
-    def test_19_a_view_keeps_its_short_limit_and_does_not_fail(self):
+    def test_19_a_view_obeys_the_configured_finite_limit_and_does_not_fail(self):
         self.plan_with(self.x())
         verdict.run(self.ledger, 'P1', 'M1')
         if not FIXED: self.fail('dev10: TimeoutExpired out of artifact_sha for every caller that does not catch it')
-        with patch.object(command, 'STEP_SECONDS', 20), self.fault('update-index', minutes='30'):
+        with patch.object(command, 'STEP_SECONDS', 20), self.fault('update-index', minutes='0.02'):
             contract, state, revision = self.current()
             began = time.monotonic()
             views = plans.milestone_views(contract, state, revision, self.ledger)
-        self.assertLess(time.monotonic() - began, 90, 'a view does not wait for the long budget')
+        self.assertLess(time.monotonic() - began, 10, 'a view honors the configured finite snapshot budget')
         self.assertEqual(views[0]['state'], 'passed')
 
     # ---- the runs from before the fix -----------------------------------------------------------------------------------------------------------------

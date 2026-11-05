@@ -8,6 +8,7 @@ import copy
 import json
 import re
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -78,6 +79,7 @@ def state(ledger, selector, conn=None):
             record['state'] = 'accepted'
         elif event['kind'] == 'node.held':
             record.update(phase='held', reason=payload['reason'], classification=payload.get('classification'))
+            record.update({k: payload[k] for k in ('trigger', 'cleanup', 'process_receipt', 'recovery_action') if k in payload})
             if payload.get('candidate'): record['retained_candidate'] = payload['candidate']
         elif event['kind'] == 'node.resumed':
             fresh = _fresh([next(item for item in definition['nodes'] if item['id'] == nid)])[nid]
@@ -847,7 +849,7 @@ def _session(ledger, control, executor, receipt_body, observed, item):
     return {'session': execution_mode.session(declaration, launched, returned, previous=previous, pin=pin, role=pin.get('role', 'worker'))}
 
 
-def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _swept=False, checker=None, _peer=None):
+def _step(ledger, selector, executor, *, control=None, slots=1, _target=None, _swept=False, checker=None, _peer=None):
     from . import answer_effects
     answer_effects.reconcile(ledger, selector)
     control = control or getattr(executor, 'control', None)
@@ -877,7 +879,10 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
             if tool_wait: return _wait(ledger, view, tool_wait[0], tool_wait[1], swept)
             if _target is not None: return {'node': _target, 'state': 'waiting', 'internal_revision': view['internal_revision']}
             return _wait(ledger, view, None, None, swept)
-    if not choices: return {'state': 'waiting', 'internal_revision': view['internal_revision'], **({'reconciled': swept} if swept else {})}
+    if not choices:
+        action = next_action(ledger, selector)
+        return {'state': action['state'], 'reason': action['reason'], 'next_action': action,
+                'internal_revision': view['internal_revision'], **({'reconciled': swept} if swept else {})}
     if view['definition_contract_sha'] != sha:
         raise LedgerError('Revise the internal plan against the current approved contract before dispatch.')
     if _target is not None:
@@ -1011,6 +1016,17 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
                 failure = {'classification': 'executor_' + kind,
                            'process_receipt': Snapshots(ledger.state_root).blob(canonical(process_result).encode()),
                            'cleanup': 'confirmed', **({'trigger': trigger} if trigger else {})}
+                if process_result.get('reason') in ('timeout', 'deadline'):
+                    # A child's finite window may expire while the shared root
+                    # still has time. That is not an exhausted root grant.
+                    with ledger.transaction() as conn:
+                        room = ip.ceilings(ledger, conn, root)
+                    root_expired = room['remaining_seconds'] <= 0
+                    failure['recovery_action'] = 'owner_decision' if root_expired else 'revise_node'
+                    failure['reason'] = (f'Node {nid} reached its execution window ({process_result["reason"]}; '
+                        f'node cap {item["execution_cap_seconds"]} s). Supervisor confirmed the process tree stopped. '
+                        + ('The root deadline is exhausted; only an owner-authorized grant change can extend it.' if root_expired else
+                           'Review the retained evidence, then use engine revise to adjust the node within the remaining root grant; no automatic retry.'))
         lost = False
         if observed['status'] != 'settled':
             control.unknown(attempt['id'], str(error)[:1000])
@@ -1023,10 +1039,10 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
         with ledger.transaction(write=True) as conn:
             current = state(ledger, root['selector'], conn)
             if _publication_current(current, view, nid) and not lost:
-                _event(ledger, conn, current, nid, 'node.held', reason=str(error)[:1000], **failure)
+                _event(ledger, conn, current, nid, 'node.held', **dict({'reason': str(error)[:1000]}, **failure))
             else:
                 _retain(ledger, conn, view, nid, str(error)[:1000], attempt=attempt['id'])
-        return {'node': nid, 'state': 'retained' if lost else 'held', 'reason': str(error)}
+        return {'node': nid, 'state': 'retained' if lost else 'held', 'reason': failure.get('reason', str(error))}
     with ledger.transaction(write=True) as conn:
         current = state(ledger, root['selector'], conn)
         mine = current['nodes'].get(nid) or {}
@@ -1045,6 +1061,121 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
                **(_session(ledger, control, executor, receipt_body, observed, item) if mode else {}))
     _forecast(ledger, state(ledger, root['selector']), f'node-{nid}-g{view["nodes"][nid]["generation"]}-produced', 'Node produced an artifact; verification remains separate')
     return {'node': nid, 'state': 'produced', **produced}
+
+
+def _operator_command(ledger, *args):
+    """A pinned argv, never an automatically executed operator instruction."""
+    exe = Path(sys.executable).parent / ('onecrew.exe' if sys.platform == 'win32' else 'onecrew')
+    if exe.is_file(): prefix = [str(exe)]
+    else:
+        code = 'import sys;sys.path.insert(0,' + repr(str(Path(__file__).resolve().parents[2])) + ');from onecrew.console import main;raise SystemExit(main())'
+        prefix = [sys.executable, '-I', '-X', 'utf8', '-c', code]
+    return prefix + ['--project', str(ledger.project), '--state-root', str(ledger.state_root), *args]
+
+
+def next_action(ledger, selector, node=None, *, conn=None, view=None):
+    """Read-only guidance from the current workflow; it grants or executes nothing."""
+    if conn is None:
+        with ledger.transaction() as connection:
+            return next_action(ledger, selector, node, conn=connection, view=view)
+    root = plans.anchor_events(ledger, conn, selector)
+    view = view or state(ledger, root['selector'], conn)
+    selector = root['selector']
+    def action(kind, status, reason, *argv, owner=False, **fields):
+        return dict(kind=kind, state=status, reason=reason, owner_only=owner, grants_authority=False,
+                    command=_operator_command(ledger, *argv) if argv else None, **fields)
+    if root['status'] == 'accepted': return action('none', 'accepted', 'Owner acceptance is recorded; no further execution is needed.')
+    if root['status'] != 'approved': return action('read_plan', 'blocked', 'The root is ' + root['status'] + '; read its existing report and current grant.', 'plan', 'show', selector)
+    contract = plans.load(ledger, root, root['approved']['revision'])[0]
+    limit = None if authority.effective(contract).get('apply_to_project') else 'apply_to_project is not granted; handoff will require an owner-approved contract amendment.'
+    records = view['nodes']
+    if node is not None and node not in records: raise LedgerError('Unknown internal node ' + node + '.')
+    held = [(n, r) for n, r in records.items() if r.get('phase') == 'held' and (node is None or n == node)]
+    if held:
+        nid, record = held[0]
+        reason = record.get('reason') or 'The node is held; inspect its retained evidence.'
+        recovery = record.get('recovery_action')
+        if recovery is None and record.get('classification') == 'executor_stopped' and record.get('trigger') in ('execution_cap', 'deadline'):
+            recovery = 'owner_decision' if ip.ceilings(ledger, conn, root)['remaining_seconds'] <= 0 else 'revise_node'
+        if recovery == 'owner_decision': return action('owner_decision', 'held', reason, 'plan', 'show', selector, owner=True, node=nid)
+        if recovery == 'revise_node': return action('revise_node', 'held', reason + ' Use engine revise PLAN --file <revision.json>.', 'engine', 'revise', selector, '--file', '<revision.json>', node=nid)
+        if record.get('classification') == 'unknown' or str(record.get('classification', '')).startswith('executor_'):
+            return action('inspect_execution', 'held', reason + ' Inspect the existing attempt/process receipt in engine state; no automatic replay or confirmed stop is inferred.', 'engine', 'state', selector, node=nid)
+        return action('diagnose', 'held', reason + ' Inspect engine diagnose before changing the held work.', 'engine', 'diagnose', selector, nid, node=nid)
+    if view['active_nodes']: return action('observe', 'waiting', 'A managed attempt is still running; observe its existing attempt, do not dispatch again.', 'engine', 'state', selector)
+    produced = [n for n, r in records.items() if r.get('state') == 'produced' and r.get('verification_result') != 'pass']
+    if produced:
+        nid = produced[0]
+        return action('verify_node', 'verification_required', f'Node {nid} has output and no passing check. Run engine verify {selector} {nid}.' + (' ' + limit if limit else ''), 'engine', 'verify', selector, nid, node=nid, delivery_limit=limit)
+    ready_nodes = _ready(view)
+    if ready_nodes:
+        room = ip.ceilings(ledger, conn, root)
+        cost = next(n['budget_calls'] for n in view['definition']['nodes'] if n['id'] == ready_nodes[0]['id'])
+        if room['remaining_seconds'] <= 0 or room['remaining_calls'] < cost:
+            return action('owner_decision', 'blocked', 'The remaining root deadline/call budget cannot admit the next node; only an owner-authorized grant change can extend it.', 'plan', 'show', selector, owner=True, delivery_limit=limit)
+        return action('step', 'ready', 'A node is ready inside the existing grant; use engine step --managed.' + (' ' + limit if limit else ''), 'engine', 'step', selector, '--managed', delivery_limit=limit)
+    if not records or not verification_ready(ledger, selector):
+        return action('inspect', 'waiting', 'Dependencies, findings or an internal revision still block completion; inspect engine state.', 'engine', 'state', selector, delivery_limit=limit)
+    if limit: return action('amend_grant', 'handoff_blocked', limit + ' No owner acceptance or project apply was performed.', 'plan', 'show', selector, owner=True, delivery_limit=limit)
+    proof = handoff_evidence(ledger, selector)
+    if not proof:
+        return action('handoff', 'handoff_ready', 'Các node đã kiểm xong; bước tiếp theo: engine handoff để bàn giao trong quyền đã duyệt.', 'engine', 'handoff', selector)
+    artifact = proof['delivered_artifact']
+    views = plans.milestone_views(contract, root, root['approved']['revision'], ledger, artifact=artifact, conn=conn)
+    missing = [m['id'] for m in views if m['state'] != 'passed' or m.get('stale')]
+    if missing:
+        mid = missing[0]
+        return action('verify_milestone', 'verification_required', f'Đã bàn giao; cần ghi verdict mốc {mid}: verdict run (bằng chứng còn hiệu lực được xét dùng lại).', 'verdict', 'run', '--plan', selector, '--milestone', mid, milestone=mid)
+    from . import findings
+    if namespaces.has_capability(root, 'finding-register') and findings.list_findings(ledger, selector, open_only=True):
+        return action('recheck_findings', 'blocked', 'Passing milestones still have an unresolved finding; inspect findings and its current receipt.', 'findings', 'list', selector)
+    return action('owner_accept', 'awaiting_acceptance', 'Đủ bằng chứng bàn giao và verdict; chờ chủ sở hữu nghiệm thu, không có worker đang chạy.',
+                  'owner', 'accept', selector, '--revision', str(root['approved']['revision']), '--artifact-sha', artifact,
+                  '--reference', '<owner-reference>', '--human', owner=True, artifact=artifact)
+
+
+def _notify_held(ledger, selector):
+    """Publish each current held transition once through the existing notice/outbox."""
+    wrote = False
+    with ledger.transaction(write=True) as conn:
+        view = state(ledger, selector, conn)
+        for nid, record in view['nodes'].items():
+            if record.get('phase') != 'held': continue
+            if view.get('request_blockers', {}).get(nid): continue  # the existing typed request already owns this notification
+            row = conn.execute("SELECT seq,payload FROM events WHERE task_id=? AND kind='node.held' AND json_extract(payload,'$.node')=? ORDER BY seq DESC LIMIT 1", (view['root'], nid)).fetchone()
+            if row is None: continue
+            cause = f'node-held:{nid}:{record["generation"]}:{row["seq"]}'
+            if conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='notice.exception' AND json_extract(payload,'$.cause')=?", (view['root'], cause)).fetchone(): continue
+            need = next_action(ledger, selector, nid, conn=conn, view=view)
+            facts = json.loads(row['payload'])
+            evidence = [f'event:{row["seq"]}'] + ([facts['process_receipt']] if facts.get('process_receipt') else [])
+            plans.emit(ledger, conn, view['root'], 'notice.exception', dict(version=1, category='execution', cause=cause,
+                plan=namespaces.parse(selector)[0], revision=view['contract_revision'], reason=facts['reason'], evidence=evidence,
+                node=nid, generation=record['generation'], user_action=need['reason'], next_action=need,
+                grants_authority=False, creates_owner_request=False))
+            wrote = True
+    if wrote:
+        from .notification_cli import best_effort
+        return best_effort(ledger)
+    return None
+
+
+def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _swept=False, checker=None, _peer=None):
+    current = state(ledger, selector)
+    if current['root_status'] == 'accepted':
+        need = next_action(ledger, selector, view=current)
+        return {'state': need['state'], 'reason': need['reason'], 'next_action': need}
+    result = _step(ledger, selector, executor, control=control, slots=slots, _target=_target, _swept=_swept, checker=checker, _peer=_peer)
+    try:
+        _notify_held(ledger, selector)
+        if result.get('state') in ('held', 'waiting', 'produced') and 'next_action' not in result:
+            result['next_action'] = next_action(ledger, selector, result.get('node'))
+            if result['next_action'].get('delivery_limit'): result['delivery_limit'] = result['next_action']['delivery_limit']
+            if result['state'] == 'waiting' and result['next_action']['state'] in ('handoff_ready', 'handoff_blocked', 'verification_required', 'awaiting_acceptance'):
+                result.update(state=result['next_action']['state'], reason=result['next_action']['reason'])
+    except Exception as error:                        # a projection/delivery fault must not discard the committed executor outcome
+        result['operator_guidance_pending'] = str(error)[:300]
+    return result
 
 
 def run_batch(ledger,selector,executor,*,slots=1,control=None,checker=None):
@@ -1542,7 +1673,11 @@ def root_ready(ledger, selector, artifact=None):
     if not proof: return False
     from .verifiers import command
     try:
-        observed = command.artifact_sha(ledger.project)
+        with ledger.transaction() as conn:
+            root = plans.anchor_events(ledger, conn, selector)
+            deadline = ip.ceilings(ledger, conn, root)['deadline']
+        with command.snapshot_limits(deadline):
+            observed = command.artifact_sha(ledger.project)
         return proof.get('delivered_artifact') == observed and (artifact is None or artifact == observed)
     except (OSError, ValueError, KeyError, StopIteration):
         return False

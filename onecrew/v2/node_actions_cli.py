@@ -20,6 +20,10 @@ def register(sub):
 
 def execute(opts, ledger):
     if opts.command == 'diagnose':
+        from . import engine
+        node = engine.state(ledger, opts.plan)['nodes'].get(opts.node, {})
+        if node.get('phase') == 'held' and str(node.get('classification', '')).startswith('executor_'):
+            return engine.next_action(ledger, opts.plan, node=opts.node)
         return recovery_policy.assess(ledger, opts.plan, opts.node)
     body = json.loads(opts.file.read_text(encoding='utf-8-sig'))
     allowed = {

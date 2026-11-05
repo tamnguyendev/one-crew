@@ -5,11 +5,32 @@ bytes, and the names (never the content) of the control and credential files tha
 were left out. They do not confer execution authority or attest an external service.
 """
 import os
+import contextvars
+from functools import wraps
 from pathlib import Path
 
 from ...ledger import LedgerError, content_hash
 from ...snapshots import Snapshots, bytes_hash, is_link, safe_file, scope_list, scoped_path
 from . import command
+
+
+_observation = contextvars.ContextVar('onecrew_artifact_observation', default=None)
+
+
+def observed_view(function):
+    """One fresh observation for related projections in a single publication.
+
+    Never wraps execution, apply or acceptance. No process-wide/stat cache:
+    the next operation reads bytes again, including untracked dependencies.
+    """
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        token = _observation.set({})
+        try:
+            return function(*args, **kwargs)
+        finally:
+            _observation.reset(token)
+    return wrapped
 
 
 def is_git(directory):
@@ -99,7 +120,13 @@ def identity(directory):
     the tree): for Git a hard link or a junction does not stop it, so a changed artifact is still seen as changed (review D-R01; such a name is a
     marker of its stat data, never its content, B2). A folder without Git is refused with the reason when it holds a hard link (AL-01): its
     identity is the snapshot of its files, which never reads such a file."""
-    return command.artifact_sha(directory) if is_git(directory) else content_hash(_manifest(directory))
+    observation = _observation.get()
+    key = str(Path(directory).resolve())
+    if observation is not None and key in observation:
+        return observation[key]
+    value = command.artifact_sha(directory) if is_git(directory) else content_hash(_manifest(directory))
+    if observation is not None: observation[key] = value
+    return value
 
 
 def verified_identity(directory):

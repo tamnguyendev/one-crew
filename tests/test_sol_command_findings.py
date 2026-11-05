@@ -24,10 +24,11 @@ class CommandFindingTests(Fixture):
             request=review_dispatch.recheck_request(self.ledger, 'P1', finding, red))
         self.assertEqual(refused['closed'], [])
         (self.root / 'a.txt').write_text('fixed\n')
-        green = verdict.run(self.ledger, 'P1', 'M1')['milestones'][0]['last_verdict']['receipt']
-        out = findings.close_from_recheck(self.ledger, 'P1', finding['id'], run_receipt=green,
-            request=review_dispatch.recheck_request(self.ledger, 'P1', finding, green))
-        self.assertEqual(out['closed'], [finding['id']])
+        shown = verdict.run(self.ledger, 'P1', 'M1')
+        self.assertEqual(shown['finding_rechecks'][0]['closed'], [finding['id']])
+        self.assertEqual(findings.list_findings(self.ledger, 'P1', open_only=True), [])
+        artifact = shown['milestones'][0]['last_verdict']['artifact_sha']
+        self.assertEqual(plan.accept(self.ledger, 'P1', 'owner', 'fixture', artifact)['status'], 'accepted')
 
     def test_infrastructure_error_is_inconclusive_and_opens_no_product_finding(self):
         self.start([str(self.root / 'missing-executable.exe')])

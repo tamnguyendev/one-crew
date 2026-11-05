@@ -304,6 +304,13 @@ def _acceptance(reader, conn, state, contract, engine_view, level):
     result = {'ready': False, 'artifact': None, 'basis': 'recorded evidence; CLI rechecks current project', 'reason': None}
     if state['status'] != 'approved' or level != 'verified' or not contract: return result
     try:
+        if engine_view is not None:
+            from . import engine
+            guidance = engine.next_action(reader, state['selector'], conn=conn, view=engine_view)
+            result['next_action'] = guidance
+            if guidance['kind'] != 'owner_accept':
+                result['reason'] = guidance['reason']
+                return result
         views = plans.milestone_views(contract, state, state['latest'])
         missing = [v['id'] for v in views if v['state'] != 'passed' or v.get('stale')]
         if not views or missing:
@@ -482,12 +489,14 @@ def _status(state, engine_view, attempts, progress, waits, requests, views, veri
     if level == 'verified':
         if acceptance and acceptance['ready']:
             return 'done', acceptance['reason'], ['milestone.passed', 'acceptance.recorded_evidence']
+        if (acceptance or {}).get('next_action', {}).get('state') in ('blocked', 'handoff_blocked', 'held'):
+            return 'blocked', acceptance['reason'], ['engine.next_action']
         return 'waiting', (acceptance or {}).get('reason') or 'Chờ kiểm đủ điều kiện bàn giao, chưa đến bước nghiệm thu.', ['acceptance.recorded_evidence']
     if engine_view is not None:
         produced = [nid for nid, r in engine_view['nodes'].items() if r.get('state') == 'produced']
         pending_nodes = [nid for nid, r in engine_view['nodes'].items() if r.get('phase') == 'pending']
         if produced:
-            return 'waiting', 'đầu ra đã tạo, chờ kiểm: ' + ', '.join(produced), ['node.produced:' + n for n in produced]
+            return 'waiting', 'đầu ra đã tạo; bước tiếp theo engine verify cho node: ' + ', '.join(produced), ['node.produced:' + n for n in produced]
         if pending_nodes and not first_started:
             return 'waiting', 'đã duyệt, chưa có worker nào được bắt đầu (chờ engine step)', ['plan.approved']
         if pending_nodes:
@@ -954,7 +963,14 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     # revision). A milestone-only root never writes node.started. Started is not progress toward acceptance: acceptance keeps its own rule.
     has_started = first_started is not None or bool(attempts) or bool(state.get('verdicts')) or bool(runs)
     acceptance = _acceptance(rd, conn, state, contract, engine_view, level)
+    guidance = acceptance.get('next_action')
+    if engine_view is not None and guidance is None:
+        from . import engine
+        try: guidance = engine.next_action(rd, state['selector'], conn=conn, view=engine_view)
+        except (LedgerError, OSError, ValueError, KeyError, TypeError): pass
     kind, reason, sources = _status(state, engine_view, attempts, progress, open_waits, requests, views, runs, level, first_started, acceptance)
+    if guidance and guidance.get('delivery_limit') and state['status'] == 'approved' and kind != 'done':
+        reason += '; bàn giao: ' + guidance['delivery_limit']
     last = events[-1] if events else None
     nodes = {}
     if engine_view is not None:
@@ -981,6 +997,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
             'elapsed': _elapsed(state, events, now),
             'current_step': clean(_current_step(kind, state, engine_view, active_rows, requests, progress) or reason, 200),
             'acceptance': acceptance,
+            'next_action': guidance,
             'last_update': {'seq': last[0], 'kind': last[1], 'at': last[3], 'summary': clean(_summary(last[1], last[2]), 200)} if last else None,
             'last_evidence': _last_evidence(events),
             'needs_user': _needs_user(state, requests, views, level, engine_view, project=row['project_path'], state_root=str(reader.state_root), contract=contract, acceptance=acceptance),

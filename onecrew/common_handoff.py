@@ -62,6 +62,14 @@ def _observe_existing(ledger, control, record, tree, checked, fence):
 
 
 def handoff(ledger, selector, *, control=None):
+    with ledger.transaction() as conn:
+        root, _, _ = ip.context(ledger, conn, selector, 'sequential-engine')
+        deadline = ip.ceilings(ledger, conn, root)['deadline']
+    with command.snapshot_limits(deadline):
+        return _handoff(ledger, selector, control=control)
+
+
+def _handoff(ledger, selector, *, control=None):
     migrate(ledger)
     control = control or Control(ledger)
     store = Snapshots(ledger.state_root)

@@ -590,8 +590,17 @@ class CandidateChecker:
     def __call__(self, item, artifact, *, previous_receipt=None):
         phase = {'dispatched': False, 'claims': {}}
         try:
-            return self._check(item, artifact, previous_receipt, phase)
+            with self.ledger.transaction() as conn:
+                root, _, _ = ip.context(self.ledger, conn, self.selector, 'sequential-engine')
+                deadline = ip.ceilings(self.ledger, conn, root)['deadline']
+            with command.snapshot_limits(deadline):
+                return self._check(item, artifact, previous_receipt, phase)
         except BaseException as error:
+            if getattr(error, 'verifier_started', None) is False:
+                # The active verifier was never invoked; any earlier checks
+                # already have durable receipts and can be reused on retry.
+                phase['running'] = None
+                phase['dispatched'] = False
             if isinstance(error, Exception) and not phase['dispatched']:
                 error.not_dispatched = True                       # refused before any verifier ran: a known outcome (engine.verify closes the run)
             self._close_claims(phase, error)
@@ -622,7 +631,8 @@ class CandidateChecker:
         requests = {m['id']: review_dispatch._milestone_request(ledger, root['task_id'], root['name'], view['contract_revision'], sha, contract, m, tree, env=env)
                     for m in selected}
         parent = review_dispatch.current_run()
-        deadline = review_dispatch._deadline(2 * cap_seconds)
+        with ledger.transaction() as conn:
+            deadline = review_dispatch.check_deadline(cap_seconds, len(selected), ip.ceilings(ledger, conn, root)['deadline'])
         with ledger.transaction(write=True) as conn:
             prior = {mid: review_dispatch.prior_pass(conn, root['task_id'], request) for mid, request in requests.items()}
             for mid, request in requests.items():
@@ -727,6 +737,7 @@ class CandidateChecker:
                 review_dispatch.finish_check(ledger, conn, root['task_id'], claim['run_id'], outcome=outcome, receipt=proof, proof=proof, result=result,
                                              applicable=outcome == 'observed' and result == 'pass')
         rows = []
+        execution_seconds = 0.0
         with tempfile.TemporaryDirectory(prefix='oc-node-check-') as temp:
             checkout = materialized_tree(ledger, tree, temp)
             commit = command._git(checkout, '-c', 'user.name=OneCrew', '-c', 'user.email=onecrew@localhost',
@@ -756,7 +767,7 @@ class CandidateChecker:
                         rows.append(again)
                         continue
                     claim = review_dispatch.claim_check(ledger, root['selector'], review_dispatch._milestone_request(ledger, root['task_id'], root['name'], view['contract_revision'], sha, contract, milestone, tree, env=effective_environment),
-                                                        door='candidate', parent=review_dispatch.current_run(), deadline=review_dispatch._deadline(2 * item['execution_cap_seconds']),
+                                                        door='candidate', parent=review_dispatch.current_run(), deadline=review_dispatch.check_deadline(item['execution_cap_seconds'], len(selected), ctx['deadline']),
                                                         subject={'milestone': milestone['id'], 'candidate': tree, 'node': nid, 'artifact': artifact})
                     if claim['status'] != 'claimed':
                         raise review_dispatch.NotDispatched(f'Milestone {milestone["id"]} on candidate {tree[:12]} is {claim["status"]} in {claim["door"]} '
@@ -769,9 +780,10 @@ class CandidateChecker:
                         'repair_receipt': order['repair_receipt'], 'executed': False}).encode())
                     rows.append({'id': milestone['id'], 'result': 'blocked', 'evidence': evidence})
                     continue
-                remaining = min(item['execution_cap_seconds'], ctx['remaining_seconds']) - (time.monotonic() - started)
+                root_left = (dt.datetime.fromisoformat(ctx['deadline']) - dt.datetime.now(dt.timezone.utc)).total_seconds()
+                remaining = min(item['execution_cap_seconds'] - execution_seconds, root_left)
                 if remaining <= 0: raise LedgerError('Candidate verification exhausted its original node/root time cap.')
-                deadline = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=remaining)).isoformat()
+                deadline = ctx['deadline']
                 effective = copy.deepcopy(milestone)
                 kind = effective['verifier']['type']
                 command_check = kind == 'command'
@@ -802,6 +814,7 @@ class CandidateChecker:
                          'effective_max_minutes': limits['max_minutes']}
                 evidence = store.blob(canonical(proof).encode())
                 rows.append({'id': milestone['id'], 'result': result, 'evidence': evidence})
+                execution_seconds += max(0, float(receipt.get('execution_seconds', receipt.get('seconds', 0))))
                 phase['running'] = None
                 settle(milestone['id'], outcome='observed', proof=ref, result=result)
                 if milestone['id'] in order['failed_first'] and result != 'pass':

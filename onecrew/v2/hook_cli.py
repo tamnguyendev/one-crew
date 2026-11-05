@@ -952,10 +952,23 @@ def main(argv=None):
                 require_owner(args.by, 'Changing the hook mode')
                 from .ownership import refuse_in_ai_session
                 refuse_in_ai_session('Changing the hook mode')
-                out = {'mode': active_plan.set_mode(ledger, args.mode)}
                 found = find_plan_file([project])
                 name = args.plan or (load_plan(found)[0].get('plan') if found else None)
-                out['exported'] = bool(name and active_plan.export(ledger, name))
+                if not name:
+                    raise LedgerError('Select an approved plan before changing hook mode; no mode was changed.')
+                document = active_plan.build(ledger, name)
+                if document is None:
+                    raise LedgerError('Plan ' + name + ' has never been approved; no mode was changed.')
+                # Validate the named grant before the first mode write. A later
+                # export failure still reports the policy effect truthfully.
+                out = {'mode': active_plan.set_mode(ledger, args.mode), 'mode_committed': True,
+                       'plan': document['plan'], 'revision': document['revision'], 'exported': False}
+                try:
+                    out['exported'] = bool(active_plan.export(ledger, name))
+                    if not out['exported']: raise LedgerError('The approved plan changed before export; read its current state.')
+                except (LedgerError, ValueError, OSError) as error:
+                    print(json.dumps(dict(out, error=str(error), type=type(error).__name__), ensure_ascii=False))
+                    return 2
             else:
                 out = active_plan.export(ledger, args.plan)
                 if out is None: raise LedgerError('Plan ' + args.plan + ' has never been approved; nothing to export.')

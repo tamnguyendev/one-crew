@@ -338,8 +338,8 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_
             existing = namespaces.resolve(ledger, conn, name)
             if existing:
                 state = anchor_events(ledger, conn, existing['request_key'])
-                if state['status'] in ('accepted', 'closed'):
-                    raise LedgerError('Cannot reuse a completed plan; use a new work name.')
+                if state['status'] in ('accepted', 'closed', 'stopped_with_report'):
+                    raise LedgerError('Cannot reuse a completed or stopped plan; read its report and use a new work name or the authorized recovery path.')
                 if state['revisions'][state['latest']]['sha'] != content_hash(contract):
                     raise LedgerError('Existing plan has a different contract; read it and use plan amend if authorized.')
                 if {k: state[k] for k in ('workflow_version', 'capabilities') if k in state} != metadata:

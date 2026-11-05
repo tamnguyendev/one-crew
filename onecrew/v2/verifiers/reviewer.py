@@ -306,6 +306,7 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
     directory = Path(directory).resolve()
     if not directory.is_dir(): raise LedgerError('Verifier working directory does not exist: ' + str(directory))
     started, begin = utcnow(), time.monotonic()
+    execution_seconds = 0.0
     hidden, unshown, binary = [], [], []
     try:       # the artifact first; what the reviewer is shown is cut from ONE tree made right after it, and checked against it
         with command.before_verifier():
@@ -352,7 +353,9 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
             scratch = tempfile.mkdtemp(prefix='ocr-')
             try:
                 calls = 1
+                call_begin = time.monotonic()
                 answer, usage, error, timed_out, raw = (call_port or call)(prompt, config, env, scratch, config['max_minutes'])
+                execution_seconds = time.monotonic() - call_begin
                 if providers.error_kind(error) == providers.CREDENTIAL_MISSING: calls = 0      # refused before any process: not a model call
             finally:
                 shutil.rmtree(scratch, ignore_errors=True)
@@ -367,6 +370,7 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
                'provider': config['provider'], 'model': config['model'], 'role': 'reviewer', 'auth': config.get('auth', 'subscription'),
                'provider_error': providers.CREDENTIAL_MISSING if providers.error_kind(error) == providers.CREDENTIAL_MISSING else None if not calls else 'timeout' if timed_out else providers.error_kind(error) or ('invalid_response' if problems else None),
                'config': config, 'cwd': str(directory), 'started': started, 'seconds': round(time.monotonic() - begin, 2),
+               'execution_seconds': round(execution_seconds, 3),
                'artifact_sha': before, 'artifact_sha_after': after, 'base_artifact': base, 'base_source': base_source, 'tracked_tree': tracked,
                'base_tracked': base_tracked, 'not_shown': hidden + unshown + binary, 'diff': store.blob(diff.encode('utf-8')), 'prompt': store.blob(prompt.encode('utf-8')) if prompt else None,
                'answer': store.blob(answer.encode('utf-8')) if answer else None, 'raw': store.blob(raw[-1_000_000:]) if raw else None,

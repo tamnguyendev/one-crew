@@ -235,9 +235,17 @@ def message(conn, row):
             return None
         category, cause = 'question', request['id'] + ':' + revision
     else:
-        if payload.get('version') != 1 or payload.get('category') not in ('baseline', 'deadline', 'blocker', estimates.WARNING):
+        if payload.get('version') != 1 or payload.get('category') not in ('baseline', 'deadline', 'blocker', 'execution', estimates.WARNING):
             return None
         category, cause = payload['category'], payload['cause']
+        if category == 'execution':
+            from . import engine
+            current = engine.state(reader, anchor['request_key'], conn)['nodes'].get(payload.get('node'), {})
+            latest_hold = conn.execute("SELECT MAX(seq) FROM events WHERE task_id=? AND kind='node.held' AND json_extract(payload,'$.node')=?",
+                                       (anchor['id'], payload.get('node'))).fetchone()[0]
+            if (current.get('phase') != 'held' or current.get('generation') != payload.get('generation')
+                    or f'event:{latest_hold}' not in payload.get('evidence', [])):
+                return None                  # a revision/resume or newer hold supersedes this undelivered action
         notices = _notices(conn, anchor['id'])
         same = [p for p in notices if p.get('category') == category and p.get('cause') == cause]
         if not same or row['seq'] != same[0]['event']: return None

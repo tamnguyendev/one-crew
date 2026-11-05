@@ -469,6 +469,7 @@ def _run(ledger, adapter, name, revision, plan_sha, milestone, directory, before
         error = 'inconclusive: ' + str(unsure)[:280]
     except Exception as problem:          # an adapter that crashes has no verdict
         error = f'adapter_error {type(problem).__name__}: {problem}'[:300]
+    execution_seconds = time.monotonic() - begin
     after_tree = _fingerprint(top)
     if after_tree != first:
         changed = sorted(p for p in set(first) | set(after_tree) if first.get(p) != after_tree.get(p))
@@ -486,6 +487,7 @@ def _run(ledger, adapter, name, revision, plan_sha, milestone, directory, before
         after, error = None, error or 'inconclusive: the artifact after the check cannot be identified: ' + str(problem)[:240]
     receipt = {'kind': receipt_kind(adapter.NAME), 'adapter': adapter.NAME, 'plan': name, 'revision': revision, 'plan_sha': plan_sha, 'milestone': milestone['id'],
                'config': config, 'cwd': str(directory), 'started': started, 'seconds': round(time.monotonic() - begin, 2),
+               'execution_seconds': round(execution_seconds, 3),
                'artifact_sha': before, 'artifact_sha_after': after, 'checks': checks, 'findings': findings, 'unverified': unverified,
                'files_read': sorted(box._read)[:500], 'retries_used': box._retries, 'calls': box._calls,
                'violations': [dict(v, adapter=adapter.NAME) for v in box._violations[:50]], 'error': error, 'timed_out': timed_out, **proof}

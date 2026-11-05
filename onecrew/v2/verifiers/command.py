@@ -122,12 +122,16 @@ def snapshot_limits(deadline=None):
 
 @contextmanager
 def _snapshot(stage, floor=0):
-    """One snapshot's budget; a nested call shares it. Outside snapshot_limits there is none, and a git step keeps STEP_SECONDS. `floor`: what is left for
+    """One snapshot's configured finite budget; a nested call shares it. snapshot_limits can also bound it by the root deadline. `floor`: what is left for
     a step that must end a run whose verifier already ran, when the root deadline has passed meanwhile (the time the run's grace always gave it)."""
     limits = _limits.get()
-    if limits is None or _active.get() is not None:
+    if _active.get() is not None:
         yield
         return
+    # Every snapshot entry point honors the configured finite budget, including
+    # handoff, acceptance and status. Bare non-snapshot git steps retain 120s.
+    if limits is None:
+        limits = {'seconds': snapshot_seconds(), 'deadline': None}
     limit = limits['seconds']
     if limits['deadline'] is not None:
         left = (dt.datetime.fromisoformat(limits['deadline']) - dt.datetime.now(dt.timezone.utc)).total_seconds()

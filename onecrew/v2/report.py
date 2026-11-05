@@ -548,7 +548,18 @@ def render_digest(state_root):
         passed = len([v for v in f['views'] if v['state'] == 'passed'])
         total = f'{passed}/{len(f["views"])}' if f['contract'] else '?/?'
         label = f['name'] if names.count(f['name']) == 1 else f'{row["request_key"]} [{row["project_id"][:12]}]'
-        opened.append((last, f'{label:<38} {f["state"]["status"]:<12} mốc {total:<5} cần bạn làm gì: {_needs(f)}'))
+        need, next_step = _needs(f), ''
+        if namespaces.has_capability(f['state'], 'sequential-engine'):
+            try:
+                from . import engine
+                guidance = engine.next_action(_Reader(state_root, row['project_id'], row['project_path']), row['request_key'])
+                role = 'chủ sở hữu' if guidance['owner_only'] else 'bộ thực thi'
+                next_step = '; bước tiếp theo (' + role + '): ' + guidance['reason']
+                if guidance['kind'] == 'owner_accept': need = 'nghiệm thu'
+                elif need in (NOTHING, 'nghiệm thu'): need = 'quyết định quyền còn thiếu' if guidance['owner_only'] else 'chưa cần quyết'
+            except (LedgerError, OSError, ValueError, KeyError, TypeError) as error:
+                next_step = '; chưa xác minh được bước engine tiếp theo: ' + str(error)[:160]
+        opened.append((last, f'{label:<38} {f["state"]["status"]:<12} mốc {total:<5} cần bạn làm gì: {need}' + next_step))
     opened.sort(key=lambda item: item[0], reverse=True)
     lines = [f'TÓM TẮT CÁC VIỆC ({len(anchors)} kế hoạch) — sổ: {Path(state_root).resolve()}']
     lines += [text for _, text in opened[:OPEN_CAP]]
