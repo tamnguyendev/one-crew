@@ -105,6 +105,10 @@ class EngineOperatorFlowTests(LoopFixture):
             need = engine.next_action(self.ledger, 'P1')
         self.assertEqual(need['kind'], 'owner_decision')
         self.assertTrue(need['owner_only'])
+        with patch.object(engine, 'next_action', return_value=need):
+            digest = report.render_digest(self.ledger.state_root)
+        self.assertNotIn('chưa cần quyết', digest)
+        self.assertIn('quyết định', digest)
         self.assertEqual(self.events(), before)
 
 

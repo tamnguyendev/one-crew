@@ -14,7 +14,7 @@ from onecrew.common_handoff import handoff
 from onecrew.common_verification import CandidateChecker
 from onecrew.v2 import engine, findings, internal_plan, plan, repair_tasks, tracking, verdict, verification_evidence
 from onecrew.v2.verifiers import command
-from tests.test_review_b2_e2e import LoopFixture
+from tests.test_review_b2_e2e import LoopFixture, GRANT
 from tests.test_v2_l1 import milestone
 from tests import test_sol_command_findings as command_cases
 from tests.test_v2_l1 import Fixture, plan_json
@@ -40,6 +40,17 @@ class FinalWorkflow(LoopFixture):
         with patch.dict(os.environ):
             os.environ.pop('ONECREW_ACTOR', None)
             return plan.accept(self.ledger, 'P1', 'owner', 'isolated Sol5 acceptance fixture', tree)
+
+    def test_l10_empty_internal_plan_has_a_concrete_tracking_step(self):
+        shown = plan.show(self.ledger, 'P1')
+        value = plan_json(scope={'owned': ['a.txt']}, milestones=list(self.milestones), authority=GRANT)
+        plan.propose(self.ledger, 'NoNodes', value, 'codex', workflow=True, capabilities=shown['capabilities'])
+        with patch.dict(os.environ):
+            os.environ.pop('ONECREW_ACTOR', None)
+            plan.approve(self.ledger, 'NoNodes', 'owner', 'fixture')
+        page = tracking.detail(self.ledger.state_root, 'NoNodes')
+        self.assertEqual(page['status']['kind'], 'waiting')
+        self.assertIn('engine revise', page['status']['reason'])
 
     def test_l1_acceptance_after_deadline_does_not_admit_work_or_accept_changed_tree(self):
         delivered = self.delivered()

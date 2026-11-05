@@ -556,6 +556,8 @@ def render_digest(state_root):
                 role = 'chủ sở hữu' if guidance['owner_only'] else 'bộ thực thi'
                 next_step = '; bước tiếp theo (' + role + '): ' + guidance['reason']
                 if guidance['kind'] == 'owner_accept': need = 'nghiệm thu'
+                elif guidance['owner_only'] and need.startswith('chưa cần quyết'):
+                    need = 'quyết định quyền hoặc ngân sách còn thiếu'
                 elif need in (NOTHING, 'nghiệm thu'): need = 'quyết định quyền còn thiếu' if guidance['owner_only'] else 'chưa cần quyết'
             except (LedgerError, OSError, ValueError, KeyError, TypeError) as error:
                 next_step = '; chưa xác minh được bước engine tiếp theo: ' + str(error)[:160]

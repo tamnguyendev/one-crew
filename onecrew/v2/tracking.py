@@ -493,6 +493,8 @@ def _status(state, engine_view, attempts, progress, waits, requests, views, veri
             return 'blocked', acceptance['reason'], ['engine.next_action']
         return 'waiting', (acceptance or {}).get('reason') or 'Chờ kiểm đủ điều kiện bàn giao, chưa đến bước nghiệm thu.', ['acceptance.recorded_evidence']
     if engine_view is not None:
+        if not engine_view['nodes']:
+            return 'waiting', 'đã duyệt, chưa có kế hoạch nội bộ; bước tiếp theo engine revise', ['engine.state']
         produced = [nid for nid, r in engine_view['nodes'].items() if r.get('state') == 'produced']
         pending_nodes = [nid for nid, r in engine_view['nodes'].items() if r.get('phase') == 'pending']
         if produced:
