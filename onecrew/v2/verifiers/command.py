@@ -158,9 +158,11 @@ def _tick(step):
 def _feed(stream, data):
     try:
         if data: stream.write(data)
-        stream.close()
     except OSError:                       # git ended (or was killed): nobody reads the rest
         pass
+    finally:
+        try: stream.close()
+        except OSError: pass             # a broken pipe still belongs to this pump
 
 
 def _collect(stream, into):
