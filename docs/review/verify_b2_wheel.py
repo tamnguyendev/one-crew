@@ -160,6 +160,23 @@ def main():
         r['run_id'] for r in review_dispatch.check_runs(ledger, 'P1') if r['check'] == 'milestone' and r['outcome'] == 'observed'))
     code, listed = cli('check-runs', 'P1')
     verify_ok('check-runs lists the runs of every door', code == 0 and {'engine.verify', 'candidate'} <= {row['door'] for row in listed})
+    # integration: the sourced chain OBS-2B reads, through the installed CLI (cp1252 console, no UTF-8 override), read-only
+    with ledger.transaction() as conn:
+        events_before = conn.execute('SELECT COUNT(*) FROM events').fetchone()[0]
+    exe = Path(sys.executable).parent / 'onecrew.exe'
+    clean = {k: v for k, v in os.environ.items() if k not in ('PYTHONUTF8', 'PYTHONIOENCODING')}
+    shown = subprocess.run([str(exe), '--project', str(project), '--state-root', str(ledger.state_root), 'engine', 'review-trace', 'P1'],
+                           capture_output=True, env=clean)
+    trace = json.loads(shown.stdout.decode('utf-8', 'replace')) if shown.returncode == 0 else {}
+    with ledger.transaction() as conn:
+        events_after = conn.execute('SELECT COUNT(*) FROM events').fetchone()[0]
+    verify_ok('review-trace from the installed exe', shown.returncode == 0 and trace.get('read_only') is True and events_before == events_after)
+    door_runs = [r for r in trace.get('runs', []) if r['door'] == 'engine.verify' and r['status'] == 'published']
+    verify_ok('the trace names the door, request and executor of a real run', bool(door_runs) and all(
+        r['door_source'] == 'recorded' and r['request_id'] and r['executor'].get('method') for r in door_runs))
+    # integration: RD-A sits in the real dispatcher; this root has no advice grant, so it costs nothing and changes nothing
+    verify_ok('the dispatcher shows advice without a call or a change of decision', seen.get('advice', {}).get('status') not in (None, 'proposal')
+              and seen['advice']['grants_authority'] is False and seen['status'] == 'observed')
     verify_ok('checks grant no owner request', ledger.requests() == [])
     verify_ok('produced or verified is not accepted', plan.show(ledger, 'P1')['status'] == 'approved')
     verify_ok('real registry unchanged', digest(real_registry) == registry_before)

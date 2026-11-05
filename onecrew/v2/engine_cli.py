@@ -19,7 +19,7 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
     parser.add_argument('--state-root', type=Path)
     parser.add_argument('group', choices=['engine'])
     sub = parser.add_subparsers(dest='command', required=True)
-    for verb in ('state', 'ready', 'handoff', 'check-runs'):
+    for verb in ('state', 'ready', 'handoff', 'check-runs', 'review-trace'):
         sub.add_parser(verb).add_argument('plan')
     p = sub.add_parser('step'); p.add_argument('plan')
     p.add_argument('--checks', action='store_true', help='2.4-C (root capability execution-mode): first run the checks of a produced node that need '
@@ -61,7 +61,7 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
                 or (opts.command == 'handoff' and handoff is None)):
             raise LedgerError('This operation needs a connected native host adapter; the supplied host port is disabled.')
         project = opts.project.resolve()
-        ledger_class = ReadOnlyLedger if opts.command in ('state', 'ready', 'measure', 'check-runs') else Ledger
+        ledger_class = ReadOnlyLedger if opts.command in ('state', 'ready', 'measure', 'check-runs', 'review-trace') else Ledger
         ledger = ledger_class(project, state_root_for(project, opts.state_root))
         if getattr(opts, 'checks', False) and 'execution-mode' not in engine.state(ledger, opts.plan)['capabilities']:
             # review C-R11: --checks never falls back to a plain step or batch that starts a model worker
@@ -72,6 +72,9 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
         elif opts.command == 'check-runs':
             from . import review_dispatch
             result = [{k: v for k, v in row.items() if k != 'request'} for row in review_dispatch.check_runs(ledger, opts.plan)]
+        elif opts.command == 'review-trace':
+            from . import tracking_work
+            result = tracking_work.review_trace(ledger, opts.plan)
         elif opts.command == 'revise':
             body = json.loads(opts.file.read_text(encoding='utf-8-sig'))
             if not isinstance(body, dict) or set(body) - {'nodes', 'reason', 'evidence', 'expected_revision'}:

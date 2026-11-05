@@ -29,12 +29,16 @@ class FindingChainTrace(chain.NodeRecheck):
         [row] = trace['findings']
         self.assertEqual((row['id'], row['status'], row['node']), (self.finding['id'], 'open', 'I'))
         self.assertEqual(row['source_receipt'], self.red_receipt)
-        for link in ('repair', 'output', 'recheck', 'from_run'):
+        for link in ('repair', 'output', 'recheck'):
             self.assertEqual(row[link]['link'], 'unknown', link); self.assertTrue(row[link]['reason'])
+        # Integration with 2.5-B: the door's run issued this receipt, so that link is now recorded, not unknown.
+        door = next(r for r in trace['runs'] if r.get('receipt') == self.red_receipt)
+        self.assertEqual(door['door'], 'engine.verify')
+        self.assertEqual(row['from_run'], {'link': 'known', 'run_id': door['run_id']})
         self.assertIn(self.red_receipt, [r['receipt'] for r in trace['receipts']])
         red = next(r for r in trace['receipts'] if r['receipt'] == self.red_receipt)
         self.assertEqual((red['origin'], red['node'], red['result']), ('node.verification', 'I', 'fail'))
-        self.assertEqual(red['request_link']['link'], 'unknown')
+        self.assertEqual(red['request_link'], {'link': 'known', 'request_id': door['request_id']})
 
     def test_repaired_rechecked_and_closed_finding_is_fully_linked_to_events(self):
         receipt = self.repair_and_pass()
@@ -42,7 +46,7 @@ class FindingChainTrace(chain.NodeRecheck):
         self.assertEqual(mid['repair']['link'], 'known'); self.assertEqual(mid['repair']['target'], 'N1')
         self.assertEqual(mid['output']['link'], 'known'); self.assertEqual(mid['output']['node'], 'N1')
         self.assertEqual((mid['recheck']['link'], mid['recheck']['result'], mid['recheck']['closed']), ('known', 'pass', False))
-        self.assertEqual(mid['recheck']['request']['link'], 'unknown')       # an engine pass names no request
+        self.assertEqual(mid['recheck']['request']['link'], 'known')         # 2.5-B: an engine pass comes from a door's run, which names its request
         request = self.request('I')
         self.assertEqual(findings.close_from_recheck(self.ledger, 'P1', self.finding['id'], run_receipt=receipt, request=request)['closed'],
                          [self.finding['id']])
@@ -54,9 +58,12 @@ class FindingChainTrace(chain.NodeRecheck):
         self.assertGreater(row['output']['source']['seq'], row['repair']['source']['seq'])
         self.assertGreater(row['recheck']['source']['seq'], row['output']['source']['seq'])
 
-    def test_without_optional_review_runs_requests_and_runs_are_empty_not_invented(self):
+    def test_every_listed_run_and_request_comes_from_a_recorded_door_none_is_invented(self):
         trace = tracking_work.review_trace(self.ledger, 'P1')
-        self.assertEqual(trace['requests'], []); self.assertEqual(trace['runs'], [])
+        started = [p for k, p in self.events() if k == 'review.run_started']
+        self.assertEqual({r['run_id'] for r in trace['runs']}, {p['run_id'] for p in started})
+        self.assertEqual({r['id'] for r in trace['requests']}, {p['request']['id'] for p in started})
+        self.assertEqual({r['door_source'] for r in trace['runs']}, {'recorded'})
 
 
 class OptionalRunTrace(lifecycle.OptionalLifecycle):

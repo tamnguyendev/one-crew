@@ -428,7 +428,8 @@ def project(reader, conn, row, state, events, engine, evidence_keys):
 
 # ---- 2.5-A cycle 2: review trace (data only, for OBS-2B) ------------------------------------------------------------------------------
 
-_RUN_EVENTS = ('review.run_started', 'review.run_result', 'review.run_finished', 'review.run_held')
+_RUN_EVENTS = ('review.run_started', 'review.run_result', 'review.run_finished', 'review.run_held',
+               'verdict.run_started', 'verdict.receipt_issued')
 
 
 def _unknown(reason):
@@ -459,25 +460,40 @@ def review_trace(ledger, selector):
             run = runs.setdefault(p['run_id'], {'run_id': p['run_id'], 'request_id': p.get('request_id') or (p.get('request') or {}).get('id'),
                                                 'status': 'unknown', 'receipt': None, 'applicable': None, 'sources': []})
             run['sources'].append(_source(seq, kind, at, task))
-            if kind == 'review.run_started':
+            if kind in ('review.run_started', 'verdict.run_started'):
                 request = p.get('request') if isinstance(p.get('request'), dict) else {}
+                subject = p.get('subject') if isinstance(p.get('subject'), dict) else {}
                 actor = p.get('actor') or p.get('by')
-                run.update(node=p.get('node'), review_id=p.get('review_id'), artifact=p.get('artifact'),
+                node = p.get('node') or subject.get('node')
+                milestone = p.get('milestone') or subject.get('milestone')
+                candidate = p.get('artifact') or p.get('candidate') or subject.get('candidate') or subject.get('artifact')
+                review_id = p.get('review_id') or p.get('check') or milestone
+                door = p.get('door') or ('verdict.run' if kind == 'verdict.run_started' else 'review_dispatch.optional')
+                # who ran it: the execution identity a door derived from what it runs; a declaration, not proof of independence
+                execution = (request.get('identity') or {}).get('execution')
+                executor = ({k: execution.get(k) for k in ('method', 'implementation', 'provider', 'model')}
+                            if isinstance(execution, dict) else _unknown('the request names no execution identity'))
+                run.update(node=node, milestone=milestone, review_id=review_id, artifact=candidate, check=p.get('check'), parent=p.get('parent'),
                            request_id=request.get('id') or run['request_id'],
-                           door=p.get('door') or 'review_dispatch.optional', door_source='recorded' if p.get('door') else 'event-kind',
+                           door=door, door_source='recorded' if p.get('door') else 'event-kind', executor=executor,
                            actor=actor or None, actor_status='recorded' if actor else 'unknown',
                            process={'host': p.get('host'), 'pid': p.get('pid')}, status='started')
                 if request:
                     requests.setdefault(request['id'], {'id': request['id'], 'kind': review_request.kind_of(request) or 'unknown',
-                        'node': p.get('node'), 'review_id': p.get('review_id'), 'candidate': p.get('artifact'),
+                        'node': node, 'milestone': milestone, 'review_id': review_id, 'candidate': candidate,
                         'execution_complete': request.get('execution_complete'), 'missing': request.get('missing') or [], 'runs': [],
                         'source': _source(seq, kind, at, task)})
+            elif kind == 'verdict.receipt_issued':
+                run['status'] = 'result_issued'; run['receipt'] = p.get('receipt')
+                receipts.setdefault(p.get('receipt'), {'origin': 'verdict.run', 'run_id': p['run_id'], 'request_id': run['request_id'],
+                                                       'source': _source(seq, kind, at, task)})
             elif kind == 'review.run_result':
                 run['status'] = 'result_issued'; run['receipt'] = p.get('receipt')
                 receipts.setdefault(p.get('receipt'), {'origin': 'review.run', 'run_id': p['run_id'], 'request_id': p.get('request_id'),
                                                        'source': _source(seq, kind, at, task)})
             elif kind == 'review.run_finished':
-                run['status'] = 'observed' if p.get('applicable') else 'stale_observation'
+                # `outcome` (2.5-B): published | stale | observed | not_dispatched | released; cycle-1 rows carry only `applicable`
+                run['status'] = p.get('outcome') or ('observed' if p.get('applicable') else 'stale_observation')
                 run['applicable'] = p.get('applicable'); run['receipt'] = p.get('receipt') or run['receipt']
             elif kind == 'review.run_held':
                 run['status'] = 'held'; run['hold_reason'] = _display(p.get('reason'))
@@ -487,9 +503,13 @@ def review_trace(ledger, selector):
     for seq, kind, p, at in events:
         if kind in ('node.verification', 'verdict.recorded') and isinstance(p.get('receipt'), str):
             body = blobs.get(p['receipt'], optional_json=True) or {}
-            receipts.setdefault(p['receipt'], {'origin': kind, 'run_id': None, 'node': p.get('node') or p.get('milestone'),
+            issued = receipts.get(p['receipt']) or {}
+            run_id = p.get('run_id') or issued.get('run_id')
+            # A door's published receipt: the run names its request; the record event says what it was published as.
+            receipts[p['receipt']] = {'origin': kind, 'run_id': run_id, 'node': p.get('node') or p.get('milestone'),
                 'result': p.get('result'), 'generation': p.get('generation'), 'artifact': p.get('artifact_sha') or body.get('artifact'),
-                'request_id': body.get('request_id'), 'source': _source(seq, kind, at, task)})
+                'request_id': body.get('request_id') or issued.get('request_id') or (runs.get(run_id) or {}).get('request_id'),
+                'source': _source(seq, kind, at, task)}
     for ref, row in receipts.items():
         row['receipt'] = ref
         row['request_link'] = (_unknown('the receipt names no request') if row.get('request_id') is None
@@ -517,7 +537,7 @@ def review_trace(ledger, selector):
                'severity': f.get('severity'), 'internal': bool(f.get('internal')), 'candidate': f.get('artifact_sha'),
                'generation': f.get('generation'), 'source_receipt': f.get('source', {}).get('receipt'),
                'from_run': ({'link': 'known', 'run_id': from_run} if from_run
-                            else _unknown('the opening receipt is not an optional-review run result')),
+                            else _unknown('the opening receipt is not the result of a recorded run')),
                'recurrence_of': f.get('recurrence_of'), 'recurred_as': f.get('recurred_as') or []}
         repair = next((r for r in repairs.values() if {r.get('source_receipt'), *(r.get('source_receipts') or [])} & set(sources)), None)
         output = None
@@ -538,7 +558,8 @@ def review_trace(ledger, selector):
             request_id = (resolution.get('recheck') or {}).get('request')
             recheck = {'link': 'known', 'receipt': resolution['receipt'], 'result': known.get('result'),
                        'closed': f.get('status') in ('resolved', 'rejected'),
-                       'request': {'link': 'known', 'request_id': request_id} if request_id else _unknown('closed without a recorded request'),
+                       'request': ({'link': 'known', 'request_id': request_id} if request_id
+                                   else known.get('request_link') or _unknown('closed without a recorded request')),
                        'source': known.get('source')}
         elif output:
             later = [r for r in receipts.values() if r.get('origin') == 'node.verification' and r.get('node') == f.get('node')
