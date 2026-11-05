@@ -274,10 +274,20 @@ def rebind_revised(ledger, selector, old_nodes, nodes, affected, *, expected_rev
     return result
 
 
-def rerun_order(ledger, selector, finding_id):
-    """W21 (T11 [E3], [E5]): what to run again after a repair for one open node finding: the failed check(s) of the node the finding is attached
-    to first, then every check of the nodes in the finding's dependency scope, in definition order — not the whole suite. Read-only."""
-    from . import findings
+def rerun_order(ledger, selector, finding_id, *, evidence=None):
+    """W21 (T11 [E3], [E5]) + 2.5-A: what to run again after a repair for one open node finding: the failed check(s) of the node the finding
+    is attached to first, then the checks of the nodes in the finding's dependency scope, in definition order. Read-only.
+
+    Impact decides, and a missing basis widens instead of narrowing:
+    - a finding with no recorded dependency scope (or a scope node the definition no longer has) cannot say what it affects: the whole
+      suite is ordered after the failed check (`widened`);
+    - `evidence` = {node_id: kwargs of review_request.evidence_status (previous, current, binding_*, changed_paths, basis)}. This function
+      computes the status itself, never trusts a supplied one. A scope node whose evidence `applies` is not rerun (listed in `reusable`
+      with its request ids as provenance); `recheck` reruns its checks; `insufficient` (missing/malformed/incomplete evidence) widens to the whole suite, except a node whose only
+      change is its own candidate without a neutral basis, which is simply rerun (its candidate is what the repair changed). A scope node without an
+      entry is rerun. The failed check and the rest of the finding's own node are always rerun, whatever the evidence says. An old
+      snapshot's PASS therefore never covers a new snapshot unless its status is `applies`."""
+    from . import findings, review_request
     with ledger.transaction() as conn:
         view = engine.state(ledger, selector, conn)
         root = findings._context(ledger, conn, selector)[0]
@@ -290,10 +300,33 @@ def rerun_order(ledger, selector, finding_id):
     if item['node'] not in by_id:
         raise LedgerError('The finding node is not in the current internal definition.')
     failed_first = [item['criterion']] if item['criterion'] in {c['id'] for c in by_id[item['node']]['checks']} else []
-    scope_nodes = [n['id'] for n in definition if n['id'] in set(item.get('scope_nodes') or [])]
-    affected = [c['id'] for nid in scope_nodes for c in by_id[nid]['checks']]
-    rest = [c['id'] for c in by_id[item['node']]['checks'] if c['id'] not in failed_first]
+    recorded = list(item.get('scope_nodes') or [])
+    scope_nodes = [n['id'] for n in definition if n['id'] in set(recorded)]
+    widened, reusable, statuses = [], [], {}
+    if not recorded or set(recorded) - set(by_id):
+        widened.append({'node': None, 'reason': 'the finding records no usable dependency scope; impact cannot be established'})
+    for nid in scope_nodes:
+        if not isinstance(evidence, dict) or nid not in evidence: continue
+        try:
+            statuses[nid] = review_request.evidence_status(**evidence[nid])
+        except TypeError as error:
+            raise LedgerError('Evidence for node ' + nid + ' is not evidence_status arguments: ' + str(error)) from error
+        if statuses[nid]['status'] == 'insufficient' and statuses[nid]['changed'] != ['evidence.candidate']:
+            widened.append({'node': nid, 'reason': '; '.join(statuses[nid]['reasons']) or 'evidence insufficient'})
+    rerun_nodes = [nid for nid in scope_nodes if (statuses.get(nid) or {}).get('status') != 'applies']
+    for nid in scope_nodes:
+        if nid not in rerun_nodes:
+            reusable.append({'node': nid, 'checks': [c['id'] for c in by_id[nid]['checks']],
+                             'request': evidence[nid]['current']['id'], 'previous_request': evidence[nid]['previous']['id'],
+                             'basis': statuses[nid].get('reuse_basis')})
     everything = [c['id'] for n in definition for c in n['checks']]
-    ordered = failed_first + affected + rest
+    rest = [c['id'] for c in by_id[item['node']]['checks'] if c['id'] not in failed_first]
+    if widened:
+        ordered = failed_first + rest + [c for c in everything if c not in failed_first and c not in rest]
+        affected = [c for c in ordered if c not in failed_first and c not in rest]
+    else:
+        affected = [c['id'] for nid in rerun_nodes for c in by_id[nid]['checks']]
+        ordered = failed_first + affected + rest
     return {'finding': finding_id, 'node': item['node'], 'failed_first': failed_first, 'scope_nodes': scope_nodes, 'affected': affected,
-            'ordered': ordered, 'whole_suite': everything, 'smaller_than_suite': len(ordered) < len(everything)}
+            'ordered': ordered, 'whole_suite': everything, 'smaller_than_suite': len(ordered) < len(everything),
+            'widened': widened, 'reusable': reusable, 'evidence_status': {k: v['status'] for k, v in statuses.items()}}
