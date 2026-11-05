@@ -231,7 +231,6 @@ class Tools(ModeFixture):
         # the automatic tries stay bounded and `engine verify` explains what to do. A refusal before any verifier ran can still be tried again.
         self.assertEqual(calls.count('A'), 1)
         self.assertLessEqual(calls.count('B'), execution_mode.TOOLS_TRIES)
-
         self.assertEqual(engine.verify(self.ledger, 'P1', 'A', Broken(self))['status'], 'held')
         self.assertEqual(calls.count('A'), 1)
         tried = [p for k, p in self.events() if k == 'workflow.mode' and p.get('phase') == 'released' and p.get('node') == 'A']

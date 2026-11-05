@@ -40,11 +40,14 @@ class LoopFixture(EngineFixture):
         os.environ['ONECREW_ACTOR'] = 'codex'
         self.store = Snapshots(self.ledger.state_root); migrate(self.ledger); self.control = Control(self.ledger)
         self.overlays = dict(self.bad)
+        self.revise(self.nodes())
+
+    def nodes(self):
         rows = [node('C', write=self.paths), node('I', ['C'], integration=True, write=())]
         for item in rows:
             item['read'] = list(self.paths)
             item['checks'] = [{'id': m['id'], 'spec': 'Run the approved ' + m['id'] + ' verifier'} for m in self.milestones]
-        self.revise(rows)
+        return rows
 
     def prepare(self):
         raise NotImplementedError
@@ -152,3 +155,58 @@ class DocumentDataCase(LoopFixture):
         wrapper = json.loads(self.store.read_blob(second['observed']['checks'][0]['evidence']))
         self.assertEqual(wrapper['kind'], 'candidate-adapter-check')
         self.assertEqual((self.root / 'guide.md').read_text(), '# Summary\nThe verified deliverable.\n')
+
+
+class IndependentBranchCase(LoopFixture):
+    """A failed branch holds only what depends on it; the independent branch runs, verifies and keeps its verification through the repair."""
+    paths = ('a.txt', 'b.txt')
+    bad = {'a.txt': b'wrong\n', 'b.txt': b'b ok\n'}
+    good = {'a.txt': b'candidate\n'}
+    milestones = (milestone('UnitA', argv=[sys.executable, '-c', 'from pathlib import Path; assert Path("a.txt").read_text()=="candidate\\n"; print("a ok")']),
+                  milestone('UnitB', argv=[sys.executable, '-c', 'from pathlib import Path; assert Path("b.txt").read_text()=="b ok\\n"; print("b ok")']))
+
+    def prepare(self):
+        (self.root / 'b.txt').write_text('two\n', encoding='utf-8')
+
+    def nodes(self):
+        def scoped(nid, path, check):
+            row = node(nid, write=(path,)); row['read'] = [path]
+            row['checks'] = [{'id': check, 'spec': 'Run the approved ' + check + ' verifier'}]
+            return row
+        final = node('I', ['C', 'X'], integration=True, write=()); final['read'] = list(self.paths)
+        final['checks'] = [{'id': m['id'], 'spec': 'Run the approved ' + m['id'] + ' verifier'} for m in self.milestones]
+        return [scoped('C', 'a.txt', 'UnitA'), scoped('X', 'b.txt', 'UnitB'), final]
+
+    def execute(self, ledger, control, task, item, attempt):
+        paths = list(item['write']) or list(self.paths)
+        control.launched(attempt['id'], attempt['generation'], {'fixture': True})
+        artifact = self.store.overlay(self.store.capture(self.root, paths), {p: self.overlays[p] for p in paths}, paths)
+        receipt = self.store.blob(canonical({'kind': 'fixture-producer', 'artifact': artifact}).encode())
+        control.finish(attempt['id'], attempt['generation'], {'artifact': artifact})
+        return {'artifact': artifact, 'receipt': receipt}
+
+    def test_a_failed_branch_holds_only_the_affected_part_and_the_other_branch_continues(self):
+        checker = CandidateChecker(self.ledger, 'P1')
+        self.assertEqual(self.step()['node'], 'C')
+        self.assertEqual(self.verify('C', checker)['result'], 'fail')
+        [finding] = findings.list_findings(self.ledger, 'P1', open_only=True)
+        view = engine.state(self.ledger, 'P1')
+        self.assertIn('C', view['finding_blockers']); self.assertIn('I', view['finding_blockers'])    # the failed node and what depends on it
+        self.assertNotIn('X', view['finding_blockers'])                                                # not the independent branch
+        self.assertEqual(self.step()['node'], 'X')
+        passed = self.verify('X', checker)
+        self.assertEqual(passed['result'], 'pass')
+        self.assertEqual(engine.ready(self.ledger, 'P1'), [], 'the integration waits for the failed dependency')
+        kept = engine.state(self.ledger, 'P1')['nodes']['X']
+        self.assertEqual(kept['state'], 'verified')
+        failed = engine.state(self.ledger, 'P1')['nodes']['C']['verification_receipt']
+        repair_tasks.prepare(self.ledger, 'P1', 'C', 'C', reason='Fix the failed check', evidence=[failed])
+        self.overlays.update(self.good)
+        self.assertEqual(self.step()['node'], 'C')
+        self.assertEqual(self.verify('C', checker)['findings']['closed'], [finding['id']])
+        after = engine.state(self.ledger, 'P1')['nodes']['X']
+        self.assertEqual((after['generation'], after['verification_receipt'], after['state']), (kept['generation'], kept['verification_receipt'], 'verified'),
+                         'the repair of the other branch does not touch this one')
+        self.assertEqual(self.step()['node'], 'I')
+        self.assertEqual(self.verify('I', checker)['result'], 'pass')
+        self.assertEqual(handoff(self.ledger, 'P1')['state'], 'delivered')
