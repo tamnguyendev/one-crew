@@ -130,24 +130,33 @@ def _milestone_execution(ledger, milestone, sha, env=None):
             'provenance': {'source': 'approved-contract', 'plan_sha': sha, 'milestone': milestone['id']}}
 
 
-def _milestone_request(ledger, task_id, name, revision, sha, contract, milestone, candidate, env=None):
+def _milestone_criteria(milestone, criterion=None):
+    """What the check is asked: a reviewer's approved criteria; for a command or an adapter (whose check IDs exist only in its receipt) the
+    milestone itself, or the finding criterion a recheck has to cover."""
+    configured = milestone['verifier']['config'].get('criteria')
+    if configured: return configured
+    return [{'id': criterion or milestone['id'], 'covers': milestone.get('covers', []), 'verifier': milestone['verifier']['type']}]
+
+
+def _milestone_request(ledger, task_id, name, revision, sha, contract, milestone, candidate, env=None, criterion=None):
     """review_request.build_check for one approved milestone on one candidate; the execution facts are also the evidence inputs."""
     from . import verification_evidence
     from .verifiers import command
     subject = {'plan': name, 'milestone': milestone['id'], 'candidate': candidate, 'plan_sha': sha}
     env = command.verifier_env(ledger.project) if env is None else env
     execution = _milestone_execution(ledger, milestone, sha, env)
+    criteria = _milestone_criteria(milestone, criterion)
     acceptance = dict(zip(contracts.output_ids(contract['output']), contract['output']))
     return review_request.build_check(kind='milestone', root={'project_id': ledger.project_id, 'task_id': task_id},
         contract_revision=revision, contract_sha=sha, subject=subject, required=True,
-        criteria=[{'id': milestone['id'], 'covers': milestone.get('covers', []), 'verifier': milestone['verifier']['type']}],
+        criteria=criteria,
         scope={'owned': sorted(contract['scope']['owned'])},
         policy=review_policy.normalize(contract.get('review_policy', review_policy.DEFAULT)),
         authority=contract.get('authority', {}), budget=contract['budget'],
         inputs={'artifact': candidate, 'revision': revision,
                 'acceptance': {'milestone': milestone['id'], 'covers': {key: acceptance.get(key) for key in milestone.get('covers', [])}},
                 'inputs': {'milestone': milestone['id']}, 'configuration': {'plan_sha': sha, 'verifier': execution['configuration'], 'type': milestone['verifier']['type']},
-                'environment': verification_evidence.environment(env), 'checks': [milestone['id']]},
+                'environment': verification_evidence.environment(env), 'checks': [row['id'] for row in criteria]},
         execution=execution)
 
 
@@ -312,6 +321,33 @@ def check_runs(ledger, selector):
 def run_of_receipt(conn, task_id, receipt):
     """The run that issued this very receipt blob, or None: a receipt no run issued is authentic evidence of nothing."""
     return next((row for row in _run_rows(conn, task_id) if row['receipt'] == receipt), None)
+
+
+def recheck_request(ledger, selector, finding, receipt):
+    """The request findings.close_from_recheck needs, built from a receipt a door really issued for the repaired output (2.5-A interface).
+    A receipt no run of this root issued gets no request. Closing still judges the receipt itself; this only names what was checked."""
+    with ledger.transaction() as conn:
+        state = plan.anchor_events(ledger, conn, selector)
+        run = run_of_receipt(conn, state['task_id'], receipt)
+        target = plan.resolve(ledger, state)
+    if run is None: raise LedgerError('No check run of this root issued this receipt; it cannot be a recheck.')
+    if target is None: raise LedgerError('Plan ' + str(selector) + ' has nothing approved to check.')
+    if finding.get('internal'):
+        root, contract, item, facts = _context(ledger, selector, finding['node'])
+        checks = [check['id'] for check in item['checks']]
+        return review_request.build_check(kind='node', root={'project_id': ledger.project_id, 'task_id': root['task_id']},
+            contract_revision=root['approved']['revision'], contract_sha=root['approved']['sha'], review_id=CHECK_NODE, required=True, subject=facts,
+            scope={k: item.get(k, []) for k in ('read', 'write', 'acceptance')}, criteria=item['checks'],
+            policy=review_policy.normalize(contract.get('review_policy', review_policy.DEFAULT)), authority=contract.get('authority', {}), budget=contract['budget'],
+            inputs={'artifact': facts['artifact'], 'revision': root['approved']['revision'], 'acceptance': {key: True for key in item.get('acceptance', [])} or {'node': finding['node']},
+                    'inputs': dict(facts['inputs']) or {'node': finding['node']}, 'configuration': {'checks_sha': facts['checks_sha']},
+                    'environment': {'run': run['run_id']}, 'checks': checks},
+            execution=None)
+    contract, sha = plan.load(ledger, state, target['revision'])
+    milestone = next((m for m in contract['milestones'] if m['id'] == finding['node']), None)
+    if milestone is None: raise LedgerError('The finding names no milestone of the approved contract.')
+    candidate = json.loads(Snapshots(ledger.state_root).read_blob(receipt)).get('artifact_sha')
+    return _milestone_request(ledger, state['task_id'], state['name'], target['revision'], sha, contract, milestone, candidate, criterion=finding.get('criterion'))
 
 
 def prior_pass(conn, task_id, request):

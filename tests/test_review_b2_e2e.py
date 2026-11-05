@@ -12,11 +12,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))          # the adapter 
 from onecrew.common_handoff import handoff                          # noqa: E402
 from onecrew.common_verification import CandidateChecker            # noqa: E402
 from onecrew.control_core import Control, migrate                   # noqa: E402
-from onecrew.ledger import canonical                                # noqa: E402
+from onecrew.ledger import LedgerError, canonical, content_hash     # noqa: E402
 from onecrew.snapshots import Snapshots                             # noqa: E402
-from onecrew.v2 import engine, findings, internal_plan, plan, repair_tasks, review_dispatch  # noqa: E402
+from onecrew.v2 import engine, findings, internal_plan, plan, repair_tasks, review_dispatch, verdict  # noqa: E402
 from onecrew.v2.verifiers import command, port                      # noqa: E402
 from tests.test_v2_l1 import Fixture, milestone, plan_json          # noqa: E402
+from tests.test_v2_reviewer import reviewer_milestone               # noqa: E402
 from tests.test_wf_engine import EngineFixture, node                # noqa: E402
 from tests.test_wf_rx2_adapters import DATA, TABLE                  # noqa: E402
 
@@ -210,3 +211,61 @@ class IndependentBranchCase(LoopFixture):
         self.assertEqual(self.step()['node'], 'I')
         self.assertEqual(self.verify('I', checker)['result'], 'pass')
         self.assertEqual(handoff(self.ledger, 'P1')['state'], 'delivered')
+
+
+class RecheckClosure(Fixture):
+    """The receipt a door issued closes a finding through 2.5-A's close_from_recheck; nothing else does."""
+
+    def setUp(self):
+        super().setUp()
+        (self.root / 'guide.md').write_text('# Guide\n[reference](missing.txt)\n', encoding='utf-8')
+        value = plan_json(milestones=[{'id': 'M1', 'title': 'Check guide', 'mode': 'until_pass', 'max_repairs': 3,
+            'verifier': {'type': 'doc', 'config': {'docs': ['guide.md']}}, 'covers': ['O1']}], scope={'owned': ['guide.md']})
+        plan.propose(self.ledger, 'P1', value, 'codex-fixture', workflow=True)
+        plan.approve(self.ledger, 'P1', 'owner', 'fixture approval on a temporary ledger')
+
+    def run_check(self):
+        return verdict.run(self.ledger, 'P1', 'M1')['milestones'][0]['last_verdict']['receipt']
+
+    def test_a_door_receipt_of_the_repaired_output_closes_and_nothing_else_does(self):
+        red = self.run_check()
+        [finding] = findings.list_findings(self.ledger, 'P1', open_only=True)
+        same = findings.close_from_recheck(self.ledger, 'P1', finding['id'], run_receipt=red, request=review_dispatch.recheck_request(self.ledger, 'P1', finding, red))
+        self.assertEqual(same['closed'], [])                                   # the failed receipt of the same output
+        with self.assertRaisesRegex(LedgerError, 'No check run'):
+            review_dispatch.recheck_request(self.ledger, 'P1', finding, Snapshots(self.ledger.state_root).blob(b'{"artifact_sha":"self-report"}'))
+        (self.root / 'guide.md').write_text('# Guide\n[reference](a.txt)\n', encoding='utf-8')
+        green = self.run_check()
+        request = review_dispatch.recheck_request(self.ledger, 'P1', finding, green)
+        self.assertEqual(findings.close_from_recheck(self.ledger, 'P1', finding['id'], run_receipt=green, request=request), {'closed': [finding['id']], 'refused': []})
+        self.assertEqual(findings.list_findings(self.ledger, 'P1')[0]['status'], 'resolved')
+
+    def test_the_door_request_names_the_reviewer_criteria_a_closure_compares(self):
+        criteria = [{'id': 'R1', 'question': 'Is it right?'}]
+        milestone_row = dict(reviewer_milestone(criteria=criteria), id='R')
+        with self.ledger.transaction() as conn:
+            state = plan.anchor_events(self.ledger, conn, 'P1')
+            contract, sha = plan.load(self.ledger, state, state['approved']['revision'])
+        request = review_dispatch._milestone_request(self.ledger, state['task_id'], 'P1', 1, sha, contract, milestone_row, command.artifact_sha(self.root))
+        self.assertEqual(request['identity']['criteria'], content_hash(milestone_row['verifier']['config']['criteria']))
+        self.assertEqual(request['identity']['target']['criteria_ids'], ['R1'])
+
+
+class NodeRecheckClosure(CodingCase):
+    test_t7_coding_output_check_finding_repair_recheck_delivery = None
+
+    def test_the_engine_door_receipt_closes_a_node_finding_when_the_automatic_closure_did_not(self):
+        checker = CandidateChecker(self.ledger, 'P1')
+        self.step()
+        self.assertEqual(self.verify('C', checker)['result'], 'fail')
+        [finding] = findings.list_findings(self.ledger, 'P1', open_only=True)
+        failed = engine.state(self.ledger, 'P1')['nodes']['C']['verification_receipt']
+        repair_tasks.prepare(self.ledger, 'P1', 'C', 'C', reason='Fix the failed check', evidence=[failed])
+        self.overlays.update(self.good)
+        self.step()
+        with patch.object(findings, 'record_node_verification', side_effect=LedgerError('closure hook unavailable')):
+            self.assertEqual(self.verify('C', checker)['result'], 'pass')
+        self.assertEqual(len(findings.list_findings(self.ledger, 'P1', open_only=True)), 1)
+        green = engine.state(self.ledger, 'P1')['nodes']['C']['verification_receipt']
+        request = review_dispatch.recheck_request(self.ledger, 'P1', finding, green)
+        self.assertEqual(findings.close_from_recheck(self.ledger, 'P1', finding['id'], run_receipt=green, request=request), {'closed': [finding['id']], 'refused': []})
