@@ -170,15 +170,17 @@ class FindingTests(Fixture):
         self.revise()
         self.assertEqual(findings.reviewer_context(self.ledger, 'P1')[0]['criterion'], 'R1')
         self.assertTrue(self.close(old)['refused'])
-        self.assertEqual(self.close(self.receipt('pass', revision=2))['closed'], ['RF1'])
+        repaired = 'b' * 40       # the closure rule (2.5-A): a recheck speaks about the repaired output, not the candidate that failed
+        self.assertEqual(self.close(self.receipt('pass', revision=2, artifact=repaired), artifact_sha=repaired)['closed'], ['RF1'])
 
     def test_old_generation_pass_cannot_close_after_new_generation_is_recorded(self):
         self.open()
         old = self.receipt('pass')
-        current = self.receipt('pass', generation=2)
+        repaired = 'b' * 40       # the closure rule (2.5-A): a recheck speaks about the repaired output, not the candidate that failed
+        current = self.receipt('pass', generation=2, artifact=repaired)
         self.assertTrue(self.close(old)['refused'])
         self.assertEqual(self.rows()[0]['status'], 'open')
-        self.assertEqual(self.close(current, generation=2)['closed'], ['RF1'])
+        self.assertEqual(self.close(current, generation=2, artifact_sha=repaired)['closed'], ['RF1'])
 
     def test_green_receipt_from_before_the_finding_cannot_close_it(self):
         old = self.receipt('pass')

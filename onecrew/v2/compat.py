@@ -51,7 +51,7 @@ CLASS_B = (
     'node.result_retained', 'workflow.handoff',
     'budget.group',
     'finding.registered',
-    'plan.revoked', 'plan.revised', 'plan.closed', 'request.applied',
+    'plan.revoked', 'plan.revised', 'plan.closed', 'request.applied', 'request.superseded', 'workflow.repair_prepared',
     'decision.hold', 'decision.defer', 'milestone.held',              # W26 rule-based decisions / W36 pauses (named here for the boundary)
     'workflow.mode',                                  # 2.4-C: the recorded execution-mode choice of a node (waits included); plan-ns roots only
 )

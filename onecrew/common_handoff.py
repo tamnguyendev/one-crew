@@ -130,7 +130,9 @@ def _handoff(ledger, selector, *, control=None):
             prior = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='workflow.handoff' ORDER BY seq DESC LIMIT 1", (root['task_id'],)).fetchone()
         if prior:
             old = json.loads(store.read_blob(json.loads(prior['payload'])['receipt']))
-            if (old.get('root') == root['task_id'] and old.get('contract_sha') == sha
+            # The project equals what this root delivered and verified, under any of its approved revisions: nothing of the user's can be overwritten.
+            # The write itself is judged on the current grant below.
+            if (old.get('root') == root['task_id']
                     and old.get('method') == 'v1-cas-apply'
                     and receipt_valid(ledger, old, {'child': old['child']})
                     and old.get('delivered_artifact') == actual):

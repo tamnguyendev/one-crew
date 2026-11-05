@@ -198,6 +198,9 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=
                         candidate['receipt'], now(), task_id=state['task_id'], conn=conn,
                         require_bound=namespaces.has_capability(state, 'sequential-engine'), recorded_environment=recorded_environment)
                     if binding is not None:
+                        if binding.get('environment_changed'):
+                            extra.update(execution_environment_changed=True,
+                                         environment_note='Verdict ghi trong môi trường khác: nghiệm thu vẫn dựa trên nó; một lần verdict run mới ở đây sẽ chạy lại verifier.')
                         if not binding['reusable'] or (binding['requires_record'] and not binding['recorded']):
                             how = None
                             extra.update(stale=True, stale_reasons=binding['reasons'] or ['Evidence reuse basis must be recorded.'],
@@ -238,7 +241,7 @@ def views_for(ledger, contract, state, revision):
     (_accepted_views), so what was accepted reads the same forever; any other is read at the project's artifact now."""
     accepted = state['accepted'] if state['accepted'] and state['accepted']['revision'] == revision else None
     if accepted and isinstance(accepted.get('receipts'), dict): return _accepted_views(contract, state, revision, accepted)
-    return milestone_views(contract, state, revision, ledger, artifact=accepted['artifact_sha'] if accepted else None)
+    return milestone_views(contract, state, revision, ledger, artifact=accepted['artifact_sha'] if accepted else None, recorded_environment=True)
 
 
 def resolve(ledger, state):
@@ -485,11 +488,28 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
                                                                     **({'base_tracked': base_tracked} if base_tracked else {}), **session_info()})
             from ..budget_core import ensure_plan_group
             ensure_plan_group(ledger, conn, state['selector'])
+            _supersede_holds(ledger, conn, state, revision)
             estimates.ensure_baseline(ledger, conn, state['selector'], estimate)
             step0.record_closed(ledger, conn, state['task_id'], name, revision, sha, verdict, choose)
     if not verdict['ok']: raise LedgerError(step0.refusal_text(verdict))   # after the commit, so the precondition run stays recorded
     from . import active_plan; active_plan.export(ledger, name)  # L2: one line (hooks read the exported file, not the ledger)
     return show(ledger, name)
+
+
+def _supersede_holds(ledger, conn, state, revision):
+    """A question about holding work under an earlier revision has no answer left once the owner approved a newer one: that approval is the owner's own act, and
+    it answers the question's subject. The row says so with its own provenance; it is never written as a choice among the question's options."""
+    rows = conn.execute("SELECT id,revision,payload FROM requests WHERE task_id=? AND state='pending'", (state['task_id'],)).fetchall()
+    for row in rows:
+        action = json.loads(row['payload']).get('action') or {}
+        if action.get('type') != 'v2.workflow_hold' or (action.get('parameters') or {}).get('contract_revision') == revision: continue
+        stamp = utcnow()
+        answer = {'id': 'SUPERSEDED-' + row['id'], 'request_id': row['id'], 'revision': row['revision'], 'choice': 'superseded_by_approval', 'recorded_at': stamp,
+                  'provenance': {'actor': None, 'source': 'plan.approved', 'reference': f'revision {revision} approved', 'trust': 'ledger_event', 'by': None, 'decided_by': None},
+                  'action_applied': False}
+        conn.execute("UPDATE requests SET state='answered',answer=?,updated_at=? WHERE id=? AND state='pending'", (canonical(answer), stamp, row['id']))
+        emit(ledger, conn, state['task_id'], 'request.superseded', {'plan': state['name'], 'revision': revision, 'request_id': row['id'], 'request_revision': row['revision'],
+                                                                    'by_approval': True, 'grants_authority': False})
 
 
 def _as_tree(ledger, value):

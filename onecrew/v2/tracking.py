@@ -306,7 +306,7 @@ def _acceptance(reader, conn, state, contract, engine_view, level):
     try:
         if engine_view is not None:
             from . import engine
-            guidance = engine.next_action(reader, state['selector'], conn=conn, view=engine_view)
+            guidance = engine.next_action(reader, state['selector'], conn=conn, view=engine_view, observe_project=False)
             result['next_action'] = guidance
             if guidance['kind'] != 'owner_accept':
                 result['reason'] = guidance['reason']
@@ -436,7 +436,7 @@ def _level(state, engine_view, views):
     return 'none'
 
 
-def _status(state, engine_view, attempts, progress, waits, requests, views, verifier_runs, level, first_started, acceptance=None):
+def _status(state, engine_view, attempts, progress, waits, requests, views, verifier_runs, level, first_started, acceptance=None, guidance=None):
     """(kind, reason, sources): the sourced status of a root. Order: done > blocked > activity (running / unknown attempt) > waiting > not started."""
     src = []
     if state['status'] == 'accepted':
@@ -449,9 +449,14 @@ def _status(state, engine_view, attempts, progress, waits, requests, views, veri
         return 'waiting', 'chờ chủ sở hữu duyệt bản ' + str(state['latest']), [f"plan.proposed:rev{state['latest']}"]
     active = [a for a in attempts if a['status'] in ('reserved', 'running', 'unknown')]
     unknown = [a['id'] for a in active if a['status'] == 'unknown']
+    if (guidance or {}).get('state') == 'stopped' and not active:
+        return 'blocked', 'đã dừng: ' + guidance['reason'], ['engine.next_action']
     if engine_view is not None:
+        from . import engine
         held = [nid for nid, r in engine_view['nodes'].items() if r.get('phase') == 'held']
-        blockers = {k: v for k in ('finding_blockers', 'unknown_blockers', 'failed_blockers', 'request_blockers') for v in [engine_view.get(k) or {}] if v}
+        gate = {'finding_blockers': engine.finding_gate(engine_view), 'unknown_blockers': engine_view.get('unknown_blockers') or {},
+                'failed_blockers': engine_view.get('failed_blockers') or {}, 'request_blockers': engine_view.get('request_blockers') or {}}
+        blockers = {k: v for k, v in gate.items() if v}
         stalled = [nid for nid, p in progress.items() if p['status'] == 'blocked' and engine_view['nodes'].get(nid, {}).get('phase') == 'running']
         if held or blockers or stalled:
             parts = []
@@ -489,7 +494,7 @@ def _status(state, engine_view, attempts, progress, waits, requests, views, veri
     if level == 'verified':
         if acceptance and acceptance['ready']:
             return 'done', acceptance['reason'], ['milestone.passed', 'acceptance.recorded_evidence']
-        if (acceptance or {}).get('next_action', {}).get('state') in ('blocked', 'handoff_blocked', 'held'):
+        if (acceptance or {}).get('next_action', {}).get('state') in ('blocked', 'handoff_blocked', 'held', 'stopped'):
             return 'blocked', acceptance['reason'], ['engine.next_action']
         return 'waiting', (acceptance or {}).get('reason') or 'Chờ kiểm đủ điều kiện bàn giao, chưa đến bước nghiệm thu.', ['acceptance.recorded_evidence']
     if engine_view is not None:
@@ -968,9 +973,9 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     guidance = acceptance.get('next_action')
     if engine_view is not None and guidance is None:
         from . import engine
-        try: guidance = engine.next_action(rd, state['selector'], conn=conn, view=engine_view)
+        try: guidance = engine.next_action(rd, state['selector'], conn=conn, view=engine_view, observe_project=False)
         except (LedgerError, OSError, ValueError, KeyError, TypeError): pass
-    kind, reason, sources = _status(state, engine_view, attempts, progress, open_waits, requests, views, runs, level, first_started, acceptance)
+    kind, reason, sources = _status(state, engine_view, attempts, progress, open_waits, requests, views, runs, level, first_started, acceptance, guidance)
     if guidance and guidance.get('delivery_limit') and state['status'] == 'approved' and kind != 'done':
         reason += '; bàn giao: ' + guidance['delivery_limit']
     last = events[-1] if events else None
@@ -997,7 +1002,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
             'status': {'kind': kind, 'label': OUTCOME_WORDS[outcome] if outcome else WORDS[kind], 'outcome': outcome, 'reason': clean(reason, 600), 'source': sources},
             'level': {'kind': level, 'label': LEVEL_WORDS[level]},
             'elapsed': _elapsed(state, events, now),
-            'current_step': clean(_current_step(kind, state, engine_view, active_rows, requests, progress) or reason, 200),
+            'current_step': clean((reason if (guidance or {}).get('state') == 'stopped' and kind == 'blocked' else _current_step(kind, state, engine_view, active_rows, requests, progress)) or reason, 200),
             'acceptance': acceptance,
             'next_action': guidance,
             'last_update': {'seq': last[0], 'kind': last[1], 'at': last[3], 'summary': clean(_summary(last[1], last[2]), 200)} if last else None,

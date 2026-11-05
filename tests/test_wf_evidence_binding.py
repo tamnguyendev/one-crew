@@ -98,7 +98,8 @@ class BoundReceiptTests(Fixture):
         with patch.dict(os.environ, LANG='fixture-changed-environment'):
             result = self.assess()
             self.assertIn('checker environment changed: variables', result['reasons'])
-            self.assertTrue(plan.show(self.ledger, 'P1')['milestones'][0]['stale'])
+            # the view reads the recorded verdict as acceptance does and says a new run here would not reuse it (the assessment above stays strict)
+            self.assertTrue(plan.show(self.ledger, 'P1')['milestones'][0]['execution_environment_changed'])
         (self.root / 'interface.txt').write_text('interface B')
         result = self.assess()
         self.assertIn('input changed: interface.txt', result['reasons'])

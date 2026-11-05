@@ -168,7 +168,7 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
         print('OneCrew learning pending: ' + type(error).__name__ + ': ' + str(error)[:200], file=sys.stderr)
     # Preserve the existing learning observation before closing its open
     # finding. Closure still uses the authenticated recheck door.
-    closures, actions = _finish_findings(ledger, name, milestone_id, receipt, body) if result == 'pass' else ([], [])
+    closures, actions = _finish_findings(ledger, name, milestone_id, receipt, body) if result == 'pass' and namespaces.has_capability(state, 'finding-register') else ([], [])
     from . import active_plan; active_plan.export(ledger, name)  # L2: the hooks see the new milestone state
     if body and namespaces.has_capability(state, 'finding-register'):
         from . import findings
@@ -195,8 +195,11 @@ def _finish_findings(ledger, name, milestone_id, receipt, body):
             result = findings.close_from_recheck(ledger, name, finding['id'], run_receipt=receipt, request=request)
             closed.append(result)
             if result['closed']: continue
+        artifact = (body or {}).get('artifact_sha')
+        unchanged = artifact in (finding.get('artifact_sha'), finding.get('candidate'), (finding.get('last_observed') or {}).get('artifact_sha'))
         actions.append({'finding': finding['id'], 'receipt': receipt,
-                        'command': ['findings', 'recheck', name, finding['id'], '--receipt', receipt],
+                        'command': (['findings', 'reject', name, finding['id'], '--receipt', receipt, '--artifact-sha', artifact, '--reason', '<reason>'] if unchanged and artifact
+                                    else ['findings', 'recheck', name, finding['id'], '--receipt', receipt]),
                         'reason': 'Review this finding against the current passing receipt; same-candidate/non-defect cases require an explicit evidence-backed rejection, not a repair claim.'})
     return closed, actions
 
@@ -206,11 +209,12 @@ def _resume_closure(ledger, name, milestone_id):
     with ledger.transaction() as conn:
         state = plans.anchor_events(ledger, conn, name)
         if state['status'] != 'approved' or not namespaces.has_capability(state, 'finding-register'): return None
+        # The common case first: with no open finding of this milestone there is nothing to reconcile, and no reason to hash the tree here.
+        if not any(not f.get('internal') and f['node'] == milestone_id for f in findings.list_findings(ledger, name, open_only=True)): return None
         revision = state['approved']['revision']
         contract = plans.load(ledger, state, revision)[0]
         current = next((m for m in plans.milestone_views(contract, state, revision, ledger) if m['id'] == milestone_id), None)
         if not current or current['state'] != 'passed' or current.get('stale'): return None
-        if not any(not f.get('internal') and f['node'] == milestone_id for f in findings.list_findings(ledger, name, open_only=True)): return None
         receipt = current['last_verdict']['receipt']
     body = json.loads(_blob(ledger, receipt))
     closures, actions = _finish_findings(ledger, name, milestone_id, receipt, body)
@@ -454,7 +458,8 @@ def _reuse_candidate_pass(ledger, state, revision, sha, contract, milestone, dir
     with ledger.transaction() as conn:
         prior = review_dispatch.prior_pass(conn, state['task_id'], request)
     if prior is None or prior['door'] != 'candidate': return None
-    if not engine.root_ready(ledger, state['selector'], tree): return None
+    with command.snapshot_limits(deadline):
+        if not engine.root_ready(ledger, state['selector'], tree): return None
     store = Snapshots(ledger.state_root)
     try:
         proof = json.loads(store.read_blob(prior['proof']))

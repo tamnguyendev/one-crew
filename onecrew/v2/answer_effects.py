@@ -47,6 +47,8 @@ def reply_and_apply(ledger, request_id, revision, choice, *, source, reference, 
             selector = ledger._task(conn, ledger._request(conn, request_id)['task_id'])['request_key']
     errors = after_commit(ledger, selector, effect, export=export)
     result = dict(receipt, controller_effect=effect) if effect.get('applied') else dict(receipt)
+    if str(effect.get('reason', '')).startswith('superseded'):      # recorded, and it changed nothing: said in the result, not left to be assumed
+        result['no_effect'] = {'reason': effect['reason'], 'note': 'Câu hỏi này thuộc trạng thái cũ của plan: câu trả lời đã ghi nhưng không có hiệu lực. Đọc bước tiếp theo hiện tại.'}
     if errors: result['post_commit_errors'] = errors
     return result
 
@@ -86,6 +88,8 @@ def _apply(ledger, conn, request_id):
         return {'applied': False, 'reason': 'unsupported_action'}, state['selector']
     answer = json.loads(request['answer'])
     provenance = answer.get('provenance', {})
+    if answer.get('choice') == 'superseded_by_approval':       # closed by a later plan.approved (plan._supersede_holds): nobody answered it, nothing to apply
+        return {'applied': False, 'reason': 'superseded_by_approval'}, state['selector']
     if provenance.get('decided_by') != 'user' or provenance.get('by') != 'user':
         raise LedgerError('A workflow effect requires a recorded owner answer; a worker claim is not one.')
     previous = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='request.applied' AND json_extract(payload,'$.request_id')=? AND json_extract(payload,'$.request_revision')=?",
@@ -93,21 +97,23 @@ def _apply(ledger, conn, request_id):
     if previous: return dict(json.loads(previous['payload']), applied=True, repeated=True), state['selector']
     workflow_hold = action['type'] == 'v2.workflow_hold'
     revision = parameters.get('contract_revision') if workflow_hold else parameters.get('revision')
-    if revision != state['latest'] or state['status'] not in (('approved',) if workflow_hold else ('stopped_with_report',)):
+    choice = answer['choice']
+    # `stop` is the owner ending this root: it means the same whichever revision the question was asked on, while the root is still open.
+    ending = workflow_hold and choice == 'stop' and state['status'] in ('approved', 'proposed') and parameters.get('root') == state['task_id']
+    if not ending and (revision != state['latest'] or state['status'] not in (('approved',) if workflow_hold else ('stopped_with_report',))):
         return {'applied': False, 'reason': 'superseded_root_state'}, state['selector']
-    if workflow_hold:
+    if workflow_hold and not ending:
         from . import engine
         view = engine.state(ledger, state['selector'], conn)
         if (parameters.get('root') != state['task_id'] or parameters.get('plan') != state['selector']
                 or parameters.get('contract_sha') != state['approved']['sha']
                 or parameters.get('internal_revision') != view['internal_revision']):
             return {'applied': False, 'reason': 'superseded_workflow_question'}, state['selector']
-    else:
+    elif not workflow_hold:
         stopped = state['stopped'][revision]
         if parameters.get('milestone') != stopped.get('milestone'):
             raise LedgerError('The answer does not identify the currently stopped milestone.')
-    choice = answer['choice']
-    if choice not in (('continue', 'stop') if workflow_hold else ('stop', 'amend_plan')):
+    if choice not in (('continue', 'stop', 'amend_plan') if workflow_hold else ('stop', 'amend_plan')):
         raise LedgerError('Unsupported stopped-plan answer; stop limits cannot be reset by a reply.')
     resumed = None
     if workflow_hold and choice == 'continue':

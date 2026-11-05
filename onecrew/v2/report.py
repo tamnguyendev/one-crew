@@ -243,7 +243,8 @@ def _standing(f):
     if f['contract'] is None: return 'open', NO_DATA
     if status == 'proposed': return 'open', 'chủ sở hữu'
     pending = next((v for v in views if v['state'] != 'passed'), None)
-    if pending and pending['state'] == 'failed' and pending['repairs_left'] == 0: return 'failed', '—'
+    # An engine root that used its last repair round is still open: the engine names its next step (replan, or a stop with a reason); nothing closed it.
+    if pending and pending['state'] == 'failed' and pending['repairs_left'] == 0 and not namespaces.has_capability(state, 'sequential-engine'): return 'failed', '—'
     if any(r['state'] == 'pending' for r in f['requests']): return 'open', 'chủ sở hữu'
     if f.get('runtime_unknowns'):
         return 'open', 'chủ sở hữu' if any(u['resolver']=='owner' for u in f['runtime_unknowns']) else 'AI'
@@ -552,10 +553,11 @@ def render_digest(state_root):
         if namespaces.has_capability(f['state'], 'sequential-engine'):
             try:
                 from . import engine
-                guidance = engine.next_action(_Reader(state_root, row['project_id'], row['project_path']), row['request_key'])
+                guidance = engine.next_action(_Reader(state_root, row['project_id'], row['project_path']), row['request_key'], observe_project=False)
                 role = 'chủ sở hữu' if guidance['owner_only'] else 'bộ thực thi'
                 next_step = '; bước tiếp theo (' + role + '): ' + guidance['reason']
                 if guidance['kind'] == 'owner_accept': need = 'nghiệm thu'
+                elif guidance['state'] == 'stopped': need = 'đã dừng: đọc lý do, bằng chứng được giữ'
                 elif guidance['owner_only'] and need.startswith('chưa cần quyết'):
                     need = 'quyết định quyền hoặc ngân sách còn thiếu'
                 elif need in (NOTHING, 'nghiệm thu'): need = 'quyết định quyền còn thiếu' if guidance['owner_only'] else 'chưa cần quyết'

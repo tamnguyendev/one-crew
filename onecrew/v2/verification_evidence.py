@@ -218,6 +218,7 @@ def receipt_assessment(ledger, contract, milestone, revision, receipt, current_a
             if (not observed or content_hash(observed) != old.get('environment')
                     or {k: content_hash(v) for k, v in observed.items()} != old.get('environment_components')):
                 raise LedgerError('Recorded execution environment is missing or inconsistent.')
+            environment_changed = current['environment'] != old.get('environment')
             context = environment(env)
             context['variables'] = observed['variables']
             current['environment'] = content_hash(context)
@@ -235,6 +236,7 @@ def receipt_assessment(ledger, contract, milestone, revision, receipt, current_a
                 'reuse_basis': None, 'requires_record': False, 'recorded': False}
     result['binding'] = current
     result['recorded'] = False
+    if recorded_environment: result['environment_changed'] = environment_changed
     if result['requires_record']:
         result['reuse_key'] = content_hash({'receipt': receipt, 'current': current, 'basis': result['reuse_basis']})
         if task_id:

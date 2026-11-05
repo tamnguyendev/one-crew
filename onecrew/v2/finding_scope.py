@@ -9,11 +9,17 @@ from . import findings, namespaces, plan
 
 
 def blockers(ledger, selector, nodes, conn=None):
+    return holds(ledger, selector, nodes, conn)['blockers']
+
+
+def holds(ledger, selector, nodes, conn=None):
+    """{'blockers': {node: [finding ids]} after the prepared repairs, 'raw': the same before them, 'covered': the external findings a prepared,
+    authenticated repair is answering}. Read-only. A covered finding stays open until a verdict closes it; `covered` only says its repair is under way."""
     if conn is None:
         with ledger.transaction() as connection:
-            return blockers(ledger, selector, nodes, connection)
+            return holds(ledger, selector, nodes, connection)
     root = plan.anchor_events(ledger, conn, selector)
-    if not namespaces.has_capability(root, 'finding-register'): return {}
+    if not namespaces.has_capability(root, 'finding-register'): return {'blockers': {}, 'raw': {}, 'covered': []}
     register_root, _, _, contract = findings._context(ledger, conn, root['selector'])
     value = findings._read(ledger, conn, register_root['id'])
     findings._refresh(value, contract, nodes or None)
@@ -23,23 +29,58 @@ def blockers(ledger, selector, nodes, conn=None):
     for finding in value['findings']:
         if finding['status'] != 'open': continue
         scope = finding.get('scope') or {}
-        paths = set(scope.get('read', []) + scope.get('write', []))
+        paths = scope.get('read', []) + scope.get('write', [])
+        # A scope may name a folder and a node a file inside it (or the reverse): the rule of owned_match, not string equality.
         seeds = [node['id'] for node in nodes if node['id'] == finding.get('node')
-                 or paths & set(node['read'] + node['write']) or node['integration']]
+                 or (paths and dependency_core.owned_overlap(paths, node['read'] + node['write'])) or node['integration']]
         # Integration is the aggregate mandatory gate. A valid open finding
         # without a mapped path still blocks that gate, preserving independent
         # work until its scope is clarified through the original register.
         if not seeds: continue
         for nid in dependency_core.affected_tasks(projection, seeds):
             result.setdefault(nid, []).append(finding['id'])
-    _release_repairs(ledger, result, value['findings'], nodes, selector)
-    return result
+    raw = {nid: list(ids) for nid, ids in result.items()}
+    covered = _release_repairs(ledger, conn, result, value['findings'], nodes, root)
+    return {'blockers': result, 'raw': raw, 'covered': sorted(covered)}
 
 
-def _release_repairs(ledger, held, open_findings, nodes, selector):
-    """W21/W19 (T11 [E3]): the nodes a prepared repair re-issues for an internal-node finding (they carry the repair-evidence marker whose
-    source receipt is that finding's receipt) are not held by that finding — otherwise nothing could ever repair it. Every other node in the
-    scope stays held, and so does the finding until the register closes it on a passing receipt."""
+def receipts_of(finding):
+    """The failed receipts a repair of this finding may name: an external finding answers to its latest observation only (an older one no longer describes
+    the delivered tree); an internal one also to its first report (R10 D6)."""
+    if finding.get('internal'):
+        rows = (finding['source'], finding.get('last_observed') or {})
+    else:
+        rows = (finding.get('last_observed') or finding['source'],)
+    return [row['receipt'] for row in rows if row.get('receipt')]
+
+
+def _sources_of(body):
+    return {r for r in [body.get('source_receipt'), *(body.get('source_receipts') or [])] if r}
+
+
+def _issued(conn, root, store, body, ref, node):
+    """Only a marker issued by the repair door (or its authenticated order-only rebinding) can unblock work under a final finding."""
+    import json
+    original, origin = body, ref
+    for _ in range(20):
+        if not original.get('rebound_from'): break
+        origin = original['rebound_from']
+        try: original = json.loads(store.read_blob(origin))
+        except (ValueError, OSError): return False
+    row = conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='workflow.repair_prepared' AND json_extract(payload,'$.receipt')=?", (root['task_id'], origin)).fetchone()
+    return bool(row and body.get('root') == root['task_id'] and root.get('approved')
+                and body.get('contract_sha') == root['approved']['sha']
+                and original.get('affected_nodes') == body.get('affected_nodes')
+                and _sources_of(original) == _sources_of(body)
+                and original.get('checks_sha', {}).get(node['id']) == body.get('checks_sha', {}).get(node['id'])
+                and original.get('node_scopes', {}).get(node['id']) == {'read': node['read'], 'write': node['write']}
+                and body.get('checks_sha', {}).get(node['id']) == content_hash(node['checks']))
+
+
+def _release_repairs(ledger, conn, held, open_findings, nodes, root):
+    """W21/W19 (T11 [E3]): the nodes a prepared repair re-issues (they carry the repair-evidence marker) are not held by the findings that repair answers:
+    every failed receipt it names, each still the current observation of an open finding. Otherwise nothing could ever repair them. Every other node in
+    the scope stays held, and so does the finding until the register closes it on a passing receipt. Returns the external findings a valid marker answers."""
     import json
     from ..snapshots import Snapshots
     from .repair_tasks import PREFIX, KIND as REPAIR_KIND
@@ -48,44 +89,27 @@ def _release_repairs(ledger, held, open_findings, nodes, selector):
     # without this the re-issued node stays held by the same finding and the repair can never run (deadlock).
     for finding in open_findings:
         if finding.get('status') != 'open': continue
-        sources = (finding['source'], finding.get('last_observed') or {}) if finding.get('internal') else ((finding.get('last_observed') or finding['source']),)
-        for source in sources:
-            if source.get('receipt'): by_receipt.setdefault(source['receipt'], set()).add(finding['id'])
-    if not by_receipt: return
+        for receipt in receipts_of(finding):
+            by_receipt.setdefault(receipt, []).append(finding)
+    covered = set()
+    if not by_receipt: return covered
     store = Snapshots(ledger.state_root)
     for node in nodes:
-        if node['id'] not in held: continue
         for marker in [i[len(PREFIX):] for i in node.get('input', []) if isinstance(i, str) and i.startswith(PREFIX)]:
             try:
-                plan_ = json.loads(store.read_blob(marker))
+                body = json.loads(store.read_blob(marker))
             except Exception:                                   # noqa: BLE001 — an unreadable marker releases nothing
                 continue
-            if plan_.get('kind') != REPAIR_KIND: continue
-            released = by_receipt.get(plan_.get('source_receipt'), set())
-            finding = next((f for f in open_findings if f['id'] in released), None)
-            if finding is not None and not finding.get('internal'):
-                # Only a marker issued by the repair door (or its authenticated
-                # order-only rebinding) can unblock work under a final finding.
-                original, ref = plan_, marker
-                for _ in range(20):
-                    if not original.get('rebound_from'): break
-                    ref = original['rebound_from']
-                    try: original = json.loads(store.read_blob(ref))
-                    except (ValueError, OSError): original = {}; break
-                with ledger.transaction() as conn:
-                    issued = conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='workflow.repair_prepared' AND json_extract(payload,'$.receipt')=? AND json_extract(payload,'$.source_receipt')=?",
-                                          (plan_.get('root'), ref, plan_.get('source_receipt'))).fetchone()
-                    current = plan.anchor_events(ledger, conn, selector)
-                if (not issued or plan_.get('root') != current['task_id']
-                        or plan_.get('contract_sha') != current['approved']['sha']
-                        or original.get('affected_nodes') != plan_.get('affected_nodes')
-                        or original.get('source_receipt') != plan_.get('source_receipt')
-                        or original.get('checks_sha', {}).get(node['id']) != plan_.get('checks_sha', {}).get(node['id'])
-                        or original.get('node_scopes', {}).get(node['id']) != {'read': node['read'], 'write': node['write']}
-                        or plan_.get('checks_sha', {}).get(node['id']) != content_hash(node['checks'])): continue
-            if released and node['id'] in set(plan_.get('affected_nodes') or []):
+            if body.get('kind') != REPAIR_KIND: continue
+            answered = [f for receipt in _sources_of(body) for f in by_receipt.get(receipt, [])]
+            external = [f for f in answered if not f.get('internal')]
+            authentic = bool(external) and _issued(conn, root, store, body, marker, node)
+            released = {f['id'] for f in answered if f.get('internal') or authentic}
+            if authentic: covered.update(f['id'] for f in external)
+            if released and node['id'] in held and node['id'] in set(body.get('affected_nodes') or []):
                 held[node['id']] = [f for f in held[node['id']] if f not in released]
-        if not held[node['id']]: del held[node['id']]
+        if node['id'] in held and not held[node['id']]: del held[node['id']]
+    return covered
 
 
 V2_SCOPED_TYPES = ('workflow.branch', 'authorize')      # the v1 branch question and the v2 U2 question (W32a) both name the nodes they hold

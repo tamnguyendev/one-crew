@@ -108,7 +108,7 @@ class EngineOperatorFlowTests(LoopFixture):
         with patch.object(engine, 'next_action', return_value=need):
             digest = report.render_digest(self.ledger.state_root)
         self.assertNotIn('chưa cần quyết', digest)
-        self.assertIn('quyết định', digest)
+        self.assertIn('đã dừng', digest)
         self.assertEqual(self.events(), before)
 
 

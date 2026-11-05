@@ -397,4 +397,4 @@ class FindingTests(EngineFixture):
         self.verify('I', self.red)
         final = self.work()['findings']
         self.assertEqual([(f['id'], f['state']) for f in final], [('RF1', 'resolved'), ('RF2', 'open')])
-        self.assertIsNone(final[1]['recurrence_of'], 'recur needs explicit data, not matching prose')
+        self.assertEqual(final[1]['recurrence_of'], 'RF1', 'the register links the same defect after a resolved closure (2.5-A): explicit data, not matching prose')

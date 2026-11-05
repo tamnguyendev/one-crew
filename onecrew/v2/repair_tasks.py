@@ -10,7 +10,7 @@ import json
 from .. import dependency_core
 from ..ledger import LedgerError, canonical, content_hash, key_field, text_field
 from ..snapshots import Snapshots, bytes_hash
-from . import engine, estimates, internal_plan as ip
+from . import engine, estimates, finding_scope, internal_plan as ip
 
 PREFIX = 'repair-evidence:'
 KIND = 'node-repair-plan'
@@ -29,8 +29,9 @@ def _carried(ledger, conn, view, failed_node, record):
                        "ORDER BY seq DESC LIMIT 1", (view['root'], failed_node)).fetchone()
     if row is None: return None
     event = json.loads(row['payload'])
+    # A failure on an earlier approved revision stays evidence while the register keeps its finding open under the current one (the check below).
     if (event.get('result') != 'fail' or type(event.get('generation')) is not int or event['generation'] >= record['generation']
-            or event.get('revision') != view['contract_revision'] or 'finding-register' not in view.get('capabilities', ())):
+            or 'finding-register' not in view.get('capabilities', ())):
         return None
     from . import findings
     register_root, _, _, contract = findings._context(ledger, conn, view['selector'])
@@ -61,42 +62,94 @@ def _carried(ledger, conn, view, failed_node, record):
     return event['receipt'], row['seq'], list(dict.fromkeys(failed))
 
 
-def _final_source(ledger, conn, view, failed_node, receipt=None):
-    """An authentic open milestone failure may drive the existing repair door.
+def final_failures(ledger, conn, view):
+    """Every open milestone finding whose latest verdict is its authentic failed receipt: [(finding, receipt, event seq)]. Read-only.
 
-    It never closes the finding. Only explicitly prepared repair generations may
-    work under that hold; final recheck is still required on the delivered tree.
-    """
+    The receipt is judged on the revision it was recorded on: an owner-approved amendment that leaves the finding open (findings._refresh) does not turn
+    the failure into no evidence. It never closes a finding; a final recheck on the delivered tree is still required."""
     from . import findings
-    if 'finding-register' not in view.get('capabilities', ()): return None
-    root, revision, sha, contract = findings._context(ledger, conn, view['selector'])
+    if 'finding-register' not in view.get('capabilities', ()): return []
+    root, _, _, contract = findings._context(ledger, conn, view['selector'])
     register = findings._read(ledger, conn, root['id'])
     findings._refresh(register, contract)
-    node = next(n for n in view['definition']['nodes'] if n['id'] == failed_node)
-    configured = {c['id'] for c in node['checks']}
+    found = []
     for finding in register['findings']:
-        if finding['status'] != 'open' or finding.get('internal') or finding['node'] not in configured: continue
+        if finding['status'] != 'open' or finding.get('internal'): continue
         source = (finding.get('last_observed') or finding['source'])['receipt']
-        if receipt and receipt != source: continue
         latest = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='verdict.recorded' AND json_extract(payload,'$.milestone')=? ORDER BY seq DESC LIMIT 1",
                               (view['root'], finding['node'])).fetchone()
         if latest is None or json.loads(latest['payload']).get('receipt') != source: continue
         try:
-            body, result, seq, artifact, generation = findings._receipt_facts(
-                ledger, conn, root, view['selector'], revision, sha, contract, finding, source)
+            recorded = (finding.get('last_observed') or {}).get('revision') or finding['revision']
+            _, revision, sha, written = findings._context(ledger, conn, view['selector'], revision=recorded)
+            _, result, seq, _, _ = findings._receipt_facts(ledger, conn, root, view['selector'], revision, sha, written, finding, source)
         except LedgerError:
             continue                  # stale/unreadable proof releases no hold
-        if result != 'fail': continue
+        if result == 'fail': found.append((finding, source, seq))
+    return found
+
+
+def _final_source(ledger, conn, view, failed_node, receipt=None):
+    """(receipt, event seq, failed checks) of an open milestone failure this node checks, or None."""
+    node = next(n for n in view['definition']['nodes'] if n['id'] == failed_node)
+    configured = {c['id'] for c in node['checks']}
+    for finding, source, seq in final_failures(ledger, conn, view):
+        if finding['node'] not in configured or (receipt and receipt != source): continue
         return source, seq, [c['id'] for c in node['checks'] if c['id'] == finding['node']]
     return None
+
+
+def answered_findings(ledger, conn, view, targets, affected):
+    """The open findings a repair of `targets` answers: those that hold a target and are about something the repair re-issues (a milestone failure, whose
+    cause no node owns, or an internal finding of a node in `affected`). A finding of a node outside it keeps its hold: it is not this repair's to lift."""
+    from . import finding_scope, findings
+    if 'finding-register' not in view.get('capabilities', ()): return []
+    nodes = view['definition']['nodes']
+    raw = finding_scope.holds(ledger, view['selector'], nodes, conn)['raw']
+    holding = {fid for target in targets for fid in raw.get(target, [])}
+    root, _, _, contract = findings._context(ledger, conn, view['selector'])
+    register = findings._read(ledger, conn, root['id'])
+    findings._refresh(register, contract, nodes)
+    return [f for f in register['findings'] if f['status'] == 'open' and ((not f.get('internal') and f['id'] in holding) or (f.get('internal') and f['node'] in affected))]
+
+
+def repair_marker(store, node):
+    """(ref, body) of the marker a node carries now, or (None, None)."""
+    refs = [i[len(PREFIX):] for i in node.get('input', []) if isinstance(i, str) and i.startswith(PREFIX)]
+    if not refs: return None, None
+    try:
+        return refs[-1], json.loads(store.read_blob(refs[-1]))
+    except (LedgerError, OSError, ValueError):
+        return None, None
+
+
+def rerun_scope(nodes, affected, target):
+    """Why each node of a repair runs again, and which keep their evidence: the same closure the plan revision uses, in words."""
+    by_id = {n['id']: n for n in nodes}
+    rows = []
+    for node in nodes:
+        nid = node['id']
+        if nid not in affected: continue
+        if nid == target: why = 'the repaired node'
+        else:
+            depends = [e['node'] for e in node['depends'] if e['node'] in affected]
+            readers = [other for other in sorted(affected) if other != nid and set(by_id[other]['write']) & set(node['read'])]
+            why = ('integration checks the repaired output' if node['integration'] else
+                   'depends on ' + ', '.join(depends) if depends else 'reads what ' + ', '.join(readers) + ' writes' if readers else 'shares a written path with the repaired node')
+        rows.append({'node': nid, 'why': why, 'calls': node['budget_calls'], 'seconds': node['estimate_seconds'][1]})
+    return rows, sorted(n['id'] for n in nodes if n['id'] not in affected)
 
 
 def _source(ledger, conn, view, failed_node, receipt=None):
     if failed_node not in view['nodes']:
         raise LedgerError('Unknown failed node.')
     record = view['nodes'][failed_node]
-    final = _final_source(ledger, conn, view, failed_node, receipt)
-    if final is not None: return final
+    # The newest fact decides: a node check that failed on the current generation is the failure to answer, even while an older milestone failure is open.
+    # Its finding and the milestone finding are both answered by the repair (answered_findings); they are counted as two failures, not one repeated.
+    own = record.get('verification_result') == 'fail' and record.get('verification_receipt')
+    if not own or (receipt is not None and receipt != own):
+        final = _final_source(ledger, conn, view, failed_node, receipt)
+        if final is not None: return final
     if record.get('verification_receipt') is None:
         carried = _carried(ledger, conn, view, failed_node, record)
         if carried is not None:
@@ -131,7 +184,9 @@ def _source(ledger, conn, view, failed_node, receipt=None):
         raise LedgerError('Failure does not identify configured checks.')
     failed = [row['id'] for row in rows if row.get('result') == 'fail']
     if not failed:
-        raise LedgerError('Repair needs an actual failed check; unknown/environment evidence needs diagnosis.')
+        elsewhere = [(f['node'], [n['id'] for n in view['definition']['nodes'] if f['node'] in {c['id'] for c in n['checks']}]) for f, _, _ in final_failures(ledger, conn, view)]
+        raise LedgerError('Repair needs an actual failed check; unknown/environment evidence needs diagnosis.'
+                          + ''.join(' Milestone ' + m + ' failed and is checked by node ' + ', '.join(by) + ': name that node as failed_node.' for m, by in elsewhere[:3]))
     return receipt, event['seq'], list(dict.fromkeys(failed))
 
 
@@ -156,9 +211,21 @@ def prepare(ledger, selector, target, failed_node, *, reason, evidence, receipt=
         affected = dependency_core.affected_tasks(scope, [target])
         if failed_node not in affected:
             raise LedgerError('The chosen owner is outside the failed node dependency/read/write scope.')
+        answered = answered_findings(ledger, conn, view, [target], affected)
+        sources = list(dict.fromkeys([source] + [r for f in answered for r in finding_scope.receipts_of(f)]))
+        # No new failure since the repair this node already carries: a new generation would change nothing. Say so; move nothing.
+        ref, carried = repair_marker(Snapshots(ledger.state_root), owner)
+        if carried and set(sources) <= finding_scope._sources_of(carried):
+            return dict(carried, receipt=ref, event=None, already_prepared=True, generation_moved=False,
+                        note='No failure is newer than the repair this node already carries; nothing changed. Run the printed next step.')
+        rerun, unchanged = rerun_scope(nodes, affected, target)
+        counted = sorted(set(affected) | {n['id'] for n in nodes if view['nodes'][n['id']].get('state') not in ('verified', 'accepted')})
+        cost = {'calls': sum(n['budget_calls'] for n in nodes if n['id'] in counted), 'seconds': sum(n['estimate_seconds'][1] for n in nodes if n['id'] in counted), 'nodes': counted}
+        room = ip.ceilings(ledger, conn, root)
         value = {'kind': KIND, 'version': 1, 'root': view['root'], 'contract_sha': sha,
                  'internal_revision': view['internal_revision'] + 1, 'target': target, 'failed_node': failed_node,
-                 'source_receipt': source, 'source_event': seq, 'failed_checks': failed, 'affected_nodes': sorted(affected),
+                 'source_receipt': source, 'source_receipts': sources, 'answered_findings': sorted(f['id'] for f in answered),
+                 'source_event': seq, 'failed_checks': failed, 'affected_nodes': sorted(affected),
                  'generations': {nid: view['nodes'][nid]['generation'] + 1 for nid in affected},
                  'checks_sha': {n['id']: content_hash(n['checks']) for n in nodes if n['id'] in affected},
                  'node_scopes': {n['id']: {'read': n['read'], 'write': n['write']} for n in nodes if n['id'] in affected},
@@ -167,6 +234,10 @@ def prepare(ledger, selector, target, failed_node, *, reason, evidence, receipt=
     blob = bytes_hash(data)                  # the receipt id, known before anything is written
     from . import recovery_policy
     recovery_policy.authorize_repair(ledger, root['selector'], failed_node)
+    # The whole cost is judged before anything of the repair exists: the repaired node, everything its output reaches and what was not finished yet.
+    if cost['calls'] > room['remaining_calls'] or cost['seconds'] > room['remaining_seconds']:
+        raise LedgerError(f'U2: this repair needs {cost["calls"]} calls and up to {cost["seconds"]} s ({", ".join(cost["nodes"])}); the root has {room["remaining_calls"]} calls and '
+                          f'{int(room["remaining_seconds"])} s left. Nothing was changed; the sealed ceilings of the root cannot be raised here.')
     # T16b [E6] / round 8 G: Q5 (repair inside the ceilings) is an ACTION that changes the plan. Delegated -> its HD-05 record, then the
     # repair. A workflow grant that does not delegate Q5 -> the U3 verdict is recorded, nothing of the repair is written (no receipt blob,
     # no plan.revised), the affected nodes are held and the owner gets the one v2.workflow_hold card (engine.hold_out_of_authority, the
@@ -185,13 +256,13 @@ def prepare(ledger, selector, target, failed_node, *, reason, evidence, receipt=
     from . import plan
     with ledger.transaction(write=True) as conn:
         plan.emit(ledger, conn, root['task_id'], 'workflow.repair_prepared',
-                  {'receipt': blob, 'source_receipt': source, 'contract_sha': sha})
+                  {'receipt': blob, 'source_receipt': source, 'source_receipts': sources, 'contract_sha': sha})
     for node in nodes:
         if node['id'] in affected:
             node['input'] = [i for i in node['input'] if not i.startswith(PREFIX)] + [PREFIX + blob]
     revised = ip.revise(ledger, root['selector'], nodes, reason=reason, evidence=[source, *evidence],
                         expected_revision=view['internal_revision'])
-    return dict(value, receipt=blob, event=revised['event'])
+    return dict(value, receipt=blob, event=revised['event'], cost=cost, rerun=rerun, keeps_evidence=unchanged)
 
 
 def verification_order(ledger, selector, nid, configured_checks):
@@ -222,8 +293,8 @@ def verification_order(ledger, selector, nid, configured_checks):
             'source_receipt': value['source_receipt'], 'stop_on_failed_prerequisite': bool(first)}
 
 
-def rebind_order(ledger, selector, nodes, *, expected_revision):
-    """Carry authentic failed-first obligations into one authorized diagnostic plan.
+def rebind_order(ledger, selector, nodes, *, expected_revision, failed_node=None, source=None, failed_checks=()):
+    """Carry authentic failed-first obligations into one authorized diagnostic plan, and let its re-issued nodes work under the findings it answers.
 
     The caller stores this result once with its replan reservation. Replaying a
     reservation must load those bytes, never regenerate against a later state.
@@ -242,7 +313,6 @@ def rebind_order(ledger, selector, nodes, *, expected_revision):
         carried[ref] = json.loads(Snapshots(ledger.state_root).read_blob(ref))
         recipients.add(nid); checks.update(check['id'] for check in item['checks'])
     result = copy.deepcopy(nodes)
-    if not carried: return result
     existing_refs = set(carried)
     for node in result:
         refs = {value[len(PREFIX):] for value in node['input'] if value.startswith(PREFIX)}
@@ -252,15 +322,25 @@ def rebind_order(ledger, selector, nodes, *, expected_revision):
     known = {node['id'] for node in result}
     recipients &= known
     changed = [node['id'] for node in result if node['id'] in recipients or before.get(node['id']) != node]
+    if not changed: return result
     affected = dependency_core.affected_tasks(ip.influence_projection(result), changed)
-    failed = list(dict.fromkeys(cid for value in carried.values() for cid in value['failed_checks']))
-    latest = list(carried.values())[-1]
-    value = dict(latest, internal_revision=expected_revision + 1,
+    with ledger.transaction() as conn:
+        answered = answered_findings(ledger, conn, view, [nid for nid in changed if nid in before], affected)
+    from . import finding_scope
+    sources = list(dict.fromkeys(([source] if source else []) + [r for f in answered for r in finding_scope.receipts_of(f)]
+                                 + [r for value in carried.values() for r in finding_scope._sources_of(value)]))
+    if not carried and not answered: return result
+    failed = list(dict.fromkeys([cid for value in carried.values() for cid in value['failed_checks']] + list(failed_checks)))
+    latest = list(carried.values())[-1] if carried else {'kind': KIND, 'version': 1, 'root': view['root'], 'contract_sha': view['contract_sha'],
+                                                         'target': failed_node, 'failed_node': failed_node, 'source_receipt': source}
+    value = dict(latest, internal_revision=expected_revision + 1, source_receipt=source or latest.get('source_receipt'),
                  failed_checks=failed, affected_nodes=sorted(affected), carried_from=sorted(carried),
-                 source_receipts=list(dict.fromkeys(value['source_receipt'] for value in carried.values())),
+                 source_receipts=sources, answered_findings=sorted(f['id'] for f in answered),
                  generations={nid: view['nodes'][nid]['generation'] + 1 if nid in view['nodes'] else 0 for nid in affected},
                  checks_sha={node['id']: content_hash(node['checks']) for node in result if node['id'] in affected},
-                 rebinds_order_only=True, resets_recovery_counters=False)
+                 node_scopes={node['id']: {'read': node['read'], 'write': node['write']} for node in result if node['id'] in affected},
+                 rebinds_order_only=bool(carried) and not answered, resets_recovery_counters=False)
+    value.pop('rebound_from', None)
     blob = Snapshots(ledger.state_root).blob(canonical(value).encode())
     for node in result:
         if node['id'] in affected: node['input'].append(PREFIX + blob)
