@@ -127,6 +127,9 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
                  if body and body.get('kind') == 'reviewer-receipt' else {})
         if body and (body.get('kind') == 'command-receipt' or port.known(milestone['verifier']['type'])):
             extra['calls'] = body.get('calls', 0)
+        if body and body.get('reused_from'):
+            extra['calls'] = 0  # the authenticated source call was already charged and recorded
+            extra['reused_from'] = body['reused_from']
         if integrity and (integrity.get('weakened') or integrity.get('added') or integrity.get('insufficient') or integrity.get('error')):     # W05/T19
             extra['test_integrity'] = {'weakened': integrity.get('weakened', [])[:20], 'added': integrity.get('added', [])[:20],
                                        'insufficient': integrity.get('insufficient', [])[:20],
@@ -445,6 +448,12 @@ def _reuse_candidate_pass(ledger, state, revision, sha, contract, milestone, dir
                     evidence_binding=verification_evidence.for_receipt(ledger, {'contract': contract, 'revision': revision}, milestone, tree,
                         env if kind in ('command', 'reviewer') else None))
         if kind != 'command': body['config'] = config
+        if kind == 'reviewer':
+            # Preserve the proof's real model-call fact: the reviewer law must
+            # still reject an invented zero-call pass. Publication charges zero
+            # new calls; the original call lives at reused_from.receipt.
+            body['calls'] = proof['calls']
+            body['new_calls'] = 0
         body.pop('snapshot', None)  # original timings remain in the linked source proof, not charged twice
         return store.blob(canonical(body).encode()), body
     except command.SnapshotFailed:

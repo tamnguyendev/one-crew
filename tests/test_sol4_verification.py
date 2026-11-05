@@ -12,6 +12,7 @@ from onecrew.v2.verifiers import artifact, command
 from tests.test_v2_l1 import Fixture, milestone, plan_json
 from tests.test_review_b2_e2e import LoopFixture
 from tests import test_review_b2_e2e as e2e
+from tests import test_wf_candidate_reviewer as reviewer_fixture
 
 class ProjectionCases(Fixture):
     def test_f7_report_hashes_once_and_next_operation_observes_changes(self):
@@ -152,3 +153,25 @@ class AdapterReuse(LoopFixture):
             calls.assert_not_called()
         with patch.dict(os.environ, {'ONECREW_ACTOR': 'owner'}):
             self.assertEqual(plan.accept(self.ledger, 'P1', 'owner', 'temporary adapter fixture', delivered['artifact'])['status'], 'accepted')
+
+
+class ReviewerReuse(reviewer_fixture.CandidateReviewerFixture):
+    def test_reviewer_reuse_preserves_real_call_proof_without_new_charge(self):
+        from onecrew.v2.verifiers import reviewer
+        self.produce()
+        calls = []
+        with patch.object(reviewer, 'call', side_effect=self.fake_call(calls)):
+            self.assertEqual(self.verify('C', self.production_checker)['result'], 'pass')
+            self.step(); self.assertEqual(self.verify('I', self.production_checker)['result'], 'pass')
+            handoff(self.ledger, 'P1')
+            spent = self.counters()['used_calls']
+            verdict.run(self.ledger, 'P1', 'M1')
+            shown = verdict.run(self.ledger, 'P1', 'M2')
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(self.counters()['used_calls'], spent)
+        observed = next(m for m in shown['milestones'] if m['id'] == 'M2')
+        self.assertEqual(observed['state'], 'passed', observed)
+        proof = json.loads(self.store.read_blob(observed['last_verdict']['receipt']))
+        self.assertEqual((proof['calls'], proof['new_calls']), (1, 0))
+        recorded = [p for k, p in self.events() if k == 'verdict.recorded' and p['milestone'] == 'M2'][-1]
+        self.assertEqual(recorded['calls'], 0)
