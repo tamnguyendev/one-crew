@@ -610,7 +610,8 @@ def _artifact_now(f):
     if 'artifact_now' not in f:
         from .verifiers import artifact as identities
         try:
-            f['artifact_now'] = identities.identity(Path(f['row']['project_path'])) if f['row']['project_path'] else None
+            with identities.command.snapshot_limits():
+                f['artifact_now'] = identities.identity(Path(f['row']['project_path'])) if f['row']['project_path'] else None
         except (LedgerError, OSError, subprocess.SubprocessError):
             f['artifact_now'] = None
     return f['artifact_now']

@@ -283,7 +283,7 @@ class PlanPresentTests(Base):
 
     def test_e1_e7_no_model_is_called(self):
         calls = []
-        real = subprocess.run
+        real = subprocess.Popen                        # every program, whichever way it is started (hotfix: git no longer goes through subprocess.run)
 
         def guard(argv, *a, **k):
             calls.append(Path(argv[0]).stem)
@@ -293,7 +293,7 @@ class PlanPresentTests(Base):
         def fake_model(*a, **k):                       # a FAKE adapter that only counts: the page path must never reach it
             counter['n'] += 1
             raise AssertionError('a model was called')
-        with patch('subprocess.run', side_effect=guard), patch('onecrew.v2.claude_cli.ask', fake_model, create=True), \
+        with patch('subprocess.Popen', side_effect=guard), patch('onecrew.v2.claude_cli.ask', fake_model, create=True), \
                 patch('onecrew.v2.claude_cli.run', fake_model, create=True):
             for name in self.NAMES: self.present(name)
         self.assertEqual(counter['n'], 0)

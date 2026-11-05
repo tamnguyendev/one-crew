@@ -6,6 +6,7 @@ artifact (a Git tree hash of the working tree) to the exit code and output. verd
 well formed, is refused.
 """
 import codecs
+import contextvars
 import datetime as dt
 import json
 import os
@@ -15,7 +16,10 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
 
 from ...ledger import LedgerError, canonical, utcnow
@@ -25,15 +29,186 @@ OUTPUT_CAP = 1_000_000
 TREE_ID = re.compile(r'[0-9a-f]{40}|[0-9a-f]{64}')          # the only shape of a tree id that is ever given to git
 
 
+# ---- How long making the identity of a working tree may take (hotfix of the verdict timeout on a large repository) -------------------------------
+#
+# Outside an operation that needs the identity (a view, a hook) a git step keeps its limit of STEP_SECONDS. An operation that needs it (a verifier, an
+# approval, a report) runs inside snapshot_limits(): each snapshot then has one budget for ALL its steps, git and the Python walks over the files alike,
+# never more than the root deadline leaves. The budget is separate from the verifier's max_minutes and from the root's budget, and it grants nothing: no
+# write, no call, no extra time for the verifier. It only decides how long OneCrew waits before saying that it could not finish.
+STEP_SECONDS = 120
+SNAPSHOT_ENV = 'ONECREW_SNAPSHOT_MINUTES'
+SNAPSHOT_MINUTES = 60
+SNAPSHOT_MINUTES_MAX = 720
+PROGRESS_SECONDS = 30
+GIT_PROGRAM = ('git',)
+
+_limits = contextvars.ContextVar('onecrew_snapshot_limits', default=None)
+_active = contextvars.ContextVar('onecrew_snapshot_budget', default=None)
+
+
+class SnapshotFailed(LedgerError):
+    """The identity of the working tree could not be made in time. `verifier_started` says what is known of the verifier: False (it was not called, so
+    a new run may start), True (it ran: its receipt is kept, inconclusive) or None (the caller does not know, which is held like any unknown outcome)."""
+
+    def __init__(self, stage, step, seconds, limit, reason='timeout', verifier_started=None):
+        self.stage, self.step, self.seconds, self.limit, self.reason, self.verifier_started = stage, step, round(seconds, 1), round(limit, 1), reason, verifier_started
+        cause = (f'the root deadline leaves no time for it (it was given {self.limit} s)' if reason == 'deadline'
+                 else f'stopped after {self.seconds} s, the limit is {self.limit} s')
+        super().__init__(f'The snapshot of the working tree ({stage}, step: {step}) did not finish: {cause}. Nothing was recorded as passed. '
+                         f'It takes longer with more files that are neither ignored nor committed. ' +
+                         ('Extending the root deadline is the owner\'s decision.' if reason == 'deadline'
+                          else f'Set {SNAPSHOT_ENV} to more minutes (now {self.limit / 60:g}; the root deadline still applies), then run the same command again.'))
+
+    def structured(self):
+        started = self.verifier_started
+        return {'snapshot': {'stage': self.stage, 'step': self.step, 'seconds': self.seconds, 'limit_seconds': self.limit, 'reason': self.reason},
+                'verifier_started': 'unknown' if started is None else started,
+                'next': ('Read `verdict status`: the verifier may have run, it is not run again by itself.' if started is None else
+                         'The verifier ran: its receipt is kept and the verdict is inconclusive. Running it again is a new decision.' if started else
+                         ('The verifier was not called. Ask the owner about the root deadline.' if self.reason == 'deadline' else
+                          f'The verifier was not called. Raise {SNAPSHOT_ENV} and run `verdict run` again; no release is needed.'))}
+
+
+class _Budget:
+    def __init__(self, stage, limit):
+        self.stage, self.limit, self.begin, self.said, self.names = stage, limit, time.monotonic(), None, 0
+
+    def spent(self):
+        return time.monotonic() - self.begin
+
+    def left(self):
+        return self.limit - self.spent()
+
+    def check(self, step):
+        if self.left() <= 0: raise SnapshotFailed(self.stage, step, self.spent(), self.limit, 'deadline' if self.limit <= 0 else 'timeout')
+
+    def say(self, step):
+        """A line each PROGRESS_SECONDS, the first one after that long: a quick snapshot says nothing."""
+        now = time.monotonic()
+        if now - (self.said if self.said is not None else self.begin) < PROGRESS_SECONDS: return
+        self.said = now
+        print(f'onecrew: snapshot ({self.stage}): {step}, {int(self.spent())} s of {int(self.limit)} s', file=sys.stderr, flush=True)
+
+    def tick(self, step):
+        """Called for each name of a walk over the files: the walk stays inside the budget too."""
+        self.names += 1
+        if self.names % 1024 == 0:
+            self.check(step)
+            self.say(f'{step} ({self.names} names)')
+
+
+def snapshot_seconds():
+    """The budget of one snapshot, in seconds. A value that cannot be read is refused: it never turns into another limit, and there is no unlimited one."""
+    text = os.environ.get(SNAPSHOT_ENV, '').strip()
+    if not text: return SNAPSHOT_MINUTES * 60
+    try:
+        minutes = float(text)
+    except ValueError:
+        minutes = 0
+    if not 0 < minutes <= SNAPSHOT_MINUTES_MAX:
+        raise LedgerError(f'{SNAPSHOT_ENV} must be a number of minutes above 0 and at most {SNAPSHOT_MINUTES_MAX}, not {text!r}.')
+    return minutes * 60
+
+
+@contextmanager
+def snapshot_limits(deadline=None):
+    """Inside it, each snapshot has the budget of snapshot_seconds(), never more than the root `deadline` leaves."""
+    token = _limits.set({'seconds': snapshot_seconds(), 'deadline': deadline})
+    try:
+        yield
+    finally:
+        _limits.reset(token)
+
+
+@contextmanager
+def _snapshot(stage, floor=0):
+    """One snapshot's budget; a nested call shares it. Outside snapshot_limits there is none, and a git step keeps STEP_SECONDS. `floor`: what is left for
+    a step that must end a run whose verifier already ran, when the root deadline has passed meanwhile (the time the run's grace always gave it)."""
+    limits = _limits.get()
+    if limits is None or _active.get() is not None:
+        yield
+        return
+    limit = limits['seconds']
+    if limits['deadline'] is not None:
+        left = (dt.datetime.fromisoformat(limits['deadline']) - dt.datetime.now(dt.timezone.utc)).total_seconds()
+        limit = min(limit, max(left, floor))
+    budget = _Budget(stage, limit)
+    budget.check('start')
+    token = _active.set(budget)
+    try:
+        yield
+    finally:
+        _active.reset(token)
+
+
+def _bounded(function):
+    """A snapshot entry point: its own budget when it is the outermost one."""
+    @wraps(function)
+    def wrapper(*args, **kwargs):
+        with _snapshot('identity'):
+            return function(*args, **kwargs)
+    return wrapper
+
+
+def _tick(step):
+    budget = _active.get()
+    if budget is not None: budget.tick(step)
+
+
+def _feed(stream, data):
+    try:
+        if data: stream.write(data)
+        stream.close()
+    except OSError:                       # git ended (or was killed): nobody reads the rest
+        pass
+
+
+def _collect(stream, into):
+    try:
+        into.append(stream.read())
+    finally:
+        stream.close()
+
+
 def _git(directory, *args, env=None, input=None, raw=False):
     # F8: the caller's GIT_DIR / GIT_WORK_TREE / ... never reach git; only what this module sets (GIT_INDEX_FILE) does
     clean = {k: v for k, v in os.environ.items() if not k.upper().startswith('GIT_')}
-    done = subprocess.run(['git', '-C', str(directory), *args], capture_output=True, env=dict(clean, **{k: v for k, v in (env or {}).items() if k.upper().startswith('GIT_')}), timeout=120,
-                          creationflags=0x08000000 if os.name == 'nt' else 0, input=input)
-    if done.returncode:
-        reason = done.stderr.decode('utf-8', 'replace') if isinstance(done.stderr, bytes) else str(done.stderr or '')
-        raise LedgerError('git ' + ' '.join(args[:2]) + ' failed: ' + reason[:300])
-    return done.stdout if raw else done.stdout.decode('utf-8', 'replace').strip()
+    budget, step = _active.get(), ' '.join(a for a in args if not a.startswith('-') and '=' not in a)[:60] or 'git'
+    if budget is not None: budget.check(step)
+    limit = budget.left() if budget is not None else STEP_SECONDS
+    begin = time.monotonic()
+    # Threads, not subprocess.run(timeout): on Windows run() writes `input` first, and with thousands of names that write lasts as long as git works, so
+    # the limit was looked at only when git was nearly done. Here the limit holds while git reads its input, and a kill reaches only this git's own tree.
+    process = subprocess.Popen([*GIT_PROGRAM, '-C', str(directory), *args], stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, env=dict(clean, **{k: v for k, v in (env or {}).items() if k.upper().startswith('GIT_')}),
+                               creationflags=0x08000000 if os.name == 'nt' else 0)
+    out, err = [], []
+    pumps = [threading.Thread(target=_collect, args=(process.stdout, out), daemon=True), threading.Thread(target=_collect, args=(process.stderr, err), daemon=True)]
+    if input is not None: pumps.append(threading.Thread(target=_feed, args=(process.stdin, input), daemon=True))
+    for pump in pumps: pump.start()
+    try:
+        while True:
+            left = limit - (time.monotonic() - begin)
+            if left <= 0: raise subprocess.TimeoutExpired(process.args, limit)
+            try:
+                process.wait(timeout=min(left, PROGRESS_SECONDS))
+                break
+            except subprocess.TimeoutExpired:
+                if budget is not None: budget.say(step)
+    except subprocess.TimeoutExpired:
+        _kill_tree(process)
+        process.wait()
+        for pump in pumps: pump.join(5)
+        stage, spent = (budget.stage, budget.spent()) if budget is not None else ('outside a verifier', time.monotonic() - begin)
+        raise SnapshotFailed(stage, step, spent, budget.limit if budget is not None else STEP_SECONDS) from None
+    except BaseException:
+        _kill_tree(process)
+        raise
+    for pump in pumps: pump.join()
+    stdout, stderr = (out[0] if out else b''), (err[0] if err else b'')
+    if process.returncode:
+        raise LedgerError('git ' + ' '.join(args[:2]) + ' failed: ' + stderr.decode('utf-8', 'replace')[:300])
+    return stdout if raw else stdout.decode('utf-8', 'replace').strip()
 
 
 def toplevel(directory):
@@ -41,6 +216,7 @@ def toplevel(directory):
     return Path(_git(directory, 'rev-parse', '--show-toplevel')).resolve()
 
 
+@_bounded
 def artifact_sha(directory, verified=False):
     """Git tree hash of the working tree (tracked and untracked, honouring .gitignore), via a throw-away index: the
     repository's own index and refs are not touched. A name that hard_links finds (another name on the disk, a file through a junction, a name that
@@ -58,7 +234,7 @@ def artifact_sha(directory, verified=False):
     top = str(Path(_git(directory, 'rev-parse', '--show-toplevel')).resolve())
     linked = set(hard_links(top))
     if verified and linked: refuse_hard_links(top)
-    with tempfile.TemporaryDirectory() as temp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
         env = {'GIT_INDEX_FILE': str(Path(temp) / 'index')}
         _git(top, 'read-tree', 'HEAD', env=env)
         held, others = _listed(top, env, '--cached'), _listed(top, env, '--others', '--exclude-standard')
@@ -162,6 +338,7 @@ class _Pins:
     def pin(self, names):
         refused, gone = [], []
         for name in names:
+            _tick('opening the files')
             path = self.top.joinpath(*name.rstrip('/').split('/'))
             if self._beyond_link(name):
                 gone.append(name); continue
@@ -374,6 +551,7 @@ def _add_markers(top, linked, held, others, temp, env, why=None):
     if missing: raise LedgerError(f'git did not take the marker of {sorted(missing)[0]!r}: the identity of this working tree cannot be made.')
 
 
+@_bounded
 def hard_links(directory):
     """The working-tree names that a verifier's trees would take from the disk and that are not safe to hash: a file with another name on the disk (a
     hard link), a file reached through a junction (git walks into it as into a folder), and a name that cannot be examined. That other name or place
@@ -383,12 +561,13 @@ def hard_links(directory):
     every one is looked at, whatever the stat data of an index says. Names, link counts and reparse tags only: nothing is read."""
     top = Path(_git(directory, 'rev-parse', '--show-toplevel'))
     listed = _git(top, 'ls-files', '-z', '--cached', raw=True)                     # the real index
-    with tempfile.TemporaryDirectory() as temp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
         env = {'GIT_INDEX_FILE': str(Path(temp) / 'index')}
         _git(top, 'read-tree', 'HEAD', env=env)
         listed += b'\0' + _git(top, 'ls-files', '-z', '--cached', '--others', '--exclude-standard', env=env, raw=True)
     found, folders = set(), {}
     for name in set(listed.decode('utf-8', 'surrogateescape').split('\0')) - {''}:
+        _tick('looking for links')
         parts, crossed = name.split('/'), False
         try:
             for depth in range(1, len(parts)):
@@ -405,6 +584,7 @@ def hard_links(directory):
     return sorted(found)
 
 
+@_bounded
 def refuse_hard_links(directory):
     """Raise HardLinked, with the reason and the way out, when hard_links finds a name."""
     found = hard_links(directory)
@@ -422,6 +602,7 @@ def refuse_hard_links(directory):
                          'read under this one. Replace it with a copy, or move it out of the working tree, and try again.')
 
 
+@_bounded
 def verified_sha(directory):
     """artifact_sha for a verifier and for an approval: refused before git hashes anything when hard_links finds a name. The run stops with the reason;
     it cannot go on without that file, as a tree that leaves it out is another artifact."""
@@ -429,6 +610,7 @@ def verified_sha(directory):
     return artifact_sha(directory, verified=True)
 
 
+@_bounded
 def tracked_tree(directory):
     """Git tree hash of what Git tracks now: a copy of the repository's real index (so a new file that was `git add`ed is in it) plus the
     modifications and deletions of the files in it (`add -u`), through a throw-away index. Unlike artifact_sha, an untracked file is never in it, and
@@ -439,7 +621,7 @@ def tracked_tree(directory):
     top = str(Path(_git(directory, 'rev-parse', '--show-toplevel')).resolve())
     real = Path(_git(top, 'rev-parse', '--git-path', 'index'))
     real = real if real.is_absolute() else Path(top) / real
-    with tempfile.TemporaryDirectory() as temp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
         env = {'GIT_INDEX_FILE': str(Path(temp) / 'index')}
         if real.is_file(): shutil.copyfile(real, env['GIT_INDEX_FILE'])
         else: _git(top, 'read-tree', 'HEAD', env=env)                  # a repository whose index was never written: what HEAD holds is what Git tracks
@@ -603,31 +785,54 @@ def expected_result(receipt):
     return 'pass' if receipt['exit_code'] == 0 else 'fail'
 
 
+@contextmanager
+def before_verifier():
+    """What fails in here failed before the verifier was called, and the error says so: a new run may start, no release is needed (W37a keeps a run
+    of unknown outcome only when that is not known)."""
+    try:
+        yield
+    except SnapshotFailed as failed:
+        failed.verifier_started = False
+        raise
+
+
 def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context=None, *, effective_environment=None, deadline=None):
     """Execute the milestone's command; returns (receipt_blob, receipt)."""
     argv, limit = milestone['verifier']['config']['argv'], milestone['verifier']['config']['max_minutes']
     directory = Path(directory).resolve()
     if not directory.is_dir(): raise LedgerError('Verifier working directory does not exist: ' + str(directory))
-    before = verified_sha(directory)
-    scratch = tempfile.mkdtemp(prefix='ocv-')
-    try:
-        return _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context,
-                    effective_environment=effective_environment, deadline=deadline)
-    finally:
-        shutil.rmtree(scratch, ignore_errors=True)
+    with snapshot_limits(deadline):
+        begin = time.monotonic()
+        with before_verifier(), _snapshot('before the verifier'):
+            before = verified_sha(directory)
+        timing = {'before_seconds': round(time.monotonic() - begin, 2), 'limit_seconds': round(snapshot_seconds(), 1)}
+        scratch = tempfile.mkdtemp(prefix='ocv-')
+        try:
+            return _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context,
+                        effective_environment=effective_environment, deadline=deadline, timing=timing)
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
 
 
-def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context=None, *, effective_environment=None, deadline=None):
-    workspace = _checkout(directory, before, scratch)
-    # S1: children are always UTF-8, so a Vietnamese path or message cannot turn a pass into an encoding failure.
-    env = verifier_env(directory) if effective_environment is None else dict(effective_environment)
-    from .. import verification_evidence
-    binding = verification_evidence.for_receipt(ledger, evidence_context, milestone, before, env) if evidence_context else None
+def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context=None, *, effective_environment=None, deadline=None, timing=None):
+    timing = dict(timing or {})
+    begin = time.monotonic()
+    with before_verifier():                            # up to the Popen below the verifier has not been called, whatever fails here
+        with _snapshot('checkout for the verifier'):
+            workspace = _checkout(directory, before, scratch)
+        timing['checkout_seconds'] = round(time.monotonic() - begin, 2)
+        # S1: children are always UTF-8, so a Vietnamese path or message cannot turn a pass into an encoding failure.
+        env = verifier_env(directory) if effective_environment is None else dict(effective_environment)
+        from .. import verification_evidence
+        binding = verification_evidence.for_receipt(ledger, evidence_context, milestone, before, env) if evidence_context else None
     started, error, timed_out, code, out, err = utcnow(), None, False, None, b'', b''
     begin = time.monotonic()
     if deadline is not None:
         left = (dt.datetime.fromisoformat(deadline) - dt.datetime.now(dt.timezone.utc)).total_seconds()
-        if left <= 0: raise LedgerError('The original root deadline elapsed before verifier command dispatch.')
+        if left <= 0:
+            failed = LedgerError('The original root deadline elapsed before verifier command dispatch.')
+            failed.verifier_started = False
+            raise failed
         limit = min(limit, left / 60)
     try:
         process = subprocess.Popen(argv, cwd=str(workspace), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -641,14 +846,21 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
             out, err = process.communicate()
     except OSError as problem:
         error = f'{type(problem).__name__}: {problem}'[:300]
+    seconds = round(time.monotonic() - begin, 2)       # the verifier alone: the snapshots around it are in `snapshot` of the receipt
+    finished = time.monotonic()
     try:
-        after = verified_sha(directory)                # made the way the before one is: a link the command made is not hashed into a tree (D-R05)
+        with _snapshot('after the verifier', floor=STEP_SECONDS):
+            after = verified_sha(directory)            # made the way the before one is: a link the command made is not hashed into a tree (D-R05)
     except LedgerError as problem:                     # the command ran: its receipt is kept, inconclusive, with the reason (review E-R01)
         after, error = None, error or f'the artifact after the command cannot be identified: {problem}'[:300]
+        if isinstance(problem, SnapshotFailed):
+            problem.verifier_started = True
+            timing['failed'] = problem.structured()
+    timing['after_seconds'] = round(time.monotonic() - finished, 2)
     store = Snapshots(ledger.state_root)
     receipt = {'kind': 'command-receipt', 'plan': name, 'revision': revision, 'plan_sha': plan_sha, 'milestone': milestone['id'],
                'argv': argv, 'cwd': str(directory), 'exit_code': code, 'timed_out': timed_out, 'error': error,
-               'seconds': round(time.monotonic() - begin, 2), 'started': started, 'artifact_sha': before, 'artifact_sha_after': after,
+               'seconds': seconds, 'snapshot': timing, 'started': started, 'artifact_sha': before, 'artifact_sha_after': after,
                'stdout': store.blob(out[-OUTPUT_CAP:]), 'stderr': store.blob(err[-OUTPUT_CAP:]),
                'stdout_bytes': len(out), 'stderr_bytes': len(err), 'output_truncated': len(out) > OUTPUT_CAP or len(err) > OUTPUT_CAP}
     rule = suspicious_rule(receipt)

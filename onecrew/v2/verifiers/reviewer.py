@@ -308,8 +308,11 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
     started, begin = utcnow(), time.monotonic()
     hidden, unshown, binary = [], [], []
     try:       # the artifact first; what the reviewer is shown is cut from ONE tree made right after it, and checked against it
-        before = command.verified_sha(directory)
+        with command.before_verifier():
+            before = command.verified_sha(directory)
         no_artifact = None
+    except command.SnapshotFailed:      # not the same as git being unable to make it: no verdict is recorded, the same run can be tried again
+        raise
     except LedgerError as problem:      # git cannot make the artifact (a repository with no commit, say): the verdict is inconclusive, with this reason
         before, no_artifact = NO_ARTIFACT, f'the artifact of the working tree cannot be made, so nothing is reviewed: {problem}'
     try:

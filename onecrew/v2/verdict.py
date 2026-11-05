@@ -279,7 +279,8 @@ def artifact(ledger, name):
     """The artifact sha of the project now (what a verdict run now would observe, and what `owner accept --artifact-sha` takes)."""
     with ledger.transaction() as conn:
         plans.anchor_events(ledger, conn, name)
-    return {'artifact_sha': artifacts.identity(ledger.project)}
+    with command.snapshot_limits():
+        return {'artifact_sha': artifacts.identity(ledger.project)}
 
 
 def run(ledger, name, milestone_id, directory=None):
@@ -321,7 +322,7 @@ def run(ledger, name, milestone_id, directory=None):
     recovered = reconcile(ledger, name, revision, milestone_id)           # W37a: a run of unknown outcome is settled, or held, before any new dispatch
     if recovered is not None:
         return recovered
-    run_id = _begin_run(ledger, name, revision, milestone_id, kind, minutes, check=_check_request(ledger, state, revision, sha, contract, milestone, directory))
+    run_id = _begin_run(ledger, name, revision, milestone_id, kind, minutes, check=_check_request(ledger, state, revision, sha, contract, milestone, directory, deadline=bounded.get('deadline')))
     evidence_context = ({'evidence_context': {'selector': state['selector'], 'revision': revision, 'contract': contract}}
                         if namespaces.has_capability(state, 'sequential-engine') else {})
     integrity = None
@@ -342,9 +343,11 @@ def run(ledger, name, milestone_id, directory=None):
             if namespaces.has_capability(state, 'finding-register'):
                 from . import findings
                 context['open_findings'] = findings.reviewer_context(ledger, name, milestone_id, task_id=state['task_id'])
-            blob, receipt = reviewer.run(ledger, state['name'], revision, sha, milestone, directory, level, approved, previous, **context)
+            with command.snapshot_limits(bounded.get('deadline')):
+                blob, receipt = reviewer.run(ledger, state['name'], revision, sha, milestone, directory, level, approved, previous, **context)
         else:
-            blob, receipt = port.run(ledger, state['name'], revision, sha, milestone, directory, **evidence_context, **bounded)
+            with command.snapshot_limits(bounded.get('deadline')):
+                blob, receipt = port.run(ledger, state['name'], revision, sha, milestone, directory, **evidence_context, **bounded)
             port.record_violations(ledger, name, revision, milestone_id, blob, receipt)
         phase = 'after_verifier'
         _mark(ledger, run_id, 'receipt', {'blob': blob, 'receipt': receipt, 'integrity': integrity, 'cwd': str(directory)})   # the effect is known from here on
@@ -358,6 +361,7 @@ def run(ledger, name, milestone_id, directory=None):
             plans.emit(ledger, conn, current['task_id'], 'verdict.receipt_issued',
                        {'plan': current['name'], 'revision': revision, 'milestone': milestone_id, 'receipt': blob, 'cwd': str(directory), 'run_id': run_id})
     except BaseException as error:
+        if getattr(error, 'verifier_started', None) is False: phase = 'before_dispatch'     # proven by the code that raised it: the verifier was not called
         _abandon_own(ledger, name, run_id, error, phase)
         raise
     result = integrity_result(_result(kind, receipt), integrity)      # T19 [E1]/[E3]: red on a weakened suite, not green on an unproven one
@@ -784,13 +788,16 @@ def reap(ledger, name, now=None, alive=None):
     return closed
 
 
-def _check_request(ledger, state, revision, sha, contract, milestone, directory):
+def _check_request(ledger, state, revision, sha, contract, milestone, directory, *, deadline=None):
     """2.5-B: the same request id CandidateChecker claims for this milestone on this tree, read before dispatch from what the runtime will
     execute (the approved verifier config, the effective environment, the current artifact). None when the artifact cannot be identified:
     the verifier then refuses by itself, and no reuse or dedupe is claimed for the run."""
     from . import review_dispatch
+    if not namespaces.has_capability(state, 'sequential-engine'):
+        return None                              # no candidate door exists for this legacy/hook-only root
     try:
-        candidate = artifacts.identity(directory)
+        with command.snapshot_limits(deadline):
+            candidate = artifacts.identity(directory)
         return review_dispatch._milestone_request(ledger, state['task_id'], state['name'], revision, sha, contract, milestone, candidate), candidate
     except (LedgerError, OSError, ValueError, TypeError, KeyError):
         return None
@@ -826,6 +833,7 @@ def unsettled_run(ledger, conn, task_id, same_work):
 def _begin_run(ledger, name, revision, milestone_id, kind, max_minutes, check=None):
     request, candidate = check if check else (None, None)
     reap(ledger, name)                                              # a lost earlier run must not refuse this one
+    snapshot = command.snapshot_seconds()
     started = _now()
     run_id = uuid.uuid4().hex[:12]
     with ledger.transaction(write=True) as conn:                    # the check and the write are one transaction: two runs cannot both pass it
@@ -847,7 +855,8 @@ def _begin_run(ledger, name, revision, milestone_id, kind, max_minutes, check=No
                    {'plan': name, 'revision': revision, 'milestone': milestone_id, 'run_id': run_id, 'kind': kind, 'pid': os.getpid(), 'host': this_host(),
                     'started': started.isoformat(), 'max_minutes': max_minutes,
                     **({'request_id': request['id'], 'request': request, 'candidate': candidate} if request is not None else {}),
-                    'deadline': (started + dt.timedelta(minutes=max_minutes, seconds=RUN_GRACE_SECONDS)).isoformat()})
+                    # what the run may spend around the verifier: three snapshots (before, checkout, after), or a long one looks like a lost run to `reap`
+                    'deadline': (started + dt.timedelta(minutes=max_minutes, seconds=RUN_GRACE_SECONDS + 3 * snapshot)).isoformat()})
     return run_id
 
 

@@ -400,8 +400,9 @@ def _base_tracked(ledger):
     starts, so no untracked content can be on the base side of it. None outside a Git repository."""
     from .verifiers import command
     try:
-        command.refuse_hard_links(ledger.project)          # its content may be a kept file's: never hashed into a pinned base (review D-R04)
-        return command.tracked_tree(ledger.project)
+        with command.snapshot_limits():
+            command.refuse_hard_links(ledger.project)      # its content may be a kept file's: never hashed into a pinned base (review D-R04)
+            return command.tracked_tree(ledger.project)
     except command.HardLinked:
         raise
     except (LedgerError, OSError, subprocess.SubprocessError):
@@ -413,7 +414,8 @@ def _base_artifact(ledger):
     holds a hard-linked name (or one reached through a junction) is refused, never approved without a base (command.verified_sha, review D-R02)."""
     from .verifiers import command
     try:
-        return command.verified_sha(ledger.project)
+        with command.snapshot_limits():
+            return command.verified_sha(ledger.project)
     except command.HardLinked:
         raise
     except (LedgerError, OSError, subprocess.SubprocessError):
@@ -426,7 +428,8 @@ def _refuse_hard_links(ledger):
     the link with a copy and approves again; nothing is recorded until then."""
     from .verifiers import command
     try:
-        command.refuse_hard_links(ledger.project)
+        with command.snapshot_limits():
+            command.refuse_hard_links(ledger.project)
     except command.HardLinked:
         raise
     except (LedgerError, OSError, subprocess.SubprocessError):

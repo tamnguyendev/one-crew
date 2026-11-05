@@ -437,7 +437,8 @@ def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context
     if not directory.is_dir(): raise LedgerError('Verifier working directory does not exist: ' + str(directory))
     scratch = tempfile.mkdtemp(prefix='ocv-')
     try:
-        workspace, before, proof = artifact.capture(ledger, directory, scratch)
+        with artifact.command.before_verifier():
+            workspace, before, proof = artifact.capture(ledger, directory, scratch)
         return _run(ledger, adapter, name, revision, plan_sha, milestone, directory, before, scratch, workspace, proof, evidence_context, deadline=deadline)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
