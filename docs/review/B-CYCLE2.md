@@ -31,6 +31,7 @@ result arrived after a hold: kept as `review.run_result`, not published), `publi
   `review_dispatch._milestone_execution`), chosen by exact type in `engine._execution_of`. A look-alike or plain callable gets none:
   it can still run, its result is never reusable by identity. `independence` on a run row is always `not_established`; the actual
   judgement stays `reviewer.check_independence` on real producer pins, recorded in the reviewer receipt.
+- The claim re-reads state, phase, artifact and generation in its own write transaction. A door that read the node before another door published is refused, not given a new request.
 - In-flight: same work (`_work_key`: identity without execution/environment/configuration fingerprints) = observe. Another shell with a
   different TEMP is one piece of work while it runs.
 - Reuse: exact request, `evidence_status == applies`, then the proof must pass `proof_mismatch` and `expected_result == pass`; a reused
@@ -50,6 +51,8 @@ result arrived after a hold: kept as `review.run_result`, not published), `publi
 | Input/criteria/policy changed before publication | run finished `stale`, retained, no `node.verification` | new generation = new request |
 | Release | `review.run_finished {outcome:'released', reason, actor, budget_reset:false}` | next call dispatches; used budget stays used, exactly-once is not promised |
 
+The tools door follows the same rule: an exception from `engine step --checks` is held after one call. Before this cycle it was tried again up to `TOOLS_TRIES` times; the expectation in `tests/test_v24_c_review.py` (C-R08) was changed for RV-T3.
+
 Run ends are `review.run_finished` outcomes, so no new event kind was needed. The provider port keeps its own Control-attempt guard (`metered_verifier`).
 
 ## 5. What A can authenticate (`close_from_recheck`, `review_trace`)
@@ -63,7 +66,7 @@ Read with `review_dispatch.check_runs(ledger, selector)` or `review_dispatch.run
 | `verdict.run` | `verdict.run_started {run_id, request_id, request, candidate}`, `verdict.receipt_issued {run_id, receipt}`, `verdict.recorded` | same receipt kinds |
 | `optional` | `review.run_finished {receipt, applicable}` | `optional-review-observation`, `authority:'none'`: never a pass and must not close a finding |
 
-An authentic recheck is a receipt returned by `run_of_receipt` with `outcome` `published`/`observed`/`recorded`, `request.id` equal to the request bound to the repaired output, and the blob's own result. Not authentic: a held, stale, released or not-dispatched run; `late` until reconciled.
+A's `findings.close_from_recheck` authenticates a receipt through `node.verification` and `verdict.recorded`, so a held, stale, released, not-dispatched or `late` run closes nothing. `review_dispatch.recheck_request(ledger, selector, finding, receipt)` builds the v2 request it asks for, and refuses a receipt no run of this root issued. Proven on A's merged `21a0609`: `tests/test_review_b2_e2e.py`, `RecheckClosure` (verdict door, doc adapter) and `NodeRecheckClosure` (engine door).
 
 ## 6. Investigation review (RV-T6)
 
@@ -94,6 +97,10 @@ Red on base `01b10e1`, behaviour failures:
 | Stop hook on a delivered workflow root | told the session to run `verdict run` |
 | Two doors on one reviewer milestone | the command milestone ran twice and the second door got a raw "Verifier outcome is unknown" from the metered guard; the guard did stop a second provider call |
 
+Red during this cycle, on my own earlier commit: a door that read the node before another door published dispatched again (2 calls); the candidate door took 4 environment snapshots instead of 1.
+
+Independent branches: `tests/test_review_b2_e2e.py`, `IndependentBranchCase`, uses real command checks. The failed node C and integration I are blocked, X is not; X runs and verifies; X keeps its generation and receipt through C's repair; delivery then succeeds. `test_review_b2_lifecycle.IndependentBranch` is the same for a held check. Inherited: `test_wf_r10_d6_finding_repair`, `test_wf_t04d_finding_holds_branch`. These pass on base apart from the new run fields: they guard existing behaviour, they are not red-to-green.
+
 ## 8. Limits
 
 - No real provider ran. Provider behaviour after a lost connection, and whether an investigation answer is useful, are unproven. Exactly-once is not promised across a provider boundary.
@@ -103,3 +110,13 @@ Red on base `01b10e1`, behaviour failures:
 - In-flight dedupe needs writers of this version on one state root; an older runtime does not take part.
 - Reuse is exact-request only. The neutral-change route in `evidence_status` is not used by a door yet: a changed candidate is checked again.
 - A run from another machine is observed until its deadline, then held; liveness is only known on this host.
+- A check that outlives its deadline (twice the node cap + 120 s) can be held by a second door although its process is alive. Its result then arrives `late`, is kept, and the next call publishes it without running anything. No double effect, but a short held state is possible.
+
+## 9. The `test_a_r13` race (`engine step`, worker door)
+
+`test_v24_a_review.py::test_a_r13_two_concurrent_continuations_run_one_attempt` runs in `engine.step`, whose worker path this cycle did not change, so whatever caused the MR-R failure is still there. Compared with `wf-mrr` `ad3d19d`, the `engine.step` worker path is the same; `source_tools.py` differs only in multi-repository branches this test does not take.
+
+- Not reproduced: 100 rounds in 4 processes with harness jitter at the step boundaries gave `produced`/`waiting`, one further model call and no hold (`logs/race-jitter-p*.jsonl`).
+- Same shape by injection: one failed write after the model call (`database is locked`) gives exactly `['held','waiting']`, one further call, `node.held` classification `unknown` (`logs/race-inject.log`). So any exception after dispatch produces that result, and the second door only happens to be `waiting`. The ledger's SQLite wait is 10 s (`ledger.py`). This is a candidate cause, not proof: the MR-R run kept no reason.
+- The test now prints the `node.held` reason when it fails, so the next occurrence names its cause.
+- The check doors in this cycle do not hold because of a race: the second door gets `pending` or a refusal. Only the run's owner holds, on its own exception; see the deadline limit above.
