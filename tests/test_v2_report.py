@@ -276,10 +276,12 @@ class DigestTests(Scenario):
     def test_open_plans_come_first_newest_event_first_and_closed_plans_make_one_line(self):
         lines = self.lines()
         opened = [l for l in lines if 'cần bạn làm gì:' in l]
-        self.assertEqual([l.split()[0] for l in opened], ['rogue', 'pres', 'gone', 'prop'])      # latest event first
-        self.assertEqual(lines[-1], '3 việc đã đóng: 1 nghiệm thu, 1 dừng, 1 hỏng')
+        self.assertEqual(sorted(l.split()[0] for l in opened if 'stopped_with_report' not in l), sorted(['rogue', 'pres', 'gone', 'prop']))
+        self.assertEqual([l.split()[0] for l in opened if 'stopped_with_report' not in l], ['rogue', 'pres', 'gone', 'prop'])      # latest event first
+        self.assertEqual(len([l for l in opened if 'stopped_with_report' in l]), 1, 'a stopped plan waits for its owner: it stays on the list')
+        self.assertEqual(lines[-1], '2 việc đã đóng: 1 nghiệm thu, 1 hỏng; 1 việc đã dừng chờ bạn quyết định')
         self.assertEqual(len(lines), 1 + len(opened) + 1)
-        self.assertTrue(opened[3].endswith('cần bạn làm gì: duyệt bản 1'))
+        self.assertTrue([l for l in opened if 'stopped_with_report' not in l][3].endswith('cần bạn làm gì: duyệt bản 1'))
         self.assertIn('mốc 1/1', opened[0]); self.assertTrue(opened[0].endswith('cần bạn làm gì: nghiệm thu'))
         self.assertIn('mốc 0/1', opened[1]); self.assertTrue(opened[1].endswith('cần bạn làm gì: không gì'))     # the AI has not run a check yet
         self.assertTrue(opened[2].endswith(f'cần bạn làm gì: {report.NO_DATA}'))             # the contract file is gone
@@ -313,7 +315,7 @@ class DigestTests(Scenario):
         opened = [l for l in lines if 'cần bạn làm gì:' in l]
         self.assertEqual(len(opened), 10)
         self.assertEqual([l.split()[0] for l in opened], [f'p{n}' for n in range(13, 3, -1)])      # newest first
-        self.assertIn('(còn 4 việc mở nữa', lines[-2]); self.assertEqual(lines[-1], '0 việc đã đóng: 0 nghiệm thu, 0 dừng, 0 hỏng')
+        self.assertIn('(còn 4 việc mở nữa', lines[-2]); self.assertEqual(lines[-1], '0 việc đã đóng: 0 nghiệm thu, 0 hỏng')
 
 
 class ReadOnlyTests(Scenario):

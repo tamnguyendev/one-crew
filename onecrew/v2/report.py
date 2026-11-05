@@ -265,7 +265,7 @@ def _needs(f):
     if f['contract'] is None: return NO_DATA
     if f.get('runtime_unknowns'):
         return 'giải điều chưa biết thuộc chủ sở hữu' if any(u['resolver']=='owner' for u in f['runtime_unknowns']) else 'chưa cần quyết; AI cần giải unknown đúng phần bị giữ'
-    if _open_findings(f): return 'chưa cần quyết; AI cần xử lý finding còn mở trước khi bàn giao'
+    if _open_findings(f): return 'chưa cần quyết; AI cần xử lý finding còn mở'
     if f.get('finding_error'): return 'chưa thể nghiệm thu: không đọc được sổ finding'
     first = next((v for v in f['views'] if v['state'] != 'passed'), None)
     if first is None or (first['state'] == 'pending' and first['verifier'] == 'owner-manual'): return 'nghiệm thu'
@@ -545,7 +545,8 @@ def render_digest(state_root):
     for row, last in anchors:
         f = _gather(state_root, row)
         kind, _ = _standing(f)
-        if kind != 'open': counts[kind] += 1; continue
+        if kind not in ('open', 'stopped'): counts[kind] += 1; continue
+        if kind == 'stopped': counts[kind] += 1                                    # not closed: the owner decides it, so it stays on the list with that decision
         passed = len([v for v in f['views'] if v['state'] == 'passed'])
         total = f'{passed}/{len(f["views"])}' if f['contract'] else '?/?'
         label = f['name'] if names.count(f['name']) == 1 else f'{row["request_key"]} [{row["project_id"][:12]}]'
@@ -557,20 +558,24 @@ def render_digest(state_root):
                 role = 'chủ sở hữu' if guidance['owner_only'] else 'bộ thực thi'
                 next_step = '; bước tiếp theo (' + role + '): ' + guidance['reason']
                 if guidance['kind'] == 'owner_accept': need = 'nghiệm thu'
+                elif kind == 'stopped': pass
                 elif guidance['state'] == 'stopped': need = 'đã dừng: đọc lý do, bằng chứng được giữ'
                 elif guidance['owner_only'] and need.startswith('chưa cần quyết'):
                     need = 'quyết định quyền hoặc ngân sách còn thiếu'
                 elif need in (NOTHING, 'nghiệm thu'): need = 'quyết định quyền còn thiếu' if guidance['owner_only'] else 'chưa cần quyết'
             except (LedgerError, OSError, ValueError, KeyError, TypeError) as error:
                 next_step = '; chưa xác minh được bước engine tiếp theo: ' + str(error)[:160]
+        if kind == 'stopped' and not next_step:
+            next_step = '; đã dừng ở mốc ' + str((f['state']['stopped'].get(f['state']['latest']) or {}).get('milestone')) + ': xem plan show'
         opened.append((last, f'{label:<38} {f["state"]["status"]:<12} mốc {total:<5} cần bạn làm gì: {need}' + next_step))
     opened.sort(key=lambda item: item[0], reverse=True)
     lines = [f'TÓM TẮT CÁC VIỆC ({len(anchors)} kế hoạch) — sổ: {Path(state_root).resolve()}']
     lines += [text for _, text in opened[:OPEN_CAP]]
     if len(opened) > OPEN_CAP: lines.append(f'(còn {len(opened) - OPEN_CAP} việc mở nữa, không hiển thị)')
     if not anchors: lines.append(NO_DATA)
-    else: lines.append(f'{sum(counts.values())} việc đã đóng: {counts["accepted"]} nghiệm thu, {counts["stopped"]} dừng, {counts["failed"]} hỏng' +
-                       (f', {counts["closed"]} chủ sở hữu đóng' if counts['closed'] else ''))
+    else: lines.append(f'{counts["accepted"] + counts["failed"] + counts["closed"]} việc đã đóng: {counts["accepted"]} nghiệm thu, {counts["failed"]} hỏng' +
+                       (f', {counts["closed"]} chủ sở hữu đóng' if counts['closed'] else '') +
+                       (f'; {counts["stopped"]} việc đã dừng chờ bạn quyết định' if counts['stopped'] else ''))
     return '\n'.join(lines) + '\n'
 
 

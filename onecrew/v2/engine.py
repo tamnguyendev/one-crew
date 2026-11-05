@@ -1181,6 +1181,7 @@ def next_action(ledger, selector, node=None, *, conn=None, view=None, observe_pr
     if node is None:
         from . import verdict as verdicts
         held_runs = verdicts.held_runs(conn, root['task_id'])
+        held_runs.update({run['run_id']: run for run in verdicts.runs_to_hold(ledger, conn, root['task_id'])})
         if held_runs:
             run_id, hold = next(iter(held_runs.items()))
             return action('release_run', 'held', 'Lần chạy verdict của mốc ' + str(hold.get('milestone')) + ' không rõ kết quả: xem verifier đã làm gì, rồi ghi quyết định bằng release-run để cho chạy lại. Không gì tự chạy lại.',

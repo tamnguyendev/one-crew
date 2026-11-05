@@ -55,6 +55,7 @@ function workStage(t){var s=t.status||{},n=t.nodes_summary||{},l=(t.level||{}).k
   if(t.has_started||(t.milestones||[]).some(function(m){return (!!m.state&&m.state!=='pending')||!!m.last_verdict}))return 'doing';     // R7-2: the API's own milestone states (passed/failed/stopped) and has_started (verdicts, runs, attempts)
   if(t.root_status==='approved'||t.root_status==='proposed')return 'todo';return 'unknown'}
 function workStatus(t){var needs=t.needs_user||[],s=t.status||{},n=t.nodes_summary||{},stage=workStage(t),request=needs.find(function(n){return n.kind==='request'});
+  if(s.label==='đã dừng')return 'Đã dừng · chờ bạn quyết định';
   if(s.kind==='blocked')return 'Có trở ngại'+((t.active||[]).length?' · phần khác vẫn thực hiện':'');
   if(t.root_status==='proposed'||needs.some(function(n){return n.kind==='approve'}))return (t.active||[]).length?'Đang thực hiện · chờ duyệt thay đổi':'Chờ bạn duyệt kế hoạch';
   if(s.kind==='running')return 'Đang thực hiện';

@@ -561,6 +561,21 @@ def held_runs(conn, task_id):
     return {run_id: _hold_of(rows) for run_id, rows in _reconcile_events(conn, task_id).items() if _hold_of(rows) is not None}
 
 
+def runs_to_hold(ledger, conn, task_id, now=None, alive=None):
+    """Read only: the runs the next `verdict run` of their milestone would hold, by the same marker rules as `reconcile`. They have no hold record yet,
+    because reconcile writes it lazily; a reader must not name a door that can only refuse. Marker absent, a refusal before dispatch, or a finished verifier: not here."""
+    now, alive = now or _now(), alive or process_alive
+    events = _reconcile_events(conn, task_id)
+    found = []
+    for run in run_records(conn, task_id):
+        if run['receipt'] is not None or 'verdict.run_reconciled' in events.get(run.get('run_id'), {}): continue
+        abandoned = run['abandoned']
+        if abandoned is None and not (_open(run) and lost_reason(run, now, alive)): continue
+        if abandoned is not None and abandoned.get('reason') == 'error' and _refused_before_x(abandoned): continue
+        if _marker(ledger, run['run_id'], 'receipt') is None and _marker(ledger, run['run_id'], 'dispatched') is not None: found.append(run)
+    return found
+
+
 def _hold_of(rows):
     if 'verdict.run_released' in rows: return None
     held = rows.get('verdict.run_held')
@@ -724,6 +739,14 @@ def release_run(ledger, name, run_id, reason):
     silence, a restart or a second `verdict run`. It does not change the grant: the next run is checked by the same rules as any run."""
     text_field(reason, 'reason', 2000)
     if not reason.strip(): raise LedgerError('A release needs a reason (what was checked about the lost run).')
+    with ledger.transaction() as conn:
+        state = plans.anchor_events(ledger, conn, name)
+        waiting = next((r for r in runs_to_hold(ledger, conn, state['task_id']) if r.get('run_id') == run_id), None)
+    if waiting is not None:           # the guidance names this run before anything recorded its hold: record it the one way there is, so the release answers a hold on record
+        try:
+            reconcile(ledger, name, waiting.get('revision'), waiting.get('milestone'))
+        except LedgerError:
+            pass
     with ledger.transaction(write=True) as conn:
         state = plans.anchor_events(ledger, conn, name)
         held = held_runs(conn, state['task_id'])

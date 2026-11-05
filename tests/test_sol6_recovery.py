@@ -174,7 +174,8 @@ class RepairChains(Chain):
         self.assertIn('amend', need['reason'])
         page = tracking.detail(self.ledger.state_root, 'P1')
         self.assertEqual(page['status']['kind'], 'blocked')
-        self.assertIn('đã dừng', page['status']['reason'])
+        self.assertEqual(page['status']['label'], 'đã dừng')
+        self.assertIn('đã dừng', page['current_step'])
         self.assertIn('đã dừng', report.render_digest(self.ledger.state_root))
 
     def test_s5_2_the_digest_does_not_call_an_open_engine_root_closed(self):
@@ -590,6 +591,24 @@ class Stopped(Chain):
         self.assertEqual(self.final()['milestones'][0]['state'], 'passed')
         self.assertEqual(self.accept(delivered['artifact'])['status'], 'accepted')
 
+    def test_a_stopped_root_is_told_apart_from_a_block_and_from_a_closed_one_and_offers_only_real_choices(self):
+        self.deliver(); self.final(); self.repair()
+        self.overlays = {'a.txt': b'w2\n'}
+        self.deliver()
+        self.assertEqual(self.final()['status'], 'stopped_with_report')
+        page = tracking.detail(self.ledger.state_root, 'P1')
+        self.assertEqual((page['status']['kind'], page['status']['label']), ('blocked', 'đã dừng'))
+        question = next(n['question'] for n in page['needs_user'] if n['kind'] == 'stopped')
+        self.assertNotIn('tiếp tục', question)
+        need = self.need()
+        self.assertEqual(sorted(need['choices']), ['amend_plan', 'stop'], 'the one question on a stopped root has no continue')
+        text = report.render_digest(self.ledger.state_root)
+        row = next(line for line in text.splitlines() if line.startswith('P1'))
+        self.assertIn('cần bạn làm gì: trả lời câu hỏi', row)
+        self.assertIn('amend', row)
+        self.assertIn('0 việc đã đóng', text)
+        self.assertIn('1 việc đã dừng chờ bạn quyết định', text)
+
     def test_cas_still_refuses_a_hand_edit_after_an_amendment(self):
         self.deliver(); self.final(); self.repair()
         self.overlays = {'a.txt': b'w2\n'}
@@ -670,7 +689,30 @@ class ReadsAndStates(Chain):
         self.assertEqual(after['deadline'], before['deadline'])
         self.assertEqual(after['remaining_calls'], before['remaining_calls'])
 
-    def test_n1_a_held_final_run_names_its_release(self):
+    def test_n1_the_first_read_after_a_lost_final_run_names_its_release_and_writes_nothing(self):
+        self.deliver()
+        with patch.dict(os.environ, {'CI': 'other'}), patch.object(command, 'run', side_effect=RuntimeError('lost')):
+            with self.assertRaises(RuntimeError): verdict.run(self.ledger, 'P1', 'M1')
+        before = self.kinds()
+        need = self.need()
+        self.assertEqual(need['kind'], 'release_run')
+        self.assertIn('release-run', need['command'])
+        self.assertEqual(self.kinds(), before, 'the guidance is a read')
+        with self.assertRaisesRegex(LedgerError, 'non-empty'): verdict.release_run(self.ledger, 'P1', need['run'], ' ')
+        self.assertEqual(self.need()['kind'], 'release_run')
+        verdict.release_run(self.ledger, 'P1', need['run'], 'checked: nothing ran')
+        self.assertIn('verdict.run_held', self.kinds())
+        self.assertIn('verdict.run_released', self.kinds())
+        self.assertEqual(self.need()['kind'], 'verify_milestone')
+        self.assertEqual(self.final(red=False)['milestones'][0]['state'], 'passed')
+
+    def test_n1_a_refusal_before_the_verifier_started_is_not_held(self):
+        self.deliver()
+        with patch.object(verdict, '_mark', side_effect=OSError('no disk')):
+            with self.assertRaises(OSError): verdict.run(self.ledger, 'P1', 'M1')
+        self.assertEqual(self.need()['kind'], 'verify_milestone', 'nothing was dispatched, so there is nothing to release')
+
+    def test_n1_a_run_that_is_held_on_record_names_its_release_too(self):
         self.deliver()
         with patch.dict(os.environ, {'CI': 'other'}), patch.object(command, 'run', side_effect=RuntimeError('lost')):
             with self.assertRaises(RuntimeError): verdict.run(self.ledger, 'P1', 'M1')

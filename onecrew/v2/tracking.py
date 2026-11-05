@@ -50,6 +50,7 @@ LEVELS = ('none', 'produced', 'verified', 'accepted')
 LEVEL_WORDS = {'none': 'chưa có đầu ra', 'produced': 'đã tạo đầu ra', 'verified': 'đã kiểm', 'accepted': 'đã nghiệm thu'}
 # UX-05: a "done" root is one of three different things, and the word (and the colour the page gives it) says which
 OUTCOME_WORDS = {'accepted': 'đã nghiệm thu', 'verified': 'đã kiểm, chờ nghiệm thu', 'closed': 'đã đóng'}
+STOPPED_WORD = 'đã dừng'
 ELAPSED_LABEL = 'từ khi duyệt (thời gian lịch, gồm cả chờ)'
 NOISE = ('learning.outcome', 'control.intervention', 'context.entry', 'learning.incident', 'learning.lesson')
 NOT_TRACKED = 'chưa được theo dõi'
@@ -400,7 +401,7 @@ def _needs_user(state, requests, views, level, engine_view, project=None, state_
                       'source': [f"plan.{'amended' if state['latest'] > 1 else 'proposed'}:rev{state['latest']}"]})
     elif state['status'] == 'stopped_with_report':
         stopped = state['stopped'].get(state['latest']) or {}
-        needs.append({'kind': 'stopped', 'question': 'Đọc báo cáo dừng ở mốc ' + clean(stopped.get('milestone'), 50) + ' và quyết định (tiếp tục / amend / dừng)',
+        needs.append({'kind': 'stopped', 'question': 'Đọc báo cáo dừng ở mốc ' + clean(stopped.get('milestone'), 50) + ' và quyết định (amend để đi tiếp / kết thúc)',
                       'source': [f"milestone.stopped:rev{state['latest']}"]})
     elif state['status'] == 'approved' and level == 'verified':
         if acceptance and acceptance['ready']:
@@ -450,7 +451,7 @@ def _status(state, engine_view, attempts, progress, waits, requests, views, veri
     active = [a for a in attempts if a['status'] in ('reserved', 'running', 'unknown')]
     unknown = [a['id'] for a in active if a['status'] == 'unknown']
     if (guidance or {}).get('state') == 'stopped' and not active:
-        return 'blocked', 'đã dừng: ' + guidance['reason'], ['engine.next_action']
+        return 'blocked', guidance['reason'], ['engine.next_action']
     if engine_view is not None:
         from . import engine
         held = [nid for nid, r in engine_view['nodes'].items() if r.get('phase') == 'held']
@@ -992,6 +993,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
         if r['phase'] in counts: counts[r['phase']] += 1
         if r['state'] in counts: counts[r['state']] += 1
     outcome = _outcome(state, kind, level)
+    stopped_now = kind == 'blocked' and (state['status'] == 'stopped_with_report' or (guidance or {}).get('state') == 'stopped')    # the fifth state: nothing runs until the owner decides; a block has a next step
     active_rows = [{'attempt': a['id'], 'status': a['status'], 'since': a['created_at'], 'unit': a['unit'], 'stage': a['stage'],
                     'node': next((nid for nid, r in nodes.items() if r['attempt'] == a['id']), None)} for a in attempts if a['status'] in ('reserved', 'running', 'unknown')]
     item = {'id': row['id'], 'plan': state['name'], 'selector': row['request_key'], 'project': row['project_path'], 'project_id': row['project_id'],
@@ -999,10 +1001,10 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
             'created_at': row['created_at'], 'started_at': first_started, 'has_started': has_started, 'deadline': None,
             'node_titles': {n['id']: clean(n.get('goal'), 200) for n in ((engine_view or {}).get('definition') or {}).get('nodes', [])},
             'root_status': state['status'],
-            'status': {'kind': kind, 'label': OUTCOME_WORDS[outcome] if outcome else WORDS[kind], 'outcome': outcome, 'reason': clean(reason, 600), 'source': sources},
+            'status': {'kind': kind, 'label': OUTCOME_WORDS[outcome] if outcome else (STOPPED_WORD if stopped_now else WORDS[kind]), 'outcome': outcome, 'reason': clean(reason, 600), 'source': sources},
             'level': {'kind': level, 'label': LEVEL_WORDS[level]},
             'elapsed': _elapsed(state, events, now),
-            'current_step': clean((reason if (guidance or {}).get('state') == 'stopped' and kind == 'blocked' else _current_step(kind, state, engine_view, active_rows, requests, progress)) or reason, 200),
+            'current_step': clean((STOPPED_WORD + ': ' + reason if stopped_now and state['status'] != 'stopped_with_report' else _current_step(kind, state, engine_view, active_rows, requests, progress)) or reason, 200),
             'acceptance': acceptance,
             'next_action': guidance,
             'last_update': {'seq': last[0], 'kind': last[1], 'at': last[3], 'summary': clean(_summary(last[1], last[2]), 200)} if last else None,
