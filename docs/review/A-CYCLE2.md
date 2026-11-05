@@ -37,7 +37,7 @@ Environment: TEMP/TMP/LOCALAPPDATA/APPDATA under `D:/OneCrewRuns/cycle2/a`, Pyth
 | Test | Result | Log |
 |---|---|---|
 | `tests.test_review_a2_identity` | 17 OK | step2-green.txt (re-run in reg3) |
-| `tests.test_review_a2_findings` | 15 OK (9 closure/refusal/recurrence, 5 rerun-by-impact, 1 added) | step3-green.txt |
+| `tests.test_review_a2_findings` | 15 tests: 14 OK in step3-green.txt, the 15th (reuse provenance assertion) fixed afterwards and re-run alone: OK. The whole file was not re-run once more after that one-line edit | step3-green.txt |
 | `tests.test_review_a2_trace` | 5 OK | trace1.txt |
 | base-code reds | recurrence: `KeyError 'recurrence_of'`; unscoped rerun: widened set missing check-N1/N2/X (behaviour reds) | step3-red-base.txt, step3-rerun-red-base.txt |
 | regression by impact | reg1 (findings, scope, adapter findings) 36 run, 2 import errors in the two files that import `tests.test_v2_reviewer` (pre-existing: it does `from test_v2_l1`, needs `tests/` on the path); those two re-run with `PYTHONPATH=<this checkout>/tests`: 6 OK. reg2 (repair/r10 d6/t11/t04d/t35d) 24 OK. reg3 (review_request, dispatch lifecycle, wf_review_dispatch, evidence_binding, optional cli, a2 identity) 76 OK | reg1..4.txt |
