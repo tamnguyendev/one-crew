@@ -124,7 +124,7 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
                                                                             **({'reference': reference} if reference else {})))
         # W17: the authentic verdict and its findings commit together. A crash
         # cannot publish a failed criterion without its durable open finding.
-        if body and (body.get('kind') == 'reviewer-receipt' or port.known(milestone['verifier']['type'])) and namespaces.has_capability(state, 'finding-register'):
+        if body and (body.get('kind') in ('reviewer-receipt', 'command-receipt') or port.known(milestone['verifier']['type'])) and namespaces.has_capability(state, 'finding-register'):
             from . import findings
             findings.record_verification(ledger, name, milestone_id, receipt, conn=conn, task_id=state['task_id'],
                                          revision=revision, generation=body.get('generation', 1), write=contract['scope']['owned'])

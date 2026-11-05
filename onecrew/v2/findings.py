@@ -401,7 +401,8 @@ def record_verification(ledger, name, node, receipt, *, generation=1, severity='
     is_review = body.get('kind') == 'reviewer-receipt'
     if reviewer_only and not is_review:
         raise LedgerError('record_review needs a reviewer receipt.')
-    if not is_review:
+    is_command = body.get('kind') == 'command-receipt'
+    if not is_review and not is_command:
         from .verifiers import port
         kind = _milestone(contract, node)['verifier']['type']
         if not port.known(kind) or body.get('kind') != port.receipt_kind(kind):
@@ -416,7 +417,12 @@ def record_verification(ledger, name, node, receipt, *, generation=1, severity='
     value = _read(ledger, conn, root['id'])
     _refresh(value, contract)
     opened, merged = [], []
-    for row in body.get('criteria' if is_review else 'checks') or []:
+    rows = body.get('criteria' if is_review else 'checks') or []
+    if is_command:
+        # A nonzero command proves a failed check. Its cause is unknown;
+        # timeouts, missing tools and snapshot errors remain inconclusive.
+        rows = [{'id': node, 'ok': False, 'problems': ['command exited with code ' + str(body.get('exit_code'))]}] if result == 'fail' else []
+    for row in rows:
         failed = row.get('verdict') == 'fail' if is_review else row.get('ok') is False or bool(row.get('problems'))
         if not failed:
             continue
@@ -424,6 +430,8 @@ def record_verification(ledger, name, node, receipt, *, generation=1, severity='
         claim = canonical({'criterion': criterion, 'evidence': row.get('evidence' if is_review else 'problems') or []})
         item, fresh = _new(ledger, value, name, revision, sha, _milestone(contract, node), criterion, claim, receipt,
                            body['artifact_sha'], generation, severity, read, write, verdict_seq)
+        if is_command and fresh:
+            item.update(failure_kind='check_failure', cause='not_established')
         (opened if fresh else merged).append(item['id'])
     _save(ledger, conn, root, name, revision, value, action, receipt=receipt, opened=opened, merged=merged)
     return {'opened': opened, 'merged': merged, 'closed': []}
@@ -477,6 +485,10 @@ def _criterion_passes(target, body):
         criterion = next((c for c in body.get('criteria') or [] if c.get('id') == target['criterion']), None)
         if criterion is None or criterion.get('verdict') != 'pass':
             raise LedgerError('The evidence does not pass this finding criterion.')
+    elif body.get('kind') == 'command-receipt':
+        from .verifiers import command
+        if body.get('milestone') != target['criterion'] or command.expected_result(body) != 'pass':
+            raise LedgerError('The evidence does not pass this finding command check.')
     else:
         criterion = next((c for c in body.get('checks') or [] if c.get('id') == target['criterion']), None)
         if criterion is None or criterion.get('ok') is not True or criterion.get('problems'):
