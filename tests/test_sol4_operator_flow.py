@@ -31,6 +31,9 @@ class EnforcePreflightTests(Fixture):
             code, out = self.call(name, mode, human)
             self.assertNotEqual(code, 0, out)
             self.assertEqual(active_plan.policy(self.ledger), before)
+            if human:
+                self.assertIn('Chưa đổi chế độ', out)
+                self.assertNotIn('Chưa xác nhận được kết quả', out)
 
     def test_partial_export_error_reports_committed_mode_and_keeps_owner_guard(self):
         self.approved()
@@ -39,6 +42,7 @@ class EnforcePreflightTests(Fixture):
         self.assertEqual(code, 2, out)
         self.assertIn('đã ghi', out)
         self.assertIn('enforce', out)
+        self.assertNotIn('plan changed before export', out)
         self.assertEqual(active_plan.policy(self.ledger)['mode'], 'enforce')
         with patch.dict(os.environ, {'CLAUDE_CODE_CHILD_SESSION': '1'}):
             code, out = self.call('P1', 'log')
@@ -117,6 +121,10 @@ class TimeoutOperatorTests(ManagedFixture):
         self.assertEqual(result['state'], 'held', result)
         self.assertIn('execution', result['reason'].lower())
         self.assertEqual(result['next_action']['kind'], 'revise_node', result)
+        with patch.object(engine.ip, 'ceilings', return_value={'remaining_seconds': 120, 'remaining_calls': 0}):
+            need = engine.next_action(self.ledger, 'P1')
+        self.assertEqual(need['kind'], 'owner_decision')
+        self.assertTrue(need['owner_only'])
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             code = cli.main(['--project', str(self.root), '--state-root', str(self.ledger.state_root), 'engine', 'diagnose', 'P1', 'C'])

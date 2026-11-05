@@ -56,7 +56,7 @@ class SnapshotFailed(LedgerError):
                  else f'stopped after {self.seconds} s, the limit is {self.limit} s')
         super().__init__(f'The snapshot of the working tree ({stage}, step: {step}) did not finish: {cause}. Nothing was recorded as passed. '
                          f'It takes longer with more files that are neither ignored nor committed. ' +
-                         ('Extending the root deadline is the owner\'s decision.' if reason == 'deadline'
+                         ('The root execution window is exhausted; increasing the snapshot limit cannot extend it. Retain the evidence for an owner decision under a valid grant.' if reason == 'deadline'
                           else f'Set {SNAPSHOT_ENV} to more minutes (now {self.limit / 60:g}; the root deadline still applies), then run the same command again.'))
 
     def structured(self):
@@ -70,8 +70,9 @@ class SnapshotFailed(LedgerError):
 
 
 class _Budget:
-    def __init__(self, stage, limit):
+    def __init__(self, stage, limit, reason='timeout'):
         self.stage, self.limit, self.begin, self.said, self.names = stage, limit, time.monotonic(), None, 0
+        self.reason = reason
 
     def spent(self):
         return time.monotonic() - self.begin
@@ -80,7 +81,7 @@ class _Budget:
         return self.limit - self.spent()
 
     def check(self, step):
-        if self.left() <= 0: raise SnapshotFailed(self.stage, step, self.spent(), self.limit, 'deadline' if self.limit <= 0 else 'timeout')
+        if self.left() <= 0: raise SnapshotFailed(self.stage, step, self.spent(), self.limit, 'deadline' if self.limit <= 0 else self.reason)
 
     def say(self, step):
         """A line each PROGRESS_SECONDS, the first one after that long: a quick snapshot says nothing."""
@@ -133,10 +134,12 @@ def _snapshot(stage, floor=0):
     if limits is None:
         limits = {'seconds': snapshot_seconds(), 'deadline': None}
     limit = limits['seconds']
+    reason = 'timeout'
     if limits['deadline'] is not None:
         left = (dt.datetime.fromisoformat(limits['deadline']) - dt.datetime.now(dt.timezone.utc)).total_seconds()
+        if max(left, floor) < limit: reason = 'deadline'
         limit = min(limit, max(left, floor))
-    budget = _Budget(stage, limit)
+    budget = _Budget(stage, limit, reason)
     budget.check('start')
     token = _active.set(budget)
     try:
@@ -206,7 +209,8 @@ def _git(directory, *args, env=None, input=None, raw=False):
         process.wait()
         for pump in pumps: pump.join(5)
         stage, spent = (budget.stage, budget.spent()) if budget is not None else ('outside a verifier', time.monotonic() - begin)
-        raise SnapshotFailed(stage, step, spent, budget.limit if budget is not None else STEP_SECONDS) from None
+        raise SnapshotFailed(stage, step, spent, budget.limit if budget is not None else STEP_SECONDS,
+                             budget.reason if budget is not None else 'timeout') from None
     except BaseException:
         _kill_tree(process)
         raise

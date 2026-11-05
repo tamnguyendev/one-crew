@@ -496,7 +496,7 @@ def _status(state, engine_view, attempts, progress, waits, requests, views, veri
         produced = [nid for nid, r in engine_view['nodes'].items() if r.get('state') == 'produced']
         pending_nodes = [nid for nid, r in engine_view['nodes'].items() if r.get('phase') == 'pending']
         if produced:
-            return 'waiting', 'đầu ra đã tạo; bước tiếp theo engine verify cho node: ' + ', '.join(produced), ['node.produced:' + n for n in produced]
+            return 'waiting', 'đầu ra đã tạo, chờ kiểm; bước tiếp theo engine verify cho node: ' + ', '.join(produced), ['node.produced:' + n for n in produced]
         if pending_nodes and not first_started:
             return 'waiting', 'đã duyệt, chưa có worker nào được bắt đầu (chờ engine step)', ['plan.approved']
         if pending_nodes:

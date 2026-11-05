@@ -1,4 +1,20 @@
-# Review backend — isolated cycle 1 (in progress)
+# Sol5 — close Claude review L1–L15
+
+Proposal source: `C:/OneCrewRuns-rv2/REVIEW-SOL4.vi.md`; user authorized fixing all remaining findings for release. Baseline `40d7ba7` (docs `7df1b0e`). Preserve real runtime; no full gate, provider calls or publication.
+
+| ID | Requirement | Type | Implementation evidence | Test evidence | Status | Notes |
+|---|---|---|---|---|---|---|
+| L1/L8/L13 | Acceptance of completed evidence after execution deadline; truthful budget guidance | Reliability | engine.root_ready/next_action; command._Budget | test_sol5_review L1/L13; Sol4 budget regression | Implemented; wheel pending | No new execution after deadline |
+| L2/L11 | Owner observation uses recorded execution context; new checks still bind current environment | Reliability | verification_evidence.receipt_assessment; plan.accept; verdict._check_receipt | test_sol5_review L2; strict environment regression | Implemented; wheel pending | Never ignore environment changes for execution reuse |
+| L3 | Existing repair can recover final-verdict findings without releasing unrelated holds | Reliability | repair_tasks._final_source/prepare; finding_scope; common_handoff CAS | test_sol5_review L3; D6 existing repair negatives | Implemented; wheel pending | Reuse repair generations and project CAS |
+| L4/L5/L9/L10 | Next action respects failed/held checks, authority and remaining grant | Functional | engine.next_action | r14; Q5 authority; Sol4 operator tests | Implemented; wheel pending | No new scheduler |
+| L6/L12 | Durable closure reconciliation and actionable remaining finding commands | Reliability | verdict._finish_findings/_resume_closure | test_sol5_review closure/doc; review_b2_e2e | Implemented; wheel pending | Reviewer closure remains explicit |
+| L7 | Known worker failure exposes retained cause and legal recovery | Observability | engine._step/state/next_action | Claude p_f8b worker_error scheduled on wheel | Implemented; wheel pending | Unknown outcome is never auto-retried |
+| L14/L15 | Align valid state assertions and truthful CLI errors | Testing | affected test fixtures; hook_cli/owner_cli | affected complete modules; Sol4 enforce negatives | Implemented; wheel pending | Do not weaken behavioral assertions |
+
+Historical Sol4 F2/F6/F8 claims below are superseded by Claude's Partial assessment on `40d7ba7`. Sol5 verification is tracked separately above and in its handoff; source tests alone do not certify the final wheel.
+
+# Review backend — isolated cycle 1 (historical)
 
 Proposal source: shared ROADMAP / ROADMAP-DESIGN / ROADMAP-CLAUDE-HANDOFF, sections `review-responsibilities-20261104` and `work-history-jev-20261104`.
 Baseline: `bdb13bf` / product `6cb2fa9`. User authorized parallel work while Claude owns the OBS-2 UI patch. This branch does not certify or release that UI baseline.

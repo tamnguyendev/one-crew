@@ -956,7 +956,10 @@ def main(argv=None):
                 name = args.plan or (load_plan(found)[0].get('plan') if found else None)
                 if not name:
                     raise LedgerError('Select an approved plan before changing hook mode; no mode was changed.')
-                document = active_plan.build(ledger, name)
+                try:
+                    document = active_plan.build(ledger, name)
+                except (LedgerError, ValueError, OSError) as error:
+                    raise LedgerError(str(error) + '; no mode was changed.') from error
                 if document is None:
                     raise LedgerError('Plan ' + name + ' has never been approved; no mode was changed.')
                 # Validate the named grant before the first mode write. A later
@@ -965,7 +968,7 @@ def main(argv=None):
                        'plan': document['plan'], 'revision': document['revision'], 'exported': False}
                 try:
                     out['exported'] = bool(active_plan.export(ledger, name))
-                    if not out['exported']: raise LedgerError('The approved plan changed before export; read its current state.')
+                    if not out['exported']: raise LedgerError('Active-plan export did not complete; see the retained export warning for its cause. The mode was already written.')
                 except (LedgerError, ValueError, OSError) as error:
                     print(json.dumps(dict(out, error=str(error), type=type(error).__name__), ensure_ascii=False))
                     return 2

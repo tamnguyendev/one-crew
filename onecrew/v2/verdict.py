@@ -60,7 +60,7 @@ def _check_receipt(ledger, name, revision, plan_sha, milestone, result, by, arti
         source = body['reused_from']
         if (not prior or prior['proof'] != source.get('receipt') or prior['run_id'] != source.get('run_id')
                 or request['id'] != source.get('request_id')):
-            raise LedgerError('The reused candidate proof is no longer the latest applicable result.')
+            raise LedgerError('The reused candidate proof is no longer the latest applicable result. Reconcile in the original execution environment; if the request changed, inspect and release the retained run with a recorded reason before checking the new request.')
     return body
 
 
@@ -168,24 +168,57 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
         print('OneCrew learning pending: ' + type(error).__name__ + ': ' + str(error)[:200], file=sys.stderr)
     # Preserve the existing learning observation before closing its open
     # finding. Closure still uses the authenticated recheck door.
-    closures = []
-    if result == 'pass' and body and body.get('kind') == 'command-receipt' and namespaces.has_capability(state, 'finding-register'):
-        from . import findings, review_dispatch
-        for finding in findings.list_findings(ledger, name, open_only=True):
-            if finding.get('internal') or finding.get('node') != milestone_id or finding.get('failure_kind') != 'check_failure':
-                continue
-            request = review_dispatch.recheck_request(ledger, name, finding, receipt)
-            closures.append(findings.close_from_recheck(ledger, name, finding['id'], run_receipt=receipt, request=request))
+    closures, actions = _finish_findings(ledger, name, milestone_id, receipt, body) if result == 'pass' else ([], [])
     from . import active_plan; active_plan.export(ledger, name)  # L2: the hooks see the new milestone state
     if body and namespaces.has_capability(state, 'finding-register'):
         from . import findings
         findings.after_change(ledger, name)                        # W36: a running managed attempt of a node a new finding holds is asked to pause
     out = plans.show(ledger, name, revision)         # the revision the verdict was about (the approved one while an amendment waits)
     if closures: out['finding_rechecks'] = closures
+    if actions: out['finding_actions'] = actions
     if escalation: out['stopped'] = escalation
     if result != 'pass':
         from . import outcome
         outcome.note(ledger, name)
+    return out
+
+
+def _finish_findings(ledger, name, milestone_id, receipt, body):
+    """Replayable post-verdict reconciliation; no new verifier or automatic acceptance."""
+    from . import findings, review_dispatch
+    closed, actions = [], []
+    for finding in findings.list_findings(ledger, name, open_only=True):
+        if finding.get('internal') or finding.get('node') != milestone_id: continue
+        automatic = body and body.get('kind') != 'reviewer-receipt'
+        if automatic:
+            request = review_dispatch.recheck_request(ledger, name, finding, receipt)
+            result = findings.close_from_recheck(ledger, name, finding['id'], run_receipt=receipt, request=request)
+            closed.append(result)
+            if result['closed']: continue
+        actions.append({'finding': finding['id'], 'receipt': receipt,
+                        'command': ['findings', 'recheck', name, finding['id'], '--receipt', receipt],
+                        'reason': 'Review this finding against the current passing receipt; same-candidate/non-defect cases require an explicit evidence-backed rejection, not a repair claim.'})
+    return closed, actions
+
+
+def _resume_closure(ledger, name, milestone_id):
+    from . import findings
+    with ledger.transaction() as conn:
+        state = plans.anchor_events(ledger, conn, name)
+        if state['status'] != 'approved' or not namespaces.has_capability(state, 'finding-register'): return None
+        revision = state['approved']['revision']
+        contract = plans.load(ledger, state, revision)[0]
+        current = next((m for m in plans.milestone_views(contract, state, revision, ledger) if m['id'] == milestone_id), None)
+        if not current or current['state'] != 'passed' or current.get('stale'): return None
+        if not any(not f.get('internal') and f['node'] == milestone_id for f in findings.list_findings(ledger, name, open_only=True)): return None
+        receipt = current['last_verdict']['receipt']
+    body = json.loads(_blob(ledger, receipt))
+    closures, actions = _finish_findings(ledger, name, milestone_id, receipt, body)
+    from . import active_plan
+    active_plan.export(ledger, name)
+    findings.after_change(ledger, name)
+    out = plans.show(ledger, name)
+    out.update(finding_rechecks=closures, finding_actions=actions, verifier_executed=False)
     return out
 
 
@@ -314,6 +347,8 @@ def artifact(ledger, name):
 def run(ledger, name, milestone_id, directory=None):
     """Run the milestone's `command` or `reviewer` verifier. This is the only way to a verdict for such a milestone: the receipt is
     announced in the ledger (verdict.receipt_issued) before it is recorded, and record() accepts no other receipt."""
+    recovered_closure = _resume_closure(ledger, name, milestone_id)
+    if recovered_closure is not None: return recovered_closure
     with ledger.transaction() as conn:
         state = plans.anchor_events(ledger, conn, name)
         target = plans.resolve(ledger, state)

@@ -153,7 +153,7 @@ def _inherited(ledger, state, revision, milestone, contract):
     return earlier[-1]
 
 
-def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=None):
+def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=None, *, recorded_environment=False):
     """A milestone is passed only while its LATEST verdict on this revision is a pass; a later failure reopens it.
 
     With a `ledger` (its project is a Git repository) or an explicit `artifact`, the views also say whether that verdict still speaks for the
@@ -196,7 +196,7 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=
                     from . import verification_evidence
                     binding = verification_evidence.receipt_assessment(ledger, contract, m, revision,
                         candidate['receipt'], now(), task_id=state['task_id'], conn=conn,
-                        require_bound=namespaces.has_capability(state, 'sequential-engine'))
+                        require_bound=namespaces.has_capability(state, 'sequential-engine'), recorded_environment=recorded_environment)
                     if binding is not None:
                         if not binding['reusable'] or (binding['requires_record'] and not binding['recorded']):
                             how = None
@@ -528,6 +528,8 @@ def accept(ledger, name, by, reference, artifact_sha, *, expected_revision=None)
             if namespaces.has_capability(state, 'sequential-engine'):
                 from . import engine
                 if not engine.root_ready(ledger, state['selector'], artifact=artifact_sha):
+                    if engine.handoff_evidence(ledger, state['selector']):
+                        raise LedgerError('Cannot accept: the current project or requested artifact differs from the verified handoff. Preserve the changes and reconcile them; no old receipt certifies this tree.')
                     raise LedgerError('Cannot accept: workflow nodes, integration and authorized delivered-artifact handoff are not verified.')
             from . import verification_evidence
             for milestone in contract['milestones']:
@@ -536,16 +538,17 @@ def accept(ledger, name, by, reference, artifact_sha, *, expected_revision=None)
                 if candidate and candidate['result'] == 'pass' and milestone['verifier']['type'] != 'owner-manual':
                     assessment = verification_evidence.receipt_assessment(ledger, contract, milestone, revision,
                         candidate['receipt'], artifact_sha, task_id=state['task_id'], conn=conn,
-                        require_bound=namespaces.has_capability(state, 'sequential-engine'))
+                        require_bound=namespaces.has_capability(state, 'sequential-engine'), recorded_environment=True)
                     if assessment and assessment['reusable'] and assessment['requires_record'] and not assessment['recorded']:
-                        verification_evidence.record_reuse(ledger, name, milestone['id'], candidate['receipt'], artifact_sha, conn=conn)
-            views = milestone_views(contract, state, revision, ledger, artifact=artifact_sha, conn=conn)
+                        verification_evidence.record_reuse(ledger, name, milestone['id'], candidate['receipt'], artifact_sha, conn=conn, recorded_environment=True)
+            views = milestone_views(contract, state, revision, ledger, artifact=artifact_sha, conn=conn, recorded_environment=True)
             missing = [v['id'] for v in views if v['state'] != 'passed' and not v.get('stale')]
             if missing: raise LedgerError('Cannot accept: no passing verdict for milestone ' + ', '.join(missing) + '.')
             elsewhere = [v for v in views if v.get('stale')]
             if elsewhere:
                 raise LedgerError(f'Cannot accept artifact {artifact_sha}: every milestone must have passed on exactly that artifact; '
-                                  + '; '.join(f'{v["id"]} passed on {v["last_verdict"]["artifact_sha"]}' for v in views if v['last_verdict']) + '. Re-run the milestones that differ.')
+                                   + '; '.join(f'{v["id"]}: ' + ', '.join(v.get('stale_reasons') or ['artifact changed']) for v in elsewhere)
+                                   + '. Inspect plan show and re-run only the named stale milestones in their execution environment.')
             if namespaces.has_capability(state, 'finding-register'):
                 from .findings import list_findings
                 open_findings = list_findings(ledger, name, task_id=state['task_id'], open_only=True)

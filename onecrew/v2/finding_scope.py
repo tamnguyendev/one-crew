@@ -4,6 +4,7 @@ No node state or register is copied to another store. Dependency/read/write
 influence uses the same v1 affected_tasks closure as internal revisions.
 """
 from .. import dependency_core
+from ..ledger import content_hash
 from . import findings, namespaces, plan
 
 
@@ -31,22 +32,25 @@ def blockers(ledger, selector, nodes, conn=None):
         if not seeds: continue
         for nid in dependency_core.affected_tasks(projection, seeds):
             result.setdefault(nid, []).append(finding['id'])
-    _release_repairs(ledger, result, value['findings'], nodes)
+    _release_repairs(ledger, result, value['findings'], nodes, selector)
     return result
 
 
-def _release_repairs(ledger, held, open_findings, nodes):
+def _release_repairs(ledger, held, open_findings, nodes, selector):
     """W21/W19 (T11 [E3]): the nodes a prepared repair re-issues for an internal-node finding (they carry the repair-evidence marker whose
     source receipt is that finding's receipt) are not held by that finding — otherwise nothing could ever repair it. Every other node in the
     scope stays held, and so does the finding until the register closes it on a passing receipt."""
     import json
     from ..snapshots import Snapshots
     from .repair_tasks import PREFIX, KIND as REPAIR_KIND
-    by_receipt = {f['source']['receipt']: f['id'] for f in open_findings if f.get('internal') and f.get('status') == 'open'}
+    by_receipt = {}
     # R10 D6: a second repair binds the finding's latest failed observation (merged on the repaired generation), not its first report;
     # without this the re-issued node stays held by the same finding and the repair can never run (deadlock).
-    by_receipt.update({f['last_observed']['receipt']: f['id'] for f in open_findings
-                       if f.get('internal') and f.get('status') == 'open' and (f.get('last_observed') or {}).get('receipt')})
+    for finding in open_findings:
+        if finding.get('status') != 'open': continue
+        sources = (finding['source'], finding.get('last_observed') or {}) if finding.get('internal') else ((finding.get('last_observed') or finding['source']),)
+        for source in sources:
+            if source.get('receipt'): by_receipt.setdefault(source['receipt'], set()).add(finding['id'])
     if not by_receipt: return
     store = Snapshots(ledger.state_root)
     for node in nodes:
@@ -57,9 +61,30 @@ def _release_repairs(ledger, held, open_findings, nodes):
             except Exception:                                   # noqa: BLE001 — an unreadable marker releases nothing
                 continue
             if plan_.get('kind') != REPAIR_KIND: continue
-            released = by_receipt.get(plan_.get('source_receipt'))
+            released = by_receipt.get(plan_.get('source_receipt'), set())
+            finding = next((f for f in open_findings if f['id'] in released), None)
+            if finding is not None and not finding.get('internal'):
+                # Only a marker issued by the repair door (or its authenticated
+                # order-only rebinding) can unblock work under a final finding.
+                original, ref = plan_, marker
+                for _ in range(20):
+                    if not original.get('rebound_from'): break
+                    ref = original['rebound_from']
+                    try: original = json.loads(store.read_blob(ref))
+                    except (ValueError, OSError): original = {}; break
+                with ledger.transaction() as conn:
+                    issued = conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='workflow.repair_prepared' AND json_extract(payload,'$.receipt')=? AND json_extract(payload,'$.source_receipt')=?",
+                                          (plan_.get('root'), ref, plan_.get('source_receipt'))).fetchone()
+                    current = plan.anchor_events(ledger, conn, selector)
+                if (not issued or plan_.get('root') != current['task_id']
+                        or plan_.get('contract_sha') != current['approved']['sha']
+                        or original.get('affected_nodes') != plan_.get('affected_nodes')
+                        or original.get('source_receipt') != plan_.get('source_receipt')
+                        or original.get('checks_sha', {}).get(node['id']) != plan_.get('checks_sha', {}).get(node['id'])
+                        or original.get('node_scopes', {}).get(node['id']) != {'read': node['read'], 'write': node['write']}
+                        or plan_.get('checks_sha', {}).get(node['id']) != content_hash(node['checks'])): continue
             if released and node['id'] in set(plan_.get('affected_nodes') or []):
-                held[node['id']] = [f for f in held[node['id']] if f != released]
+                held[node['id']] = [f for f in held[node['id']] if f not in released]
         if not held[node['id']]: del held[node['id']]
 
 

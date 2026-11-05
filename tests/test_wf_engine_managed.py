@@ -118,7 +118,7 @@ class EngineManagedTests(ManagedFixture):
         self.assertEqual(self.launches, []); self.assertEqual(self.marker.read_text().splitlines(), ['operation completed'])
         self.assertEqual(self.charged(attempt), charged)
         self.assertEqual(managed_executor.unresolved(self.ledger, 'P1'), [])
-        self.assertEqual(self.engine.step(self.ledger, 'P1', self.adapter)['state'], 'waiting')   # nothing published or run twice
+        self.assertEqual(self.engine.step(self.ledger, 'P1', self.adapter)['state'], 'verification_required')   # saved output needs checking; nothing published or run twice
         self.assertEqual(self.kinds().count('node.produced'), 1)
         nodes = copy.deepcopy(self.ip.current(self.ledger, 'P1')['definition']['nodes']); nodes[1]['goal'] += ' (wording only)'
         self.revise(nodes)                                                              # a wording-only replan of the integration node

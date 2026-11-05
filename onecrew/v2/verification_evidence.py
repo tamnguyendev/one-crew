@@ -189,7 +189,7 @@ def require_binding(body):
     return binding
 
 
-def receipt_assessment(ledger, contract, milestone, revision, receipt, current_artifact, *, task_id=None, conn=None, require_bound=False):
+def receipt_assessment(ledger, contract, milestone, revision, receipt, current_artifact, *, task_id=None, conn=None, require_bound=False, recorded_environment=False):
     """Read-only view used by plan/verdict; None means an unbound legacy receipt."""
     try:
         body = json.loads(Snapshots(ledger.state_root).read_blob(receipt))
@@ -209,6 +209,20 @@ def receipt_assessment(ledger, contract, milestone, revision, receipt, current_a
     env = command.verifier_env(directory) if kind in ('command', 'reviewer') else None
     try:
         current = for_receipt(ledger, {'contract': contract, 'revision': revision}, milestone, current_artifact, env)
+        if recorded_environment:
+            # An owner observes an already authenticated recorded verdict; their
+            # shell is not the verifier. New execution/reuse keeps the default
+            # strict environment comparison. Only shell variables are inherited:
+            # interpreter/platform and every artifact/config/input check remain.
+            observed = old.get('environment_observed') or {}
+            if (not observed or content_hash(observed) != old.get('environment')
+                    or {k: content_hash(v) for k, v in observed.items()} != old.get('environment_components')):
+                raise LedgerError('Recorded execution environment is missing or inconsistent.')
+            context = environment(env)
+            context['variables'] = observed['variables']
+            current['environment'] = content_hash(context)
+            current['environment_components'] = {k: content_hash(v) for k, v in context.items()}
+            current['environment_observed'] = context
         changed = submodules = []
         if old.get('artifact') != current_artifact and artifacts.is_git(directory):
             changed = command.changed_paths(directory, old['artifact'], current_artifact)
@@ -233,12 +247,12 @@ def receipt_assessment(ledger, contract, milestone, revision, receipt, current_a
     return result
 
 
-def record_reuse(ledger, selector, milestone_id, receipt, current_artifact, *, conn=None):
+def record_reuse(ledger, selector, milestone_id, receipt, current_artifact, *, conn=None, recorded_environment=False):
     """Persist one exact reuse basis; no verdict, generation, status or grant changes."""
     from . import plan
     if conn is None:
         with ledger.transaction(write=True) as opened:
-            return record_reuse(ledger, selector, milestone_id, receipt, current_artifact, conn=opened)
+            return record_reuse(ledger, selector, milestone_id, receipt, current_artifact, conn=opened, recorded_environment=recorded_environment)
     state = plan.anchor_events(ledger, conn, selector)
     target = plan.resolve(ledger, state)
     if target is None: raise LedgerError('Evidence reuse requires an open approved plan.')
@@ -255,7 +269,7 @@ def record_reuse(ledger, selector, milestone_id, receipt, current_artifact, *, c
         raise LedgerError('Reuse requires the latest applicable authentic passing receipt.')
     if artifacts.identity(ledger.project) != current_artifact:
         raise LedgerError('Reuse target is not the current project artifact.')
-    result = receipt_assessment(ledger, contract, milestone, revision, receipt, current_artifact, task_id=state['task_id'], conn=conn)
+    result = receipt_assessment(ledger, contract, milestone, revision, receipt, current_artifact, task_id=state['task_id'], conn=conn, recorded_environment=recorded_environment)
     if result is None or not result['reusable'] or not result['requires_record']:
         raise LedgerError('No valid changed-artifact reuse basis: ' + '; '.join(result['reasons'] if result else ['legacy receipt has no binding']))
     payload = {'plan': state['name'], 'revision': revision, 'milestone': milestone_id, 'receipt': receipt,

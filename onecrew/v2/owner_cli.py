@@ -87,6 +87,8 @@ def _human_result(parsed, code, output, errors='', *, refused=False):
         detail = value.get('error') if isinstance(value, dict) else output
         if parsed.verb == 'enforce' and isinstance(value, dict) and value.get('mode_committed') is True:
             print(safe('Chế độ ' + str(value.get('mode')) + ' đã ghi; quyền của plan chưa xuất xong. Đọc lại sổ và xử lý lỗi xuất trước khi tiếp tục.', 1000))
+        elif parsed.verb == 'enforce' and 'no mode was changed' in str(detail):
+            print('Chưa đổi chế độ: plan chưa đủ điều kiện. Sửa nguyên nhân bên dưới rồi chạy lại.')
         elif refused and 'AI tool session' in str(detail):
             print('Chưa ghi nhận: thao tác này cần terminal của chủ sở hữu.')
         elif refused:

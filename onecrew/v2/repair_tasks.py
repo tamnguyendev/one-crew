@@ -61,10 +61,42 @@ def _carried(ledger, conn, view, failed_node, record):
     return event['receipt'], row['seq'], list(dict.fromkeys(failed))
 
 
+def _final_source(ledger, conn, view, failed_node, receipt=None):
+    """An authentic open milestone failure may drive the existing repair door.
+
+    It never closes the finding. Only explicitly prepared repair generations may
+    work under that hold; final recheck is still required on the delivered tree.
+    """
+    from . import findings
+    if 'finding-register' not in view.get('capabilities', ()): return None
+    root, revision, sha, contract = findings._context(ledger, conn, view['selector'])
+    register = findings._read(ledger, conn, root['id'])
+    findings._refresh(register, contract)
+    node = next(n for n in view['definition']['nodes'] if n['id'] == failed_node)
+    configured = {c['id'] for c in node['checks']}
+    for finding in register['findings']:
+        if finding['status'] != 'open' or finding.get('internal') or finding['node'] not in configured: continue
+        source = (finding.get('last_observed') or finding['source'])['receipt']
+        if receipt and receipt != source: continue
+        latest = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='verdict.recorded' AND json_extract(payload,'$.milestone')=? ORDER BY seq DESC LIMIT 1",
+                              (view['root'], finding['node'])).fetchone()
+        if latest is None or json.loads(latest['payload']).get('receipt') != source: continue
+        try:
+            body, result, seq, artifact, generation = findings._receipt_facts(
+                ledger, conn, root, view['selector'], revision, sha, contract, finding, source)
+        except LedgerError:
+            continue                  # stale/unreadable proof releases no hold
+        if result != 'fail': continue
+        return source, seq, [c['id'] for c in node['checks'] if c['id'] == finding['node']]
+    return None
+
+
 def _source(ledger, conn, view, failed_node, receipt=None):
     if failed_node not in view['nodes']:
         raise LedgerError('Unknown failed node.')
     record = view['nodes'][failed_node]
+    final = _final_source(ledger, conn, view, failed_node, receipt)
+    if final is not None: return final
     if record.get('verification_receipt') is None:
         carried = _carried(ledger, conn, view, failed_node, record)
         if carried is not None:
@@ -129,6 +161,7 @@ def prepare(ledger, selector, target, failed_node, *, reason, evidence, receipt=
                  'source_receipt': source, 'source_event': seq, 'failed_checks': failed, 'affected_nodes': sorted(affected),
                  'generations': {nid: view['nodes'][nid]['generation'] + 1 for nid in affected},
                  'checks_sha': {n['id']: content_hash(n['checks']) for n in nodes if n['id'] in affected},
+                 'node_scopes': {n['id']: {'read': n['read'], 'write': n['write']} for n in nodes if n['id'] in affected},
                  'reason': reason, 'evidence': estimates.evidence(evidence)}
     data = canonical(value).encode()
     blob = bytes_hash(data)                  # the receipt id, known before anything is written
@@ -147,6 +180,12 @@ def prepare(ledger, selector, target, failed_node, *, reason, evidence, receipt=
         raise LedgerError(str(result['class']) + ': ' + result['reason'] + '; the repair was not created, '
                           + ', '.join(sorted(affected)) + ' is held for the owner (request ' + request['id'] + ').')
     Snapshots(ledger.state_root).blob(data)
+    # Authenticate a final-verdict repair marker before it can release any
+    # milestone hold. User-provided input blobs alone grant no such release.
+    from . import plan
+    with ledger.transaction(write=True) as conn:
+        plan.emit(ledger, conn, root['task_id'], 'workflow.repair_prepared',
+                  {'receipt': blob, 'source_receipt': source, 'contract_sha': sha})
     for node in nodes:
         if node['id'] in affected:
             node['input'] = [i for i in node['input'] if not i.startswith(PREFIX)] + [PREFIX + blob]

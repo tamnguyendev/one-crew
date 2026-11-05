@@ -109,10 +109,11 @@ class CandidateClaims(adapters.CandidateAdapterTests):
         self.assertEqual(sorted(calls), ['Data', 'Doc', 'Ops'], 'another environment is another request: no reuse')
         # a corrupt proof of an otherwise equal request is no permission to believe it
         prior = {}
-        with self.ledger.transaction() as conn:
-            task = plan.anchor_events(self.ledger, conn, 'P1')['task_id']
-            tree = done['observed']['candidate_tree']
-            prior = review_dispatch.prior_pass(conn, task, review_dispatch.milestone_request(self.ledger, 'P1', 'Doc', tree))
+        with patch.object(command, 'verifier_env', return_value=dict(base, TZ='another-environment')):
+            with self.ledger.transaction() as conn:
+                task = plan.anchor_events(self.ledger, conn, 'P1')['task_id']
+                tree = done['observed']['candidate_tree']
+                prior = review_dispatch.prior_pass(conn, task, review_dispatch.milestone_request(self.ledger, 'P1', 'Doc', tree))
         self.assertIsNotNone(prior)
         def corrupt(store, key): return b'{"kind":"forged"}' if key == prior['proof'] else real_read(store, key)
         view = engine.state(self.ledger, 'P1')

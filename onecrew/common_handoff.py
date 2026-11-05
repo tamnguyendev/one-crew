@@ -121,9 +121,31 @@ def _handoff(ledger, selector, *, control=None):
         # Preserve unrelated user edits by refusing the handoff, never copying
         # their contents into a supposedly verified candidate.
         actual = command.artifact_sha(ledger.project)
+        files = []
+        earlier = {}
+        # A second authorized delivery compares against the previous *verified*
+        # delivery of this root, never arbitrary current user edits. Reuse v1
+        # CAS's earlier blobs instead of weakening its pin check.
+        with ledger.transaction() as conn:
+            prior = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='workflow.handoff' ORDER BY seq DESC LIMIT 1", (root['task_id'],)).fetchone()
+        if prior:
+            old = json.loads(store.read_blob(json.loads(prior['payload'])['receipt']))
+            if (old.get('root') == root['task_id'] and old.get('contract_sha') == sha
+                    and old.get('method') == 'v1-cas-apply'
+                    and receipt_valid(ledger, old, {'child': old['child']})
+                    and old.get('delivered_artifact') == actual):
+                # A repair may restore a previously delivered path to its base
+                # value. That is still a write and needs the current apply grant.
+                changed = sorted(set(changed) | set(command.changed_paths(ledger.project, actual, tree)))
+                if not set(changed) <= declared:
+                    raise LedgerError('Repair would change paths outside its current internal write provenance.')
+                if changed:
+                    ip.decide(ledger, root, contract, sha, {'kind': 'apply', 'paths': changed, 'nodes': [nid]}, ctx, 'onecrew.common_handoff')
+                for path in changed:
+                    raw = adapter.git('rev-parse', '--verify', '--quiet', actual + ':' + path, allow_failure=True)
+                    earlier[path] = raw.decode().strip() if raw else None
         if set(command.changed_paths(ledger.project, base_tree, actual)) - set(changed):
             raise LedgerError('Project has changes outside this verified candidate; preserve and rebase before applying.')
-        files = []
         for path in changed:
             raw = adapter.git('rev-parse', '--verify', '--quiet', tree + ':' + path, allow_failure=True)
             files.append({'path': path, 'blob': raw.decode().strip() if raw else None})
@@ -131,7 +153,7 @@ def _handoff(ledger, selector, *, control=None):
             with tempfile.TemporaryDirectory(prefix='oc-handoff-') as temp:
                 materialized = command._checkout(ledger.project, tree, temp)
                 receipt = apply_project(ledger, control, record['child'], Path(ledger.project), materialized,
-                    manifest['head'], tree, files, {}, ledger.state_root / 'workflow-rollback' / root['task_id'], guard=fence)
+                    manifest['head'], tree, files, earlier, ledger.state_root / 'workflow-rollback' / root['task_id'], guard=fence)
         else:
             receipt = _observe_existing(ledger, control, record, tree, checked, fence)
         fence()

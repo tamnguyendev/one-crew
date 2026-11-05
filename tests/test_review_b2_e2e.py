@@ -237,7 +237,11 @@ class RecheckClosure(Fixture):
         (self.root / 'guide.md').write_text('# Guide\n[reference](a.txt)\n', encoding='utf-8')
         green = self.run_check()
         request = review_dispatch.recheck_request(self.ledger, 'P1', finding, green)
-        self.assertEqual(findings.close_from_recheck(self.ledger, 'P1', finding['id'], run_receipt=green, request=request), {'closed': [finding['id']], 'refused': []})
+        # Deterministic adapter verdicts now reconcile their own findings through
+        # this same authenticated door. A second explicit closure changes none.
+        repeated = findings.close_from_recheck(self.ledger, 'P1', finding['id'], run_receipt=green, request=request)
+        self.assertEqual(repeated['closed'], [])
+        self.assertTrue(repeated['refused'])
         self.assertEqual(findings.list_findings(self.ledger, 'P1')[0]['status'], 'resolved')
 
     def test_the_door_request_names_the_reviewer_criteria_a_closure_compares(self):

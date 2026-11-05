@@ -79,7 +79,7 @@ def state(ledger, selector, conn=None):
             record['state'] = 'accepted'
         elif event['kind'] == 'node.held':
             record.update(phase='held', reason=payload['reason'], classification=payload.get('classification'))
-            record.update({k: payload[k] for k in ('trigger', 'cleanup', 'process_receipt', 'recovery_action') if k in payload})
+            record.update({k: payload[k] for k in ('trigger', 'cleanup', 'process_receipt', 'recovery_action', 'exit_code', 'stderr') if k in payload})
             if payload.get('candidate'): record['retained_candidate'] = payload['candidate']
         elif event['kind'] == 'node.resumed':
             fresh = _fresh([next(item for item in definition['nodes'] if item['id'] == nid)])[nid]
@@ -1027,6 +1027,12 @@ def _step(ledger, selector, executor, *, control=None, slots=1, _target=None, _s
                         f'node cap {item["execution_cap_seconds"]} s). Supervisor confirmed the process tree stopped. '
                         + ('The root deadline is exhausted; only an owner-authorized grant change can extend it.' if root_expired else
                            'Review the retained evidence, then use engine revise to adjust the node within the remaining root grant; no automatic retry.'))
+                elif kind == 'failed':
+                    failure['recovery_action'] = 'revise_node'
+                    failure['reason'] = (f'Worker exited with code {process_result.get("exit_code")}; Supervisor confirmed cleanup. '
+                                         'Read the retained process receipt and stderr, correct the cause, then engine revise within the grant; no automatic retry.')
+                    failure['exit_code'] = process_result.get('exit_code')
+                    failure['stderr'] = process_result.get('stderr')
         lost = False
         if observed['status'] != 'settled':
             control.unknown(attempt['id'], str(error)[:1000])
@@ -1090,11 +1096,30 @@ def next_action(ledger, selector, node=None, *, conn=None, view=None):
     limit = None if authority.effective(contract).get('apply_to_project') else 'apply_to_project is not granted; handoff will require an owner-approved contract amendment.'
     records = view['nodes']
     if node is not None and node not in records: raise LedgerError('Unknown internal node ' + node + '.')
+    room = ip.ceilings(ledger, conn, root)
+    pending = sorted({r for n, rows in view.get('request_blockers', {}).items() if node is None or n == node for r in rows})
+    if pending:
+        return action('owner_decision', 'held', 'An existing owner request holds this work: ' + ', '.join(pending) + '. Read and answer that request; no repair is authorized by this guidance.', 'plan', 'show', selector, owner=True, requests=pending)
+    from . import review_dispatch
+    for run in reversed(review_dispatch._run_rows(conn, root['task_id'])):
+        nid = (run.get('subject') or {}).get('node')
+        if nid not in records or (node is not None and nid != node) or run.get('parent'): continue
+        if run['state'] in ('held', 'running', 'issued'):
+            return action('reconcile_check', 'waiting', 'The existing check is ' + run['state'] + '; reconcile its retained result before any retry. If the outcome is unknown, release-check requires an explicit recorded reason.',
+                          'engine', 'reconcile-check', selector, run['run_id'], node=nid, run=run['run_id'])
+    def recovery_room(nid):
+        affected = set(dependency_core.affected_tasks(ip.influence_projection(view['definition']['nodes']), [nid]))
+        cost = sum(n['budget_calls'] for n in view['definition']['nodes'] if n['id'] in affected or records[n['id']].get('state') not in ('verified', 'accepted'))
+        return room['remaining_seconds'] > 0 and room['remaining_calls'] >= cost
     held = [(n, r) for n, r in records.items() if r.get('phase') == 'held' and (node is None or n == node)]
     if held:
         nid, record = held[0]
         reason = record.get('reason') or 'The node is held; inspect its retained evidence.'
+        if record.get('classification') in ('U1', 'U2', 'U3', 'U4'):
+            return action('owner_decision', 'held', reason + ' Read the existing owner decision; this guidance cannot authorize the held action.', 'plan', 'show', selector, owner=True, node=nid)
         recovery = record.get('recovery_action')
+        if not recovery_room(nid):
+            return action('owner_decision', 'held', reason + ' The remaining root time/calls cannot admit the recovery; no automatic retry or budget reset.', 'plan', 'show', selector, owner=True, node=nid)
         if recovery is None and record.get('classification') == 'executor_stopped' and record.get('trigger') in ('execution_cap', 'deadline'):
             recovery = 'owner_decision' if ip.ceilings(ledger, conn, root)['remaining_seconds'] <= 0 else 'revise_node'
         if recovery == 'owner_decision': return action('owner_decision', 'held', reason, 'plan', 'show', selector, owner=True, node=nid)
@@ -1103,10 +1128,41 @@ def next_action(ledger, selector, node=None, *, conn=None, view=None):
             return action('inspect_execution', 'held', reason + ' Inspect the existing attempt/process receipt in engine state; no automatic replay or confirmed stop is inferred.', 'engine', 'state', selector, node=nid)
         return action('diagnose', 'held', reason + ' Inspect engine diagnose before changing the held work.', 'engine', 'diagnose', selector, nid, node=nid)
     if view['active_nodes']: return action('observe', 'waiting', 'A managed attempt is still running; observe its existing attempt, do not dispatch again.', 'engine', 'state', selector)
+    failed = [n for n, r in records.items() if r.get('verification_result') == 'fail' and (node is None or n == node)]
+    if failed:
+        nid = failed[0]
+        if not recovery_room(nid):
+            return action('owner_decision', 'blocked', 'The failed node needs recovery but the remaining root budget is insufficient.', 'plan', 'show', selector, owner=True, node=nid)
+        owner = 'Q5' not in authority.effective(contract).get('self_decide', [])
+        return action('diagnose', 'waiting', 'The check failed; diagnose the failed receipt and use its authorized repair/replan decision before checking again.' + (' Q5 repair is not delegated; owner authorization is required.' if owner else ''), 'engine', 'diagnose', selector, nid, node=nid, owner=owner)
+    # External milestone findings can be repaired through the same node repair
+    # door. They must not trap the node that is explicitly assigned the repair.
+    from . import repair_tasks
+    from . import findings
+    opened = findings.list_findings(ledger, selector, open_only=True) if namespaces.has_capability(root, 'finding-register') else []
+    external = [f for f in opened if not f.get('internal')]
+    if external:
+        passed = {v['id']: v for v in plans.milestone_views(contract, root, root['approved']['revision'], ledger, conn=conn, recorded_environment=True) if v['state'] == 'passed'}
+        for finding in external:
+            if finding['node'] in passed:
+                receipt = passed[finding['node']]['last_verdict']['receipt']
+                return action('recheck_findings', 'blocked', 'A passing verdict still has finding ' + finding['id'] + '. Recheck that finding against this receipt; unchanged-candidate cases require an explicit evidence-backed rejection, not a claim of repair.',
+                              'findings', 'recheck', selector, finding['id'], '--receipt', receipt, finding=finding['id'])
+    for item in (view.get('definition') or {}).get('nodes', []):
+        nid = item['id']
+        if item['integration'] or not item['write'] or not view['finding_blockers'].get(nid): continue
+        source = repair_tasks._final_source(ledger, conn, view, nid)
+        if source:
+            if not recovery_room(nid):
+                return action('owner_decision', 'blocked', 'Final-verdict repair exceeds the remaining root budget.', 'plan', 'show', selector, owner=True, node=nid)
+            owner = 'Q5' not in authority.effective(contract).get('self_decide', [])
+            return action('diagnose', 'waiting', 'A final milestone failed; diagnose its authentic receipt, then use engine repair for this owner node.' + (' Q5 repair needs owner authorization.' if owner else ''), 'engine', 'diagnose', selector, nid, node=nid, source_receipt=source[0], owner=owner)
     produced = [n for n, r in records.items() if r.get('state') == 'produced' and r.get('verification_result') != 'pass']
     if produced:
         nid = produced[0]
-        return action('verify_node', 'verification_required', f'Node {nid} has output and no passing check. Run engine verify {selector} {nid}.' + (' ' + limit if limit else ''), 'engine', 'verify', selector, nid, node=nid, delivery_limit=limit)
+        if room['remaining_seconds'] <= 0:
+            return action('owner_decision', 'blocked', 'Root deadline exhausted before verification; no new verifier may start.', 'plan', 'show', selector, owner=True, node=nid)
+        return action('verify_node', 'verification_required', f'Đầu ra đã tạo, chờ kiểm. Run engine verify {selector} {nid}.' + (' ' + limit if limit else ''), 'engine', 'verify', selector, nid, node=nid, delivery_limit=limit)
     ready_nodes = _ready(view)
     if ready_nodes:
         room = ip.ceilings(ledger, conn, root)
@@ -1114,17 +1170,29 @@ def next_action(ledger, selector, node=None, *, conn=None, view=None):
         if room['remaining_seconds'] <= 0 or room['remaining_calls'] < cost:
             return action('owner_decision', 'blocked', 'The remaining root deadline/call budget cannot admit the next node; only an owner-authorized grant change can extend it.', 'plan', 'show', selector, owner=True, delivery_limit=limit)
         return action('step', 'ready', 'A node is ready inside the existing grant; use engine step --managed.' + (' ' + limit if limit else ''), 'engine', 'step', selector, '--managed', delivery_limit=limit)
-    if not records or not verification_ready(ledger, selector):
+    if not records:
+        return action('revise_plan', 'waiting', 'The root is approved but has no internal task plan; prepare its nodes inside the existing grant.', 'engine', 'revise', selector, '--file', '<revision.json>')
+    if not verification_ready(ledger, selector):
         return action('inspect', 'waiting', 'Dependencies, findings or an internal revision still block completion; inspect engine state.', 'engine', 'state', selector, delivery_limit=limit)
     if limit: return action('amend_grant', 'handoff_blocked', limit + ' No owner acceptance or project apply was performed.', 'plan', 'show', selector, owner=True, delivery_limit=limit)
     proof = handoff_evidence(ledger, selector)
     if not proof:
+        if room['remaining_seconds'] <= 0:
+            return action('owner_decision', 'blocked', 'Root deadline exhausted before project handoff; no new project apply is authorized.', 'plan', 'show', selector, owner=True)
         return action('handoff', 'handoff_ready', 'Các node đã kiểm xong; bước tiếp theo: engine handoff để bàn giao trong quyền đã duyệt.', 'engine', 'handoff', selector)
     artifact = proof['delivered_artifact']
-    views = plans.milestone_views(contract, root, root['approved']['revision'], ledger, artifact=artifact, conn=conn)
+    from .verifiers import command
+    try: observed = command.artifact_sha(ledger.project)
+    except command.SnapshotFailed as error:
+        return action('inspect', 'blocked', str(error), 'plan', 'show', selector)
+    if observed != artifact:
+        return action('inspect', 'blocked', 'Project changed after handoff; preserve the edits and reconcile them before acceptance. No old receipt certifies the changed tree.', 'plan', 'show', selector)
+    views = plans.milestone_views(contract, root, root['approved']['revision'], ledger, artifact=artifact, conn=conn, recorded_environment=True)
     missing = [m['id'] for m in views if m['state'] != 'passed' or m.get('stale')]
     if missing:
         mid = missing[0]
+        if room['remaining_seconds'] <= 0:
+            return action('owner_decision', 'blocked', 'Root deadline exhausted before the required final verdict; existing proof has not yet been recorded as that verdict.', 'plan', 'show', selector, owner=True)
         return action('verify_milestone', 'verification_required', f'Đã bàn giao; cần ghi verdict mốc {mid}: verdict run (bằng chứng còn hiệu lực được xét dùng lại).', 'verdict', 'run', '--plan', selector, '--milestone', mid, milestone=mid)
     from . import findings
     if namespaces.has_capability(root, 'finding-register') and findings.list_findings(ledger, selector, open_only=True):
@@ -1673,11 +1741,12 @@ def root_ready(ledger, selector, artifact=None):
     if not proof: return False
     from .verifiers import command
     try:
-        with ledger.transaction() as conn:
-            root = plans.anchor_events(ledger, conn, selector)
-            deadline = ip.ceilings(ledger, conn, root)['deadline']
-        with command.snapshot_limits(deadline):
+        # Observing already delivered work is not admission of new work. Keep
+        # a finite snapshot budget, but do not expire the owner's acceptance.
+        with command.snapshot_limits():
             observed = command.artifact_sha(ledger.project)
         return proof.get('delivered_artifact') == observed and (artifact is None or artifact == observed)
+    except command.SnapshotFailed:
+        raise                         # retain the actual diagnostic, not "not verified"
     except (OSError, ValueError, KeyError, StopIteration):
         return False
