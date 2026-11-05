@@ -75,6 +75,8 @@ def _human_result(parsed, code, output, errors='', *, refused=False):
             success = f'Đã ghi nhận nghiệm thu {parsed.plan}, bản {value.get("revision")}. Đại diện bởi artifact {parsed.artifact_sha}.'
         elif parsed.verb == 'answer' and value.get('request_id') == parsed.request and str(value.get('revision')) == str(parsed.revision) and value.get('choice') == parsed.choice:
             success = f'Đã ghi nhận lựa chọn {parsed.choice} cho câu hỏi {parsed.request}. Đây không phải là duyệt phương án.'
+        elif parsed.verb == 'enforce' and value.get('mode') == parsed.mode and value.get('exported') is True:
+            success = f'Đã bật chế độ {parsed.mode} và xuất quyền của {parsed.plan}. Cấu hình này chưa chứng minh hook đã chạy trong phiên làm việc.'
     if success:
         print(safe(success, 1000))
         if value.get('post_commit_errors'):

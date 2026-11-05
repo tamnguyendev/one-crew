@@ -993,6 +993,18 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
             return {'node': nid, 'state': 'held' if progress_status == 'blocked' else 'waiting', 'progress': progress_status}
     except Exception as error:
         observed = control.attempt(attempt['id'])
+        failure = {'classification': 'unknown'}
+        process_result = _row_json(observed, 'result')
+        if observed['status'] == 'settled' and process_result.get('tree_stopped') is True:
+            # Known Supervisor outcomes must reach the controller with their
+            # actual cleanup proof. An exception alone still remains unknown.
+            with ledger.transaction() as conn:
+                trigger = _trigger(ledger, conn, observed)
+            kind = _classify(process_result, trigger)
+            if kind != 'result_unknown':
+                failure = {'classification': 'executor_' + kind,
+                           'process_receipt': Snapshots(ledger.state_root).blob(canonical(process_result).encode()),
+                           'cleanup': 'confirmed', **({'trigger': trigger} if trigger else {})}
         lost = False
         if observed['status'] != 'settled':
             control.unknown(attempt['id'], str(error)[:1000])
@@ -1005,7 +1017,7 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
         with ledger.transaction(write=True) as conn:
             current = state(ledger, root['selector'], conn)
             if _publication_current(current, view, nid) and not lost:
-                _event(ledger, conn, current, nid, 'node.held', reason=str(error)[:1000], classification='unknown')
+                _event(ledger, conn, current, nid, 'node.held', reason=str(error)[:1000], **failure)
             else:
                 _retain(ledger, conn, view, nid, str(error)[:1000], attempt=attempt['id'])
         return {'node': nid, 'state': 'retained' if lost else 'held', 'reason': str(error)}

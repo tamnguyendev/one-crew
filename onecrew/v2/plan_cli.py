@@ -20,6 +20,7 @@ def _parser():
     p.add_argument('--author', required=True, help='Who wrote it (recorded, never trusted).')
     p.add_argument('--workflow', action='store_true', help='Declare the stable default workflow capabilities; schema 2 alone retains legacy semantics.')
     p.add_argument('--capability', action='append', help='Explicit implemented capability set (repeat; requires --workflow); dependencies must be included.')
+    p.add_argument('--reuse-existing', action='store_true', help='Return an open identical plan with identical capabilities; never amend, approve or upgrade an existing grant.')
     p = plan.add_parser('lint', help='Every form refusal propose/approve would raise, one per line; exit 1 on any. Writes nothing (read-only ledger).')
     p.add_argument('--file', required=True, type=Path); p.add_argument('--author', help='Check it is a model id, as the reviewer needs.')
     p.add_argument('--ack-criteria', action='store_true', help='Silence the two criteria warnings (a quoted literal already in the base tree; a word shared with a non_goal). A missing "fail if" is still refused.')
@@ -134,7 +135,7 @@ def _dispatch(ledger, args):
             elif args.command == 'report' and args.handover: text = report.render_handover(ledger.state_root, args.name, args.revision, project_id=ledger.project_id)
             else: text = report.render_report(ledger.state_root, args.name, args.revision, project_id=ledger.project_id) if args.command == 'report' else report.render_digest(ledger.state_root)
             return report.write_out(text, args.out, ledger.state_root) if args.out else text
-        if args.command == 'propose': return plans.propose(ledger, args.name, read_json(args.file), args.author, workflow=args.workflow, capabilities=args.capability)
+        if args.command == 'propose': return plans.propose(ledger, args.name, read_json(args.file), args.author, workflow=args.workflow, capabilities=args.capability, reuse_existing=args.reuse_existing)
         if args.command == 'show': return plans.show(ledger, args.name, args.revision)
         if args.command == 'approve': return plans.approve(ledger, args.name, args.by, args.reference, args.revision, args.tick, args.choose,
                                                          estimate=read_json(args.estimate_file) if args.estimate_file else None)

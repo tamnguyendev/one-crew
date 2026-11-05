@@ -325,12 +325,26 @@ def _anchor(ledger, name, title, then=None):
     return submit(ledger, f'Plan {name}: {title}'[:2000], namespaces.NAMESPACED + name, mode='audit', _then=then)['id']
 
 
-def propose(ledger, name, raw, author, workflow=False, capabilities=None):
+def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_existing=False):
     valid_plan_name(name)                       # W12a: reject ':', path chars, drive form, absolute — before any write
     key_field(name); key_field(ANCHOR + name)
     metadata = namespaces.workflow_metadata(workflow, capabilities)
     text_field(author, 'author', 100); refuse_owner_author(author)
     contract = contracts.validate(raw)
+    if reuse_existing:
+        # Re-entry only: never amend, upgrade capabilities, approve or revive an
+        # old plan. The execution gates still check its current grant/deadline.
+        with ledger.transaction() as conn:
+            existing = namespaces.resolve(ledger, conn, name)
+            if existing:
+                state = anchor_events(ledger, conn, existing['request_key'])
+                if state['status'] in ('accepted', 'closed'):
+                    raise LedgerError('Cannot reuse a completed plan; use a new work name.')
+                if state['revisions'][state['latest']]['sha'] != content_hash(contract):
+                    raise LedgerError('Existing plan has a different contract; read it and use plan amend if authorized.')
+                if {k: state[k] for k in ('workflow_version', 'capabilities') if k in state} != metadata:
+                    raise LedgerError('Existing plan has different workflow capabilities; reuse cannot upgrade its grant.')
+                return show(ledger, state['selector'])
     selector = namespaces.NAMESPACED + name
     from . import solution_link
     solution_link.prepare(ledger, selector, contract)

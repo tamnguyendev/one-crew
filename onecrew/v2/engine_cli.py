@@ -22,6 +22,7 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
     for verb in ('state', 'ready', 'handoff', 'check-runs', 'review-trace'):
         sub.add_parser(verb).add_argument('plan')
     p = sub.add_parser('step'); p.add_argument('plan')
+    p.add_argument('--managed', action='store_true', help='Use the existing managed executor journal and safe-point controls for this node.')
     p.add_argument('--checks', action='store_true', help='2.4-C (root capability execution-mode): first run the checks of a produced node that need '
                                                          'no model (command/adapter milestones) through the connected checker; no child task, no attempt.')
     p=sub.add_parser('batch');p.add_argument('plan');p.add_argument('--slots',type=int,choices=(1,2),default=2)
@@ -48,8 +49,12 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
     opts = parser.parse_args(args)
     try:
         if opts.command == 'step' and native_executor is _AUTO:
-            from ..common_executor import NativeExecutor
-            native_executor = NativeExecutor
+            if opts.managed:
+                from .managed_executor import ManagedExecutor
+                native_executor = ManagedExecutor
+            else:
+                from ..common_executor import NativeExecutor
+                native_executor = NativeExecutor
         if (opts.command in ('verify', 'review-optional') or getattr(opts, 'checks', False)) and checker is _AUTO:
             from ..common_verification import CandidateChecker
             checker = CandidateChecker
