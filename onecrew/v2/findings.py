@@ -303,11 +303,17 @@ def _new(ledger, value, name, revision, sha, milestone, criterion, claim, receip
     if len(value['findings']) >= MAX_FINDINGS:
         raise LedgerError('Finding register is full; nothing was accepted.')
     blob = Snapshots(ledger.state_root).blob(claim.encode('utf-8'))
+    # 2.5-A: the same defect re-appearing after a RESOLVED closure is a recurrence of that finding (linked both ways), not a new bug.
+    # A rejected finding was judged not to be a defect, so it is not linked.
+    prior = next((f for f in reversed(value['findings']) if f['status'] == 'resolved' and f['norm'] == key), None)
     entry = core.append_finding(value, {'plan': namespaces.parse(name)[0], 'revision': revision, 'plan_sha': sha, 'node': milestone['id'],
         'criterion': criterion, 'criterion_sha': criterion_sha, 'config_sha': config_sha,
         'candidate': artifact, 'artifact_sha': artifact, 'generation': generation, 'severity': severity,
         'scope': _scope(read, write), 'norm': key, 'chars': len(claim), 'head': core.safe(claim[:500]),
         'blob': blob, 'source': {'receipt': receipt, 'verdict_seq': verdict_seq}, 'review': value['review']})
+    if prior:
+        entry['recurrence_of'] = prior['id']
+        prior.setdefault('recurred_as', []).append(entry['id'])
     return entry, True
 
 
@@ -461,6 +467,22 @@ def update(ledger, name, ident, *, reason, severity=None, read=None, write=None,
     return copy.deepcopy(target)
 
 
+def _criterion_passes(target, body):
+    """The receipt shows this finding's own criterion passing (node check, reviewer criterion or adapter check); LedgerError otherwise."""
+    if target.get('internal'):
+        criterion = next((c for c in (body.get('observed') or {}).get('checks') or [] if c.get('id') == target['criterion']), None)
+        if criterion is None or criterion.get('result') != 'pass':
+            raise LedgerError('The evidence does not pass this finding check.')
+    elif body.get('kind') == 'reviewer-receipt':
+        criterion = next((c for c in body.get('criteria') or [] if c.get('id') == target['criterion']), None)
+        if criterion is None or criterion.get('verdict') != 'pass':
+            raise LedgerError('The evidence does not pass this finding criterion.')
+    else:
+        criterion = next((c for c in body.get('checks') or [] if c.get('id') == target['criterion']), None)
+        if criterion is None or criterion.get('ok') is not True or criterion.get('problems'):
+            raise LedgerError('The evidence does not pass this finding check.')
+
+
 def resolve(ledger, name, ident, receipt, *, reason, artifact_sha, generation=1, reject=False, task_id=None):
     """Explicit evidenced resolution/rejection. Refusals are durable and leave it open."""
     text_field(reason, 'finding resolution reason', 2000)
@@ -482,18 +504,7 @@ def resolve(ledger, name, ident, receipt, *, reason, artifact_sha, generation=1,
                 raise LedgerError('Resolution evidence predates the finding; verify it again.')
             if result != 'pass':
                 raise LedgerError('A finding closes only with passing verification evidence.')
-            if target.get('internal'):
-                criterion = next((c for c in (body.get('observed') or {}).get('checks') or [] if c.get('id') == target['criterion']), None)
-                if criterion is None or criterion.get('result') != 'pass':
-                    raise LedgerError('The evidence does not pass this finding check.')
-            elif body.get('kind') == 'reviewer-receipt':
-                criterion = next((c for c in body.get('criteria') or [] if c.get('id') == target['criterion']), None)
-                if criterion is None or criterion.get('verdict') != 'pass':
-                    raise LedgerError('The evidence does not pass this finding criterion.')
-            else:
-                criterion = next((c for c in body.get('checks') or [] if c.get('id') == target['criterion']), None)
-                if criterion is None or criterion.get('ok') is not True or criterion.get('problems'):
-                    raise LedgerError('The evidence does not pass this finding check.')
+            _criterion_passes(target, body)
             core.close_finding(value, ident, receipt, shown=[receipt], listed=[ident],
                 resolution={'receipt': receipt, 'artifact_sha': artifact_sha, 'candidate': artifact_sha, 'revision': revision,
                             'generation': generation, 'reason': reason, 'evidence': [receipt]},
@@ -504,6 +515,124 @@ def resolve(ledger, name, ident, receipt, *, reason, artifact_sha, generation=1,
         _save(ledger, conn, root, name, revision, value, 'reject' if reject else 'resolve', finding=ident, **result_view)
     after_change(ledger, name)
     return result_view
+
+
+# ---- 2.5-A cycle 2: closing a finding from an authentic recheck bound to a request ----------------------------------------------------
+
+def _repair_link(ledger, conn, name, source_receipts):
+    """The repair assignment (node-repair-plan receipt in a node's inputs) that answered the finding's failing receipt, or None. Read-only."""
+    from . import engine, repair_tasks
+    try:
+        view = engine.state(ledger, name, conn)
+        store = Snapshots(ledger.state_root)
+        for item in (view['definition'] or {}).get('nodes', []):
+            for ref in item['input']:
+                if not isinstance(ref, str) or not ref.startswith(repair_tasks.PREFIX): continue
+                issued = json.loads(store.read_blob(ref[len(repair_tasks.PREFIX):]))
+                if {issued.get('source_receipt'), *(issued.get('source_receipts') or [])} & set(source_receipts):
+                    return {'repair': ref[len(repair_tasks.PREFIX):], 'target': issued.get('target'), 'failed_node': issued.get('failed_node')}
+    except (LedgerError, OSError, ValueError, KeyError, TypeError):
+        pass
+    return None
+
+
+def _recheck_evidence(ledger, conn, root, name, revision, sha, contract, target, receipt, request):
+    """Raise LedgerError unless `receipt` is an authentic recheck of `target`'s criterion, on a repaired output, for a current request
+    bound to that output. Returns the resolution evidence. Nothing here trusts a claim: receipts are authenticated through the same
+    core-issued events as resolve, and the request must agree with them on root, contract, node, criterion, candidate and generation."""
+    from . import review_request as rr
+    if rr.kind_of(request) is None or request['version'] != rr.CHECK_VERSION:
+        raise LedgerError('The recheck request is missing, malformed or a legacy descriptor; build it with review_request.build_check.')
+    ident = request['identity']
+    if ident['root'] != {'project_id': ledger.project_id, 'task_id': root['id']}:
+        raise LedgerError('The recheck request belongs to another root.')
+    if (ident['contract_revision'], ident['contract_sha']) != (revision, sha):
+        raise LedgerError('Stale recheck request: it binds another contract revision.')
+    internal = bool(target.get('internal'))
+    if rr.kind_of(request) != ('node' if internal else 'milestone'):
+        raise LedgerError('The recheck request kind does not match the finding.')
+    refs = ident['target']
+    if target['criterion'] not in refs['criteria_ids']:
+        raise LedgerError('The recheck request does not cover the failed criterion.')
+    if internal:
+        if refs['node'] != target['node']:
+            raise LedgerError('The recheck request is for another node.')
+        body, result, seq = _node_proof(ledger, conn, root, target['node'], receipt)
+        artifact, generation = body.get('artifact'), body.get('generation', 1)
+        if ident['criteria'] != body.get('checks_sha'):
+            raise LedgerError('The recheck request criteria differ from the checks the receipt ran.')
+        if refs['generation'] != generation:
+            raise LedgerError('The recheck request names another generation than the receipt.')
+        from . import engine
+        record = engine.state(ledger, name, conn)['nodes'].get(target['node']) or {}
+        if record.get('artifact') != artifact or record.get('generation') != generation:
+            raise LedgerError('Stale recheck: the node has a newer generation/candidate than this receipt verified.')
+        produced = conn.execute("SELECT seq FROM events WHERE task_id=? AND kind='node.produced' AND json_extract(payload,'$.node')=? "
+                                "AND json_extract(payload,'$.generation')=? AND json_extract(payload,'$.artifact')=? ORDER BY seq LIMIT 1",
+                                (root['id'], target['node'], generation, artifact)).fetchone()
+        if produced is None:
+            raise LedgerError('The receipt does not verify a produced output of this node generation.')
+        output = {'generation': generation, 'artifact': artifact, 'produced_seq': produced['seq']}
+    else:
+        if refs['milestone'] != target['node'] or refs['plan'] != namespaces.parse(name)[0] or refs['plan_sha'] != sha:
+            raise LedgerError('The recheck request is for another milestone or plan.')
+        expected = _milestone(contract, target['node'])['verifier']['config'].get('criteria')
+        if expected is not None and ident['criteria'] != content_hash(expected):
+            raise LedgerError('The recheck request criteria differ from the milestone criteria.')
+        try:
+            raw = json.loads(Snapshots(ledger.state_root).read_blob(receipt))
+        except (OSError, ValueError) as error:
+            raise LedgerError('Finding evidence is not a valid receipt blob.') from error
+        if not isinstance(raw, dict): raise LedgerError('Finding evidence is not a receipt object.')
+        generation, artifact = raw.get('generation', 1), raw.get('artifact_sha')
+        body, result, seq = _proof(ledger, conn, root, name, revision, sha, contract, target['node'], receipt, generation, artifact, latest=True)
+        output = {'generation': generation, 'artifact': artifact}
+    if body.get('request_id') not in (None, request['id']):
+        raise LedgerError('The receipt belongs to another request.')
+    if artifact is None or ident['evidence']['candidate'] != artifact:
+        raise LedgerError('The recheck request is bound to another candidate than the receipt verified.')
+    if artifact in (target.get('artifact_sha'), target.get('candidate')):
+        raise LedgerError('The receipt verifies the same candidate that failed; a recheck needs the repaired output.')
+    if seq <= max(target['source']['verdict_seq'], (target.get('last_observed') or {}).get('verdict_seq', 0)):
+        raise LedgerError('Recheck evidence predates the finding; verify it again.')
+    if result != 'pass':
+        raise LedgerError('A finding closes only with passing verification evidence.')
+    _criterion_passes(target, body)
+    sources = [target['source']['receipt'], (target.get('last_observed') or {}).get('receipt')]
+    return dict(output, recheck={'request': request['id'], 'kind': ident['kind'], 'candidate': artifact,
+                                 'criteria_ids': refs['criteria_ids'], 'verdict_seq': seq},
+                repair=_repair_link(ledger, conn, name, [s for s in sources if s]))
+
+
+def close_from_recheck(ledger, selector, finding_id, *, run_receipt, request, task_id=None):
+    """Close finding `finding_id` only when an authentic recheck receipt for a request bound to the repaired output shows its criterion
+    passing. A worker's or reviewer's own claim, an unrelated or older-candidate receipt, a receipt that predates the finding, a request
+    for another root/contract/node/criterion/candidate/generation, or a stale request is refused with its reason, durably, and the finding
+    stays open. A defect that re-appears after this closure becomes a new finding linked by `recurrence_of`. Returns {'closed','refused'}."""
+    with ledger.transaction(write=True) as conn:
+        root, revision, sha, contract = _context(ledger, conn, selector, task_id)
+        _require_capability(root)
+        value = _read(ledger, conn, root['id'])
+        _refresh(value, contract)
+        target = next((f for f in value['findings'] if f['id'] == finding_id), None)
+        rid = request.get('id') if isinstance(request, dict) else None
+        try:
+            if target is None or target['status'] != 'open':
+                raise LedgerError(f'{finding_id} is not an open finding.')
+            if not isinstance(run_receipt, str) or not run_receipt:
+                raise LedgerError('A closure needs the receipt of a recheck, not a claim.')
+            found = _recheck_evidence(ledger, conn, root, selector, revision, sha, contract, target, run_receipt, request)
+            core.close_finding(value, finding_id, run_receipt, shown=[run_receipt], listed=[finding_id],
+                               resolution=dict(found, receipt=run_receipt, artifact_sha=found['artifact'], candidate=found['artifact'],
+                                               revision=revision, reason='recheck of the repaired output passes this criterion',
+                                               evidence=[run_receipt]), status='resolved')
+            view = {'closed': [finding_id], 'refused': []}
+        except LedgerError as error:
+            view = {'closed': [], 'refused': [str(error)]}
+        _save(ledger, conn, root, selector, revision, value, 'recheck-close', finding=finding_id,
+              receipt=run_receipt if isinstance(run_receipt, str) else None, request=rid, **view)
+    after_change(ledger, selector)
+    return view
 
 
 # ---- E29 (T35c): "finding F was missed by SKIP decision S" ------------------------------------------------------------------------------

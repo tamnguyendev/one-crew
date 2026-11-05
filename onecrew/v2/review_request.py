@@ -295,7 +295,8 @@ def build_check(*, kind, root, contract_revision, contract_sha, subject, require
 
     kind='node': `subject` is review_dispatch._context's facts. With `inputs=None` the result IS `build(...)` (v1: same id, so stored
     descriptors and their consumers are unchanged; `review_id` defaults to 'node-check:<node>'). With `inputs` (a verification_evidence
-    binding, or its raw arguments which are hashed) the descriptor is v2 and also carries the evidence dimensions.
+    binding, or its raw arguments which are hashed) the descriptor is v2: it also carries the evidence dimensions and its `facts`
+    are the validity-relevant subset of the engine facts (see below), so unrelated workflow churn is not a change of evidence.
     kind='milestone': `subject` = {plan, milestone, candidate, plan_sha}; `inputs` is required; review_id defaults to the milestone id.
     The candidate lives in `evidence.candidate` only, so a candidate change is a separate, nameable dimension."""
     if kind not in KINDS: raise LedgerError('Unknown review request kind.')
@@ -306,6 +307,11 @@ def build_check(*, kind, root, contract_revision, contract_sha, subject, require
                      scope=scope, criteria=criteria, policy=policy, authority=authority, budget=budget, execution=execution)
         if inputs is None: return base
         identity = dict(base['identity'])
+        # v2: `facts` is what the evidence validity depends on (node, contract, dependency inputs, checks, unknowns). Workflow state
+        # (state/phase/finding blockers/internal revision) gates work but does not change what a check proves, and the candidate and
+        # generation live in evidence.candidate / target: a repair elsewhere must not make an untouched node's evidence 'changed'.
+        identity['facts'] = content_hash({'node': subject['node'], 'contract_sha': subject['contract_sha'], 'inputs': subject['inputs'],
+                                          'checks_sha': subject['checks_sha'], 'unknowns': _names(subject['unknowns'], 'unknowns')})
         ids = sorted(c['id'] for c in criteria)
         binding = _bound(inputs, candidate=subject['artifact'], contract_revision=contract_revision, ids=ids)
         target = {'node': subject['node'], 'generation': subject['generation'], 'internal_revision': subject['internal_revision']}

@@ -236,16 +236,22 @@ class EvidenceStatus(unittest.TestCase):
                                     changed_paths=['docs/readme.md'], basis={'neutral': ['docs/**']})
         self.assertEqual(status['status'], 'recheck'); self.assertIn('policy', status['changed'])
 
-    def test_node_candidate_change_is_recheck_node_facts_carry_the_artifact(self):
+    def test_node_v2_workflow_churn_is_not_a_change_but_candidate_and_dependencies_are(self):
         a = node_arguments()
-        def make(artifact):
-            facts = dict(a['facts'], artifact=artifact)
-            return rr.build_check(kind='node', root=a['root'], contract_revision=1, contract_sha=a['contract_sha'], subject=facts,
+        def make(artifact='b' * 64, **facts):
+            f = dict(a['facts'], artifact=artifact, **facts)
+            return rr.build_check(kind='node', root=a['root'], contract_revision=1, contract_sha=a['contract_sha'], subject=f,
                                   required=False, criteria=a['criteria'], scope=a['scope'], policy=a['policy'], authority=a['authority'],
-                                  budget=a['budget'], inputs=raw_inputs(artifact, revision=1, checks=['M1']),
+                                  budget=a['budget'], inputs=raw_inputs(artifact, revision=1, checks=['M1'], inputs={'src': artifact}),
                                   execution=a['execution'], review_id=a['review_id'])
-        status = rr.evidence_status(make('b' * 64), make('c' * 64))
-        self.assertEqual(status['status'], 'recheck'); self.assertFalse(status['reusable'])
+        base = make()
+        for churn in ({'internal_revision': 9}, {'generation': 4}, {'state': 'verified'}, {'phase': 'held'}, {'findings': ['RF1']}):
+            self.assertEqual(rr.evidence_status(base, make(**churn))['status'], 'applies', churn)
+        for real in ({'inputs': {'D': {'artifact': 'e' * 64, 'generation': 1}}}, {'unknowns': ['U1']}):
+            status = rr.evidence_status(base, make(**real))
+            self.assertEqual(status['status'], 'recheck', real); self.assertIn('facts', status['changed'])
+        moved = make('c' * 64)                                  # new candidate (and the input tree that contains it)
+        self.assertEqual(rr.evidence_status(base, moved)['status'], 'recheck')
 
 
 if __name__ == '__main__':
