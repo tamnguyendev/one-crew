@@ -227,8 +227,15 @@ class Tools(ModeFixture):
         for _ in range(4):
             out = engine.run_batch(self.ledger, 'P1', self.isolated(), slots=2, checker=Broken(self))      # never raises
             self.assertIn('results', out)
-        self.assertEqual(calls.count('A'), execution_mode.TOOLS_TRIES)                         # bounded per node, then manual verify
+        # 2.5-B RV-T3 changed this from TOOLS_TRIES calls: the exception left the outcome unknown, so the check is held, not replayed;
+        # the automatic tries stay bounded and `engine verify` explains what to do. A refusal before any verifier ran can still be tried again.
+        self.assertEqual(calls.count('A'), 1)
         self.assertLessEqual(calls.count('B'), execution_mode.TOOLS_TRIES)
+
+        self.assertEqual(engine.verify(self.ledger, 'P1', 'A', Broken(self))['status'], 'held')
+        self.assertEqual(calls.count('A'), 1)
+        tried = [p for k, p in self.events() if k == 'workflow.mode' and p.get('phase') == 'released' and p.get('node') == 'A']
+        self.assertEqual(len(tried), execution_mode.TOOLS_TRIES)
         self.assertEqual(engine.state(self.ledger, 'P1')['nodes']['B']['state'], 'produced')   # the worker side ran
 
     def test_r10_tools_do_not_run_on_a_stale_internal_definition(self):

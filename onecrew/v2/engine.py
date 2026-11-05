@@ -737,7 +737,7 @@ def _tool_choices(ledger, view, checker, target=None, contract=None):
         if contract is None: contract = ip.context(ledger, conn, view['selector'], 'sequential-engine')[1]
         errors = {}
         for row in conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='workflow.mode' AND json_extract(payload,'$.phase')='released' "
-                                "AND json_extract(payload,'$.result')='error'", (view['root'],)):
+                                "AND json_extract(payload,'$.result') IN ('error','held')", (view['root'],)):     # 2.5-B: a held check is not tried again by itself
             payload = json.loads(row['payload'])
             key = (payload['node'], payload['generation'], (payload.get('inputs') or {}).get('artifact'))
             errors[key] = errors.get(key, 0) + 1
