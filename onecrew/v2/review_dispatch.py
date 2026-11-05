@@ -15,7 +15,7 @@ import uuid
 
 from ..ledger import LedgerError, canonical, content_hash, key_field
 from ..snapshots import Snapshots
-from . import contract as contracts, engine, internal_plan as ip, plan, review_policy, review_request
+from . import contract as contracts, engine, internal_plan as ip, plan, review_advice, review_policy, review_request
 
 
 def _context(ledger, selector, node, conn=None):
@@ -627,6 +627,8 @@ def optional(ledger, selector, node, review_id, checker, artifact, *, execution=
         return dict(result, status={'SKIP': 'skipped', 'DEFER': 'deferred', 'HOLD': 'held'}[decision['action']])
     if _context(ledger, root['selector'], node)[3] != facts:
         raise LedgerError('Engine input changed before optional review; recompute the decision.')
+    # RD-A: a proposal shown next to the result. The decision above stays in force; failures fall back inside the call.
+    result['advice'] = review_advice.compact(review_advice.advise_optional(ledger, root['selector'], node, review_id, facts=facts))
     request = _request(ledger, root, contract, item, facts, review_id, execution)
     context_request = _request(ledger, root, contract, item, facts, review_id, None)
     key = decision['record']['key']

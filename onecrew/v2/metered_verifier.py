@@ -13,8 +13,9 @@ from . import internal_plan as ip
 
 
 class ProviderCall:
-    def __init__(self, ledger, selector, context_key, *, call=None):
-        self.ledger, self.selector, self.context_key, self.call = ledger, selector, context_key, call
+    def __init__(self, ledger, selector, context_key, *, call=None, label=None):
+        # `label`: a metered call that is not one of the job providers (Jev advice), recorded under its own name.
+        self.ledger, self.selector, self.context_key, self.call, self.label = ledger, selector, context_key, call, label
         self.attempts = []
 
     def __call__(self, prompt, config, env, scratch, limit):
@@ -31,7 +32,8 @@ class ProviderCall:
         migrate(ledger); control = Control(ledger)
         task = submit(ledger, 'Verify approved evidence: ' + self.context_key, 'verifier-' + uuid.uuid4().hex,
             provider=config['provider'], model=config['model'], max_calls=1, max_seconds=int(seconds),
-            plan_selector=root['selector'], plan_revision=root['approved']['revision'])
+            plan_selector=root['selector'], plan_revision=root['approved']['revision'],
+            _metered_label=self.label)
         execution = control.configure(task['id'], task['revision'], {'mode': 'verifier-provider', 'signature': signature})
         def reserve(conn, attempt):
             # The existing reservation transaction makes concurrent retries

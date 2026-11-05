@@ -28,6 +28,7 @@ CLASS_A = (
     'executor.managed',
     'review.observed',
     'review.run_started', 'review.run_result', 'review.run_finished', 'review.run_held',  # optional observations, never milestone/node authority
+    'review.advice_started', 'review.advice',         # RD-A2: stored advice and its lifecycle; a proposal only, never node/milestone authority
     'evidence.reuse',
     'adapter.violation',
     'executor.observed',
