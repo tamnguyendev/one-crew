@@ -69,6 +69,10 @@ def configured(key=None):
             return False
         return True
     if os.environ.get('TYPESAFE_API_KEY'):
+        try:                                   # a value that could never be sent spends no admission and no budget
+            validate_key(os.environ['TYPESAFE_API_KEY'])
+        except JevError:
+            return False
         return True
     try:
         return credential_path().is_file()

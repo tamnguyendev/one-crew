@@ -672,7 +672,9 @@ def _wait(ledger, view, nid, mode, swept):
     from . import execution_mode
     mode = mode or execution_mode.idle(view)
     _record_mode(ledger, view, nid, mode)
-    return {**({'node': nid} if nid else {}), 'state': 'waiting', 'internal_revision': view['internal_revision'], 'mode': mode['mode'],
+    from . import review_dispatch
+    return {**({'node': nid} if nid else {}), **(review_dispatch.held_note(ledger, view['selector'], nid) if nid else {}),
+            'state': 'waiting', 'internal_revision': view['internal_revision'], 'mode': mode['mode'],
             'reasons': mode['reasons'], **({'recommendation': mode['recommendation']} if mode.get('recommendation') else {}),
             **({'reconciled': swept} if swept else {})}
 
@@ -735,10 +737,12 @@ def _tool_choices(ledger, view, checker, target=None, contract=None):
     from . import execution_mode
     with ledger.transaction() as conn:
         if contract is None: contract = ip.context(ledger, conn, view['selector'], 'sequential-engine')[1]
-        errors = {}
-        for row in conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='workflow.mode' AND json_extract(payload,'$.phase')='released' "
+        from . import review_dispatch
+        errors, closed = {}, review_dispatch.released_seq(conn, view['root'])
+        for row in conn.execute("SELECT seq,payload FROM events WHERE task_id=? AND kind='workflow.mode' AND json_extract(payload,'$.phase')='released' "
                                 "AND json_extract(payload,'$.result') IN ('error','held')", (view['root'],)):     # 2.5-B: a held check is not tried again by itself
             payload = json.loads(row['payload'])
+            if row['seq'] <= closed.get(payload['node'], 0): continue      # a recorded release decided it may run again
             key = (payload['node'], payload['generation'], (payload.get('inputs') or {}).get('artifact'))
             errors[key] = errors.get(key, 0) + 1
     runnable, waiting = [], []
@@ -810,10 +814,12 @@ def _tools(ledger, root, contract, view, checker, target):
             body = verify(ledger, root['selector'], nid, checker, door='engine.step-checks')
         except Exception as error:                     # review C-R09: a checker failure is a released try, never a lost batch
             _release_tools(ledger, view, nid, decision, claim, 'error', error)
-            return {'node': nid, 'state': 'waiting', 'mode': 'tools', 'reason': str(error)[:500]}, None
-        if body.get('status') in ('pending', 'held', 'late'):                   # another run of the same request owns the outcome (2.5-B)
+            from . import review_dispatch
+            return {'node': nid, 'state': 'waiting', 'mode': 'tools', 'reason': str(error)[:500], **review_dispatch.held_note(ledger, root['selector'], nid)}, None
+        if body.get('status') in ('pending', 'held', 'late'):                   # another run of the same request owns the outcome (2.5-B): the next node goes on
             _release_tools(ledger, view, nid, decision, claim, body['status'])
-            return {'node': nid, 'state': 'waiting', 'mode': 'tools', 'reason': str(body.get('reason') or body['status'])[:500], 'check_run': body['check_run']}, None
+            waiting.insert(0, (nid, execution_mode.rewrite(decision, 'wait', [str(body.get('reason') or body['status'])[:300]])))
+            continue
         _release_tools(ledger, view, nid, decision, claim, body['result'])
         return {'node': nid, 'state': 'verified' if body['result'] == 'pass' else 'produced', 'mode': 'tools', 'verification': body['result']}, None
     return None, (waiting[0] if waiting else None)
@@ -1179,7 +1185,7 @@ def verify(ledger, selector, nid, checker, *, door='engine.verify'):
             if isinstance(error, review_dispatch.NotDispatched):
                 blocker = error.claim
                 return review_dispatch.run_held_view(root['selector'], nid, dict(claim, status='held' if blocker.get('status') == 'held' else 'pending', reason=str(error)[:500],
-                                                                                 run_id=blocker.get('run_id') or run_id, door=blocker.get('door') or claim['door']), request)
+                                                                                 run_id=blocker.get('run_id') or run_id, door=blocker.get('door') or claim['door'], next=blocker.get('next')), request)
         else:
             review_dispatch._hold(ledger, root['selector'], run_id, 'Outcome unknown: ' + type(error).__name__ + ' while the checker ran and no result was issued.')
         raise
@@ -1299,12 +1305,9 @@ def publish_issued(ledger, selector, run):
     receipt, subject = run['issued']['receipt'], run['subject']
     nid = subject['node']
     try:
-        body = json.loads(Snapshots(ledger.state_root).read_blob(receipt))
-        if (body.get('kind') != 'node-verifier-receipt' or body.get('root') != run['root'] or body.get('node') != nid
-                or body.get('generation') != subject['generation'] or body.get('artifact') != subject['artifact']):
-            raise ValueError('receipt binding differs')
-    except (OSError, ValueError, TypeError, LedgerError) as error:
-        raise LedgerError('Issued check evidence of run ' + run['run_id'] + ' is missing or invalid; nothing is run again: ' + type(error).__name__) from error
+        body = review_dispatch.issued_node_body(ledger, run)
+    except LedgerError:
+        return review_dispatch.receipt_lost_view(ledger, selector, nid, run)
     with ledger.transaction() as conn:
         root, contract, sha = ip.context(ledger, conn, selector, 'sequential-engine')
         view = state(ledger, root['selector'], conn)

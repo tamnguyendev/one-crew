@@ -1,5 +1,5 @@
-"""RV-T6: investigation review through the optional door: the paths and probes named inside the node scope and the root grant, in a disposable
-copy of the candidate; the provider is a fixture standing in for reviewer.call. Whether a real provider gives useful investigations is unproven."""
+"""RV-T6: investigation review through the optional door: the paths named inside the node scope, in a disposable copy of the candidate; probes are
+refused. The provider is a fixture standing in for reviewer.call. Whether a real provider gives useful investigations is unproven."""
 import contextlib
 import io
 import json
@@ -102,25 +102,22 @@ class InvestigationReview(InvestigationFixture):
         with self.assertRaisesRegex(LedgerError, 'credential paths'):
             self.investigate(paths=['a.txt', 'cfg/.env'], call=lambda *a: self.fail('no call'))
         with patch.dict(os.environ, {'OC_B2_SECRET': 'never-send-this-env-var'}):
-            result = self.investigate(paths=['a.txt', 'cfg/app.ini', 'cfg/note.txt'],
-                                      probes=[[sys.executable, '-c', 'import os; print(sorted(os.environ)); print(os.environ.get("OC_B2_SECRET", "absent"))']])
+            result = self.investigate(paths=['a.txt', 'cfg/app.ini', 'cfg/note.txt'])
         prompt = self.prompts[0]
         for secret in ('never-send-this-env-value', 'never-send-this-ini-value', 'never-send-this-env-var'):
             self.assertNotIn(secret, prompt)
         self.assertIn('plain note', prompt)
-        self.assertIn('absent', prompt)
         observed = self.observed(result)['observed']
         self.assertEqual(observed['scope']['read'], ['a.txt', 'cfg/note.txt'])
         self.assertEqual({row['reason'] for row in observed['scope']['withheld']}, {'secret'})
         self.assertEqual(len(observed['scope']['withheld']), 1)
         self.assertNotIn('never-send', json.dumps(observed))
 
-    def test_t6_probes_write_only_in_the_disposable_copy(self):
+    def test_t6_the_investigation_leaves_project_and_candidate_as_they_were_and_probes_are_refused(self):
         tree_before = command.artifact_sha(self.root)
-        script = 'from pathlib import Path; Path("a.txt").write_text("changed by the probe\\n"); Path("new.txt").write_text("x"); print("probed")'
-        result = self.investigate(probes=[[sys.executable, '-c', script]])
-        observed = self.observed(result)['observed']
-        self.assertEqual(observed['probes'][0]['exit_code'], 0)
+        with self.assertRaisesRegex(LedgerError, 'probes are refused'):
+            self.investigate(probes=[[sys.executable, '-c', 'from pathlib import Path; Path("new.txt").write_text("x")']], call=lambda *a: self.fail('no call'))
+        observed = self.observed(self.investigate())['observed']
         self.assertFalse(observed['candidate_modified']); self.assertFalse(observed['project_modified'])
         self.assertEqual((self.root / 'a.txt').read_text(), 'one\n')
         self.assertFalse((self.root / 'new.txt').exists())
@@ -165,9 +162,9 @@ class InvestigationReview(InvestigationFixture):
 class NoCommandGrant(InvestigationFixture):
     commands = False
 
-    def test_t6_probes_need_the_commands_grant(self):
+    def test_t6_reading_needs_no_command_grant(self):
         before = self.used()
-        with self.assertRaisesRegex(LedgerError, 'grant for commands'):
+        with self.assertRaisesRegex(LedgerError, 'probes are refused'):
             self.investigate(probes=[[sys.executable, '-c', 'print(1)']], call=lambda *a: self.fail('no call'))
         self.assertEqual(self.used(), before)
         self.assertEqual(self.investigate()['status'], 'observed')      # reading inside the scope needs no command grant

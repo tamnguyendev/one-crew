@@ -196,6 +196,7 @@ EXPLAIN = {'not_permitted': 'Gốc chưa cấp quyền gọi gợi ý ngoài (gr
            'outcome_unknown': 'Không rõ lần gọi trước có chạy xong không; không gọi lại, giữ chính sách nền.',
            'record_unreadable': 'Bản lưu lời khuyên không đọc được hoặc sai hash; không dùng, không gọi lại ngầm.',
            'in_flight': 'Một lần xin gợi ý cùng đầu vào đang chạy; chưa có kết quả, giữ chính sách nền.',
+           'facts_not_current': 'Dữ kiện đưa vào không phải dữ kiện hiện tại của nút này; không gọi gợi ý, không tính lượt.',
            'advice_error': 'Không tạo được lời khuyên (lỗi vận hành); giữ chính sách nền.'}
 
 
@@ -313,11 +314,13 @@ def advise(ledger, selector, *, stage, node, brief, facts, options=None, evidenc
     offered = _options(copy.deepcopy(options) if options is not None else default_options())
     subject = review_id or node
     from . import verdict
-    claimed = None
-    with ledger.transaction(write=True) as conn:
+    claimed = lost = None
+    try:
+      with ledger.transaction(write=True) as conn:
         state = plans.anchor_events(ledger, conn, selector)
         if state['status'] != 'approved':
             return _blank('root_not_approved', stage, node, review_id)
+        records = _records(conn, state['task_id'])
         contract, sha = plans.load(ledger, state)
         policy = review_policy.normalize(contract.get('review_policy', review_policy.DEFAULT))
         grant = authority.effective(contract)
@@ -333,7 +336,7 @@ def advise(ledger, selector, *, stage, node, brief, facts, options=None, evidenc
         kept, withheld = _grant_limits(offered, grant, allow_skip=baseline['action'] == 'SKIP')
         prepared, spec = _prepare(brief, kept, policy=policy, node=subject, evidence=references, validity=validity, stage=stage,
             mandatory=mandatory, ready=ready, unknowns=unknowns, findings=findings, configured=client.configured(key),
-            permitted=GRANT in grant.get('granted_actions', []), remaining_calls=max(0, remaining - KEEP_CALLS))
+            permitted=GRANT in grant.get('granted_actions', []), remaining_calls=max(0, remaining - KEEP_CALLS - _in_flight(records, verdict)))
         if budget_id is None and prepared['reason'] == 'no_call_budget':
             prepared['reason'] = 'no_shared_budget'
         advice_key = 'review-advice-' + content_hash({'validity': validity, 'stage': stage, 'node': node, 'review_id': review_id})
@@ -341,7 +344,6 @@ def advise(ledger, selector, *, stage, node, brief, facts, options=None, evidenc
                   'cache': 'none', 'current': True, 'reusable': False, 'charged_calls': 0, 'provenance': None}
         if spec is None:
             return _make(prepared, common)
-        records = _records(conn, state['task_id'])
         started, recorded = _latest(records, advice_key)
         common['superseded_records'] = len({r['key'] for r in records if r['_kind'] == RECORDED and r['key'] != advice_key
                                             and (r['stage'], r['node'], r['review_id']) == (stage, node, review_id)})
@@ -351,6 +353,7 @@ def advise(ledger, selector, *, stage, node, brief, facts, options=None, evidenc
                 return _make(prepared, common, status='pending', reason='in_flight', cache='pending')
             plans.emit(ledger, conn, state['task_id'], RECORDED, _recorded_payload(
                 state, advice_key, started['generation'], stage, node, review_id, 'unknown', 'outcome_unknown', validity, None, 0, False))
+            lost = (state['task_id'], advice_key)
             return _make(prepared, common, status='unknown', reason='outcome_unknown', cache='hit')
         if recorded is not None and (recorded['status'] == 'unknown' or (not refresh and recorded.get('reason') not in RETRY)):
             stored = _stored(ledger, recorded) if recorded.get('receipt') else prepared
@@ -366,7 +369,25 @@ def advise(ledger, selector, *, stage, node, brief, facts, options=None, evidenc
             'node': node, 'review_id': review_id, 'validity': validity, 'pid': os.getpid(), 'host': verdict.this_host(),
             'grants_authority': False})
         claimed = (generation, validity, prepared, spec, common, advice_key)
+    finally:
+        if lost: _settle_lost(ledger, *lost)     # the transaction above has ended
     return _call(ledger, selector, claimed, key, opener)
+
+
+def _in_flight(records, verdict):
+    """Advice calls admitted and not recorded yet (admissions serialize in advise's transaction): each will take a call of the shared budget."""
+    done = {(r['key'], r['generation']) for r in records if r['_kind'] == RECORDED}
+    return sum(1 for r in records if r['_kind'] == STARTED and (r['key'], r['generation']) not in done
+               and not (r.get('host') == verdict.this_host() and not verdict.process_alive(r.get('pid'))))
+
+
+def _settle_lost(ledger, task_id, advice_key):
+    """A lost advice call settles as what it is: charged, never refunded, with no effect on any work. Its record stays `unknown`, so it is never replayed."""
+    from . import review_dispatch
+    try:
+        review_dispatch.settle_released_attempts(ledger, task_id, ['advice:' + advice_key[-16:]], 'advice call of unknown outcome')
+    except Exception:                            # noqa: BLE001 - advice never stops its caller; the attempt holds no capacity either way
+        pass
 
 
 def _call(ledger, selector, claimed, key, opener):
@@ -387,17 +408,25 @@ def _call(ledger, selector, claimed, key, opener):
         port('review-advice:' + advice_key, {'provider': 'jev', 'model': 'jev-latest'}, {}, ledger.state_root, .25)
     except LedgerError:
         if holder.get('ran') or port.attempts:       # reserved: the outcome is unknown and is never replayed
-            return _record(*args, prepared, 'unknown', 'outcome_unknown', None, 1, port)
+            result = _record(*args, prepared, 'unknown', 'outcome_unknown', None, 1, port)
+            _settle_lost(ledger, _root_task(ledger, selector), advice_key)
+            return result
         # Refused before any reservation: nothing was spent, nothing is unknown; the next request may try again.
         return _record(*args, prepared, 'fallback', 'budget_refused', None, 0, port)
     except BaseException:
         try:
             _record(*args, prepared, 'unknown', 'outcome_unknown', None, 1, port)
+            _settle_lost(ledger, _root_task(ledger, selector), advice_key)
         except Exception:
             pass
         raise
     outcome = holder['outcome']
     return _record(*args, outcome, outcome['status'], outcome['reason'], outcome, outcome['calls'], port)
+
+
+def _root_task(ledger, selector):
+    with ledger.transaction() as conn:
+        return plans.anchor_events(ledger, conn, selector)['task_id']
 
 
 def _record(ledger, selector, advice_key, generation, common, validity, result, status, reason, outcome, calls, port):
@@ -426,10 +455,10 @@ def _record(ledger, selector, advice_key, generation, common, validity, result, 
         option = (final.get('proposal') or {}).get('option') or {}
         plans.emit(ledger, conn, state['task_id'], RECORDED, _recorded_payload(
             state, advice_key, generation, common['stage'], common['node'], common['review_id'], status, reason, validity, receipt,
-            calls, current, explain=_explain(final), option=option.get('id'), method=option.get('method'),
+            calls, current, charged_calls=len(port.attempts), explain=_explain(final), option=option.get('id'), method=option.get('method'),
             checkpoint=option.get('checkpoint'), provenance=provenance))
     return _make(final, common, cache='miss', generation=generation, receipt=receipt, current=current,
-                 reusable=bool(current and status in ('proposal', 'abstain')), charged_calls=1 if calls else 0, provenance=provenance)
+                 reusable=bool(current and status in ('proposal', 'abstain')), charged_calls=len(port.attempts), provenance=provenance)
 
 
 def compact(advice):
@@ -449,8 +478,12 @@ def _failure(error, stage, node, review_id):
 
 def advise_optional(ledger, selector, node, review_id, options=None, *, facts, brief=None, **keywords):
     """The call for `review_dispatch.optional`, after its decision is REVIEW and before the review is opened. Never raises an
-    operational error: the dispatcher continues with its own decision whatever this returns."""
+    operational error: the dispatcher continues with its own decision whatever this returns. The facts must be the current facts of a real
+    node of this root: anything else spends nothing."""
     try:
+        from . import review_dispatch
+        if review_dispatch._context(ledger, selector, node)[3] != facts:
+            return _blank('facts_not_current', 'review', node, review_id, status='fallback')
         return advise(ledger, selector, stage='review', node=node, review_id=review_id, options=options, facts=facts, mandatory=False,
                       brief=brief or 'Choose the check method and checkpoint for this optional review of the produced output.', **keywords)
     except Exception as error:                       # a crash (BaseException) is not swallowed

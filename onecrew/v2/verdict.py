@@ -796,6 +796,33 @@ def _check_request(ledger, state, revision, sha, contract, milestone, directory)
         return None
 
 
+def unsettled_run(ledger, conn, task_id, same_work):
+    """What another door must respect about this door's runs of the same work: ('pending'|'held'|'issued', run, reason) of the newest one
+    whose end is not settled, or None. Read-only and marker-first, like reconcile, so a lost run counts before any reader reconciled it:
+    a receipt means the effect is known and verdict run records it; a dispatch with no receipt is an unknown outcome."""
+    events = _reconcile_events(conn, task_id)
+    rows = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='verdict.recorded'", (task_id,)).fetchall()
+    recorded = {json.loads(row['payload']).get('receipt') for row in rows}
+    now, waiting = _now(), 'its receipt is issued and its verdict is not recorded yet; `onecrew verdict run` records it from that receipt'
+    for run in reversed(run_records(conn, task_id)):
+        request = run.get('request')
+        if not isinstance(request, dict) or not same_work(request): continue
+        marks = events.get(run.get('run_id'), {})
+        if 'verdict.run_released' in marks: continue
+        hold = _hold_of(marks)
+        if hold is not None: return 'held', run, hold.get('reason') or hold.get('detail')
+        if run['receipt'] is not None:
+            if run['receipt'].get('receipt') not in recorded: return 'issued', run, waiting
+            continue
+        if 'verdict.run_reconciled' in marks: continue
+        if _open(run) and lost_reason(run, now, process_alive) is None: return 'pending', run, None
+        ended = run['abandoned'] or {'reason': 'lost'}
+        if _marker(ledger, run.get('run_id'), 'receipt') is not None: return 'issued', run, waiting
+        if _marker(ledger, run.get('run_id'), 'dispatched') is None or (ended.get('reason') == 'error' and _refused_before_x(ended)): continue
+        return 'held', run, 'The verifier was dispatched and its process was lost before any receipt: its effect is unknown; it is not run again by itself.'
+    return None
+
+
 def _begin_run(ledger, name, revision, milestone_id, kind, max_minutes, check=None):
     request, candidate = check if check else (None, None)
     reap(ledger, name)                                              # a lost earlier run must not refuse this one

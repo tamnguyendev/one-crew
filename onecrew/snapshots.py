@@ -169,6 +169,17 @@ class Snapshots:
             durable_write(target, data)
         return key
 
+    def set_aside_damaged(self, key):
+        """A blob whose bytes are not its name is never read as evidence. Set aside (kept, under another name) once a recorded decision closed the
+        run that named it: otherwise the same result, computed again, could never be stored. Returns True when a file was set aside."""
+        if not isinstance(key, str) or not re.fullmatch('[0-9a-f]{64}', key):
+            return False
+        path = self.root / 'blobs' / key
+        if not path.exists() or bytes_hash(path.read_bytes()) == key:
+            return False
+        os.replace(path, path.with_name(key + '.damaged'))
+        return True
+
     def read_blob(self, key):
         if not isinstance(key, str) or not re.fullmatch('[0-9a-f]{64}', key):
             raise LedgerError('Invalid snapshot blob reference.')

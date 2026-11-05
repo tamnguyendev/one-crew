@@ -288,6 +288,12 @@ def _bound(inputs, *, candidate, contract_revision, ids):
     return value
 
 
+def evidence_facts(subject):
+    """The validity-relevant fingerprint of a node's engine facts, as a v2 node descriptor records it."""
+    return content_hash({'node': subject['node'], 'contract_sha': subject['contract_sha'], 'inputs': subject['inputs'],
+                         'checks_sha': subject['checks_sha'], 'unknowns': _names(subject['unknowns'], 'unknowns')})
+
+
 def build_check(*, kind, root, contract_revision, contract_sha, subject, required, criteria, scope, policy, authority, budget, inputs,
                 execution=None, review_id=None):
     """One identity for a node or a milestone check, bound to criteria, candidate/revision, scope, every evidence-validity factor and
@@ -310,8 +316,7 @@ def build_check(*, kind, root, contract_revision, contract_sha, subject, require
         # v2: `facts` is what the evidence validity depends on (node, contract, dependency inputs, checks, unknowns). Workflow state
         # (state/phase/finding blockers/internal revision) gates work but does not change what a check proves, and the candidate and
         # generation live in evidence.candidate / target: a repair elsewhere must not make an untouched node's evidence 'changed'.
-        identity['facts'] = content_hash({'node': subject['node'], 'contract_sha': subject['contract_sha'], 'inputs': subject['inputs'],
-                                          'checks_sha': subject['checks_sha'], 'unknowns': _names(subject['unknowns'], 'unknowns')})
+        identity['facts'] = evidence_facts(subject)
         ids = sorted(c['id'] for c in criteria)
         binding = _bound(inputs, candidate=subject['artifact'], contract_revision=contract_revision, ids=ids)
         target = {'node': subject['node'], 'generation': subject['generation'], 'internal_revision': subject['internal_revision']}

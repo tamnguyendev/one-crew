@@ -274,7 +274,71 @@ def rebind_revised(ledger, selector, old_nodes, nodes, affected, *, expected_rev
     return result
 
 
-def rerun_order(ledger, selector, finding_id, *, evidence=None):
+def _unbound(ledger, selector, nid, entry):
+    """Why a caller's evidence for scope node `nid` does not belong to it (None when it does): both descriptors must be v2 descriptors of this
+    node, and `current` must be built from what the node is now. An old descriptor on both sides, or another node's, says nothing about this node."""
+    from . import review_dispatch, review_request as rr
+    for side in ('previous', 'current'):
+        value = entry.get(side)
+        if rr.kind_of(value) != 'node' or value['version'] != rr.CHECK_VERSION or value['identity']['target'].get('node') != nid:
+            return 'the ' + side + ' descriptor is not a check descriptor of node ' + nid
+    identity = entry['current']['identity']
+    try:
+        facts = review_dispatch._context(ledger, selector, nid)[3]
+    except LedgerError as error:
+        return 'the current facts of node ' + nid + ' cannot be read: ' + str(error)[:120]
+    if (identity['facts'] != rr.evidence_facts(facts) or identity['evidence']['candidate'] != facts['artifact']
+            or identity['target'].get('generation') != facts['generation']):
+        return 'the current descriptor was not built from the current facts of node ' + nid
+    return None
+
+
+def rerun_recorded(ledger, selector, finding_id):
+    """rerun_order with its evidence read from the ledger, for the public verb: for each scope node with a passing published verification, the
+    request of that run against the node as it is now under the production check port. Any gap (no pass, no run record, changed checks) gives no
+    entry, so the node reruns; an execution identity the run did not state widens. Nothing is taken from a caller."""
+    from ..common_verification import CandidateChecker
+    from . import findings, review_dispatch, review_request as rr
+    port, evidence = CandidateChecker(ledger, selector), {}
+    with ledger.transaction() as conn:
+        view = engine.state(ledger, selector, conn)
+        root = findings._context(ledger, conn, selector)[0]
+        item = next((f for f in findings._read(ledger, conn, root['id'])['findings'] if f['id'] == finding_id), None)
+        runs = review_dispatch._runs(conn, root['id'])
+    def wrapped(execution):
+        return dict({k: execution.get(k) for k in ('method', 'implementation', 'provider', 'model')},
+                    **{k: ({'fingerprint': execution[k]} if execution.get(k) else None) for k in ('configuration', 'environment', 'provenance')})
+    store = Snapshots(ledger.state_root)
+    for nid in (item or {}).get('scope_nodes') or []:
+        record = view['nodes'].get(nid) or {}
+        receipt = record.get('verification_receipt')
+        run = next((r for r in runs.values() if r.get('check') == review_dispatch.CHECK_NODE and (r.get('subject') or {}).get('node') == nid
+                    and r['finished'] and r['finished'].get('receipt') == receipt), None) if receipt and record.get('verification_result') == 'pass' else None
+        if run is None: continue
+        try:
+            body = json.loads(store.read_blob(receipt))
+            state, contract, node, facts = review_dispatch._context(ledger, selector, nid)
+            if run['request']['identity']['contract_sha'] != facts['contract_sha']: continue        # the pass belongs to another contract: it reruns
+            before = dict(facts, artifact=body['artifact'], generation=body['generation'], internal_revision=body['internal_revision'],
+                          inputs=body['inputs'], checks_sha=body['checks_sha'], unknowns=[])
+            checks = [check['id'] for check in node['checks']]
+            def request(subject, execution):
+                return rr.build_check(kind='node', root={'project_id': ledger.project_id, 'task_id': state['task_id']},
+                    contract_revision=state['approved']['revision'], contract_sha=state['approved']['sha'], review_id=review_dispatch.CHECK_NODE, required=True, subject=subject,
+                    scope={k: node.get(k, []) for k in ('read', 'write', 'acceptance')}, criteria=node['checks'],
+                    policy={'recorded': True}, authority={'recorded': True}, budget={'recorded': True},
+                    inputs={'artifact': subject['artifact'], 'revision': state['approved']['revision'], 'acceptance': {key: True for key in node.get('acceptance', [])} or {'node': nid},
+                            'inputs': dict(subject['inputs']) or {'node': nid}, 'configuration': {'checks_sha': subject['checks_sha']},
+                            'environment': {'node': nid}, 'checks': checks},
+                    execution=wrapped(execution))
+            evidence[nid] = {'previous': request(before, run['request']['identity']['execution']),
+                             'current': request(facts, rr._execution(port.execution_identity(node)))}
+        except (LedgerError, OSError, ValueError, KeyError, TypeError):
+            continue
+    return rerun_order(ledger, selector, finding_id, evidence=evidence, _recorded=True)
+
+
+def rerun_order(ledger, selector, finding_id, *, evidence=None, _recorded=False):
     """W21 (T11 [E3], [E5]) + 2.5-A: what to run again after a repair for one open node finding: the failed check(s) of the node the finding
     is attached to first, then the checks of the nodes in the finding's dependency scope, in definition order. Read-only.
 
@@ -307,6 +371,13 @@ def rerun_order(ledger, selector, finding_id, *, evidence=None):
         widened.append({'node': None, 'reason': 'the finding records no usable dependency scope; impact cannot be established'})
     for nid in scope_nodes:
         if not isinstance(evidence, dict) or nid not in evidence: continue
+        unbound = None
+        if not _recorded and isinstance(evidence[nid], dict) and {'previous', 'current'} <= set(evidence[nid]):
+            unbound = _unbound(ledger, selector, nid, evidence[nid])
+        if unbound:
+            statuses[nid] = {'status': 'insufficient', 'reasons': [unbound], 'changed': [], 'reusable': False}
+            widened.append({'node': nid, 'reason': unbound})
+            continue
         try:
             statuses[nid] = review_request.evidence_status(**evidence[nid])
         except TypeError as error:

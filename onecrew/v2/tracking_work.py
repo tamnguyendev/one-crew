@@ -429,7 +429,7 @@ def project(reader, conn, row, state, events, engine, evidence_keys):
 # ---- 2.5-A cycle 2: review trace (data only, for OBS-2B) ------------------------------------------------------------------------------
 
 _RUN_EVENTS = ('review.run_started', 'review.run_result', 'review.run_finished', 'review.run_held',
-               'verdict.run_started', 'verdict.receipt_issued')
+               'verdict.run_started', 'verdict.receipt_issued', 'verdict.run_abandoned', 'verdict.run_reconciled', 'verdict.run_held', 'verdict.run_released')
 
 
 def _unknown(reason):
@@ -495,8 +495,17 @@ def review_trace(ledger, selector):
                 # `outcome` (2.5-B): published | stale | observed | not_dispatched | released; cycle-1 rows carry only `applicable`
                 run['status'] = p.get('outcome') or ('observed' if p.get('applicable') else 'stale_observation')
                 run['applicable'] = p.get('applicable'); run['receipt'] = p.get('receipt') or run['receipt']
-            elif kind == 'review.run_held':
+            elif kind in ('review.run_held', 'verdict.run_held'):
                 run['status'] = 'held'; run['hold_reason'] = _display(p.get('reason'))
+            elif kind == 'verdict.run_abandoned':
+                if run['status'] != 'held': run['status'] = 'abandoned'
+            elif kind == 'verdict.run_reconciled':
+                if p.get('determination') == 'unknown':          # the record itself is the hold (verdict._hold_of)
+                    run['status'] = 'held'; run['hold_reason'] = _display(p.get('detail'))
+                else:
+                    run['status'] = p.get('determination')
+            elif kind == 'verdict.run_released':
+                run['status'] = 'released'
     for run in runs.values():
         run.setdefault('door', 'unknown'); run.setdefault('actor_status', 'unknown'); run.setdefault('node', None)
         if run['request_id'] in requests: requests[run['request_id']]['runs'].append(run['run_id'])

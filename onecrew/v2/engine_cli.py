@@ -37,11 +37,14 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
     p = sub.add_parser('review-optional', help='W26: run the rule-based decision (SKIP/DEFER/HOLD/REVIEW) for one sealed optional review of a produced node; '
                                                'REVIEW calls the connected checker, the result is an observation and never the mandatory gate.')
     p.add_argument('plan'); p.add_argument('node'); p.add_argument('review')
-    p.add_argument('--investigate', type=Path, help='2.5-B: a JSON file {provider, model, question, paths, probes?, max_minutes?}: a limited investigation in an isolated copy '
+    p.add_argument('--investigate', type=Path, help='2.5-B: a JSON file {provider, model, question, paths, max_minutes?}: a limited investigation of named paths in an isolated copy '
                                                     'of the candidate, not a full review; the result stays an observation.')
     p = sub.add_parser('reconcile-check', help='2.5-B: settle one check run from what is known: its issued result is published or closed stale; '
                                                'a run without a result is pending or held. Nothing is run again.')
     p.add_argument('plan'); p.add_argument('run')
+    p = sub.add_parser('rerun-order', help='2.5-A/B: what to run again for one open node finding after a repair: the evidence comes from the ledger '
+                                           'and the production check port; a node whose pass still stands is listed reusable. Read-only.')
+    p.add_argument('plan'); p.add_argument('finding')
     p = sub.add_parser('release-check', help='2.5-B: the recorded decision that lets a held check (unknown outcome) run again; spent budget stays spent, '
                                              'exactly-once is not promised.')
     p.add_argument('plan'); p.add_argument('run'); p.add_argument('--reason', required=True)
@@ -66,7 +69,7 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
                 or (opts.command == 'handoff' and handoff is None)):
             raise LedgerError('This operation needs a connected native host adapter; the supplied host port is disabled.')
         project = opts.project.resolve()
-        ledger_class = ReadOnlyLedger if opts.command in ('state', 'ready', 'measure', 'check-runs', 'review-trace') else Ledger
+        ledger_class = ReadOnlyLedger if opts.command in ('state', 'ready', 'measure', 'check-runs', 'review-trace', 'rerun-order') else Ledger
         ledger = ledger_class(project, state_root_for(project, opts.state_root))
         if getattr(opts, 'checks', False) and 'execution-mode' not in engine.state(ledger, opts.plan)['capabilities']:
             # review C-R11: --checks never falls back to a plain step or batch that starts a model worker
@@ -77,6 +80,9 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
         elif opts.command == 'check-runs':
             from . import review_dispatch
             result = [{k: v for k, v in row.items() if k != 'request'} for row in review_dispatch.check_runs(ledger, opts.plan)]
+        elif opts.command == 'rerun-order':
+            from . import repair_tasks
+            result = repair_tasks.rerun_recorded(ledger, opts.plan, opts.finding)
         elif opts.command == 'review-trace':
             from . import tracking_work
             result = tracking_work.review_trace(ledger, opts.plan)

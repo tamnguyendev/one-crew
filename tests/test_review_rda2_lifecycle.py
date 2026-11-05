@@ -314,9 +314,11 @@ class FailureTests(AdviceRoot):
 class OperationalSafety(AdviceRoot):
     def test_advise_optional_never_raises_for_operational_failures(self):
         provider = Provider('error')
-        out = review_advice.advise_optional(self.ledger, 'P1', 'C', 'extra', facts=self.facts, key=KEY, opener=provider)
+        out, _ = self.advise(provider)                                       # the provider fails: the base policy stays in force
         self.assertEqual(out['status'], 'fallback')
         self.assertEqual(out['effective_action'], 'REVIEW')
+        no_node = review_advice.advise_optional(self.ledger, 'P1', 'C', 'extra', facts=self.facts, key=KEY, opener=provider)   # a root with no such node
+        self.assertEqual((no_node['status'], no_node['charged_calls']), ('fallback', 0))
         missing = review_advice.advise_optional(self.ledger, 'NOPE', 'C', 'extra', facts=self.facts, key=KEY, opener=provider)
         self.assertEqual((missing['status'], missing['effective_action']), ('fallback', None))
 

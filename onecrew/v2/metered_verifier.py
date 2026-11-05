@@ -42,7 +42,8 @@ class ProviderCall:
                                "AND json_extract(operation,'$.verifier_signature')=?", (attempt['id'], signature)).fetchone()
             if old: raise LedgerError('Verifier outcome is unknown; reconcile the original attempt before retrying it.')
         attempt = control.reserve(task['id'], execution['revision'], 'provider',
-                                  {'stage': 'verifier', 'verifier_signature': signature, 'verifier_root': root['task_id'], 'verifier_context': self.context_key},
+                                  {'stage': 'verifier', 'verifier_signature': signature, 'verifier_root': root['task_id'], 'verifier_context': self.context_key,
+                                   **({'advisory': True} if self.label else {})},
                                   on_reserved=reserve)
         self.attempts.append(attempt['id'])
         started = time.monotonic()
