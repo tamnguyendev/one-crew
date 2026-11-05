@@ -1212,6 +1212,9 @@ def _publish_verification(ledger, root, contract, sha, view, nid, item, artifact
         ip.decide(ledger, root, contract, sha, {'kind': 'decision', 'q': 'Q9', 'nodes': [nid],
                   'evidence': [receipt], 'artifact_matches': True}, ctx, 'onecrew.engine')
     with ledger.transaction(write=True) as conn:
+        settled = review_dispatch._runs(conn, root['task_id']).get(run_id, {}).get('finished')
+        if settled:                                         # another door completed this very run from its issued receipt: one publication
+            return dict(body, status=settled.get('outcome'), receipt=settled.get('receipt'), check_run=run_view)
         current = state(ledger, root['selector'], conn)
         publish = (_publication_current(current, view, nid)
                    and current['nodes'][nid]['artifact'] == artifact and current['nodes'][nid]['phase'] != 'held')

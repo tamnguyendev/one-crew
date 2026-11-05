@@ -129,6 +129,22 @@ class RequiredCheckLifecycle(CheckFixture):
         self.assertEqual(self.kinds().count('node.verification'), 1)
         self.assertEqual(self.engine.state(self.ledger, 'P1')['nodes']['C']['state'], 'verified')
 
+    def test_t3_a_door_that_completes_an_issued_run_and_the_owner_of_the_run_publish_once(self):
+        self.step()
+        real, answers = review_dispatch.issue_check, []
+        def issue_then_other_door(ledger, selector, run_id, receipt):
+            state = real(ledger, selector, run_id, receipt)
+            answers.append(self.verify('C', lambda *a: self.fail('an issued result must not run again')))
+            return state
+        with patch.object(review_dispatch, 'issue_check', side_effect=issue_then_other_door):
+            mine = self.verify('C')
+        self.assertEqual(self.kinds().count('node.verification'), 1)
+        self.assertEqual(self.kinds().count('review.run_finished'), 1)
+        self.assertEqual((answers[0]['result'], mine['result']), ('pass', 'pass'))
+        self.assertTrue(answers[0]['check_run']['reconciled'])
+        self.assertEqual(mine['status'], 'published')
+        self.assertEqual(self.engine.state(self.ledger, 'P1')['nodes']['C']['state'], 'verified')
+
     def test_t3_unknown_outcome_is_held_explained_and_released_without_budget_reset(self):
         self.step()
         before = self.budget()
