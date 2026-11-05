@@ -330,7 +330,7 @@ def _acceptance(reader, conn, state, contract, engine_view, level):
             if not proof or proof.get('delivered_artifact') != artifact:
                 result['reason'] = 'Chờ bộ thực thi hoàn tất kiểm tích hợp và bằng chứng bàn giao; chưa đến bước nghiệm thu.'
                 return result
-        views = plans.milestone_views(contract, state, state['latest'], reader, artifact=artifact, conn=conn)
+        views = plans.milestone_views(contract, state, state['latest'], reader, artifact=artifact, conn=conn, recorded_environment=True)
         if any(v['state'] != 'passed' or v.get('stale') for v in views):
             result['reason'] = 'Chờ bộ thực thi kiểm lại bằng chứng các mốc của bản bàn giao.'
             return result

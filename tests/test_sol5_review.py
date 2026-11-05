@@ -12,7 +12,7 @@ from unittest.mock import patch
 from onecrew.ledger import LedgerError, canonical, content_hash
 from onecrew.common_handoff import handoff
 from onecrew.common_verification import CandidateChecker
-from onecrew.v2 import engine, findings, internal_plan, plan, repair_tasks, verdict, verification_evidence
+from onecrew.v2 import engine, findings, internal_plan, plan, repair_tasks, tracking, verdict, verification_evidence
 from onecrew.v2.verifiers import command
 from tests.test_review_b2_e2e import LoopFixture
 from tests.test_v2_l1 import milestone
@@ -67,6 +67,9 @@ class FinalWorkflow(LoopFixture):
             strict = verification_evidence.receipt_assessment(self.ledger, contract, m, 1, receipt, delivered['artifact'])
             self.assertFalse(strict['reusable'])
             self.assertEqual(engine.next_action(self.ledger, 'P1')['kind'], 'owner_accept')
+            page = tracking.detail(self.ledger.state_root, 'P1')
+            self.assertEqual(page['status']['kind'], 'done')
+            self.assertTrue(any(n['kind'] == 'accept' for n in page['needs_user']))
             self.assertEqual(self.owner_accept(delivered['artifact'])['status'], 'accepted')
         self.assertEqual(before, len([x for x in self.events() if x[0]=='verdict.run_started']))
 
