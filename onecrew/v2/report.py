@@ -21,6 +21,7 @@ import sqlite3
 import subprocess
 import textwrap
 from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
 
 from ..ledger import APP_ID, VERSION, Ledger, LedgerError
@@ -532,6 +533,17 @@ def _report(f):
     return '\n'.join(lines) + '\n'
 
 
+def _stores_nothing(function):
+    """A report judges evidence against the tree now and stores nothing in the project."""
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        from .verifiers import command
+        with command.leaves_no_objects():
+            return function(*args, **kwargs)
+    return wrapped
+
+
+@_stores_nothing
 def render_report(state_root, name, revision=None, project_id=None):
     return _report(_lookup(state_root, name, revision, project_id))
 
@@ -712,6 +724,7 @@ def _heading(f, word):
     return lines + _wrap(f'Dự án: {f["row"]["project_path"]}', '', '  ')
 
 
+@_stores_nothing
 def render_handover(state_root, name, revision=None, project_id=None):
     """The handover report by acceptance: each output criterion as đạt / cần kiểm lại / chưa có with the evidence behind it, then what is left."""
     f = _lookup(state_root, name, revision, project_id)
@@ -873,6 +886,7 @@ def _present_missing(f):
     return lines or ['  không thiếu bằng chứng nào cho các acceptance']
 
 
+@_stores_nothing
 def render_present(state_root, name, revision=None, project_id=None):
     """`plan present`: one page of plain text, from the ledger, no model - what the owner reads before approving or accepting."""
     f = _lookup(state_root, name, revision, project_id)

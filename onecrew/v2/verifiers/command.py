@@ -44,6 +44,7 @@ GIT_PROGRAM = ('git',)
 
 _limits = contextvars.ContextVar('onecrew_snapshot_limits', default=None)
 _active = contextvars.ContextVar('onecrew_snapshot_budget', default=None)
+_read_only = contextvars.ContextVar('onecrew_read_only_objects', default=None)
 
 
 class SnapshotFailed(LedgerError):
@@ -179,6 +180,55 @@ def _collect(stream, into):
         stream.close()
 
 
+@contextmanager
+def leaves_no_objects():
+    """A read that judges the working tree (plan show, engine next, the reports) stores nothing in the project. Git computes the same ids: what it would
+    write goes to a throw-away object store, and the project's objects stay readable as an alternate, so a diff against the tree just made still works. The
+    tree made here exists only for the length of the read: a door that keeps or pins a tree (handoff, verdict, acceptance, `verdict artifact`) runs outside this."""
+    if _read_only.get() is not None:
+        yield
+        return
+    state = {'temp': None, 'directories': {}, 'stores': {}}
+    token = _read_only.set(state)
+    try:
+        yield
+    finally:
+        _read_only.reset(token)
+        if state['temp']: state['temp'].cleanup()       # git's loose objects are read-only on Windows: this removes those too, a plain rmtree does not
+
+
+def reading_only():
+    return _read_only.get() is not None
+
+
+def _object_env(directory):
+    """The object-store override of the read in progress, one store per repository; nothing when no read is in progress or `directory` is not a repository."""
+    state = _read_only.get()
+    if state is None: return {}
+    key = os.path.normcase(os.path.abspath(str(directory)))
+    if key in state['directories']: return state['directories'][key]
+    clean = {k: v for k, v in os.environ.items() if not k.upper().startswith('GIT_')}
+    try:
+        done = subprocess.run(['git', '-C', str(directory), 'rev-parse', '--git-path', 'objects'], capture_output=True, env=clean, timeout=30, stdin=subprocess.DEVNULL,
+                              creationflags=0x08000000 if os.name == 'nt' else 0)
+        named = done.stdout.decode('utf-8', 'surrogateescape').strip() if done.returncode == 0 else ''
+    except (OSError, subprocess.SubprocessError):
+        named = ''
+    if not named:
+        state['directories'][key] = {}
+        return {}
+    objects = (Path(directory) / named).resolve()
+    store = os.path.normcase(str(objects))
+    if store not in state['stores']:
+        state['temp'] = state['temp'] or tempfile.TemporaryDirectory(prefix='onecrew-read-', ignore_cleanup_errors=True)
+        temporary = Path(state['temp'].name) / str(len(state['stores'])) / 'objects'
+        temporary.mkdir(parents=True)
+        alternate = '"' + objects.as_posix().replace('"', '\\"') + '"'       # quoted: a path may hold the separator
+        state['stores'][store] = {'GIT_OBJECT_DIRECTORY': str(temporary), 'GIT_ALTERNATE_OBJECT_DIRECTORIES': alternate}
+    state['directories'][key] = state['stores'][store]
+    return state['directories'][key]
+
+
 def _git(directory, *args, env=None, input=None, raw=False):
     # F8: the caller's GIT_DIR / GIT_WORK_TREE / ... never reach git; only what this module sets (GIT_INDEX_FILE) does
     clean = {k: v for k, v in os.environ.items() if not k.upper().startswith('GIT_')}
@@ -189,7 +239,7 @@ def _git(directory, *args, env=None, input=None, raw=False):
     # Threads, not subprocess.run(timeout): on Windows run() writes `input` first, and with thousands of names that write lasts as long as git works, so
     # the limit was looked at only when git was nearly done. Here the limit holds while git reads its input, and a kill reaches only this git's own tree.
     process = subprocess.Popen([*GIT_PROGRAM, '-C', str(directory), *args], stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, env=dict(clean, **{k: v for k, v in (env or {}).items() if k.upper().startswith('GIT_')}),
+                               stderr=subprocess.PIPE, env=dict(clean, **{k: v for k, v in (env or {}).items() if k.upper().startswith('GIT_')}, **_object_env(directory)),
                                creationflags=0x08000000 if os.name == 'nt' else 0)
     out, err = [], []
     pumps = [threading.Thread(target=_collect, args=(process.stdout, out), daemon=True), threading.Thread(target=_collect, args=(process.stderr, err), daemon=True)]
@@ -690,7 +740,7 @@ def blob_head(directory, tree, path, size=8000):
     """The first `size` bytes of `path` as `tree` holds it (git's own window for deciding that a file is binary); b'' when the tree has no such file."""
     clean = {k: v for k, v in os.environ.items() if not k.upper().startswith('GIT_')}
     try:
-        process = subprocess.Popen(['git', '-C', str(directory), 'cat-file', 'blob', f'{tree}:{path}'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=clean,
+        process = subprocess.Popen(['git', '-C', str(directory), 'cat-file', 'blob', f'{tree}:{path}'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=dict(clean, **_object_env(directory)),
                                    creationflags=0x08000000 if os.name == 'nt' else 0)
     except OSError:
         return b''

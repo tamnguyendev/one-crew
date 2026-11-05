@@ -125,7 +125,7 @@ def identity(directory):
     if observation is not None and key in observation:
         return observation[key]
     value = command.artifact_sha(directory) if is_git(directory) else content_hash(_manifest(directory))
-    if observation is not None: observation[key] = value
+    if observation is not None and not command.reading_only(): observation[key] = value      # a read's tree is gone after the read; a door must not take it for one it can keep
     return value
 
 

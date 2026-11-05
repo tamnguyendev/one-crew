@@ -1122,7 +1122,12 @@ def _amend_chosen(conn, root, nid):
 
 def next_action(ledger, selector, node=None, *, conn=None, view=None, observe_project=True):
     """Read-only guidance from the current workflow; it grants or executes nothing. `observe_project=False` is for views (tracking, digest): nothing here then
-    hashes the working tree or writes to the project, and the answer rests on recorded evidence; the door that acts (acceptance, handoff, verdict) rechecks."""
+    hashes the working tree or writes to the project, and the answer rests on recorded evidence; the door that acts (acceptance, handoff, verdict) rechecks.
+    With it the working tree is judged, and still nothing is stored in the project."""
+    from .verifiers import command as _command
+    if observe_project and not _command.reading_only():
+        with _command.leaves_no_objects():
+            return next_action(ledger, selector, node, conn=conn, view=view, observe_project=True)
     if conn is None:
         with ledger.transaction() as connection:
             return next_action(ledger, selector, node, conn=connection, view=view, observe_project=observe_project)

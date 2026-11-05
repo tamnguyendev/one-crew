@@ -665,6 +665,42 @@ class ReadsAndStates(Chain):
         self.assertEqual(self.need()['kind'], 'owner_accept')
         self.assertEqual(self.accept(delivered['artifact'])['status'], 'accepted')
 
+    def test_s5_4_a_read_that_judges_a_changed_tree_stores_nothing_and_the_door_still_can(self):
+        delivered = self.deliver(); self.final(red=False)
+        (self.root / 'dep.txt').write_text('outside owned\n')
+        before = self.objects()
+        private = self.root.parent / 'read-temp'; private.mkdir()               # the suite's temp folder is shared with other runs
+        leftovers = lambda: list(private.glob('onecrew-read-*'))
+        with patch.object(tempfile, 'tempdir', str(private)):
+            need = self.need()                                                  # alone first: nothing before it may have stored the tree
+            self.assertEqual(leftovers(), [])
+        self.assertEqual(self.objects(), before)
+        self.assertEqual((need['kind'], need['state']), ('inspect', 'blocked'))
+        views = plan.show(self.ledger, 'P1')['milestones']
+        self.assertTrue(all(view.get('stale') for view in views))
+        for render in (report.render_report, report.render_handover, report.render_present):
+            self.assertTrue(render(self.ledger.state_root, 'P1'))
+        self.assertEqual(self.objects(), before)
+        with command.leaves_no_objects():
+            read = command.artifact_sha(self.ledger.project)
+            self.assertTrue(command.reading_only())
+        self.assertFalse(command.reading_only())
+        self.assertEqual(self.objects(), before)
+        self.assertEqual(command.artifact_sha(self.ledger.project), read)       # the same id a door computes, and the door keeps it
+        self.assertGreater(self.objects(), before)
+        with self.assertRaisesRegex(LedgerError, 'differs from the verified handoff'): self.accept(delivered['artifact'])
+
+    def test_s5_4_a_read_can_diff_the_tree_it_just_computed(self):
+        self.deliver(); self.final(red=False)
+        head = command._git(self.root, 'rev-parse', 'HEAD^{tree}')
+        (self.root / 'dep.txt').write_text('outside owned\n')
+        before = self.objects()
+        with command.leaves_no_objects():
+            now = command.artifact_sha(self.root)
+            self.assertIn('dep.txt', command.changed_paths(self.root, head, now))
+            self.assertEqual(command.blob_head(self.root, now, 'dep.txt'), b'outside owned\n')
+        self.assertEqual(self.objects(), before)
+
     def test_s5_6_an_expired_root_says_stop_and_promises_no_door(self):
         self.step()
         real = internal_plan.ceilings

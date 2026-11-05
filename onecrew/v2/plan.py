@@ -593,6 +593,13 @@ def _advice_view(event, sha):
 
 
 def show(ledger, name, revision=None):
+    """A read: it judges the evidence against the tree now and stores nothing in the project."""
+    from .verifiers import command
+    with command.leaves_no_objects():
+        return _show(ledger, name, revision)
+
+
+def _show(ledger, name, revision=None):
     from . import step0
     with ledger.transaction() as conn:
         state = anchor_events(ledger, conn, name)
