@@ -4,15 +4,18 @@ Proposal source: `C:/OneCrewRuns-rv2/REVIEW-SOL4.vi.md`; user authorized fixing 
 
 | ID | Requirement | Type | Implementation evidence | Test evidence | Status | Notes |
 |---|---|---|---|---|---|---|
-| L1/L8/L13 | Acceptance of completed evidence after execution deadline; truthful budget guidance | Reliability | engine.root_ready/next_action; command._Budget | test_sol5_review L1/L13; Sol4 budget regression | Implemented; wheel pending | No new execution after deadline |
-| L2/L11 | Owner observation uses recorded execution context; new checks still bind current environment | Reliability | verification_evidence.receipt_assessment; plan.accept; verdict._check_receipt | test_sol5_review L2; strict environment regression | Implemented; wheel pending | Never ignore environment changes for execution reuse |
-| L3 | Existing repair can recover final-verdict findings without releasing unrelated holds | Reliability | repair_tasks._final_source/prepare; finding_scope; common_handoff CAS | test_sol5_review L3; D6 existing repair negatives | Implemented; wheel pending | Reuse repair generations and project CAS |
-| L4/L5/L9/L10 | Next action respects failed/held checks, authority and remaining grant | Functional | engine.next_action | r14; Q5 authority; Sol4 operator tests | Implemented; wheel pending | No new scheduler |
-| L6/L12 | Durable closure reconciliation and actionable remaining finding commands | Reliability | verdict._finish_findings/_resume_closure | test_sol5_review closure/doc; review_b2_e2e | Implemented; wheel pending | Reviewer closure remains explicit |
-| L7 | Known worker failure exposes retained cause and legal recovery | Observability | engine._step/state/next_action | Claude p_f8b worker_error scheduled on wheel | Implemented; wheel pending | Unknown outcome is never auto-retried |
-| L14/L15 | Align valid state assertions and truthful CLI errors | Testing | affected test fixtures; hook_cli/owner_cli | affected complete modules; Sol4 enforce negatives | Implemented; wheel pending | Do not weaken behavioral assertions |
+| L1/L8/L13 | Acceptance of completed evidence after execution deadline; truthful budget guidance | Reliability | engine.root_ready/next_action; command._Budget | test_sol5_review L1/L13; Sol4 budget regression | Verified local | No new execution after deadline |
+| L2/L11 | Owner observation uses recorded execution context; new checks still bind current environment | Reliability | verification_evidence.receipt_assessment; plan.accept; verdict._check_receipt | test_sol5_review L2; strict environment regression | Verified local | Never ignore environment changes for execution reuse |
+| L3 | Existing repair can recover final-verdict findings without releasing unrelated holds | Reliability | repair_tasks._final_source/prepare; finding_scope; common_handoff CAS | test_sol5_review L3; D6 existing repair negatives | Verified local | Reuse repair generations and project CAS |
+| L4/L5/L9/L10 | Next action respects failed/held checks, authority and remaining grant | Functional | engine.next_action | r14; Q5 authority; Sol4 operator tests | Verified local | No new scheduler |
+| L6/L12 | Durable closure reconciliation and actionable remaining finding commands | Reliability | verdict._finish_findings/_resume_closure | test_sol5_review closure/doc; review_b2_e2e | Verified local | Reviewer closure remains explicit |
+| L7 | Known worker failure exposes retained cause and legal recovery | Observability | engine._step/state/next_action | Claude p_f8b worker_error on final wheel | Verified local | Unknown outcome is never auto-retried |
+| L14/L15 | Align valid state assertions and truthful CLI errors | Testing | affected test fixtures; hook_cli/owner_cli | affected complete modules; Sol4 enforce negatives | Verified local | Do not weaken behavioral assertions |
 
 Historical Sol4 F2/F6/F8 claims below are superseded by Claude's Partial assessment on `40d7ba7`. Sol5 verification is tracked separately above and in its handoff; source tests alone do not certify the final wheel.
+
+
+Final artifact: [Sol5 handoff](SOL5-CLAUDE-HANDOFF.vi.md), `8f53170`, wheel `0e0a1def6828f66a663cf4a23dbd994be07e08908ecf1f80c7ac6a3c6bbe9513`. 71 final-wheel tests; 38 smoke checks; 37 output assertions on reused probes. No full gate or real-runtime acceptance.
 
 # Review backend — isolated cycle 1 (historical)
 
@@ -1287,13 +1290,13 @@ Baseline e6d58bb / final3 remains immutable. Scope: local repair, final wheel, n
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
 | F1 | Claude sol3 finding 1, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
-| F2 | Claude sol3 finding 2, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F2 | Claude sol3 finding 2, attachment 9edd8c85 | Partial on Sol4; fixed in Sol5 above | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
 | F3 | Claude sol3 finding 3, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
 | F4 | Claude sol3 finding 4, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
 | F5 | Claude sol3 finding 5, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
-| F6 | Claude sol3 finding 6, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F6 | Claude sol3 finding 6, attachment 9edd8c85 | Partial on Sol4; fixed in Sol5 above | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
 | F7 | Claude sol3 finding 7, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
-| F8 | Claude sol3 finding 8, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F8 | Claude sol3 finding 8, attachment 9edd8c85 | Partial on Sol4; fixed in Sol5 above | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
 | F9 | Claude sol3 finding 9, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
 | F10 | Claude sol3 finding 10, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
 | F11 | Claude sol3 finding 11, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
