@@ -64,3 +64,42 @@ Read with `review_dispatch.check_runs(ledger, selector)` or `review_dispatch.run
 | `optional` | `review.run_finished {receipt, applicable}` | `optional-review-observation`, `authority:'none'`: never a pass and must not close a finding |
 
 An authentic recheck is a receipt returned by `run_of_receipt` with `outcome` `published`/`observed`/`recorded`, `request.id` equal to the request bound to the repaired output, and the blob's own result. Not authentic: a held, stale, released or not-dispatched run; `late` until reconciled.
+
+## 6. Investigation review (RV-T6)
+
+`engine review-optional PLAN NODE REVIEW --investigate config.json` uses `common_verification.InvestigationChecker` through the existing
+optional door, so the review ID must be sealed in the approved `review_policy`.
+
+- Config: `provider`, `model`, `question`, `paths` (1-20, validated by `survey_worker.validate`), optional `probes` (at most 5 argv lists), `max_minutes`.
+- Read: only the named paths, only inside the node's `read` + `write`; credential paths are refused and credential-looking content is withheld (`source_tools`).
+- Run: only with the contract's `commands` grant, through the Q4 decision, in a disposable checkout of the sealed tree, with `command.verifier_env`. Whatever a probe writes dies with that checkout.
+- Judge: one metered call through `ProviderCall` (a verifier child task on the root budget, no owner contract). The provider has no tools: OneCrew reads and runs, the model judges that bounded evidence.
+- Result: `optional-review-observation`, `authority:'none'`, `full_review:false`, `label`, what was read, withheld and not investigated, `independence` computed from actual producers or `not_established`.
+
+Not done: an agent that chooses its own reads and commands. That needs a provider tool capability proven from the artifact first.
+
+## 7. Evidence
+
+Tests: `tests/test_review_b2_lifecycle.py`, `test_review_b2_candidate.py`, `test_review_b2_hook.py`, `test_review_b2_investigation.py`, `test_review_b2_e2e.py`. Wheel smoke:
+`docs/review/verify_b2_wheel.py` (run on the final wheel by the integrating session; source run passed). Logs: `D:\OneCrewRuns\cycle2\b\logs` (`red-*` = base code).
+
+Red on base `01b10e1`, behaviour failures:
+
+| Case | Base result |
+|---|---|
+| Two `engine verify` on one node | checker ran 2 times |
+| Same milestones on the same tree in two nodes | 6 executions instead of 3 |
+| Result issued, publication lost | a second call ran the checker again |
+| Unknown outcome, lost controller | a second call ran the checker again |
+| Stop hook on a delivered workflow root | told the session to run `verdict run` |
+| Two doors on one reviewer milestone | the command milestone ran twice and the second door got a raw "Verifier outcome is unknown" from the metered guard; the guard did stop a second provider call |
+
+## 8. Limits
+
+- No real provider ran. Provider behaviour after a lost connection, and whether an investigation answer is useful, are unproven. Exactly-once is not promised across a provider boundary.
+- A milestone whose verifier returned while the process died before its claim settled stays held (unknown), although a reviewer receipt blob may exist: it is not linked until settled.
+- `verdict run` does not reuse a candidate pass: `record()` accepts only receipts `verdict.run` issued, and candidate receipts carry the clamped cap and the selector. On a workflow root acceptance needs the engine handoff, not verdicts, and the hook no longer points to `verdict run`. On a plain root there is no candidate door.
+- `verdict.run` fingerprints the environment at claim time; the verifier takes its own snapshot just after. The candidate door uses one snapshot for the request, the binding and the process.
+- In-flight dedupe needs writers of this version on one state root; an older runtime does not take part.
+- Reuse is exact-request only. The neutral-change route in `evidence_status` is not used by a door yet: a changed candidate is checked again.
+- A run from another machine is observed until its deadline, then held; liveness is only known on this host.
