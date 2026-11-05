@@ -1270,14 +1270,14 @@ Baseline e6d58bb / final3 remains immutable. Scope: local repair, final wheel, n
 
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
-| F1 | Claude sol3 finding 1, attachment 9edd8c85 | Partial | Pending focused regression and wheel |
-| F2 | Claude sol3 finding 2, attachment 9edd8c85 | Partial | Pending focused regression and wheel |
-| F3 | Claude sol3 finding 3, attachment 9edd8c85 | Partial | Pending focused regression and wheel |
-| F4 | Claude sol3 finding 4, attachment 9edd8c85 | Partial | Pending focused regression and wheel |
-| F5 | Claude sol3 finding 5, attachment 9edd8c85 | Partial | Pending focused regression and wheel |
-| F6 | Claude sol3 finding 6, attachment 9edd8c85 | Partial | Pending focused regression and wheel |
-| F7 | Claude sol3 finding 7, attachment 9edd8c85 | Partial | Pending focused regression and wheel |
-| F8 | Claude sol3 finding 8, attachment 9edd8c85 | Partial | Pending focused regression and wheel |
-| F9 | Claude sol3 finding 9, attachment 9edd8c85 | Partial | Pending focused regression and wheel |
-| F10 | Claude sol3 finding 10, attachment 9edd8c85 | Partial | Pending focused regression and wheel |
-| F11 | Claude sol3 finding 11, attachment 9edd8c85 | Partial | Pending focused regression and wheel |
+| F1 | Claude sol3 finding 1, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F2 | Claude sol3 finding 2, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F3 | Claude sol3 finding 3, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F4 | Claude sol3 finding 4, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F5 | Claude sol3 finding 5, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F6 | Claude sol3 finding 6, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F7 | Claude sol3 finding 7, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F8 | Claude sol3 finding 8, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F9 | Claude sol3 finding 9, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F10 | Claude sol3 finding 10, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F11 | Claude sol3 finding 11, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
