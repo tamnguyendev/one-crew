@@ -432,10 +432,13 @@ def node_request(ledger, selector, nid, execution=None, conn=None):
         authority=contract.get('authority', {}), budget=contract['budget'], inputs=None, execution=execution)
 
 
-def claim_node_check(ledger, selector, nid, *, execution, door):
-    """engine.verify's claim: the request is computed from the facts read inside the same write transaction as the claim."""
+def claim_node_check(ledger, selector, nid, *, execution, door, expected):
+    """engine.verify's claim: the request is computed from the facts read inside the same write transaction as the claim. `expected` is the
+    (artifact, generation) the caller decided on: another door may have published or moved the node since, and that is not a new request."""
     with ledger.transaction(write=True) as conn:
         root, item, facts, request = node_request(ledger, selector, nid, execution, conn)
+        if facts['state'] != 'produced' or facts['phase'] == 'held' or (facts['artifact'], facts['generation']) != tuple(expected):
+            raise LedgerError('The node changed before its check was claimed (another door may have finished it); nothing was dispatched.')
         subject = {'node': nid, 'generation': facts['generation'], 'artifact': facts['artifact'],
                    'internal_revision': facts['internal_revision']}
         # the same allowance as the tools fence (engine._claim_tools): twice the node cap, the first check still has its own deadlines

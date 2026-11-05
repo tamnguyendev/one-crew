@@ -62,6 +62,25 @@ class RequiredCheckLifecycle(CheckFixture):
         self.assertEqual(self.kinds().count('node.verification'), 1)
         self.assertEqual(done['result'], 'pass')
 
+    def test_t1_a_door_that_read_the_node_before_another_door_published_does_not_dispatch(self):
+        self.step()
+        calls = []
+        def counting(item, artifact): calls.append(artifact); return self.checker(item, artifact)
+        real, other = review_dispatch.claim_node_check, []
+        def first_door_finishes_just_before_this_claim(*args, **kwargs):
+            if not other:
+                other.append('ran')
+                with patch.object(review_dispatch, 'claim_node_check', side_effect=real):
+                    other.append(self.verify('C', counting))
+            return real(*args, **kwargs)
+        with patch.object(review_dispatch, 'claim_node_check', side_effect=first_door_finishes_just_before_this_claim):
+            with self.assertRaises(LedgerError):
+                self.verify('C', counting)
+        self.assertEqual(len(calls), 1, 'the pass published between read and claim must stop this door')
+        self.assertEqual(other[1]['result'], 'pass')
+        self.assertEqual(self.kinds().count('node.verification'), 1)
+        self.assertEqual(self.kinds().count('review.run_started'), 1)
+
     def test_t1_recall_after_valid_pass_calls_no_checker_and_names_the_run(self):
         self.step()
         done = self.verify('C')

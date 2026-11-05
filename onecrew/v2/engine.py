@@ -1148,7 +1148,8 @@ def verify(ledger, selector, nid, checker, *, door='engine.verify'):
         raise LedgerError('The knowledge or sources delivered to this candidate changed since it was produced; nothing was verified (the node is '
                           + gated['state'] + '): ' + '; '.join(str(c.get('id') or c.get('path') or c.get('node')) + ' ' + c['reason']
                                                                 for c in gated['knowledge_changed']['critical'][:5]))
-    claim, request = review_dispatch.claim_node_check(ledger, root['selector'], nid, execution=_execution_of(checker, item), door=door)
+    claim, request = review_dispatch.claim_node_check(ledger, root['selector'], nid, execution=_execution_of(checker, item), door=door,
+                                                      expected=(artifact, view['nodes'][nid]['generation']))
     if claim['status'] in ('pending', 'held'):
         return review_dispatch.run_held_view(root['selector'], nid, claim, request)
     if claim['status'] == 'issued':
