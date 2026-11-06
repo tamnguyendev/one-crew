@@ -8,6 +8,7 @@ well formed, is refused.
 import codecs
 import contextvars
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -355,6 +356,175 @@ def artifact_sha(directory, verified=False):
         # a staged entry that differs from both the file and HEAD (the gate on c6d8477); only the throw-away index is touched.
         _git(top, 'rm', '-r', '--cached', '-f', '-q', '--ignore-unmatch', '--', '.onecrew', env=env)
         return _git(top, 'write-tree', env=env)
+
+
+class InputRefused(LedgerError):
+    """A verifier with declared inputs cannot start: what it would read cannot be established. The verifier was not called, so a new run may start."""
+    verifier_started = False
+
+
+class NoRoom(LedgerError):
+    """The checkout would not fit. Refused before anything is written; the verifier was not called."""
+    verifier_started = False
+
+    def __init__(self, needed, free, where):
+        self.needed, self.free, self.where = needed, free, str(where)
+        super().__init__(f'The checkout for the verifier needs about {needed} bytes and {where} has {free} free. Nothing was written and the verifier was not called. '
+                         'Free some space, point TEMP at another disk, or declare the inputs the command reads (verifier.config.inputs).')
+
+    def structured(self):
+        return {'no_room': {'needed_bytes': self.needed, 'free_bytes': self.free, 'where': self.where}, 'verifier_started': False, 'next': 'Free space or declare inputs, then run the same command again.'}
+
+
+def scope_paths(inputs):
+    """The declared inputs plus every .gitattributes above them: those decide how a file is cleaned and checked out, so a change there is a change of the input."""
+    paths = set(inputs) | {'.gitattributes'}
+    for item in inputs:
+        parts = item.split('/')
+        for depth in range(1, len(parts)):
+            paths.add('/'.join(parts[:depth]) + '/.gitattributes')
+    return sorted(paths)
+
+
+def _load_scope(top, env, tree, paths):
+    """The entries of `tree` under `paths` into the throw-away index. Returns the names."""
+    rows = _git(top, 'ls-tree', '-r', '-z', '--full-tree', tree, '--', *paths, raw=True).split(b'\0')
+    lines, names = [], set()
+    for row in rows:
+        if not row: continue
+        head, name = row.split(b'\t', 1)
+        mode, _, oid = head.split(b' ')
+        lines.append(mode + b' ' + oid + b'\t' + name + b'\0'); names.add(name.decode('utf-8', 'surrogateescape'))
+    if lines: _git(top, *NOSPARSE, 'update-index', '-z', '--index-info', env=env, input=b''.join(lines))
+    return names
+
+
+@_bounded
+def scoped_tree(directory, inputs, verified=False):
+    """artifact_sha for declared inputs only: a tree holding HEAD's entries for them, then the working files that are neither ignored nor committed, each pinned and judged on its
+    handle exactly as artifact_sha does, so the same content gives the same ids. Nothing outside the inputs is listed, opened or hashed. With `verified` (a verifier) a hard link or a
+    junction among them refuses, and an input with nothing in it refuses: it would be a check of nothing. Without it (a view) these change the identity instead."""
+    top = str(Path(_git(directory, 'rev-parse', '--show-toplevel')).resolve())
+    paths = scope_paths(inputs)
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
+        env = {'GIT_INDEX_FILE': str(Path(temp) / 'index'), 'GIT_LITERAL_PATHSPECS': '1'}
+        _git(top, 'read-tree', '--empty', env=env)
+        held = _load_scope(top, env, 'HEAD', paths)
+        others = _listed(top, env, '--others', '--exclude-standard', '--', *paths)
+        with _Pins(top) as pins:
+            refused, gone = pins.pin(sorted(n for n in held | others if not _own(n)))
+            if refused and verified: raise HardLinked(_refusal(*refused[0]))
+            why = dict(refused)
+            kept_out = _sparse_kept(top)
+            _stage(top, env, sorted(pins.held), [n for n in gone if n in held and n not in kept_out])
+            _repositories_for_files(top, env, pins)
+            if why: _add_markers(top, sorted(why), held, others, Path(temp), env, why)
+            pins.recheck()
+        have = _listed(top, env, '--cached')
+        if verified:
+            empty = [i for i in inputs if not any(n == i or n.rstrip('/') == i or n.startswith(i + '/') for n in have)]
+            if empty: raise InputRefused('Declared input not found, or everything in it is ignored by Git: ' + ', '.join(empty) + '. The verifier was not called: it would check nothing there.')
+        return _git(top, 'write-tree', env=env)
+
+
+def scoped_of_tree(directory, tree, inputs):
+    """The part of an existing tree that `inputs` name, as a tree: what scoped_tree gave if the working files were that tree. Only ever a tree id reaches git."""
+    if not TREE_ID.fullmatch(tree or ''): raise LedgerError('A tree id is 40 or 64 lowercase hex characters.')
+    top = toplevel(directory)
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
+        env = {'GIT_INDEX_FILE': str(Path(temp) / 'index'), 'GIT_LITERAL_PATHSPECS': '1'}
+        _git(top, 'read-tree', '--empty', env=env)
+        _load_scope(top, env, tree, scope_paths(inputs))
+        return _git(top, 'write-tree', env=env)
+
+
+def _inside(name, inputs):
+    return any(name == i or name.startswith(i + '/') for i in inputs)
+
+
+def check_argv_scope(directory, argv, inputs):
+    """A word of the command that names something in the repository must be inside the inputs. The checkout holds only those, so anything else would read as missing, or, by an
+    absolute path, reach the live tree around the checkout. Not an analysis of the program: only what the command line itself names. Refused before the verifier is called."""
+    top = Path(toplevel(directory)); here = Path(directory).resolve()
+    for word in argv:
+        for piece in {word, word.split('=', 1)[-1]}:
+            if not piece or piece.startswith('-') or len(piece) > 500 or any(c in piece for c in '\r\n\t*?"<>|'): continue
+            try:
+                path = Path(piece) if os.path.isabs(piece) else here / piece
+                if os.path.isabs(piece) and not path.resolve().is_relative_to(top): continue    # a program or file outside the repository is not the tree's business
+                if not path.exists(): continue
+                full = path.resolve()
+            except (OSError, ValueError, RuntimeError):
+                continue
+            if not full.is_relative_to(top):
+                raise InputRefused(f'The command names {piece!r}, which is outside the repository. The verifier was not called.')
+            name = full.relative_to(top).as_posix()
+            if os.path.isabs(piece): raise InputRefused(f'The command names {piece!r} by an absolute path into the live tree: it would read past the checkout. Use a path relative to the working folder. The verifier was not called.')
+            if name == '.' or not _inside(name, inputs):
+                raise InputRefused(f'The command names {piece!r}, which is not among the declared inputs ({", ".join(inputs)}). Declare it, or remove the inputs to check the whole tree. The verifier was not called.')
+
+
+def tool_identity(word, env):
+    """The program the command starts, by its bytes. A program inside the inputs is in the tree already. This fingerprints that one file: what it loads must be declared."""
+    if not os.path.isabs(word) and ('/' in word or '\\' in word): return {'word': word, 'in_inputs': True}
+    found = word if os.path.isabs(word) else shutil.which(word, path=(env or {}).get('PATH'))
+    if not found or not Path(found).is_file(): return {'word': word, 'path': None, 'sha256': None}
+    return {'word': word, 'path': str(Path(found).resolve()), 'sha256': hashlib.sha256(Path(found).read_bytes()).hexdigest()}
+
+
+def tool_changed(tool):
+    """Whether the recorded program is gone or has other bytes."""
+    if not isinstance(tool, dict) or not tool.get('path'): return False
+    try:
+        return hashlib.sha256(Path(tool['path']).read_bytes()).hexdigest() != tool.get('sha256')
+    except OSError:
+        return True
+
+
+def _tree_size(directory, tree):
+    """(files, bytes) of a tree, from the object headers; nothing is read into memory or written."""
+    files = total = 0
+    for row in _git(toplevel(directory), 'ls-tree', '-r', '-l', '-z', tree, raw=True).split(b'\0'):
+        if not row: continue
+        size = row.split(b'\t', 1)[0].split()[-1]
+        files += 1
+        if size.isdigit(): total += int(size)
+    return files, total
+
+
+ROOM_MARGIN = 64 * 1024 * 1024
+
+
+def _check_room(directory, tree, destination):
+    """Before the checkout starts: a tree that cannot fit is refused with the numbers instead of failing part way."""
+    files, total = _tree_size(directory, tree)
+    free = shutil.disk_usage(destination).free
+    if free < total + total // 10 + ROOM_MARGIN: raise NoRoom(total + total // 10 + ROOM_MARGIN, free, destination)
+    return files, total
+
+
+SCRATCH_PREFIX = 'ocv-'
+SCRATCH_OWNER = 'owner.json'
+
+
+def _own_scratch(scratch):
+    Path(scratch, SCRATCH_OWNER).write_text(json.dumps({'pid': os.getpid(), 'host': os.environ.get('COMPUTERNAME') or os.uname().nodename}), encoding='utf-8')
+
+
+def _sweep_scratch():
+    """Scratch folders a killed run left behind. Only a folder that carries the owner mark of a process that is gone on this machine; nothing else in the temp folder is touched."""
+    from .. import verdict
+    try:
+        names = list(Path(tempfile.gettempdir()).glob(SCRATCH_PREFIX + '*'))
+    except OSError:
+        return
+    for folder in names:
+        try:
+            owner = json.loads((folder / SCRATCH_OWNER).read_text(encoding='utf-8'))
+            if owner.get('host') == (os.environ.get('COMPUTERNAME') or os.uname().nodename) and owner.get('pid') != os.getpid() and not verdict.process_alive(owner.get('pid')):
+                shutil.rmtree(folder, ignore_errors=True)
+        except (OSError, ValueError, AttributeError):
+            continue
 
 
 def _refusal(name, why):
@@ -902,14 +1072,26 @@ def before_verifier():
 def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context=None, *, effective_environment=None, deadline=None):
     """Execute the milestone's command; returns (receipt_blob, receipt)."""
     argv, limit = milestone['verifier']['config']['argv'], milestone['verifier']['config']['max_minutes']
+    inputs = milestone['verifier']['config'].get('inputs')
     directory = Path(directory).resolve()
     if not directory.is_dir(): raise LedgerError('Verifier working directory does not exist: ' + str(directory))
+    if inputs and evidence_context: raise InputRefused('Declared inputs are not supported on a workflow root: its handoff judges the whole artifact. The verifier was not called.')
     with snapshot_limits(deadline):
+        _sweep_scratch()
         begin = time.monotonic()
         with before_verifier(), _snapshot('before the verifier'):
-            before = verified_sha(directory)
+            if inputs:
+                check_argv_scope(directory, argv, inputs)
+                try:
+                    before = scoped_tree(directory, inputs, verified=True)
+                except HardLinked as refused:
+                    refused.verifier_started = False
+                    raise
+            else:
+                before = verified_sha(directory)
         timing = {'before_seconds': round(time.monotonic() - begin, 2), 'limit_seconds': round(snapshot_seconds(), 1)}
-        scratch = tempfile.mkdtemp(prefix='ocv-')
+        scratch = tempfile.mkdtemp(prefix=SCRATCH_PREFIX)
+        _own_scratch(scratch)
         try:
             return _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context,
                         effective_environment=effective_environment, deadline=deadline, timing=timing)
@@ -921,13 +1103,23 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
     timing = dict(timing or {})
     begin = time.monotonic()
     with before_verifier():                            # up to the Popen below the verifier has not been called, whatever fails here
+        inputs = milestone['verifier']['config'].get('inputs')
         with _snapshot('checkout for the verifier'):
+            timing['checkout_files'], timing['checkout_bytes'] = _check_room(directory, before, scratch)
             workspace = _checkout(directory, before, scratch)
         timing['checkout_seconds'] = round(time.monotonic() - begin, 2)
+        if inputs and not workspace.is_dir(): raise InputRefused(f'The working folder {workspace.name!r} is not in the checkout of the declared inputs. The verifier was not called.')
         # S1: children are always UTF-8, so a Vietnamese path or message cannot turn a pass into an encoding failure.
         env = verifier_env(directory) if effective_environment is None else dict(effective_environment)
         from .. import verification_evidence
         binding = verification_evidence.for_receipt(ledger, evidence_context, milestone, before, env) if evidence_context else None
+        scope = None
+        if inputs:
+            try:
+                head = _git(directory, 'rev-parse', '--verify', '-q', 'HEAD')
+            except LedgerError:
+                head = None
+            scope = {'paths': list(inputs), 'effective': scope_paths(inputs), 'files': timing['checkout_files'], 'bytes': timing['checkout_bytes'], 'head': head, 'tool': tool_identity(argv[0], env)}
     started, error, timed_out, code, out, err = utcnow(), None, False, None, b'', b''
     begin = time.monotonic()
     if deadline is not None:
@@ -947,13 +1139,16 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
             timed_out = True
             _kill_tree(process)
             out, err = process.communicate()
+        except BaseException:                          # an interrupt: the command does not outlive this run
+            _kill_tree(process)
+            raise
     except OSError as problem:
         error = f'{type(problem).__name__}: {problem}'[:300]
     seconds = round(time.monotonic() - begin, 2)       # the verifier alone: the snapshots around it are in `snapshot` of the receipt
     finished = time.monotonic()
     try:
         with _snapshot('after the verifier', floor=STEP_SECONDS):
-            after = verified_sha(directory)            # made the way the before one is: a link the command made is not hashed into a tree (D-R05)
+            after = scoped_tree(directory, inputs, verified=True) if inputs else verified_sha(directory)            # made the way the before one is: a link the command made is not hashed into a tree (D-R05)
     except LedgerError as problem:                     # the command ran: its receipt is kept, inconclusive, with the reason (review E-R01)
         after, error = None, error or f'the artifact after the command cannot be identified: {problem}'[:300]
         if isinstance(problem, SnapshotFailed):
@@ -965,7 +1160,8 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
                'argv': argv, 'cwd': str(directory), 'exit_code': code, 'timed_out': timed_out, 'error': error,
                'seconds': seconds, 'snapshot': timing, 'started': started, 'artifact_sha': before, 'artifact_sha_after': after,
                'stdout': store.blob(out[-OUTPUT_CAP:]), 'stderr': store.blob(err[-OUTPUT_CAP:]),
-               'stdout_bytes': len(out), 'stderr_bytes': len(err), 'output_truncated': len(out) > OUTPUT_CAP or len(err) > OUTPUT_CAP}
+               'stdout_bytes': len(out), 'stderr_bytes': len(err), 'output_truncated': len(out) > OUTPUT_CAP or len(err) > OUTPUT_CAP,
+               **({'input_scope': scope} if scope else {})}
     rule = suspicious_rule(receipt)
     if binding is not None: receipt['evidence_binding'] = binding
     if rule: receipt['suspicious'] = rule            # the receipt names the rule that made the verdict inconclusive

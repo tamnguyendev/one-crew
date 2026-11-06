@@ -375,6 +375,8 @@ def run(ledger, name, milestone_id, directory=None):
     if milestone is None: raise LedgerError('Unknown milestone ' + milestone_id + '.')
     kind, config = milestone['verifier']['type'], milestone['verifier']['config']
     if kind not in KINDS and not port.known(kind): raise LedgerError('Milestone ' + milestone_id + ' has no executable verifier.')
+    unsupported = plans._inputs_unsupported(state, contract)
+    if unsupported: raise LedgerError(unsupported)
     directory = _directory(ledger, milestone, directory)
     level = reviewer.check_independence(written, config) if kind == 'reviewer' else None
     minutes = config.get('max_minutes') or config['authority']['max_minutes']

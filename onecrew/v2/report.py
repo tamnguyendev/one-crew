@@ -635,10 +635,14 @@ CHECKER = {'command': 'lệnh tự chạy trên artifact, bạn không phải l�
            'owner-manual': 'bạn tự thử rồi ghi kết quả (verdict của chủ sở hữu)'}
 
 
+INPUTS_ONLY = 'theo inputs đã khai của từng mốc'
+
+
 def _artifact_now(f):
     """The artifact the evidence is judged against: the one accepted, else the project's tree now (None when it cannot be made)."""
     accepted = f['state']['accepted']
     if accepted and accepted['revision'] == f['revision']: return accepted.get('artifact_sha')
+    if contracts.all_inputs_declared(f.get('contract') or {}): return INPUTS_ONLY    # each milestone is judged on its own inputs (milestone_views): the whole tree is not walked for a report
     if 'artifact_now' not in f:
         from .verifiers import artifact as identities
         try:
