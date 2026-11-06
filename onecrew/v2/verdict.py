@@ -173,7 +173,7 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
     if body and namespaces.has_capability(state, 'finding-register'):
         from . import findings
         findings.after_change(ledger, name)                        # W36: a running managed attempt of a node a new finding holds is asked to pause
-    out = plans.show(ledger, name, revision)         # the revision the verdict was about (the approved one while an amendment waits)
+    out = plans._show(ledger, name, revision)        # the revision the verdict was about (the approved one while an amendment waits)
     if closures: out['finding_rechecks'] = closures
     if actions: out['finding_actions'] = actions
     if escalation: out['stopped'] = escalation
@@ -221,7 +221,7 @@ def _resume_closure(ledger, name, milestone_id):
     from . import active_plan
     active_plan.export(ledger, name)
     findings.after_change(ledger, name)
-    out = plans.show(ledger, name)
+    out = plans._show(ledger, name)
     out.update(finding_rechecks=closures, finding_actions=actions, verifier_executed=False)
     return out
 
@@ -337,7 +337,8 @@ def diff(ledger, name, milestone_id):
         if milestone is None: raise LedgerError('Unknown milestone ' + milestone_id + '.')
         if milestone['verifier']['type'] != 'reviewer': raise LedgerError('Milestone ' + milestone_id + ' is not verified by a reviewer.')
         approved, previous = _review_context(ledger, conn, state, milestone_id, milestone['verifier']['config'])
-    return reviewer.review_diff(_directory(ledger, milestone, None), approved, previous)[0]
+    with command.leaves_no_objects():
+        return reviewer.review_diff(_directory(ledger, milestone, None), approved, previous)[0]
 
 
 def artifact(ledger, name):

@@ -625,6 +625,21 @@ class ReviewerBase(Fixture):
 
 
 class ReviewerSeesWhatGitTracks(ReviewerBase):
+    def test_the_diff_is_a_read_it_stores_nothing_and_stops_without_its_store(self):
+        self.start(); self.commit('a.txt', 'one\ntwo\n')
+        (self.root / 'a.txt').write_text('one\nCHANGED_MARK\n')
+        count = lambda: sum(1 for p in (self.root / '.git' / 'objects').rglob('*') if p.is_file())
+        before = count()
+        self.assertIn('CHANGED_MARK', verdict.diff(self.ledger, 'P1', 'M1'))
+        self.assertEqual(count(), before)
+        real = subprocess.run
+        def fault(args, *a, **kw):
+            if isinstance(args, list) and args[-3:] == ['rev-parse', '--git-path', 'objects']: return subprocess.CompletedProcess(args, 128, stdout=b'', stderr=b'fatal: injected')
+            return real(args, *a, **kw)
+        with patch.object(command.subprocess, 'run', side_effect=fault), self.assertRaises(command.ReadIsolationFailed):
+            verdict.diff(self.ledger, 'P1', 'M1')
+        self.assertEqual(count(), before)
+
     def test_a_new_file_that_was_git_added_is_in_the_diff_and_in_the_prompt(self):
         self.start(); self.commit('a.txt', 'one\ntwo\n')
         (self.root / 'new.py').write_text('NEW_FILE_MARK = 1\n'); self.git('add', 'new.py')

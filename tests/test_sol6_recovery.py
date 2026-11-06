@@ -701,6 +701,94 @@ class ReadsAndStates(Chain):
             self.assertEqual(command.blob_head(self.root, now, 'dep.txt'), b'outside owned\n')
         self.assertEqual(self.objects(), before)
 
+    def discovery_fault(self, kind):
+        """Only the step that names the objects folder fails; every other git is real."""
+        real = subprocess.run
+        def run(args, *a, **kw):
+            if isinstance(args, list) and args[-3:] == ['rev-parse', '--git-path', 'objects']:
+                if kind == 'timeout': raise subprocess.TimeoutExpired(args, 30)
+                if kind == 'start': raise FileNotFoundError('git')
+                if kind == 'nonzero': return subprocess.CompletedProcess(args, 128, stdout=b'', stderr=b'fatal: injected failure')
+                if kind == 'empty': return subprocess.CompletedProcess(args, 0, stdout=b'', stderr=b'')
+                if kind == 'gone': return subprocess.CompletedProcess(args, 0, stdout=b'no/such/objects', stderr=b'')
+                if kind == 'bad-output': raise ValueError('embedded null')
+            return real(args, *a, **kw)
+        return patch.object(command.subprocess, 'run', side_effect=run)
+
+    def test_s5_4_a_read_never_falls_back_to_the_project_store(self):
+        self.deliver(); self.final(red=False)
+        (self.root / 'dep.txt').write_text('outside owned\n')
+        before = self.objects()
+        reads = {'plan.show': lambda: plan.show(self.ledger, 'P1'), 'report': lambda: report.render_report(self.ledger.state_root, 'P1'),
+                 'handover': lambda: report.render_handover(self.ledger.state_root, 'P1'), 'present': lambda: report.render_present(self.ledger.state_root, 'P1')}
+        faults = [self.discovery_fault(kind) for kind in ('timeout', 'start', 'nonzero', 'empty', 'gone', 'bad-output')]
+        faults += [patch.object(command.tempfile, 'TemporaryDirectory', side_effect=PermissionError('temp folder')),
+                   patch.object(command.Path, 'mkdir', side_effect=OSError('no room'))]
+        for number, fault in enumerate(faults):
+            for name, read in reads.items():
+                with self.subTest(fault=number, read=name), fault:
+                    with self.assertRaises(command.ReadIsolationFailed) as caught: read()
+                    self.assertIn('Nothing was judged', str(caught.exception))
+                    self.assertEqual(self.objects(), before)
+            with self.subTest(fault=number, read='next_action'), fault:
+                need = self.need()
+                self.assertEqual((need['kind'], need['state'], need['command']), ('inspect', 'blocked', None))
+                self.assertIn('Nothing was judged', need['reason'])
+                self.assertEqual(self.objects(), before)
+        self.assertTrue(plan.show(self.ledger, 'P1')['milestones'][0]['stale'])      # healthy again: the same read judges the same tree
+        self.assertEqual(self.objects(), before)
+
+    def test_s5_4_an_error_caught_inside_a_read_cannot_become_a_result(self):
+        self.deliver(); self.final(red=False)
+        (self.root / 'dep.txt').write_text('outside owned\n')
+        before = self.objects()
+        with self.discovery_fault('nonzero'), self.assertRaises(command.ReadIsolationFailed):
+            with command.leaves_no_objects():
+                try: command.artifact_sha(self.ledger.project)
+                except LedgerError: pass                                             # what several views do with a failed git
+                with self.assertRaises(command.ReadIsolationFailed): command._git(self.root, 'rev-parse', 'HEAD')   # nothing runs after it either
+        self.assertEqual(self.objects(), before)
+        self.assertFalse(command.reading_only())
+
+    def test_s5_4_no_repository_is_told_apart_from_a_repository_that_fails(self):
+        folder = self.root.parent / 'plain'; folder.mkdir()
+        with command.leaves_no_objects():
+            self.assertEqual(command._object_env(folder), {})
+            self.assertEqual(command._object_env(folder / 'missing'), {})
+            with self.assertRaises(LedgerError) as caught: command._git(folder, 'rev-parse', 'HEAD')    # git's own answer, as without a read
+            self.assertNotIsInstance(caught.exception, command.ReadIsolationFailed)
+        broken = self.root.parent / 'broken'; broken.mkdir()
+        (broken / '.git').write_text('gitdir: ' + str(self.root.parent / 'nowhere') + '\n')           # says it is a repository and cannot be read
+        with self.assertRaises(command.ReadIsolationFailed) as caught:
+            with command.leaves_no_objects(): command._object_env(broken)
+        self.assertIn('not a git repository', caught.exception.cause)
+        with patch.dict(os.environ, {'LC_ALL': 'de_DE.UTF-8', 'LANGUAGE': 'de'}), command.leaves_no_objects():
+            self.assertEqual(command._object_env(folder), {})                                            # the answer does not depend on the language
+
+    def test_s5_4_the_store_works_for_a_path_git_would_split_or_quote(self):
+        odd = self.root.parent / 'a;b c đ'; odd.mkdir()
+        def git(*args): subprocess.run(['git', '-C', str(odd), *args], check=True, capture_output=True)
+        git('init', '-q'); (odd / 'x.txt').write_text('one\n'); git('add', '.'); git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'x')
+        (odd / 'x.txt').write_text('two\n')
+        count = lambda: sum(1 for p in (odd / '.git' / 'objects').rglob('*') if p.is_file())
+        before = count()
+        with command.leaves_no_objects(): read = command.artifact_sha(odd)
+        self.assertEqual(count(), before)
+        self.assertEqual(command.artifact_sha(odd), read)
+
+    def test_s5_4_doors_that_store_work_while_a_read_could_not_be_isolated(self):
+        delivered = self.deliver()
+        with self.discovery_fault('nonzero'), patch.object(command, 'run', wraps=command.run) as verifier:     # the fault of a read does not reach a door that keeps evidence
+            done = self.final(red=False)
+            self.assertEqual(done['milestones'][0]['state'], 'passed')
+            self.assertEqual(verifier.call_count, 0, 'the candidate evidence was reused')
+            kept = verdict.artifact(self.ledger, 'P1')['artifact_sha']
+            self.assertEqual(kept, delivered['artifact'])
+            subprocess.run(['git', '-C', str(self.root), 'cat-file', '-e', kept + '^{tree}'], check=True)
+            accepted = self.accept(delivered['artifact'])
+        self.assertEqual(accepted['status'], 'accepted')
+        self.assertEqual(self.need()['kind'], 'none')
+
     def test_s5_6_an_expired_root_says_stop_and_promises_no_door(self):
         self.step()
         real = internal_plan.ceilings

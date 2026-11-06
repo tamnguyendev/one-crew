@@ -47,6 +47,18 @@ _active = contextvars.ContextVar('onecrew_snapshot_budget', default=None)
 _read_only = contextvars.ContextVar('onecrew_read_only_objects', default=None)
 
 
+class ReadIsolationFailed(LedgerError):
+    """A read (leaves_no_objects) could not keep git's writes out of the project, so it stopped. It has no result and it never falls back to the project's own store."""
+
+    def __init__(self, directory, cause):
+        self.directory, self.cause = str(directory), cause
+        super().__init__(f'This read stopped and gave no result: the throw-away object store that keeps it from writing to the project could not be set up for {directory} ({cause}). '
+                         'Nothing was judged and nothing was stored in the project. Fix the cause (git, the repository, the temp folder), then run the same command again.')
+
+    def structured(self):
+        return {'read_isolation': {'directory': self.directory, 'cause': self.cause}, 'stored_in_project': False, 'next': 'Fix the cause, then run the same command again.'}
+
+
 class SnapshotFailed(LedgerError):
     """The identity of the working tree could not be made in time. `verifier_started` says what is known of the verifier: False (it was not called, so
     a new run may start), True (it ran: its receipt is kept, inconclusive) or None (the caller does not know, which is held like any unknown outcome)."""
@@ -184,49 +196,80 @@ def _collect(stream, into):
 def leaves_no_objects():
     """A read that judges the working tree (plan show, engine next, the reports) stores nothing in the project. Git computes the same ids: what it would
     write goes to a throw-away object store, and the project's objects stay readable as an alternate, so a diff against the tree just made still works. The
-    tree made here exists only for the length of the read: a door that keeps or pins a tree (handoff, verdict, acceptance, `verdict artifact`) runs outside this."""
+    tree made here exists only for the length of the read: a door that keeps or pins a tree (handoff, verdict, acceptance, `verdict artifact`) runs outside this.
+    When the store cannot be set up the read has no result: no later git of this read runs, and the end of the read raises ReadIsolationFailed even when the code
+    in between caught the error (several views treat a failed git as "not judged", which would read as a pass here)."""
     if _read_only.get() is not None:
         yield
         return
-    state = {'temp': None, 'directories': {}, 'stores': {}}
+    state = {'temp': None, 'directories': {}, 'stores': {}, 'failure': None}
     token = _read_only.set(state)
     try:
-        yield
-    finally:
-        _read_only.reset(token)
-        if state['temp']: state['temp'].cleanup()       # git's loose objects are read-only on Windows: this removes those too, a plain rmtree does not
+        try:
+            yield
+        finally:
+            _read_only.reset(token)
+            if state['temp']: state['temp'].cleanup()   # git's loose objects are read-only on Windows: this removes those too, a plain rmtree does not
+    except Exception as error:
+        if state['failure'] is not None and not isinstance(error, ReadIsolationFailed): raise ReadIsolationFailed(*state['failure']) from error
+        raise
+    if state['failure'] is not None: raise ReadIsolationFailed(*state['failure'])
 
 
 def reading_only():
     return _read_only.get() is not None
 
 
-def _object_env(directory):
-    """The object-store override of the read in progress, one store per repository; nothing when no read is in progress or `directory` is not a repository."""
-    state = _read_only.get()
-    if state is None: return {}
-    key = os.path.normcase(os.path.abspath(str(directory)))
-    if key in state['directories']: return state['directories'][key]
+NOT_A_REPOSITORY = 'not a git repository (or any of the parent directories)'      # git walked to the top and found none; a broken .git says something else
+
+
+def _objects_of(directory):
+    """The objects folder of the repository at `directory`. None only when it certainly is no repository, so git there has nothing to write into. Anything else
+    raises: a repository whose store cannot be named must not be taken for "no repository"."""
+    if not Path(directory).is_dir(): return None
     clean = {k: v for k, v in os.environ.items() if not k.upper().startswith('GIT_')}
-    try:
-        done = subprocess.run(['git', '-C', str(directory), 'rev-parse', '--git-path', 'objects'], capture_output=True, env=clean, timeout=30, stdin=subprocess.DEVNULL,
-                              creationflags=0x08000000 if os.name == 'nt' else 0)
-        named = done.stdout.decode('utf-8', 'surrogateescape').strip() if done.returncode == 0 else ''
-    except (OSError, subprocess.SubprocessError):
-        named = ''
-    if not named:
-        state['directories'][key] = {}
-        return {}
+    done = subprocess.run(['git', '-C', str(directory), 'rev-parse', '--git-path', 'objects'], capture_output=True, env=dict(clean, LC_ALL='C', LANGUAGE='C'), timeout=30,
+                          stdin=subprocess.DEVNULL, creationflags=0x08000000 if os.name == 'nt' else 0)
+    detail = done.stderr.decode('utf-8', 'replace').strip()
+    if done.returncode:
+        if NOT_A_REPOSITORY in detail: return None
+        raise OSError(f'git exited with {done.returncode}: {detail[:200]}')
+    named = done.stdout.decode('utf-8', 'surrogateescape').strip()
+    if not named: raise OSError('git named no objects folder')
     objects = (Path(directory) / named).resolve()
+    if not objects.is_dir(): raise OSError(f'the objects folder {objects} is not there')
+    return objects
+
+
+def _temporary_store(state, objects):
     store = os.path.normcase(str(objects))
     if store not in state['stores']:
+        path = objects.as_posix()
+        if any(ord(c) < 32 for c in path): raise ValueError('the path of the objects folder holds a control character')
         state['temp'] = state['temp'] or tempfile.TemporaryDirectory(prefix='onecrew-read-', ignore_cleanup_errors=True)
         temporary = Path(state['temp'].name) / str(len(state['stores'])) / 'objects'
         temporary.mkdir(parents=True)
-        alternate = '"' + objects.as_posix().replace('"', '\\"') + '"'       # quoted: a path may hold the separator
+        alternate = '"' + path.replace('\\', '\\\\').replace('"', '\\"') + '"'     # quoted: a path may hold the separator
         state['stores'][store] = {'GIT_OBJECT_DIRECTORY': str(temporary), 'GIT_ALTERNATE_OBJECT_DIRECTORIES': alternate}
-    state['directories'][key] = state['stores'][store]
-    return state['directories'][key]
+    return state['stores'][store]
+
+
+def _object_env(directory):
+    """The object-store override of the read in progress, one store per repository. Nothing when no read is in progress or `directory` is no repository. When the
+    store cannot be set up this raises, now and for every later git of the same read: git never runs against the project's own store."""
+    state = _read_only.get()
+    if state is None: return {}
+    if state['failure'] is not None: raise ReadIsolationFailed(*state['failure'])
+    try:
+        key = os.path.normcase(os.path.abspath(str(directory)))
+        if key in state['directories']: return state['directories'][key]
+        objects = _objects_of(directory)
+        if objects is None: return {}
+        state['directories'][key] = _temporary_store(state, objects)
+        return state['directories'][key]
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        state['failure'] = (str(directory), f'{type(error).__name__}: {error}'[:300])
+    raise ReadIsolationFailed(*state['failure'])
 
 
 def _git(directory, *args, env=None, input=None, raw=False):

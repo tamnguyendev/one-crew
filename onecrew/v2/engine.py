@@ -1126,8 +1126,11 @@ def next_action(ledger, selector, node=None, *, conn=None, view=None, observe_pr
     With it the working tree is judged, and still nothing is stored in the project."""
     from .verifiers import command as _command
     if observe_project and not _command.reading_only():
-        with _command.leaves_no_objects():
-            return next_action(ledger, selector, node, conn=conn, view=view, observe_project=True)
+        try:
+            with _command.leaves_no_objects():
+                return next_action(ledger, selector, node, conn=conn, view=view, observe_project=True)
+        except _command.ReadIsolationFailed as error:     # a clear stop, not guidance judged on nothing; a door that already acted still reports its own effect
+            return dict(kind='inspect', state='blocked', reason=str(error), owner_only=False, grants_authority=False, command=None)
     if conn is None:
         with ledger.transaction() as connection:
             return next_action(ledger, selector, node, conn=connection, view=view, observe_project=observe_project)

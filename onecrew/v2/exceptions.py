@@ -263,7 +263,11 @@ def message(conn, row):
                 return None  # a later question revision supersedes this undelivered card
     identity = content_hash({'task': anchor['id'], 'category': category, 'cause': cause})[:32]
     target = {'type': 'plan-present', 'plan': anchor['request_key'], 'project_id': anchor['project_id']}
-    content = report.render_present(root, anchor['request_key'], project_id=anchor['project_id'])
+    from .verifiers import command
+    try:
+        content = report.render_present(root, anchor['request_key'], project_id=anchor['project_id'])
+    except command.ReadIsolationFailed as error:           # the notice still says what happened; the page says why it cannot be read now
+        content = str(error) + '\n'
     current_status = state['status']
     if request and (category == 'question' or (category == 'blocker' and request['state'] == 'pending')):
         target = {'type': 'request', 'request': request['id'], 'revision': request['revision']}

@@ -193,4 +193,4 @@ def advise(ledger, name, model=None, provider=None, auth=None):
                    {'plan': name, 'revision': revision, 'sha': sha, 'provider': provider, 'model': model, 'auth': auth, 'independence': level['level'], 'answers': answers,
                     'usable': usable, 'problems': problems, 'note': NO_RULES if text is None else None, 'receipt': receipt, 'calls': calls,
                     'provider_error': error_kind})      # W27a: a typed provider error (unavailable/timeout/invalid_response) is inconclusive, not advice_missing
-    return plans.show(ledger, name)
+    return plans._show(ledger, name)

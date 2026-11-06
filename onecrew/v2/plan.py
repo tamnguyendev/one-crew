@@ -347,7 +347,7 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_
                     raise LedgerError('Existing plan has a different contract; read it and use plan amend if authorized.')
                 if {k: state[k] for k in ('workflow_version', 'capabilities') if k in state} != metadata:
                     raise LedgerError('Existing plan has different workflow capabilities; reuse cannot upgrade its grant.')
-                return show(ledger, state['selector'])
+                return _show(ledger, state['selector'])
     selector = namespaces.NAMESPACED + name
     from . import solution_link
     solution_link.prepare(ledger, selector, contract)
@@ -365,7 +365,7 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_
             raise LedgerError(f'Plan {name}: the written revision does not hash to the proposed contract.')
 
     _anchor(ledger, name, contract['title'], then=first_revision)
-    return show(ledger, selector)
+    return _show(ledger, selector)
 
 
 def amend(ledger, name, raw, reason, author, events=None, keep_content_author=False):
@@ -395,7 +395,7 @@ def amend(ledger, name, raw, reason, author, events=None, keep_content_author=Fa
         for kind, payload in (events(revision) if events else ()): emit(ledger, conn, state['task_id'], kind, payload)
         solution_link.record(ledger, conn, state['task_id'], state['selector'], revision, sha, contract)
     from . import active_plan; active_plan.export(ledger, name)  # L2: one line (hooks read the exported file, not the ledger)
-    return show(ledger, name)
+    return _show(ledger, name)
 
 
 def _base_tracked(ledger):
@@ -461,7 +461,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
     if approved and approved['revision'] == revision and approved['sha'] == sha:   # a repeat is a no-op, but the choice is made once
         if choose is not None and choose != approved.get('chosen'):
             raise LedgerError(f'The choice was made once ({approved.get("chosen")}); changing it needs plan amend (a change request).')
-        return show(ledger, name)
+        return _show(ledger, name)
     _refuse_hard_links(ledger)
     from . import root_writer
     with ledger.transaction() as conn:                       # T26 E4: refused before step 0 runs (repeated at the write below)
@@ -493,7 +493,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
             step0.record_closed(ledger, conn, state['task_id'], name, revision, sha, verdict, choose)
     if not verdict['ok']: raise LedgerError(step0.refusal_text(verdict))   # after the commit, so the precondition run stays recorded
     from . import active_plan; active_plan.export(ledger, name)  # L2: one line (hooks read the exported file, not the ledger)
-    return show(ledger, name)
+    return _show(ledger, name)
 
 
 def _supersede_holds(ledger, conn, state, revision):
@@ -583,7 +583,7 @@ def accept(ledger, name, by, reference, artifact_sha, *, expected_revision=None)
                                                                     **({'carried': carried} if carried else {}), **session_info()})
     from . import outcome
     outcome.note(ledger, name)
-    return show(ledger, name)
+    return _show(ledger, name)
 
 
 def _advice_view(event, sha):
@@ -593,7 +593,8 @@ def _advice_view(event, sha):
 
 
 def show(ledger, name, revision=None):
-    """A read: it judges the evidence against the tree now and stores nothing in the project."""
+    """A read: it judges the evidence against the tree now and stores nothing in the project, or it raises (ReadIsolationFailed) and has no result.
+    A door that acts reports its effect through _show: a failed read must not make a recorded effect look failed."""
     from .verifiers import command
     with command.leaves_no_objects():
         return _show(ledger, name, revision)
