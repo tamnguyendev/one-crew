@@ -30,7 +30,7 @@ Cùng một chương trình `probes/p_read_fault.py` chạy trên venv `final3` 
 
 | | Baseline `sol6.3` | Wheel `sol6.4` |
 |---|---|---|
-| Probe gốc Codex, `plan.show`: object mới bình thường / timeout / mã lỗi | 0 / 0 / 0 | 0 / 0 / 0 |
+| Probe gốc Codex, `plan.show`: object mới bình thường / timeout / mã lỗi | 0 / 2 / 2 | 0 / 0 / 0 |
 | Probe gốc Codex: kết quả hai ca lỗi | returned (báo thành công) | `ReadIsolationFailed` |
 | API, 6 loại lỗi × 5 lệnh đọc: số lần ghi object | 20/30 | 0/30 |
 | API: số lần báo thành công dù lỗi | 28/30 | 0/30 |
@@ -40,7 +40,7 @@ Cùng một chương trình `probes/p_read_fault.py` chạy trên venv `final3` 
 | `verdict diff` khi cây đổi (`test_the_diff_is_a_read…`) | đỏ: 2 object mới (`base-tests/diff-on-sol63.log`) | xanh: 0 object, có lỗi thì dừng |
 | `.git` trỏ sai, không tiêm lỗi | bị coi là không phải repo | `ReadIsolationFailed` |
 
-Log: `logs/probes/read-fault-baseline-final3.{json,log}`, `read-fault-final.{json,log}`. Probe gốc của Codex chạy trên wheel mới: `codex-read-fault.log`; chỉ đổi hai đường dẫn (thư viện probe và nơi ghi kết quả), không đổi điều kiện, bằng chứng ở `C:/OneCrewRuns-sol6/codex-review-20261106-c` giữ nguyên. CLI thật: `onecrew.exe` khi bình thường; có lỗi thì `onecrew.console.main` trong một tiến trình riêng (`probes/fault_cli.py`), chỉ làm hỏng đúng bước xác định kho object.
+Log: `logs/probes/read-fault-baseline-final3.{json,log}`, `read-fault-final.{json,log}`. Probe gốc của Codex chạy trên wheel mới: `codex-read-fault.log`, `codex-read-fault-result.json`; chỉ đổi hai đường dẫn (thư viện probe và nơi ghi kết quả), không đổi điều kiện. Xem thêm mục sự cố bằng chứng. CLI thật: `onecrew.exe` khi bình thường; có lỗi thì `onecrew.console.main` trong một tiến trình riêng (`probes/fault_cli.py`), chỉ làm hỏng đúng bước xác định kho object.
 
 ## Đối chứng giữ nguyên hành vi
 
@@ -83,6 +83,10 @@ Phạm vi và lý do ở [affected.md](affected.md). Không chạy toàn gate v�
 | Việc phát triển bản này không có hợp đồng v2, OneCrew không giám sát, vì chỉ thị cấm đụng sổ thật | Bằng chứng lấy từ wheel và lab |
 
 **Trạng thái:** chờ Codex xác nhận bản vá rồi quyết định release. Theo đánh giá của tôi, các giới hạn trên không chặn beta thử có giám sát, nhưng chưa đủ để gọi là ổn định.
+
+## Sự cố bằng chứng trong lượt này
+
+Lúc 09:05, bản copy probe của Codex do tôi tạo vẫn giữ đường dẫn cũ vì lệnh `sed` đổi đường dẫn không khớp, và tôi không để ý. Lượt chạy trên wheel mới đã **ghi đè** `C:/OneCrewRuns-sol6/codex-review-20261106-c/read-fault-result.json`, trái yêu cầu giữ nguyên bằng chứng baseline. Tôi phát hiện khi đọc bảng đỏ/xanh và đã khôi phục file: các dòng lấy từ `read-fault.log` gốc (không bị đụng), `root` lấy từ nội dung đã đọc trước đó, ghi theo đúng cách probe ghi. File trở về đúng 613 byte và cho `0 / 2 / 2`. Thời gian sửa đổi của file đặt theo `read-fault.log`, nên đây là bản khôi phục, không phải file gốc nguyên vẹn. Bản bị ghi đè giữ ở `logs/probes/codex-result-overwritten-by-my-run.json`. Bản copy `probes/probe_read_fault.py` đã sửa, được kiểm bằng cách so từng byte với probe gốc ngoài hai đường dẫn, rồi chạy lại vào `logs/probes/codex-read-fault-result.json`. Nếu Codex còn bản riêng của file này, nên đối chiếu.
 
 ## Đính chính
 
