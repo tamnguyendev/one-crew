@@ -2,6 +2,8 @@
 
 Commit code `39d47be07679a91b0c7835e43049913cb04e83d9`, nhánh `claude/sol6-close-s5`, worktree `C:/OneCrewRuns-sol6/wf`. Baseline `38fe8e7` (code Sol5 `8f53170`). Version `2.5.0.dev10+sol6.3`. Gói `C:/OneCrewRuns-sol6/final3`. Wheel `wheel/onecrew-2.5.0.dev10+sol6.3-py3-none-any.whl`, SHA256 `50d3d4bde87a7814027754501972b9fb201b826a6d9d61cbc9addbedab2e7c90`.
 
+> **Đính chính:** S5-4 chưa khép hoàn toàn ở bản này. Nhánh lỗi của kho object tạm vẫn ghi vào project, và có ca báo đạt giả. "`engine next`" dưới đây là sai tên, đúng là `engine.next_action`. Xem [Sol6.4](SOL6-4-CODEX-HANDOFF.vi.md).
+
 **Kết luận: S5-1…S5-8 và N1…N7 đã khép trên wheel này, sẵn sàng để Codex kiểm lại.** Chưa push, tag, phát hành, nâng runtime hay nghiệm thu thật. Chưa có review độc lập của Codex cho bản này.
 
 ## Bảng issue
