@@ -349,8 +349,12 @@ class ReadOnlyTests(Scenario):
         reader = report._Reader(self.state)
         with self.assertRaises(LedgerError):
             with reader.transaction(write=True): pass
-        calls = []
-        with patch('subprocess.run', side_effect=lambda argv, *a, **k: calls.append(argv[0]) or subprocess.CompletedProcess(argv, 1, '', 'x')):
+        calls, real = [], subprocess.run
+        def look(argv, *a, **k):
+            if argv[-3:] == ['rev-parse', '--git-path', 'objects']: return real(argv, *a, **k)   # the read's own store: its faults have their own tests in test_sol6_recovery
+            calls.append(argv[0])
+            return subprocess.CompletedProcess(argv, 1, '', 'x')
+        with patch('subprocess.run', side_effect=look):
             text = self.report('rogue')
         self.assertEqual(set(calls), {'git'})                                              # the one outside look; no other program
         self.assertIn(report.NO_DATA, self.section(text, 6)[0])                           # an unreadable repository is "no data", not a guess
