@@ -1,5 +1,7 @@
 # Sol5 — bản sửa local L1–L15 để Claude kiểm lại trước phát hành
 
+> **Đính chính 06/11:** câu "đã khép L1–L15" dưới đây không đúng với root engine sau verdict cuối đỏ: review độc lập tìm thấy S5-1…S5-8. Xem [Sol6](SOL6-CODEX-HANDOFF.vi.md).
+
 Code `8f53170cd846ade7bf599345ede196f780755561`, version `2.5.0.dev10+sol5.2`, baseline `40d7ba7` (Sol4.1). Gói `C:/OneCrewRuns-sol/final5c`. Wheel SHA256 `0e0a1def6828f66a663cf4a23dbd994be07e08908ecf1f80c7ac6a3c6bbe9513`.
 
 **Đã khép các lỗi local trong phạm vi review L1–L15 bằng code và kiểm trên wheel. Chưa push/tag, chưa nâng runtime thật, chưa nghiệm thu và chưa có review độc lập của Claude cho Sol5.** Đây là bản giao để kiểm lại diff cuối, không phải tuyên bố toàn roadmap đã phát hành.

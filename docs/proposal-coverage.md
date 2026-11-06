@@ -1,3 +1,21 @@
+# Sol6 — close Sol5 review S5-1…S5-8 and N1…N7
+
+Proposal source: `C:/OneCrewRuns-rv3/REVIEW-SOL5.vi.md`. Baseline `38fe8e7` (code `8f53170`). Final code `39d47be`, version `2.5.0.dev10+sol6.3`, wheel `50d3d4bde87a7814027754501972b9fb201b826a6d9d61cbc9addbedab2e7c90`, package `C:/OneCrewRuns-sol6/final3`. Handover with per-issue evidence: [Sol6 handoff](SOL6-CODEX-HANDOFF.vi.md). Not pushed, tagged, released or accepted; no independent review yet.
+
+| ID | Requirement | Type | Implementation evidence | Test evidence | Status | Notes |
+|---|---|---|---|---|---|---|
+| S5-1 | Several open findings stay repairable; a repeat moves nothing | Reliability | finding_scope; repair_tasks | test_sol6_recovery RepairChains, TwoMilestones, UnrelatedHold; p_s5 S4 S5 S10; p_s5b S32 | Verified on final wheel | Reuses repair and CAS |
+| S5-2 | Replan runs to acceptance; red after replan stops with a reason | Reliability | recovery_policy; engine.next_action | RepairChains, EvidenceAndNodeFailures; p_s5 S6b S6c | Verified on final wheel | No loop |
+| S5-3 | Without Q5 the question offers only what can be done; continue grants nothing | Functional | engine.next_action; answer_effects; plan._supersede_holds | NoQ5, NoQ5AtNode; p_s5b S9b S9c S9d | Verified on final wheel | No implicit Q5 |
+| S5-4 | Views neither hash the tree nor write to the project; doors still judge | Performance | tracking and report with observe_project=False; command.leaves_no_objects | ReadsAndStates; p_s5 S18 S20; p_s5b S34 | Verified on final wheel | plan show and engine next keep one live walk, zero objects |
+| S5-5 | Guidance names the working repair for integration-only, folder scope, stop and amend | Functional | engine.next_action; common_handoff | IntegrationOnly, FolderScope, Stopped; S3 S28 S31b | Verified on final wheel | |
+| S5-6/N4 | Expired or short budget is a clear stop that promises no door | Functional | engine.next_action | ReadsAndStates; S16; p_deadline2; p_f8 N23 | Verified on final wheel | No extension door added, as instructed |
+| S5-7 | Old plan root: green verdict raises nothing | Compatibility | verdict capability guard | LegacyRoot; S33 | Verified on final wheel | No namespace migration |
+| S5-8 | Rerun scope follows real impact and the whole cost is stated first | Functional | repair_tasks.prepare | ManyWriters, ManyWritersWithReader; S2 S25 | Verified on final wheel | |
+| N1/N2 | Held verdict and held check name their release at the first read | Observability | verdict.runs_to_hold; engine.next_action | ReadsAndStates; S21 S30 | Verified on final wheel | |
+| N3 | Owner terminal reads the recorded verdict; new runs stay strict | Reliability | plan.milestone_views; verification_evidence | ReadsAndStates; test_wf_evidence_binding; p_ownerenv; S34 | Verified on final wheel | Real owner terminal still not exercised |
+| N5/N6/N7 | Printed door works; second milestone walks as Sol4; snapshot error names the limit that applies | Reliability | engine; verdict.snapshot_limits; verifiers.command | RepairChains, ReadsAndStates; S22 S19 S17 | Verified on final wheel | |
+
 # Sol5 — close Claude review L1–L15
 
 Proposal source: `C:/OneCrewRuns-rv2/REVIEW-SOL4.vi.md`; user authorized fixing all remaining findings for release. Baseline `40d7ba7` (docs `7df1b0e`). Preserve real runtime; no full gate, provider calls or publication.
@@ -6,9 +24,9 @@ Proposal source: `C:/OneCrewRuns-rv2/REVIEW-SOL4.vi.md`; user authorized fixing 
 |---|---|---|---|---|---|---|
 | L1/L8/L13 | Acceptance of completed evidence after execution deadline; truthful budget guidance | Reliability | engine.root_ready/next_action; command._Budget | test_sol5_review L1/L13; Sol4 budget regression | Verified local | No new execution after deadline |
 | L2/L11 | Owner observation uses recorded execution context; new checks still bind current environment | Reliability | verification_evidence.receipt_assessment; plan.accept; verdict._check_receipt | test_sol5_review L2; strict environment regression | Verified local | Never ignore environment changes for execution reuse |
-| L3 | Existing repair can recover final-verdict findings without releasing unrelated holds | Reliability | repair_tasks._final_source/prepare; finding_scope; common_handoff CAS | test_sol5_review L3; D6 existing repair negatives | Verified local | Reuse repair generations and project CAS |
-| L4/L5/L9/L10 | Next action respects failed/held checks, authority and remaining grant | Functional | engine.next_action | r14; Q5 authority; Sol4 operator tests | Verified local | No new scheduler |
-| L6/L12 | Durable closure reconciliation and actionable remaining finding commands | Reliability | verdict._finish_findings/_resume_closure | test_sol5_review closure/doc; review_b2_e2e | Verified local | Reviewer closure remains explicit |
+| L3 | Existing repair can recover final-verdict findings without releasing unrelated holds | Reliability | repair_tasks._final_source/prepare; finding_scope; common_handoff CAS | test_sol5_review L3; D6 existing repair negatives | Partial on Sol5; closed in Sol6 above | Sol5 tests walked one round, one writer, file-owned scope; engine roots deadlocked (S5-1…S5-3) |
+| L4/L5/L9/L10 | Next action respects failed/held checks, authority and remaining grant | Functional | engine.next_action | r14; Q5 authority; Sol4 operator tests | Verified local; L10 caused regression S5-4, fixed in Sol6 | No new scheduler |
+| L6/L12 | Durable closure reconciliation and actionable remaining finding commands | Reliability | verdict._finish_findings/_resume_closure | test_sol5_review closure/doc; review_b2_e2e | Verified local; L6 caused regression S5-7, fixed in Sol6 | Reviewer closure remains explicit |
 | L7 | Known worker failure exposes retained cause and legal recovery | Observability | engine._step/state/next_action | Claude p_f8b worker_error on final wheel | Verified local | Unknown outcome is never auto-retried |
 | L14/L15 | Align valid state assertions and truthful CLI errors | Testing | affected test fixtures; hook_cli/owner_cli | affected complete modules; Sol4 enforce negatives | Verified local | Do not weaken behavioral assertions |
 
