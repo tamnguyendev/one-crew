@@ -7,6 +7,7 @@
 Owner steps use the suite's own fixture (the suite's process is not an AI session): fixture evidence, not an owner's approval."""
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -140,7 +141,9 @@ class LiveTree(HookFixture):
     # ---- Windows: nothing the command starts outlives the run
     @unittest.skipUnless(os.name == 'nt', 'job objects are Windows')
     def test_a_child_left_running_is_ended_and_counted(self):
-        script = "import subprocess,sys,pathlib; c=subprocess.Popen([sys.executable,'tool/ngu.py']); print('con',c.pid,flush=True); open(sys.argv[1],'a').write('x\\n')"
+        # The child does not hold the command's output pipes: one that did would keep the run waiting for it until it ends (that case is the time limit's).
+        script = ("import subprocess,sys,pathlib; n=subprocess.DEVNULL; c=subprocess.Popen([sys.executable,'tool/ngu.py'],stdin=n,stdout=n,stderr=n); "
+                  "print('con',c.pid,flush=True); open(sys.argv[1],'a').write('x\\n')")
         (self.root / 'tool' / 'ngu.py').write_text('import time\ntime.sleep(120)\n')
         self.plan([PY, '-c', script, str(self.counter)])
         verdict.run(self.ledger, 'P1', 'M1')
@@ -148,10 +151,20 @@ class LiveTree(HookFixture):
         from onecrew.snapshots import Snapshots
         out = Snapshots(self.ledger.state_root).read_blob(receipt['stdout']).decode()
         child = int(out.split()[1])
+        self.assertLess(receipt['seconds'], 60)                              # the run did not wait for the child
         self.assertTrue(receipt['snapshot']['contained'])
-        self.assertGreaterEqual(receipt['snapshot']['left_running'], 1)       # a venv python is a launcher plus the interpreter: two processes
+        self.assertGreaterEqual(receipt['snapshot']['left_running'], 1)       # a venv python is a launcher plus the interpreter: one or two processes
         time.sleep(0.5)
         self.assertFalse(alive(child))
+
+    @unittest.skipUnless(os.name == 'nt', 'job objects are Windows')
+    def test_a_command_that_leaves_nothing_counts_nothing(self):
+        """Without the settle wait the console host of a windowless console command still counts for a few milliseconds after the command exits."""
+        self.plan([PY, '-c', READ, str(self.counter)])
+        verdict.run(self.ledger, 'P1', 'M1')
+        receipt = self.receipt()
+        self.assertTrue(receipt['snapshot']['contained'])
+        self.assertEqual(receipt['snapshot']['left_running'], 0)
 
     @unittest.skipUnless(os.name == 'nt', 'job objects are Windows')
     def test_hard_kill_of_the_runner_ends_the_command_and_its_child(self):
@@ -182,11 +195,56 @@ class LiveTree(HookFixture):
             self.assertFalse(alive(parent)); self.assertFalse(alive(child))
         finally:
             if holder.poll() is None: holder.kill()
+            holder.stdout.close()
 
     def test_host_name_without_computername(self):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop('COMPUTERNAME', None)
             self.assertTrue(command._host())
+
+
+class ScratchRemoval(unittest.TestCase):
+    """The scratch checkout goes with the run, also names beyond MAX_PATH and read-only files; what cannot go keeps an owner mark for the next sweep."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.scratch = Path(tempfile.mkdtemp(prefix=command.SCRATCH_PREFIX, dir=self.temp.name))
+        command._own_scratch(self.scratch)
+
+    def deep(self):
+        far = command._long(self.scratch)
+        for part in ('d' * 60, 'e' * 60, 'f' * 60, 'g' * 60):
+            far = os.path.join(far, part)
+        os.makedirs(far)
+        name = os.path.join(far, 'tep-rat-dai-' + 'h' * 40 + '.md')
+        with open(name, 'w') as f: f.write('x')
+        os.chmod(name, stat.S_IREAD)
+        self.assertGreater(len(name) - 4, 260)
+        return name
+
+    def test_long_and_read_only_names_are_removed(self):
+        self.deep()
+        self.assertTrue(command._remove_scratch(self.scratch))
+        self.assertFalse(os.path.lexists(command._long(self.scratch)))
+
+    @unittest.skipUnless(os.name == 'nt', 'a file held open blocks removal on Windows only')
+    def test_what_cannot_be_removed_keeps_an_owner_mark(self):
+        held = open(self.scratch / 'mo.txt', 'w')
+        try:
+            self.assertFalse(command._remove_scratch(self.scratch))
+            owner = json.loads((self.scratch / command.SCRATCH_OWNER).read_text(encoding='utf-8'))
+            self.assertEqual(owner['pid'], os.getpid())
+        finally:
+            held.close()
+        self.assertTrue(command._remove_scratch(self.scratch))
+
+    def test_sweep_removes_a_long_named_leftover_of_a_dead_run(self):
+        self.deep()
+        q = subprocess.Popen([PY, '-c', 'pass']); q.wait()
+        (self.scratch / command.SCRATCH_OWNER).write_text(json.dumps({'pid': q.pid, 'host': command._host()}), encoding='utf-8')
+        with patch.object(tempfile, 'gettempdir', return_value=self.temp.name):
+            command._sweep_scratch()
+        self.assertFalse(os.path.lexists(command._long(self.scratch)))
 
 
 if __name__ == '__main__':

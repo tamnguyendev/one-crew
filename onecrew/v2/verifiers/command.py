@@ -601,6 +601,27 @@ def _own_scratch(scratch):
     Path(scratch, SCRATCH_OWNER).write_text(json.dumps({'pid': os.getpid(), 'host': _host()}), encoding='utf-8')
 
 
+def _remove_scratch(scratch):
+    """Remove a scratch folder, also names beyond MAX_PATH and read-only files. A plain rmtree(ignore_errors=True) leaves those silently, and the owner
+    mark, a short name, goes first, so no later sweep ever finds the folder (seen on Windows: a checkout of 646 long names, 65 MB, left by each run).
+    Whatever still cannot be removed is marked again, so the next run's sweep tries it once this process is gone."""
+    def again(func, path, _):
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except OSError:
+            pass
+    target = _long(scratch)
+    if sys.version_info >= (3, 12): shutil.rmtree(target, onexc=again)
+    else: shutil.rmtree(target, onerror=again)
+    if os.path.lexists(target):
+        try:
+            _own_scratch(target)
+        except OSError:
+            pass
+    return not os.path.lexists(target)
+
+
 def _sweep_scratch():
     """Scratch folders a killed run left behind. Only a folder that carries the owner mark of a process that is gone on this machine; nothing else in the temp folder is touched."""
     from .. import verdict
@@ -612,7 +633,7 @@ def _sweep_scratch():
         try:
             owner = json.loads((folder / SCRATCH_OWNER).read_text(encoding='utf-8'))
             if owner.get('host') == (_host()) and owner.get('pid') != os.getpid() and not verdict.process_alive(owner.get('pid')):
-                shutil.rmtree(folder, ignore_errors=True)
+                _remove_scratch(folder)
         except (OSError, ValueError, AttributeError):
             continue
 
@@ -1175,12 +1196,21 @@ class _Job:
         if not self._k.QueryInformationJobObject(wintypes.HANDLE(self.handle), 1, ctypes.byref(info), ctypes.sizeof(info), None): return None
         return int(info.ActiveProcesses)
 
-    def end(self):
-        """Ends whatever of the command is still running and releases the job. Returns how many processes it ended (None without a job)."""
+    SETTLE_SECONDS = 0.5
+
+    def end(self, settle=False):
+        """Ends whatever of the command is still running and releases the job. Returns how many processes it ended (None without a job).
+        settle: after a normal exit, wait up to SETTLE_SECONDS for the count to reach zero first. A console command started without a window keeps one
+        process of the system's console host in the job for a few milliseconds after it exits (measured: gone within 50 ms); without the wait every clean
+        run reads as one process left running. A child the command really left (one that sleeps or serves) is still there after the wait, and counted."""
         if not self.handle: return None
         from ctypes import wintypes
         try:
             self.left = self.running()
+            give_up = time.monotonic() + self.SETTLE_SECONDS
+            while settle and self.left and time.monotonic() < give_up:
+                time.sleep(0.02)
+                self.left = self.running()
             if self.active: self._k.TerminateJobObject(wintypes.HANDLE(self.handle), 1)
         finally:
             self._k.CloseHandle(wintypes.HANDLE(self.handle))
@@ -1261,7 +1291,7 @@ def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context
             return _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context,
                         effective_environment=effective_environment, deadline=deadline, timing=timing)
         finally:
-            shutil.rmtree(scratch, ignore_errors=True)
+            _remove_scratch(scratch)
 
 
 def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context=None, *, effective_environment=None, deadline=None, timing=None):
@@ -1314,7 +1344,7 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
     except OSError as problem:
         error = f'{type(problem).__name__}: {problem}'[:300]
     finally:
-        left = job.end() if job.handle else job.left    # a child the command left running is ended here, and counted
+        left = job.end(settle=code is not None) if job.handle else job.left    # a child the command left running is ended here, and counted
     if os.name == 'nt': timing['contained'], timing['left_running'] = job.active, left
     seconds = round(time.monotonic() - begin, 2)       # the verifier alone: the snapshots around it are in `snapshot` of the receipt
     finished = time.monotonic()
