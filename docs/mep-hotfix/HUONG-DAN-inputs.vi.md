@@ -1,6 +1,6 @@
 # Verifier khai `inputs`: hotfix cho repo lớn
 
-Bản `2.5.0.dev10+sol6.4.mep2`, bản thử cách ly. Chưa phát hành, chưa nghiệm thu. mep2 = mep1 cộng ba điểm ở mục «Thêm từ mep2».
+Bản `2.5.0.dev10+sol6.4.mep3`, bản thử cách ly. Chưa phát hành, chưa nghiệm thu. mep2 = mep1 cộng ba điểm ở mục «Thêm từ mep2»; mep3 = mep2 cộng hai điểm ở mục «Thêm từ mep3».
 
 ## Vấn đề
 
@@ -63,6 +63,19 @@ Receipt có thêm `input_scope`: đường dẫn, số file, số byte, HEAD, v�
   - Áp dụng cho cả đường cũ.
 - Bộ test có thêm ca input bị người khác đổi trong lúc lệnh chạy **trên đường `inputs`** (mep1 chỉ thử trên đường cũ): kết quả inconclusive, không phải pass.
 
+## Thêm từ mep3
+
+Cả hai điểm áp dụng cho đường cũ lẫn đường `inputs`.
+
+- **Thư mục tạm của checkout được xoá hết, kể cả tên dài quá 260 ký tự và tệp chỉ đọc.**
+  - Trước đây việc xoá bỏ qua lỗi một cách im lặng. Dấu chủ `owner.json` (tên ngắn) bị xoá trước, nên lần chạy sau cũng không dọn.
+  - Trong lab, mỗi lượt đường cũ để lại 646 tệp, 65 MB.
+  - Phần vẫn không xoá được (ví dụ tệp đang bị mở) được gắn lại dấu chủ, để lần `verdict run` sau dọn khi tiến trình này đã kết thúc.
+- **`snapshot.left_running` không còn đếm nhầm.**
+  - Lệnh console chạy không cửa sổ để lại tiến trình console host của hệ điều hành trong job vài mili giây sau khi thoát. mep2 vì vậy ghi `1` cho mọi lượt sạch.
+  - mep3 chờ tối đa 0,5 s để số này về 0 rồi mới ghi.
+  - Tiến trình con thật sự còn chạy vẫn được đếm và bị kết thúc.
+
 ## Giới hạn phải biết
 
 - **Khai thiếu là trách nhiệm của người viết hợp đồng.** Lệnh đọc file không khai qua đường tương đối sẽ không thấy file, nên thường báo lỗi.
@@ -78,6 +91,7 @@ Receipt có thêm `input_scope`: đường dẫn, số file, số byte, HEAD, v�
   - Thư mục tạm có dấu chủ được dọn ở lần `verdict run` sau.
   - Trên Windows từ mep2, tiến trình con của verifier kết thúc theo OneCrew.
   - Ngoài Windows, hoặc khi hệ điều hành từ chối job (`contained: false`), tiến trình con vẫn có thể còn chạy.
+- **Tiến trình con giữ ống ra của lệnh** (thừa hưởng stdout/stderr): lượt chờ nó tới khi nó thoát hoặc hết `max_minutes`, như bản cũ. Chỉ tiến trình con không giữ ống ra mới được kết thúc ngay khi lệnh chính thoát.
   - Thư mục tạm của bản cũ không có dấu, không được dọn tự động.
 
 ## Thử cách ly

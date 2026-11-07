@@ -1,0 +1,9 @@
+Test tap trung tren ma mep3 (checkout, 145/145 tep trung wheel mep3 sha256 964029b2df9b94ab52fd69cc696524c859626fe1049c43f44c28017e271d0330), 07/11/2026, Windows 11, Python 3.13.17.
+Lenh: python -X utf8 -B -m unittest tests.test_hf_mep2_live_tree tests.test_hf_verifier_inputs tests.test_hf_snapshot_budget tests.test_sol_snapshot_cleanup tests.test_v2_verifier_rules tests.test_v2_l1 tests.test_v2_trust_fixes tests.test_sol6_recovery
+
+FAIL: test_accept_needs_every_milestone_to_pass_on_the_accepted_artifact (tests.test_v2_l1.LatestVerdictTests.test_accept_needs_every_milestone_to_pass_on_the_accepted_artifact)
+AssertionError: 'M1 passed on 20e50a07feffafe7699bf38ff4027a606f406eaa' not found in 'Cannot accept artifact a36841ee8ef2cd0bb8c286d577e8d12698906da7: every milestone must have passed on exactly that artifact; M1: artifact changed. Inspect plan show and re-run only the named stale milestones in their execution environment.'
+Ran 249 tests in 1458.906s
+FAILED (failures=1)
+
+Test truot nay truot y het tren f204a33 va 9df359a (co tu truoc hotfix).
