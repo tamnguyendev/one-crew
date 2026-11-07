@@ -233,7 +233,7 @@ class Inputs(HookFixture):
         def fake(process, *a, **k):
             if 'time.sleep(120)' in str(process.args): raise KeyboardInterrupt()
             return real(process, *a, **k)
-        with patch.object(subprocess.Popen, 'communicate', fake), patch.object(command, '_kill_tree', side_effect=lambda p: (killed.append(p.pid), p.kill())):
+        with patch.object(subprocess.Popen, 'communicate', fake), patch.object(command, '_kill_tree', side_effect=lambda p, job=None: (killed.append(p.pid), p.kill())):
             with self.assertRaises(KeyboardInterrupt): self.run_m1()
         self.assertEqual(len(killed), 1)
         self.assertEqual(list(self.scratch.glob('ocv-*')), [])

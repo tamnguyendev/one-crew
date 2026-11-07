@@ -464,6 +464,90 @@ def check_argv_scope(directory, argv, inputs):
                 raise InputRefused(f'The command names {piece!r}, which is not among the declared inputs ({", ".join(inputs)}). Declare it, or remove the inputs to check the whole tree. The verifier was not called.')
 
 
+def _short_name(path):
+    """The 8.3 spelling of a folder on Windows (another way to write the same live tree), or None."""
+    if os.name != 'nt': return None
+    try:
+        import ctypes
+        size = ctypes.windll.kernel32.GetShortPathNameW(str(path), None, 0)
+        if not size: return None
+        buffer = ctypes.create_unicode_buffer(size)
+        ctypes.windll.kernel32.GetShortPathNameW(str(path), buffer, size)
+        return buffer.value if buffer.value and buffer.value.lower() != str(path).lower() else None
+    except (OSError, AttributeError, ValueError):
+        return None
+
+
+def live_tree_pattern(top):
+    """Every way a text is likely to spell the live tree: either slash, doubled in a string literal, a drive letter as `C:` or `/c`, `/mnt/c`, `/cygdrive/c`, the 8.3 name,
+    any case on Windows. A match must end at a path separator or at a character no file name continues with: `.../mep` does not match `.../mep-old`."""
+    sep = r'[\\/]+'
+    spellings = []
+    for spelled in {str(Path(top)), _short_name(top)} - {None}:
+        parts = [p for p in re.split(r'[\\/]+', spelled) if p]
+        if not parts: continue
+        body = sep.join(re.escape(p) for p in parts[1:])
+        drive = re.fullmatch(r'([A-Za-z]):', parts[0])
+        if drive:                                          # C:\a\b, C:/a/b, C:\\a\\b, /c/a/b, /mnt/c/a/b, /cygdrive/c/a/b
+            letter = re.escape(drive.group(1))
+            spellings.append(rf'(?:{letter}:|/{letter}|/mnt/{letter}|/cygdrive/{letter})' + (sep + body if body else ''))
+        elif spelled.startswith(('\\\\', '//')):          # \\server\share\a
+            spellings.append(sep + re.escape(parts[0]) + (sep + body if body else ''))
+        else:                                              # /home/a/b
+            spellings.append(sep + re.escape(parts[0]) + (sep + body if body else ''))
+    return re.compile(('(?:' + '|'.join(spellings) + r')(?![A-Za-z0-9_.\-~$])').encode(), re.I if os.name == 'nt' else 0)
+
+
+SCAN_CHUNK = 1 << 20
+
+
+def _names_live_tree(path, pattern):
+    """Does this file's text spell the live tree? (True, False, or None for content that is not text: NUL bytes without a UTF-16 mark.)"""
+    with open(path, 'rb') as handle:
+        head = handle.read(8000)
+        if head.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+            handle.seek(0)
+            text = handle.read().decode('utf-16', 'replace').encode('utf-8', 'replace')
+            return bool(pattern.search(text))
+        if b'\0' in head: return None
+        handle.seek(0)
+        tail, keep = b'', 4096
+        while True:
+            block = handle.read(SCAN_CHUNK)
+            if not block: return False
+            if pattern.search(tail + block): return True
+            tail = (tail + block)[-keep:]
+
+
+def check_live_tree_named(directory, argv, workspace_root):
+    """A verifier with declared inputs runs on a checkout of only those; its evidence later speaks only for them. A command line word, or a text file among the inputs,
+    that spells the live tree by an absolute path would let the command read or write the real files beside the checkout: a pass that stays valid while what it read
+    changes, or a write no snapshot sees. Refused before the verifier is called. This reads what the checkout holds; a path the program builds at run time from
+    elsewhere (an environment variable, a file outside the repository) is not seen. Returns what was scanned, for the receipt."""
+    top = toplevel(directory)
+    pattern = live_tree_pattern(top)
+    for word in argv:
+        if isinstance(word, str) and pattern.search(word.encode('utf-8', 'surrogateescape')):
+            raise InputRefused(f'The command names the live tree by an absolute path ({word!r}): it would read or write past the checkout of the declared inputs. The verifier was not called.')
+    scanned = {'files': 0, 'not_text': 0}
+    root = Path(workspace_root)
+    for folder, folders, files in os.walk(root):
+        for item in files:
+            path = Path(folder) / item
+            if path.is_symlink(): continue
+            found = _names_live_tree(path, pattern)
+            if found is None:
+                scanned['not_text'] += 1
+                continue
+            scanned['files'] += 1
+            if found:
+                name = path.relative_to(root).as_posix()
+                raise InputRefused(f'The declared input {name!r} spells the live tree by an absolute path ({top}). The command could read or write the real files beside the '
+                                   'checkout, which the snapshot of the inputs does not see. Use a path relative to the working folder, or remove the inputs to check the whole tree. '
+                                   'The verifier was not called.')
+    return scanned
+
+
 def tool_identity(word, env):
     """The program the command starts, by its bytes. A program inside the inputs is in the tree already. This fingerprints that one file: what it loads must be declared."""
     if not os.path.isabs(word) and ('/' in word or '\\' in word): return {'word': word, 'in_inputs': True}
@@ -507,8 +591,14 @@ SCRATCH_PREFIX = 'ocv-'
 SCRATCH_OWNER = 'owner.json'
 
 
+def _host():
+    """This machine's name; os.uname does not exist on Windows, so a missing COMPUTERNAME must not break the run."""
+    import platform
+    return os.environ.get('COMPUTERNAME') or platform.node()
+
+
 def _own_scratch(scratch):
-    Path(scratch, SCRATCH_OWNER).write_text(json.dumps({'pid': os.getpid(), 'host': os.environ.get('COMPUTERNAME') or os.uname().nodename}), encoding='utf-8')
+    Path(scratch, SCRATCH_OWNER).write_text(json.dumps({'pid': os.getpid(), 'host': _host()}), encoding='utf-8')
 
 
 def _sweep_scratch():
@@ -521,7 +611,7 @@ def _sweep_scratch():
     for folder in names:
         try:
             owner = json.loads((folder / SCRATCH_OWNER).read_text(encoding='utf-8'))
-            if owner.get('host') == (os.environ.get('COMPUTERNAME') or os.uname().nodename) and owner.get('pid') != os.getpid() and not verdict.process_alive(owner.get('pid')):
+            if owner.get('host') == (_host()) and owner.get('pid') != os.getpid() and not verdict.process_alive(owner.get('pid')):
                 shutil.rmtree(folder, ignore_errors=True)
         except (OSError, ValueError, AttributeError):
             continue
@@ -1024,7 +1114,82 @@ def verifier_env(directory):
     return dict(env, PYTHONUTF8='1', PYTHONIOENCODING='utf-8')
 
 
-def _kill_tree(process):
+class _Job:
+    """Windows: the verifier and every process it starts live in a job object that is killed when its last handle closes. OneCrew holds that handle, so when this
+    process dies, even by a hard kill, the system ends the command and its children: none outlives the run as an orphan. The command starts suspended and runs only
+    once it is in the job, so it cannot start a child outside it first. Elsewhere, or when the system refuses the job, `active` is False and the old behaviour stays."""
+    CREATE_SUSPENDED = 0x00000004
+
+    def __init__(self):
+        self.handle, self.active, self.left = None, False, None
+        if os.name != 'nt': return
+        import ctypes
+        from ctypes import wintypes
+        self._k = ctypes.WinDLL('kernel32', use_last_error=True)
+        self._k.CreateJobObjectW.restype = wintypes.HANDLE
+        self._k.CreateJobObjectW.argtypes = (ctypes.c_void_p, wintypes.LPCWSTR)
+        handle = self._k.CreateJobObjectW(None, None)
+        if not handle: return
+
+        class Basic(ctypes.Structure):
+            _fields_ = [('PerProcessUserTimeLimit', ctypes.c_int64), ('PerJobUserTimeLimit', ctypes.c_int64), ('LimitFlags', wintypes.DWORD),
+                        ('MinimumWorkingSetSize', ctypes.c_size_t), ('MaximumWorkingSetSize', ctypes.c_size_t), ('ActiveProcessLimit', wintypes.DWORD),
+                        ('Affinity', ctypes.c_size_t), ('PriorityClass', wintypes.DWORD), ('SchedulingClass', wintypes.DWORD)]
+
+        class Extended(ctypes.Structure):
+            _fields_ = [('BasicLimitInformation', Basic), ('IoInfo', ctypes.c_uint64 * 6), ('ProcessMemoryLimit', ctypes.c_size_t),
+                        ('JobMemoryLimit', ctypes.c_size_t), ('PeakProcessMemoryUsed', ctypes.c_size_t), ('PeakJobMemoryUsed', ctypes.c_size_t)]
+        info = Extended()
+        info.BasicLimitInformation.LimitFlags = 0x2000                     # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not self._k.SetInformationJobObject(wintypes.HANDLE(handle), 9, ctypes.byref(info), ctypes.sizeof(info)):   # JobObjectExtendedLimitInformation
+            self._k.CloseHandle(wintypes.HANDLE(handle))
+            return
+        self.handle = handle
+
+    def flags(self):
+        return self.CREATE_SUSPENDED if self.handle else 0
+
+    def adopt(self, process):
+        """Put the suspended command in the job, then let it run. A command that cannot be put in the job still runs (old behaviour), recorded as not contained."""
+        if not self.handle: return
+        import ctypes
+        from ctypes import wintypes
+        process_handle = wintypes.HANDLE(int(process._handle))
+        self.active = bool(self._k.AssignProcessToJobObject(wintypes.HANDLE(self.handle), process_handle))
+        ntdll = ctypes.WinDLL('ntdll')
+        if ntdll.NtResumeProcess(process_handle) != 0:
+            _kill_tree(process)
+            raise OSError('the verifier command could not be resumed after it was started suspended')
+
+    def running(self):
+        """How many processes of the command are still alive (None without a job)."""
+        if not self.active: return None
+        import ctypes
+        from ctypes import wintypes
+
+        class Accounting(ctypes.Structure):
+            _fields_ = [('TotalUserTime', ctypes.c_int64), ('TotalKernelTime', ctypes.c_int64), ('ThisPeriodTotalUserTime', ctypes.c_int64),
+                        ('ThisPeriodTotalKernelTime', ctypes.c_int64), ('TotalPageFaultCount', wintypes.DWORD), ('TotalProcesses', wintypes.DWORD),
+                        ('ActiveProcesses', wintypes.DWORD), ('TotalTerminatedProcesses', wintypes.DWORD)]
+        info = Accounting()
+        if not self._k.QueryInformationJobObject(wintypes.HANDLE(self.handle), 1, ctypes.byref(info), ctypes.sizeof(info), None): return None
+        return int(info.ActiveProcesses)
+
+    def end(self):
+        """Ends whatever of the command is still running and releases the job. Returns how many processes it ended (None without a job)."""
+        if not self.handle: return None
+        from ctypes import wintypes
+        try:
+            self.left = self.running()
+            if self.active: self._k.TerminateJobObject(wintypes.HANDLE(self.handle), 1)
+        finally:
+            self._k.CloseHandle(wintypes.HANDLE(self.handle))
+            self.handle = None
+        return self.left
+
+
+def _kill_tree(process, job=None):
+    if job is not None: job.end()
     if os.name == 'nt':
         subprocess.run(['taskkill', '/F', '/T', '/PID', str(process.pid)], capture_output=True, creationflags=0x08000000)
     process.kill()
@@ -1109,6 +1274,7 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
             workspace = _checkout(directory, before, scratch)
         timing['checkout_seconds'] = round(time.monotonic() - begin, 2)
         if inputs and not workspace.is_dir(): raise InputRefused(f'The working folder {workspace.name!r} is not in the checkout of the declared inputs. The verifier was not called.')
+        scanned = check_live_tree_named(directory, argv, Path(scratch) / 'src') if inputs else None
         # S1: children are always UTF-8, so a Vietnamese path or message cannot turn a pass into an encoding failure.
         env = verifier_env(directory) if effective_environment is None else dict(effective_environment)
         from .. import verification_evidence
@@ -1119,7 +1285,8 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
                 head = _git(directory, 'rev-parse', '--verify', '-q', 'HEAD')
             except LedgerError:
                 head = None
-            scope = {'paths': list(inputs), 'effective': scope_paths(inputs), 'files': timing['checkout_files'], 'bytes': timing['checkout_bytes'], 'head': head, 'tool': tool_identity(argv[0], env)}
+            scope = {'paths': list(inputs), 'effective': scope_paths(inputs), 'files': timing['checkout_files'], 'bytes': timing['checkout_bytes'], 'head': head, 'tool': tool_identity(argv[0], env),
+                     'live_tree_scan': scanned}
     started, error, timed_out, code, out, err = utcnow(), None, False, None, b'', b''
     begin = time.monotonic()
     if deadline is not None:
@@ -1129,21 +1296,26 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
             failed.verifier_started = False
             raise failed
         limit = min(limit, left / 60)
+    job = _Job()                                       # Windows: the command and its children end with this process, even on a hard kill
     try:
         process = subprocess.Popen(argv, cwd=str(workspace), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE, creationflags=0x08000000 if os.name == 'nt' else 0)
+                                   stderr=subprocess.PIPE, creationflags=(0x08000000 | job.flags()) if os.name == 'nt' else 0)
+        job.adopt(process)
         try:
             out, err = process.communicate(timeout=limit * 60)
             code = process.returncode
         except subprocess.TimeoutExpired:
             timed_out = True
-            _kill_tree(process)
+            _kill_tree(process, job)
             out, err = process.communicate()
         except BaseException:                          # an interrupt: the command does not outlive this run
-            _kill_tree(process)
+            _kill_tree(process, job)
             raise
     except OSError as problem:
         error = f'{type(problem).__name__}: {problem}'[:300]
+    finally:
+        left = job.end() if job.handle else job.left    # a child the command left running is ended here, and counted
+    if os.name == 'nt': timing['contained'], timing['left_running'] = job.active, left
     seconds = round(time.monotonic() - begin, 2)       # the verifier alone: the snapshots around it are in `snapshot` of the receipt
     finished = time.monotonic()
     try:
