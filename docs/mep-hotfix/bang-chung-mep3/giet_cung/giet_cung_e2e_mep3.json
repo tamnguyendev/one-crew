@@ -1,0 +1,61 @@
+{
+ "thay_verifier_sau_s": 0.5,
+ "verifier": [
+  {
+   "pid": 20416,
+   "ppid": 14636,
+   "vai": "cha"
+  },
+  {
+   "pid": 20452,
+   "ppid": 20416,
+   "vai": "con"
+  },
+  {
+   "pid": 27428,
+   "ppid": 24308,
+   "vai": "con"
+  },
+  {
+   "pid": 26584,
+   "ppid": 27428,
+   "vai": "con"
+  }
+ ],
+ "onecrew": [
+  {
+   "pid": 15208,
+   "ppid": 9060,
+   "ten": "python.exe"
+  },
+  {
+   "pid": 17956,
+   "ppid": 15208,
+   "ten": "python.exe"
+  },
+  {
+   "pid": 4288,
+   "ppid": 17956,
+   "ten": "onecrew.exe"
+  },
+  {
+   "pid": 23648,
+   "ppid": 4288,
+   "ten": "python.exe"
+  },
+  {
+   "pid": 14636,
+   "ppid": 23648,
+   "ten": "python.exe"
+  }
+ ],
+ "giet": 14636,
+ "taskkill": "SUCCESS: The process with PID 14636 has been terminated.",
+ "sau_10s": {
+  "verifier_con_song": [
+   27428,
+   26584
+  ],
+  "onecrew_con_song": []
+ }
+}

@@ -47,7 +47,7 @@ M1 có 26 input khai báo, checkout ra 27 tệp, 5,3 MB.
   - Sau ba lần duyệt, `.git` của lab từ 6,4 MiB lên 17.267 object rời, 722 MiB. Gần như toàn bộ là lần duyệt đường cũ.
 - **Mỗi lượt có:** `LOCALAPPDATA`, `APPDATA`, `TEMP` riêng; số object `.git` trước và sau; kích thước thư mục tạm sau lượt.
 
-Số liệu đầy đủ từng lượt, đã làm sạch: `bang-chung-mep3/luot.json` (27 lượt).
+Số liệu đầy đủ từng lượt, đã làm sạch: `bang-chung-mep3/luot.json` (44 lượt, gồm 17 lượt E2E).
 
 ## Ca kiểm qua CLI của wheel đã cài
 
@@ -66,10 +66,40 @@ Số liệu đầy đủ từng lượt, đã làm sạch: `bang-chung-mep3/luot
 | `verdict run` lại sau khi giết cứng | từ chối: run không rõ kết quả bị giữ, không tự chạy lại | như mep1 |
 
 - **Phát hành run bị giữ:** cả hai run bị giết cứng được phát hành bằng `verdict release-run`, có lý do ghi trong sổ lab; actor là AI.
-- **Giết cứng chưa chạy trên lab với mep3:** sau ba lượt hết giờ `inconclusive` (mep1, mep2, mep3), plan `lab-tien-trinh` tự chuyển `stopped_with_report` theo `max_repairs` của nó.
-  - Mã job object của mep3 trùng mep2 trừ phần chờ đếm ở lượt thoát bình thường.
-  - Test `test_hard_kill_of_the_runner_ends_the_command_and_its_child` chạy trên mã mep3.
+- **Plan `lab-tien-trinh` tự dừng:** sau ba lượt hết giờ `inconclusive` (mep1, mep2, mep3), nó chuyển `stopped_with_report` theo `max_repairs` của nó. Ca giết cứng trên mep3 được chạy trong plan `lab-e2e-mep3` (mục E2E).
 - **Plan không `inputs`:** giữ đường cũ (toàn cây, không `input_scope`). Có kiểm trên lab (bảng số đo) và test `test_without_inputs_the_old_path_is_unchanged`.
+
+## E2E đủ ca trên wheel mep3 (08/11, plan lab `lab-e2e-mep3`)
+
+Theo yêu cầu của chủ dự án: chạy E2E đủ ca trên bản cuối rồi mới push.
+- Plan lab mới: rev 1, sha `83b29e48c61248258726ae482c81b3b7b730ef1ba99a698628defc3e5a275538`.
+- Chủ dự án duyệt bằng mep3: 0,7 s.
+- Mọi lượt chạy qua `onecrew.exe` của venv cài wheel mep3.
+- **Kết quả: cả 5 mốc `passed`.**
+
+| Mốc | Ca | Kết quả |
+|---|---|---|
+| M1 | Bộ kiểm M1 của MEP (bản chép), 26 input | đạt 4,6 s; 27 tệp; `live_tree_scan` 27/0; `left_running` 0; tạm 0 byte |
+| M1 | Đổi tệp ngoài input / đổi input / đổi kịch bản | vẫn `passed` / `pending` / `pending`; chạy lại đạt 4,2 s và 4,1 s |
+| M2 | Lệnh đọc cây thật bằng đường dẫn tuyệt đối | từ chối trước verifier; sửa sang đường tương đối thì đạt |
+| M3 | Lệnh ghi cây thật bằng đường dẫn tuyệt đối | từ chối trước verifier, không tệp nào bị ghi vào cây; sửa sang ghi trong thư mục làm việc thì đạt |
+| M4 | Input khai mà không có | từ chối trước verifier; tạo tệp thì đạt |
+| M5 | Hết giờ (1 phút), lệnh có tiến trình con | `inconclusive`; cả hai tiến trình kết thúc; `left_running` 3 |
+| M5 | Giết cứng tiến trình OneCrew giữa lượt | sau 10 s không còn tiến trình verifier nào; chạy lại bị từ chối (run bị giữ); phát hành bằng `verdict release-run` có lý do |
+| M5 | Lần chạy sau trong cùng `TEMP` | thư mục tạm có dấu của lượt bị giết được dọn trong khoảng 1 s; sau lượt `TEMP` trống |
+| M5 | Input bị đổi giữa lượt | `inconclusive`, không đạt |
+| M5 | Lệnh thoát 0, tiến trình con còn chạy | đạt; `left_running` 2 (tiến trình con và console host của nó); sau lượt không còn tiến trình nào |
+
+Sự cố của người thử, không phải của mep3:
+- **M3:** lần chạy lại đầu trượt (thoát 1) vì `printf` của tôi làm hỏng `ghi.py`. Tốn 1/3 lần sửa; viết lại tệp thì đạt.
+- **M5:** một lượt giết cứng không được giết, vì lệnh chạy sai thư mục, nên thành lượt hết giờ thứ hai.
+- **Công cụ đo giết cứng tự đếm chính nó:** dòng lệnh của nó chứa mẫu tên. Hai tiến trình «còn sống» trong `giet_cung_e2e_mep3.json` là chính công cụ đó. Đã loại tiến trình của công cụ rồi chạy lại: `giet_cung_e2e_mep3_c.json` ghi 0 tiến trình còn sống.
+- **`seconds` của receipt:** có cả thời gian chờ đếm (tối đa 0,5 s) khi còn tiến trình con. Lượt `con_roi_thoat` ghi 0,58 s.
+
+Bằng chứng:
+- `bang-chung-mep3/luot.json`: 44 lượt, trong đó 17 lượt `E_*`.
+- `bang-chung-mep3/giet_cung/`: bốn lần giết cứng (mep1, mep2, hai lần mep3).
+- Lượt «input đổi giữa lượt» chạy thẳng CLI với `TEMP` của lượt bị giết, nên không có trong `luot.json`. Receipt `50750e8b2c2a2766e032fbaf05f01365a78977790e14b1186c92b4e1d3e89b9c`.
 
 ## Thay đổi so với `f204a33`
 
@@ -145,7 +175,7 @@ Không chạy full gate.
 
 ## Tác động lên MEP thật
 
-- **So mốc bảo vệ trước và sau** (16:44 và 21:53):
+- **So mốc bảo vệ trước và sau** (07/11 16:44; sau đo 07/11 21:53; sau E2E 08/11 00:16):
   - runtime thật vẫn `onecrew 2.5.0.dev10`;
   - HEAD và số tệp tracked đang đổi không đổi;
   - plan thật, cấu hình hook và sổ thật không đổi.

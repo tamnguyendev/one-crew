@@ -1,0 +1,51 @@
+{
+ "thay_verifier_sau_s": 0.5,
+ "verifier": [
+  {
+   "pid": 13560,
+   "ppid": 18632,
+   "vai": "cha"
+  },
+  {
+   "pid": 4016,
+   "ppid": 13560,
+   "vai": "con"
+  }
+ ],
+ "onecrew": [
+  {
+   "pid": 19476,
+   "ppid": 18100,
+   "ten": "python.exe"
+  },
+  {
+   "pid": 5092,
+   "ppid": 19476,
+   "ten": "python.exe"
+  },
+  {
+   "pid": 12524,
+   "ppid": 5092,
+   "ten": "onecrew.exe"
+  },
+  {
+   "pid": 2076,
+   "ppid": 12524,
+   "ten": "python.exe"
+  },
+  {
+   "pid": 18632,
+   "ppid": 2076,
+   "ten": "python.exe"
+  }
+ ],
+ "giet": 18632,
+ "taskkill": "SUCCESS: The process with PID 18632 has been terminated.",
+ "sau_10s": {
+  "verifier_con_song": [
+   13560,
+   4016
+  ],
+  "onecrew_con_song": []
+ }
+}
