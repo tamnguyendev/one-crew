@@ -1,6 +1,9 @@
 # Verifier khai `inputs`: hotfix cho repo lớn
 
-Bản `2.5.0.dev10+sol6.4.mep3`, bản thử cách ly. Chưa phát hành, chưa nghiệm thu. mep2 = mep1 cộng ba điểm ở mục «Thêm từ mep2»; mep3 = mep2 cộng hai điểm ở mục «Thêm từ mep3».
+Bản `2.5.0.dev10+sol6.4.mep4`, bản thử. Chưa phát hành, chưa nghiệm thu.
+- mep2 = mep1 cộng ba điểm ở mục «Thêm từ mep2».
+- mep3 = mep2 cộng hai điểm ở mục «Thêm từ mep3».
+- mep4 = mep3 cộng mục «Thêm từ mep4».
 
 ## Vấn đề
 
@@ -75,6 +78,22 @@ Cả hai điểm áp dụng cho đường cũ lẫn đường `inputs`.
   - Lệnh console chạy không cửa sổ để lại tiến trình console host của hệ điều hành trong job vài mili giây sau khi thoát. mep2 vì vậy ghi `1` cho mọi lượt sạch.
   - mep3 chờ tối đa 0,5 s để số này về 0 rồi mới ghi.
   - Tiến trình con thật sự còn chạy vẫn được đếm và bị kết thúc.
+
+## Thêm từ mep4: `inputs_unscanned`
+
+**Vì sao cần.** Trên repo MEP thật, 4 input của bộ kiểm M1 nhắc đường dẫn của chính repo: sổ cycle, register giới hạn, một review, một script phát lại. Bộ kiểm chỉ kiểm các tệp đó có tồn tại, không đọc nội dung, nhưng mep3 vẫn từ chối cả lượt.
+
+```json
+{"type": "command", "config": {"argv": ["python", "tool/check.py", "spec/a.md"], "inputs": ["tool", "spec"], "inputs_unscanned": ["spec/so.md"]}}
+```
+
+**Quy tắc:**
+- Chỉ dùng được khi có `inputs`. Mỗi mục là một input hoặc nằm trong một input; tối đa 200 mục, không trùng.
+- **Không được miễn thứ dòng lệnh nêu**, kể cả thư mục chứa nó, tính cả `cwd`: chương trình và đối số luôn được quét. Dòng lệnh cũng luôn được quét.
+- **Chủ duyệt từng mục:** mỗi mục nằm trong hợp đồng, nên `owner approve` cũng là chấp nhận việc miễn đó. Thêm hay bớt mục là sửa hợp đồng.
+- **Receipt ghi lại:** `input_scope.live_tree_scan` có `unscanned` (số tệp bỏ qua) và `unscanned_paths`.
+- Tệp được miễn vẫn là input: đổi nó thì bằng chứng cũ hết hiệu lực.
+- Chỉ miễn tệp mà lệnh **không đi theo đường dẫn trong đó**: văn bản, ghi chép, tệp chỉ kiểm tồn tại. Miễn một tệp cấu hình mà lệnh đọc đường dẫn từ đó sẽ mở lại đường đạt giả của mep1.
 
 ## Giới hạn phải biết
 

@@ -519,22 +519,27 @@ def _names_live_tree(path, pattern):
             tail = (tail + block)[-keep:]
 
 
-def check_live_tree_named(directory, argv, workspace_root):
+def check_live_tree_named(directory, argv, workspace_root, unscanned=()):
     """A verifier with declared inputs runs on a checkout of only those; its evidence later speaks only for them. A command line word, or a text file among the inputs,
     that spells the live tree by an absolute path would let the command read or write the real files beside the checkout: a pass that stays valid while what it read
     changes, or a write no snapshot sees. Refused before the verifier is called. This reads what the checkout holds; a path the program builds at run time from
-    elsewhere (an environment variable, a file outside the repository) is not seen. Returns what was scanned, for the receipt."""
+    elsewhere (an environment variable, a file outside the repository) is not seen. Returns what was scanned, for the receipt.
+    unscanned: inputs the owner's contract exempts from the text scan (mep4); never the command line, which is always checked. They are counted and listed."""
     top = toplevel(directory)
     pattern = live_tree_pattern(top)
     for word in argv:
         if isinstance(word, str) and pattern.search(word.encode('utf-8', 'surrogateescape')):
             raise InputRefused(f'The command names the live tree by an absolute path ({word!r}): it would read or write past the checkout of the declared inputs. The verifier was not called.')
     scanned = {'files': 0, 'not_text': 0}
+    skipped = 0
     root = Path(workspace_root)
     for folder, folders, files in os.walk(root):
         for item in files:
             path = Path(folder) / item
             if path.is_symlink(): continue
+            if unscanned and _inside(path.relative_to(root).as_posix(), unscanned):
+                skipped += 1
+                continue
             found = _names_live_tree(path, pattern)
             if found is None:
                 scanned['not_text'] += 1
@@ -545,6 +550,7 @@ def check_live_tree_named(directory, argv, workspace_root):
                 raise InputRefused(f'The declared input {name!r} spells the live tree by an absolute path ({top}). The command could read or write the real files beside the '
                                    'checkout, which the snapshot of the inputs does not see. Use a path relative to the working folder, or remove the inputs to check the whole tree. '
                                    'The verifier was not called.')
+    if unscanned: scanned.update(unscanned=skipped, unscanned_paths=list(unscanned))
     return scanned
 
 
@@ -1304,7 +1310,7 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
             workspace = _checkout(directory, before, scratch)
         timing['checkout_seconds'] = round(time.monotonic() - begin, 2)
         if inputs and not workspace.is_dir(): raise InputRefused(f'The working folder {workspace.name!r} is not in the checkout of the declared inputs. The verifier was not called.')
-        scanned = check_live_tree_named(directory, argv, Path(scratch) / 'src') if inputs else None
+        scanned = check_live_tree_named(directory, argv, Path(scratch) / 'src', milestone['verifier']['config'].get('inputs_unscanned') or ()) if inputs else None
         # S1: children are always UTF-8, so a Vietnamese path or message cannot turn a pass into an encoding failure.
         env = verifier_env(directory) if effective_environment is None else dict(effective_environment)
         from .. import verification_evidence
