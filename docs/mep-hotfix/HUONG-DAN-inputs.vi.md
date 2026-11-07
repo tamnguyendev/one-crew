@@ -1,6 +1,6 @@
 # Verifier khai `inputs`: hotfix cho repo lớn
 
-Bản `2.5.0.dev10+sol6.4.mep1`, bản thử cách ly. Chưa phát hành, chưa nghiệm thu.
+Bản `2.5.0.dev10+sol6.4.mep2`, bản thử cách ly. Chưa phát hành, chưa nghiệm thu. mep2 = mep1 cộng ba điểm ở mục «Thêm từ mep2».
 
 ## Vấn đề
 
@@ -41,15 +41,44 @@ Receipt có thêm `input_scope`: đường dẫn, số file, số byte, HEAD, v�
 - Root workflow (engine): chưa hỗ trợ `inputs`, vì handoff và test integrity xét toàn artifact.
 - Không đủ đĩa cho checkout. Kiểm này áp dụng cho cả đường cũ.
 
+## Thêm từ mep2
+
+- **Đường dẫn tuyệt đối vào cây thật bị từ chối trước khi verifier chạy, không chỉ cảnh báo.** Hai chỗ bị xét:
+  - mọi từ của dòng lệnh, kể cả đường dẫn chưa tồn tại và dạng `--ra=<đường dẫn>`;
+  - nội dung mọi tệp văn bản trong checkout của inputs.
+
+  Các cách viết được nhận ra:
+  - `\` và `/`, cả `\\` trong chuỗi mã nguồn;
+  - ổ đĩa viết `C:`, `/c`, `/mnt/c` hoặc `/cygdrive/c`;
+  - tên 8.3;
+  - không phân biệt hoa thường trên Windows.
+
+  Thư mục anh em cùng tiền tố (`...\mep-cu`) không bị tính là cây thật. Tệp nhị phân (có byte NUL, không có BOM UTF-16) không được quét; receipt ghi số tệp đã quét và số tệp không quét trong `input_scope.live_tree_scan`.
+- **Windows: lệnh và mọi tiến trình con nằm trong một job object** (`KILL_ON_JOB_CLOSE`).
+  - Lệnh khởi động ở trạng thái treo, được đưa vào job rồi mới chạy.
+  - OneCrew chết, kể cả bị giết cứng, thì hệ điều hành kết thúc cả cây.
+  - Hết giờ hoặc bị ngắt thì job bị kết thúc.
+  - Tiến trình con còn chạy khi lệnh chính đã thoát cũng bị kết thúc.
+  - `snapshot.contained` và `snapshot.left_running` của receipt ghi việc này.
+  - Áp dụng cho cả đường cũ.
+- Bộ test có thêm ca input bị người khác đổi trong lúc lệnh chạy **trên đường `inputs`** (mep1 chỉ thử trên đường cũ): kết quả inconclusive, không phải pass.
+
 ## Giới hạn phải biết
 
-- **Khai thiếu là trách nhiệm của người viết hợp đồng.** Lệnh đọc file không khai qua đường tương đối sẽ không thấy file, nên thường báo lỗi. Script tự ghép đường dẫn tuyệt đối vào cây thật thì OneCrew không chặn được, vì verifier không chạy trong sandbox hệ điều hành; đường cũ cũng vậy. Kiểm dòng lệnh chỉ thấy những gì dòng lệnh nêu.
-- **Lệnh ghi ra ngoài input trên cây thật:** đường cũ phát hiện qua chụp sau, đường `inputs` thì không. Chỉ dùng `inputs` cho lệnh chỉ đọc hoặc chỉ ghi trong thư mục làm việc của nó.
+- **Khai thiếu là trách nhiệm của người viết hợp đồng.** Lệnh đọc file không khai qua đường tương đối sẽ không thấy file, nên thường báo lỗi.
+  - Từ mep2, đường dẫn tuyệt đối vào cây thật **viết sẵn** trong dòng lệnh hoặc trong tệp văn bản của inputs bị từ chối.
+  - Vẫn không chặn được đường dẫn mà chương trình **tự dựng lúc chạy** từ nơi khác: biến môi trường, tệp ngoài repo (ví dụ sổ đăng ký hook liệt kê đường dẫn dự án), tên qua junction, hay chuỗi nằm trong tệp nhị phân. Lý do: verifier không chạy trong sandbox hệ điều hành.
+- **Lệnh ghi ra ngoài input trên cây thật:** đường cũ phát hiện qua chụp sau, đường `inputs` thì không. Ghi bằng đường dẫn viết sẵn bị từ chối như trên; ghi bằng đường dẫn dựng lúc chạy thì không. Chỉ dùng `inputs` cho lệnh chỉ đọc hoặc chỉ ghi trong thư mục làm việc của nó.
+- **Đường dẫn tuyệt đối ra ngoài repo** (ví dụ `<thư mục làm việc ngoài repo>`) không bị từ chối, và không nằm trong bằng chứng. Ở đường cũ cũng vậy. Bằng chứng không hết hiệu lực khi các tệp đó đổi.
 - **Chương trình:** chỉ băm đúng file được khởi động, không băm thư viện nó nạp. Thứ gì trong repo thì khai vào `inputs`.
 - **Dữ liệu ngoài input đổi không làm bằng chứng cũ hết hiệu lực,** đó chính là mục đích. Chỉ dùng khi chắc lệnh không phụ thuộc phần đó.
 - **Nghiệm thu:** `--artifact-sha` nhận một cây hoặc commit chứa đúng các input đã kiểm, không cần chụp toàn cây. `verdict artifact` vẫn chụp toàn cây và ghi object; trên repo lớn hãy truyền commit thay vì gọi lệnh này.
 - **Plan trộn** mốc có và không có `inputs`: mốc không khai vẫn chụp toàn cây, và lúc xem trạng thái vẫn phải đi cả cây.
-- **Tiến trình bị giết cứng:** thư mục tạm có dấu chủ được dọn ở lần `verdict run` sau; tiến trình con của verifier có thể còn chạy nếu tiến trình cha chết đột ngột. Thư mục tạm của bản cũ không có dấu, không được dọn tự động.
+- **Tiến trình bị giết cứng:**
+  - Thư mục tạm có dấu chủ được dọn ở lần `verdict run` sau.
+  - Trên Windows từ mep2, tiến trình con của verifier kết thúc theo OneCrew.
+  - Ngoài Windows, hoặc khi hệ điều hành từ chối job (`contained: false`), tiến trình con vẫn có thể còn chạy.
+  - Thư mục tạm của bản cũ không có dấu, không được dọn tự động.
 
 ## Thử cách ly
 
