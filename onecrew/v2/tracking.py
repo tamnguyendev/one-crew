@@ -1054,6 +1054,11 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     item['holds'] = _holds(rd, row['request_key'], conn) if engine_root else []
     from . import tracking_work
     item['work'] = tracking_work.project(rd, conn, row, state, events, engine_view, item['evidence_keys'])
+    # dev11: the stdout/stderr a command receipt of this root names open where the receipt does (track evidence opens them one hop through it)
+    named_outputs = {k for r in ((item['work'] or {}).get('checks') or {}).get('runs', []) if r.get('outputs') and r.get('receipt') in present
+                     for k in (r['outputs']['stdout'], r['outputs']['stderr'])}
+    if named_outputs - present:
+        item['evidence_keys'] = sorted(present | {k for k, v in _stored(reader.state_root, named_outputs).items() if v})
     return item
 
 
@@ -1236,6 +1241,25 @@ def _names(conn, root_id, key):
     return False
 
 
+def _output_of(conn, state_root, root_id, key):
+    """dev11: is `key` the stdout or stderr that a command receipt named by a check event of this root (or its child tasks) names? One hop only,
+    through a sealed command receipt; the output of another root's receipt stays refused."""
+    from ..snapshots import Snapshots
+    from .tracking_work import command_outputs
+    children = sorted({r[0] for r in conn.execute("SELECT json_extract(payload,'$.child') FROM events WHERE task_id=? AND kind='node.started'", (root_id,)) if r[0]})
+    tasks = [root_id] + children
+    marks, store, seen = ','.join('?' for _ in tasks), Snapshots(state_root), set()
+    for (receipt,) in conn.execute(f"SELECT json_extract(payload,'$.receipt') FROM events WHERE task_id IN ({marks}) "
+                                   "AND kind IN ('verdict.recorded','node.verification','verdict.receipt_issued')", tasks):
+        if not isinstance(receipt, str) or not HEX64.fullmatch(receipt) or receipt in seen: continue
+        seen.add(receipt)
+        try: body = json.loads(store.read_blob(receipt))
+        except (LedgerError, OSError, ValueError, TypeError): continue
+        outputs = command_outputs(body)
+        if outputs and key in (outputs['stdout'], outputs['stderr']): return True
+    return False
+
+
 def evidence(state_root, selector, key, *, project_id=None):
     """The text of one blob the root's events name (receipt, candidate, evidence), redacted line by line and capped; any other key is refused."""
     if not isinstance(key, str) or not HEX64.fullmatch(key): raise LedgerError('Mã bằng chứng không hợp lệ.')
@@ -1244,7 +1268,7 @@ def evidence(state_root, selector, key, *, project_id=None):
     with reader.transaction() as conn:
         if conn is None: raise LedgerError('Sổ không mở được.')
         row = _find(conn, reader, selector, project_id)
-        named = _names(conn, row['id'], key)
+        named = _names(conn, row['id'], key) or _output_of(conn, reader.state_root, row['id'], key)
     if not named: raise PermissionError('Bằng chứng này không thuộc root đã chọn; không mở.')
     from ..snapshots import Snapshots
     from .diagnostics import redact

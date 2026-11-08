@@ -6,11 +6,12 @@ root/node/generation/artifact/definition binding. An output never inherits anoth
 output's green colour merely because its node or content key happens to match.
 """
 import json
+import re
 
 from .. import contract_diff
 from ..ledger import LedgerError, content_hash
 from ..snapshots import Snapshots
-from . import plan as plans, solution_link, step0, survey
+from . import namespaces, plan as plans, solution_link, step0, survey
 
 VERSION = 1
 STATUSES = ('pass', 'fail', 'skip', 'error', 'unknown')
@@ -36,6 +37,16 @@ def _status(value):
 
 def _counts(rows):
     return {s: sum(r.get('status') == s for r in rows) for s in STATUSES}
+
+
+def command_outputs(body):
+    """dev11: the stdout/stderr blobs a sealed command receipt names, with its exit code; None for any other receipt. Read-only: the keys are
+    only offered where the receipt itself belongs to the root (tracking.evidence opens them one hop through such a receipt)."""
+    if not isinstance(body, dict) or body.get('kind') != 'command-receipt': return None
+    keys = {s: body.get(s) for s in ('stdout', 'stderr')}
+    if not all(isinstance(k, str) and re.fullmatch(r'[0-9a-f]{64}', k) for k in keys.values()): return None
+    return dict(keys, exit_code=body.get('exit_code'), timed_out=body.get('timed_out'), stdout_bytes=body.get('stdout_bytes'),
+                stderr_bytes=body.get('stderr_bytes'), truncated=body.get('output_truncated'))
 
 
 class _Blobs:
@@ -248,6 +259,7 @@ def _checks(reader, state, events, root, blobs, engine, limitations):
                'attempt': p.get('attempt'), 'producer_attempt': starts.get((nid, gen)), 'artifact': artifact, 'stale': stale,
                'authentic': bool(all_proven), 'status': _status(p.get('result')) if all_proven else 'unknown',
                'checks': check_rows, 'testcases': cases, 'checks_sha': (body or {}).get('checks_sha'), 'source': source, 'sources': [source],
+               'outputs': command_outputs(body),
                'actor': _actor('reviewer', nid or p.get('milestone'), p.get('attempt'), source,
                                reviewer_data)}
         run['actors'] = []
@@ -422,6 +434,7 @@ def project(reader, conn, row, state, events, engine, evidence_keys):
                                'integration': n.get('integration', False)} for n in definitions},
             'changes': _changes(reader, state, events, blobs, row['id']), 'outputs': outputs, 'checks': checks,
             'findings': _findings(reader, conn, state, contract, engine, limitations) if contract else [],
+            'finding_register': namespaces.has_capability(state, 'finding-register'),
             'repairs': _repairs(events, row['id'], blobs, checks, engine), 'actors': actors,
             'limitations': list(dict.fromkeys(limitations)), 'history_complete': True, 'read_only': True}
 

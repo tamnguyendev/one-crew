@@ -76,6 +76,7 @@ function workBoard(rows){return WORK_STAGES.map(function(s){var items=rows.filte
 function workText(v){if(v==null||v===''||(Array.isArray(v)&&!v.length))return 'chưa có dữ liệu';if(typeof v!=='object')return String(v);
   if(Array.isArray(v))return v.map(workText).join('; ');return v.text||v.title||v.label||v.spec||v.question||v.goal||Object.keys(v).map(function(k){return k+': '+workText(v[k])}).join('; ')||'chưa có dữ liệu'}
 function workEsc(v){return esc(workText(v))}
+function workOutputs(d,o){if(!o)return '';var n=function(b){return b==null?'':' ('+esc(b)+' byte)'};return '<p>Đầu ra lệnh kiểm, mã thoát '+esc(o.exit_code==null?'chưa rõ':o.exit_code)+(o.timed_out?', hết thời gian':'')+': stdout'+n(o.stdout_bytes)+' '+workEvidence(d,o.stdout)+' · stderr'+n(o.stderr_bytes)+' '+workEvidence(d,o.stderr)+(o.truncated?' · chỉ giữ phần cuối':'')+'</p>'}
 function workEmpty(t){return '<div class="work-empty">'+esc(t)+'</div>'}
 function workCard(label,value,note){return '<div class="work-card"><div class="eyebrow">'+esc(label)+'</div><div class="answer">'+workEsc(value)+'</div>'+(note?'<p class="work-meta">'+esc(note)+'</p>':'')+'</div>'}
 function workSource(x){var s=x&&x.source,q=s&&(s.seq!=null?s.seq:s.verdict_seq);return s?'<details class="work-meta"><summary>Nguồn đối chiếu</summary><div>Nguồn: '+esc(s.kind||'receipt')+(q!=null?' #'+esc(q):'')+((x.at||s.at)?' · '+esc(when(x.at||s.at)):'')+'</div></details>':''}
@@ -136,12 +137,12 @@ function workResults(d,w){var outputs=w.outputs||[],runs=(w.checks||{}).runs||[]
   h+=runs.length?runs.map(function(x){var tally={};(x.checks||[]).forEach(function(c){var k=c.status||c.result||'unknown';tally[k]=(tally[k]||0)+1});
     return '<article class="work-row"><h4>'+esc(nodeName(d,x.node))+' · '+workEsc(x.status||x.result)+'</h4><p>'+Object.keys(tally).map(function(k){return esc(k)+': '+tally[k]}).join(' · ')+'</p>'
     +(x.testcases&&x.testcases.length?'<p>Testcase có định danh: '+x.testcases.length+' lượt trong receipt này.</p>'+workList(x.testcases.map(function(c){return c.id+': '+c.status}), ''):'<p class="work-meta">Chưa có thống kê testcase có định danh.</p>')
-    +(x.stale?'<p class="work-warning">Kết quả lịch sử, không chứng nhận bản hiện tại.</p>':'')+workEvidence(d,x.receipt)+workSource(x)+'</article>'}).join(''):workEmpty('Chưa có receipt kiểm đọc được; không thể kết luận không có lỗi.');
+    +(x.stale?'<p class="work-warning">Kết quả lịch sử, không chứng nhận bản hiện tại.</p>':'')+workEvidence(d,x.receipt)+workOutputs(d,x.outputs)+workSource(x)+'</article>'}).join(''):workEmpty('Chưa có receipt kiểm đọc được; không thể kết luận không có lỗi.');
   h+='<h3>Finding và xử lý</h3>'+(findings.length?findings.map(function(x){var resolution=x.resolution||{};return '<article class="work-row"><h4>'+workEsc(x.id)+' · '+workEsc(x.status||x.state)+'</h4><p>'+workEsc(x.text||x.head||x.claim)+'</p>'+(x.severity?'<p class="work-meta">Mức độ: '+workEsc(x.severity)+'</p>':'')
     +'<p>Nguồn phát hiện: '+workEvidence(d,(x.source||{}).receipt)+'</p>'
     +(x.resolution?'<p>Căn cứ xử lý: '+workEsc(resolution.reason||x.reason)+' '+workEvidence(d,resolution.receipt)+'</p>':'')
     +(x.category?'<p>Phân loại: '+workEsc(x.category)+'</p>':'')+(x.duplicate_of?'<p>Trùng với: '+workEsc(x.duplicate_of)+'</p>':'')+(x.recurrence_of?'<p>Tái xuất hiện từ: '+workEsc(x.recurrence_of)+'</p>':'')
-    +workSource(x)+'</article>'}).join(''):workEmpty('Chưa ghi nhận finding; không đồng nghĩa đã kiểm hết.'));
+    +workSource(x)+'</article>'}).join(''):workEmpty(w.finding_register===false?'Plan này không có sổ finding (đề xuất không kèm --workflow): lần kiểm fail chỉ nằm ở "Các lần kiểm" phía trên, kèm stdout/stderr; nó không tự thành finding hay vòng sửa.':'Chưa ghi nhận finding; không đồng nghĩa đã kiểm hết.'));
   h+='<h3>Chuỗi sửa và kiểm lại</h3>'+(repairs.length?repairs.map(function(x,i){var linked=runs.filter(function(r){return (x.verification||[]).indexOf(r.id)>=0});return '<article class="work-row"><h4>Vòng sửa '+(i+1)+' · '+esc(nodeName(d,x.node||x.target))+' · '+workEsc(({verified:'Đã kiểm đủ phần ảnh hưởng',partial:'Mới kiểm một phần',unverified:'Chưa kiểm đủ'})[x.status]||x.status)+'</h4>'
     +(x.applicable===false?'<p class="work-warning">Vòng sửa lịch sử; không chứng nhận thế hệ hiện tại.</p>':'')
     +'<p>Kiểm lỗi cũ: '+workEsc(x.failed_checks)+'</p><p>Phần ảnh hưởng: '+esc((x.affected_nodes||[]).map(function(n){return nodeName(d,n)}).join(', '))+'</p>'+workEvidence(d,x.source_receipt)
