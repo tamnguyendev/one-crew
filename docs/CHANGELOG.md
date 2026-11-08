@@ -8,7 +8,8 @@
   - `owner enforce --human` báo "chưa xác nhận" + exit 1 dù đã bật chặn: đã sửa trong dòng Sol, test đỏ trên `main`, xanh sau gộp;
   - `test_a_r13` giữ node khi hai cửa chạy đua: nguyên nhân là ghi lại manifest snapshot định danh theo nội dung trong lúc luồng kia đang đọc (Windows từ chối thay file đang mở); `Snapshots.save` không ghi lại manifest đã đúng byte;
   - stdout/stderr của verifier lệnh mở được qua `track evidence` và trang theo dõi; plan không `--workflow` nói rõ không có sổ finding;
-  - `plan propose` từ chối trước khi ghi các lý do hình thức mà `plan lint` báo và `owner approve` sẽ từ chối.
+  - lệnh `plan propose` từ chối trước khi ghi các lý do hình thức mà `plan lint` báo và `owner approve` sẽ từ chối.
+- **Thay đổi hợp đồng — phần viết cho người theo dõi (chủ giao 08/11):** `presentation.request` (việc này làm gì), `user_sees` (xong bạn thấy gì), `acceptance_steps` (làm sao biết đạt), `not_doing` (không làm gì), lời thường, không tên file, đường dẫn, cờ lệnh, mã lỗi hay mã nội bộ. Bắt buộc khi state root có file owner-rules (`onecrew init` tạo); `plan lint`, lệnh `plan propose`/`plan amend` và `plan approve`/`owner approve` cùng từ chối. Hợp đồng cũ vẫn đọc được. Trang theo dõi (danh sách và bảng cột) dùng phần này làm tiêu đề, mô tả và câu "đang chờ bạn"; mục tiêu kỹ thuật, tên plan, mã task vào "chi tiết kỹ thuật"; hợp đồng cũ hiện như trước với nhãn "chưa có mô tả cho chủ".
 - **Chưa kiểm:** provider thật, hook phiên thật, repo cỡ MEP. Xem bàn giao trong gói dev11 (ngoài repo, chưa phát hành).
 
 ## v2.5.0.dev10 (05/11/2026) — beta UI OBS-2 (prerelease)
