@@ -130,6 +130,13 @@ def bytes_hash(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def _holds(target, data):
+    try:
+        return target.read_bytes() == data
+    except OSError:
+        return False
+
+
 def durable_write(target, data):
     target.parent.mkdir(parents=True, exist_ok=True)
     # Do not repeat a long content-addressed filename: Windows Store state roots
@@ -147,6 +154,9 @@ def durable_write(target, data):
                 os.replace(temporary, target)
                 break
             except PermissionError:
+                # dev11 (test_a_r13): a destination another thread holds open already
+                # holding exactly these bytes is written; anything else still fails.
+                if _holds(target, data): break
                 if os.name!='nt' or attempt==4:raise
                 __import__('time').sleep(.02*(attempt+1))
     finally:
@@ -226,7 +236,10 @@ class Snapshots:
 
     def save(self, manifest):
         key = content_hash(manifest)
-        durable_write(self.root / 'manifests' / (key + '.json'), canonical(manifest).encode('utf-8'))
+        target, data = self.root / 'manifests' / (key + '.json'), canonical(manifest).encode('utf-8')
+        # dev11 (test_a_r13): content-addressed, like blob(): an existing manifest with these exact bytes is not replaced again. Two doors
+        # capturing the same source saved it twice, and on Windows replacing a file another thread is reading fails.
+        if not _holds(target, data): durable_write(target, data)
         self.load(key)  # A durable reference is publishable only after all blobs verify.
         return key
 
