@@ -38,6 +38,13 @@ class VerifierOutputTests(_Base):
             self.assertIn(key, d['evidence_keys'])                                  # the page's open button is offered
             self.assertIn(marker, tracking.evidence(self.ledger.state_root, 'P1', key)['text'])
 
+    def test_stdout_named_by_the_receipt_opens_without_the_new_fields(self):
+        from onecrew.snapshots import Snapshots
+        d = self.start()
+        receipt = d['work']['checks']['runs'][0]['receipt']
+        body = json.loads(Snapshots(self.ledger.state_root).read_blob(receipt))
+        self.assertIn('MARKER-OUT', tracking.evidence(self.ledger.state_root, 'P1', body['stdout'])['text'])
+
     def test_output_of_another_roots_receipt_is_refused(self):
         self.start('P2')
         other = tracking.detail(self.ledger.state_root, 'P2')['work']['checks']['runs'][0]['outputs']['stdout']
