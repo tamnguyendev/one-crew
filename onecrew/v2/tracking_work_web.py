@@ -65,7 +65,16 @@ function workStatus(t){var needs=t.needs_user||[],s=t.status||{},n=t.nodes_summa
   if(stage==='done')return 'Đã nghiệm thu';if(stage==='closed')return 'Đã đóng · không phải nghiệm thu';
   if(stage==='todo')return 'Chưa khởi chạy';if(stage==='doing'&&t.has_started&&!(t.milestones||[]).length)return 'Chờ bước tiếp theo';   // a milestone root says which milestone (its sourced step below)
   return t.current_step||s.reason||'Chưa xác định tiến độ'}
-function workTitle(t){return t.goal||t.title||t.plan||'Công việc chưa có tên'}
+function ownerView(t){var o=t&&t.owner_view;return o&&o.present&&o.request?o:null}
+function workTitle(t){var o=ownerView(t);return o?o.request:(t.goal||t.title||t.plan||'Công việc chưa có tên')}
+function ownerJoin(a){return (a||[]).map(function(x,i){return x+(i<a.length-1&&!/[.!?…:;]$/.test(x)?';':'')}).join(' ')}
+function workDesc(t){var o=ownerView(t),s=o?ownerJoin(o.user_sees):'';return s?'Xong bạn thấy: '+s:''}
+function workWaiting(t){var n=(t.needs_user||[]).filter(function(x){return x.owner_ask})[0];return n?'Đang chờ bạn: '+n.owner_ask:''}
+function workNoOwner(t){return ownerView(t)?'':'chưa có mô tả cho chủ'}
+function workTech(d){return '<details data-k="owner-tech" class="work-meta"><summary>chi tiết kỹ thuật</summary><p>Plan '+esc(d.plan)+(d.id?' · mã task '+esc(d.id):'')+'</p>'+(d.goal?'<p>Mục tiêu kỹ thuật: '+esc(d.goal)+'</p>':'')+'</details>'}
+function workOwnerSection(d){var o=ownerView(d);if(!o)return '<p class="small mut owner-missing">Chưa có mô tả cho chủ: thẻ hiện mục tiêu kỹ thuật do AI viết.</p>'+(d.goal&&!d.work?'<p style="margin:6px 0">'+esc(d.goal)+'</p>':'');
+  var card=function(label,v){var items=Array.isArray(v)?v:[v];return '<div class="work-card"><div class="eyebrow">'+esc(label)+'</div><div class="answer">'+(items.filter(Boolean).length?items.filter(Boolean).map(function(x){return '<div>'+esc(x)+'</div>'}).join(''):'chưa có dữ liệu')+'</div></div>'};
+  return '<div class="work-grid owner-view">'+card('Việc này làm gì',o.request)+card('Xong bạn thấy gì',o.user_sees)+card('Làm sao biết đạt',o.acceptance_steps)+card('Không làm gì',o.not_doing)+'</div>'+workTech(d)}
 function workBadge(t){var s=t.status||{};return '<span class="st '+esc(s.kind||'unknown')+'">'+esc(workStatus(t))+'</span>'}
 function workOrder(rows,mode){function time(x){var n=Date.parse(x||'');return Number.isFinite(n)?n:null}function attention(t){return (t.needs_user||[]).length?0:(t.status||{}).kind==='blocked'?1:(t.status||{}).kind==='running'?2:3}
   return rows.slice().sort(function(a,b){var x,y;if(mode==='attention'){x=attention(a)-attention(b);if(x)return x;mode='attention'}
@@ -85,7 +94,7 @@ function nodeName(d,id){var w=d.work||{},n=(w.node_titles||w.nodes||{})[id];retu
 function workOverview(d,w){var o=(w.outputs||[]).filter(function(x){return !x.stale}),f=w.findings||[],open=f.filter(function(x){return (x.status||x.state)==='open'}).length;
   return '<div class="work-grid">'+workCard('Hiện tại',workStatus(d),d.current_step||d.status.reason)
     +workCard('Kết quả đã có',o.length?o.length+' đầu ra hiện hành · '+o.filter(function(x){return x.level==='verified'||x.level==='accepted'}).length+' đã kiểm':'Chưa ghi nhận đầu ra','Lịch sử cũ không tính vào số này. Xem từng đầu ra trong Kết quả & kiểm chứng.')
-    +workCard('Việc cần bạn',(d.needs_user||[]).length?(d.needs_user.map(function(n){return n.title||(n.kind==='approve'?'Duyệt kế hoạch':n.kind==='accept'?'Nghiệm thu':n.question||'Trả lời câu hỏi')}).join(' · ')):'Chưa có yêu cầu cần bạn xử lý','Đọc câu hỏi không đồng nghĩa đã trả lời hoặc đã duyệt.')
+    +workCard('Việc cần bạn',(d.needs_user||[]).length?(d.needs_user.map(function(n){return n.owner_ask||n.title||(n.kind==='approve'?'Duyệt kế hoạch':n.kind==='accept'?'Nghiệm thu':n.question||'Trả lời câu hỏi')}).join(' · ')):'Chưa có yêu cầu cần bạn xử lý','Đọc câu hỏi không đồng nghĩa đã trả lời hoặc đã duyệt.')
     +workCard('Dự kiến còn lại',d.eta&&d.eta.label,d.eta&&d.eta.reason)+'</div>'
     +(open?'<p class="work-warning">Còn '+open+' finding đang mở. Đây chưa phải số bug độc lập.</p>':'')
     +'<p class="work-meta">Thời gian đã trôi qua: '+hms(d.elapsed&&d.elapsed.seconds)+' · Thực hiện đã ghi nhận: '+hms(d.measure&&d.measure.attempts_wall_seconds)+' · Chờ đã ghi nhận: '+hms(d.measure&&d.measure.wait_seconds)+'. Không tự quy thời gian chưa rõ thành thời gian làm việc.</p>'}

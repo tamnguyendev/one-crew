@@ -175,6 +175,17 @@ def _schema_version(conn):
 
 # ---- one root --------------------------------------------------------------------------------------------------------------------------
 
+def _owner_view(contract):
+    """dev11: the contract's owner part (presentation): the card's title, description and acceptance words. `present` False: the contract
+    has no owner sentence, and the page shows the technical goal as before with the label "chưa có mô tả cho chủ"."""
+    shown = (contract or {}).get('presentation') or {}
+    texts = lambda key: [clean(x, 300) for x in (shown.get(key) or []) if isinstance(x, str) and x.strip()][:6] if isinstance(shown.get(key), list) else []
+    request = clean(shown.get('request'), 500) if isinstance(shown.get('request'), str) and shown.get('request').strip() else None
+    not_doing = clean(shown.get('not_doing'), 500) if isinstance(shown.get('not_doing'), str) and shown.get('not_doing').strip() else None
+    return {'present': bool(request), 'request': request, 'user_sees': texts('user_sees'), 'acceptance_steps': texts('acceptance_steps'),
+            'not_doing': not_doing}
+
+
 def _goal(contract, payload):
     understanding = (contract or {}).get('understanding') or {}
     return clean(understanding.get('restated_goal') or (contract or {}).get('title') or payload.get('title') or '')
@@ -388,7 +399,9 @@ def _needs_user(state, requests, views, level, engine_view, project=None, state_
         template = (f'{prefix} owner approve {_quote(selector)} --revision {revision}'
                     + (f' --choose {_quote("<option-id>")}' if choices else '')
                     + f' --reference {_quote(REFERENCE_PLACEHOLDER)} --human') if complete and selector and contract else None
-        needs.append({'kind': 'approve', 'question': f"Duyệt bản {state['latest']} của plan {state['name']} (plan approve, lệnh của chủ sở hữu)",
+        owner = _owner_view(contract)
+        needs.append({**({'owner_ask': 'Duyệt việc: ' + owner['request']} if owner['present'] else {}),
+                      'kind': 'approve', 'question': f"Duyệt bản {state['latest']} của plan {state['name']} (plan approve, lệnh của chủ sở hữu)",
                       'id': state.get('task_id'), 'revision': revision, 'title': clean((contract or {}).get('title')),
                       'reason': clean(written.get('reason')), 'impact': clean((written.get('acceptance_diff') or {}).get('summary')),
                       'reply_command': template, 'human_command': template, 'reply_shell': REPLY_SHELL,
@@ -410,7 +423,9 @@ def _needs_user(state, requests, views, level, engine_view, project=None, state_
             template = (f'{prefix} owner accept {_quote(selector)} --revision {revision} --artifact-sha {_quote(artifact)}'
                         + f' --reference {_quote(REFERENCE_PLACEHOLDER)} --human') if complete and selector and revision and artifact else None
             why = None if template else 'Chưa tạo lệnh nghiệm thu: nguồn hiện có chưa có một artifact bàn giao chung đã kiểm hợp lệ; không lấy snapshot node thay artifact được bàn giao. Đọc báo cáo ghim revision và đối chiếu bằng chứng trước.'
-            needs.append({'kind': 'accept', 'question': 'Mọi mốc đã có verdict đạt: nghiệm thu (plan accept, lệnh của chủ sở hữu) hoặc nêu điều chưa đạt',
+            owner = _owner_view(contract)
+            needs.append({**({'owner_ask': 'Nghiệm thu: ' + ('; '.join(owner['acceptance_steps']) or owner['request'])} if owner['present'] else {}),
+                          'kind': 'accept', 'question': 'Mọi mốc đã có verdict đạt: nghiệm thu (plan accept, lệnh của chủ sở hữu) hoặc nêu điều chưa đạt',
                           'id': state.get('task_id'), 'revision': revision, 'artifact_sha': artifact,
                           'reply_command': template, 'human_command': template, 'reply_shell': REPLY_SHELL,
                           'reference_placeholder': REFERENCE_PLACEHOLDER, 'placeholders': ['reference'] if template else [],
@@ -997,7 +1012,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     active_rows = [{'attempt': a['id'], 'status': a['status'], 'since': a['created_at'], 'unit': a['unit'], 'stage': a['stage'],
                     'node': next((nid for nid, r in nodes.items() if r['attempt'] == a['id']), None)} for a in attempts if a['status'] in ('reserved', 'running', 'unknown')]
     item = {'id': row['id'], 'plan': state['name'], 'selector': row['request_key'], 'project': row['project_path'], 'project_id': row['project_id'],
-            'goal': _goal(contract, payload), 'title': clean(payload.get('title'), 200), 'contract_revision': state['latest'],
+            'goal': _goal(contract, payload), 'title': clean(payload.get('title'), 200), 'owner_view': _owner_view(contract), 'contract_revision': state['latest'],
             'created_at': row['created_at'], 'started_at': first_started, 'has_started': has_started, 'deadline': None,
             'node_titles': {n['id']: clean(n.get('goal'), 200) for n in ((engine_view or {}).get('definition') or {}).get('nodes', [])},
             'root_status': state['status'],
@@ -1317,7 +1332,10 @@ def render_overview(value):
         lines += ['', project['path']]
         for t in project['tasks']:
             lines.append(f"  [{t['status']['label']}] {t['plan']} ({t['id'][:12]}) · {t['level']['label']} · từ khi duyệt {_hms(t['elapsed'].get('seconds'))} (lịch) · {t['tracking']['adapter']}")
-            if t.get('goal'): lines.append('    mục tiêu: ' + t['goal'][:160])
+            owner = t.get('owner_view') or {}
+            if owner.get('present'): lines.append('    việc: ' + owner['request'][:160] + (' · xong bạn thấy: ' + ' '.join(owner['user_sees'])[:160] if owner.get('user_sees') else ''))
+            else: lines.append('    (chưa có mô tả cho chủ)')
+            if t.get('goal'): lines.append(('    mục tiêu kỹ thuật: ' if owner.get('present') else '    mục tiêu: ') + t['goal'][:160])
             lines.append('    vì: ' + (t['status']['reason'] or '') + ' [' + ', '.join(t['status']['source']) + ']')
             if t.get('last_update'): lines.append(f"    cập nhật cuối: {t['last_update']['at']} #{t['last_update']['seq']} {t['last_update']['summary']}")
             if t.get('last_evidence'): lines.append(f"    bằng chứng cuối: {t['last_evidence']['at']} {t['last_evidence']['label']} ({t['last_evidence']['provenance']})")

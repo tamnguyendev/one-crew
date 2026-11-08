@@ -922,8 +922,9 @@ function visible(){var cur=$('#proj').value,kind=$('#kind').value,q=($('#q').val
     if(q&&((t.plan||'')+' '+(t.goal||'')+' '+(t.title||'')+' '+(t.current_step||'')).toLowerCase().indexOf(q)<0)return false;return true}),$('#sort').value)}
 function row(t){var sel=sameSel(selected,{plan:t.selector,project:t.project_id}),lastv=!sel&&sameSel(lastViewed,{plan:t.selector,project:t.project_id});
   return '<li class="task'+(lastv?' last':'')+'" role="option" tabindex="0" aria-selected="'+sel+'" data-plan="'+esc(t.selector)+'" data-project="'+esc(t.project_id)+'" data-k="task:'+esc(t.project_id)+':'+esc(t.selector)+'">'
-   +'<div class="r1"><span class="name">'+esc(t.plan)+'</span><span class="ttl">'+esc(workTitle(t))+'</span>'+workBadge(t)+((t.needs_user||[]).length?'<span class="needb">'+t.needs_user.length+' quyết định cần bạn</span>':'')+'</div>'
-   +'<div class="r2"><span>'+esc((t.status||{}).kind==='blocked'?(t.current_step||t.status.reason):((t.needs_user||[]).length?'Mở thẻ để xem nội dung cần quyết định':'Không có yêu cầu dành cho bạn'))+'</span>'+(t.last_update?'<span class="mut">Cập nhật '+rel(t.last_update.at)+'</span>':'')+'</div>'
+   +'<div class="r1">'+(workNoOwner(t)?'<span class="name">'+esc(t.plan)+'</span>':'')+'<span class="ttl" title="'+esc(workNoOwner(t)?'':'chi tiết kỹ thuật: plan '+t.plan)+'">'+esc(workTitle(t))+'</span>'+(workNoOwner(t)?'<span class="small mut"> · '+workNoOwner(t)+'</span>':'')+workBadge(t)+((t.needs_user||[]).length?'<span class="needb">'+t.needs_user.length+' quyết định cần bạn</span>':'')+'</div>'
+   +(workDesc(t)?'<div class="r2 desc"><span>'+esc(workDesc(t))+'</span></div>':'')
+   +'<div class="r2"><span>'+esc((t.status||{}).kind==='blocked'?(t.current_step||t.status.reason):((t.needs_user||[]).length?(workWaiting(t)||'Mở thẻ để xem nội dung cần quyết định'):'Không có yêu cầu dành cho bạn'))+'</span>'+(t.last_update?'<span class="mut">Cập nhật '+rel(t.last_update.at)+'</span>':'')+'</div>'
    +'<div class="r3" title="'+esc(t.project)+'">'+esc(short(t.project))+(t.deadline?' · Hạn '+esc(when(t.deadline)):'')+'</div></li>'}
 function render(force){
   if(!last)return;var ps=$('#proj'),cur=ps.value,opts='<option value="">tất cả</option>';
@@ -946,7 +947,7 @@ function render(force){
   var ub=parts.join('');if($('#untracked').innerHTML!==ub)$('#untracked').innerHTML=ub;$('#untrackedbox').querySelector('summary').textContent='Chưa được theo dõi ('+n+')';
 }
 function cmdHtml(c,ph){var t=esc(c);(Array.isArray(ph)?ph:[ph]).filter(Boolean).forEach(function(v){var p=esc(v);t=t.split(p).join('<mark class="ph">'+p+'</mark>')});return t}
-function needTitle(n){return n.kind==='request'?'Câu hỏi: '+(n.question||'').slice(0,90)+((n.question||'').length>90?'…':''):n.kind==='approve'?'Duyệt kế hoạch':n.kind==='accept'?'Nghiệm thu':n.kind==='stopped'?'Quyết định sau khi dừng':(n.question||n.kind)}
+function needTitle(n){if(n.owner_ask&&(n.kind==='approve'||n.kind==='accept'))return n.owner_ask;return n.kind==='request'?'Câu hỏi: '+(n.question||'').slice(0,90)+((n.question||'').length>90?'…':''):n.kind==='approve'?'Duyệt kế hoạch':n.kind==='accept'?'Nghiệm thu':n.kind==='stopped'?'Quyết định sau khi dừng':(n.question||n.kind)}
 function needKey(n){return 'need:'+n.kind+':'+(n.id||'')+':'+(n.revision||'')}
 function commandBox(command,ph,label){return '<div class="command-box cmd"><div class="command-head"><span>PowerShell · '+esc(label||'Lệnh dành cho bạn')+'</span><button type="button" class="copy" data-copy="'+esc(command)+'">Sao chép lệnh</button></div><pre><code>'+cmdHtml(command,ph)+'</code></pre></div>'}
 function needCard(n,i){var ph=n.reference_placeholder,nk=needKey(n),command=n.human_command||n.reply_command,hasCommand=!!command||(n.options||[]).some(function(o){return !!(o.human_command||o.reply_command)}),marks=(n.placeholders||[]).map(function(k){return k==='reference'?ph:'<'+k+'>'});if(!marks.length&&ph)marks=[ph];
@@ -991,12 +992,12 @@ function groups(d){var g={},order=[];function add(key,title,e){if(!g[key]){g[key
 @@WORK_SCRIPT@@
 function renderDetail(d){
   var P=prov(d);
-  var h=['<div class="dhead"><button type="button" id="back">← Danh sách</button><h2 id="dtitle" data-k="dtitle" tabindex="-1">'+'<span class="work-id">'+esc(d.plan)+' · </span>'+esc(workTitle(d))+' '+workBadge(d)+'</h2><button type="button" id="close" class="small" title="bỏ chọn task">Đóng</button></div>'];
+  var h=['<div class="dhead"><button type="button" id="back">← Danh sách</button><h2 id="dtitle" data-k="dtitle" tabindex="-1">'+(workNoOwner(d)?'<span class="work-id">'+esc(d.plan)+' · </span>':'')+esc(workTitle(d))+' '+workBadge(d)+'</h2><button type="button" id="close" class="small" title="bỏ chọn task">Đóng</button></div>'];
   if(detailError)h.push('<div id="dstatus" class="dstatus stale" role="status" data-state="stale" data-k="dstatus" tabindex="-1">Chi tiết chưa cập nhật từ '+clockMs(detailOkAt)+': lỗi tải chi tiết ('+esc(detailError.message)+', lần thử gần nhất <span id="dlast">'+clockMs(detailError.last)+'</span>); đang hiện dữ liệu lúc '+(d.generated_at?clock(d.generated_at):clockMs(detailOkAt))+'. Mẫu lệnh trả lời bên dưới là của lúc đó: nếu câu hỏi đã được trả lời hoặc đổi bản, OneCrew từ chối lệnh nhờ --revision. <span id="dnote" data-cap="1">'+cap(noteHtml())+'</span>.</div>');
-  h.push('<div class="small mut">Đang xem task <b>'+esc(d.plan)+'</b> của project <span title="'+esc(d.project)+'">'+esc(short(d.project))+'</span> · <a href="'+esc(urlOf({plan:d.selector,project:d.project_id}))+'">liên kết tới task này</a></div>');
+  h.push('<div class="small mut">Đang xem '+(workNoOwner(d)?'task <b>'+esc(d.plan)+'</b>':'việc này')+' của project <span title="'+esc(d.project)+'">'+esc(short(d.project))+'</span> · <a href="'+esc(urlOf({plan:d.selector,project:d.project_id}))+'">liên kết tới task này</a></div>');
   var needs=d.needs_user||[],nq=needs.filter(function(n){return n.kind==='request'}).length,nother=needs.length-nq;
   h.push('<div class="dsum"><span class="step">'+esc(workStatus(d))+'</span>'+(needs.length?'<a href="#needs" class="small">'+(nq?nq+' câu hỏi chờ bạn':'')+(nq&&nother?' · ':'')+(nother?nother+' việc cần bạn':'')+'</a>':'<span class="small mut">không cần bạn lúc này</span>')+'</div>');
-  if(d.goal&&!d.work)h.push('<p style="margin:6px 0">'+esc(d.goal)+'</p>');
+  h.push(workOwnerSection(d));                                          // dev11: the owner part first; goal, plan and task id in "chi tiết kỹ thuật"
   var done=d.status.kind==='done';
   var nowKeys={};needs.forEach(function(n){nowKeys[needKey(n)]=n});
   if(copied&&!copiedStillValid(copied,d))copied=null;      // R7-1: feedback of a command this data no longer offers (binding lost, other runtime/state) is dropped, never shown again

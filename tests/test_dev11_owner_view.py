@@ -138,3 +138,72 @@ class CommandRefusals(Fixture):
         self.assertNotEqual(rc, 0, text)
         self.assertIn('Chưa duyệt: phần viết cho người theo dõi', text)
         self.assertNotIn('Đã ghi nhận', text)
+
+
+class TrackingPage(Fixture):
+    """Part 3: the tracking list (OBS-1) and board (OBS-2) title a card with the owner part; the technical goal, plan name and task id go to
+    "chi tiết kỹ thuật"; a contract without the part shows as before with the label "chưa có mô tả cho chủ"."""
+    def item(self, name):
+        from onecrew.v2 import tracking
+        return next(t for p in tracking.overview(self.ledger.state_root)['projects'] for t in p['tasks'] if t['plan'] == name)
+
+    def setUp(self):
+        super().setUp()
+        from onecrew.v2 import plan as plans
+        plans.propose(self.ledger, 'NEW', plan_json(presentation=dict(PLAIN)), 'claude-opus-5-5')
+        plans.propose(self.ledger, 'OLD', plan_json(), 'claude-opus-5-5')
+
+    def js(self, expr):
+        import shutil, subprocess
+        from onecrew.v2.tracking_work_web import SCRIPT
+        node = shutil.which('node')
+        if not node: self.skipTest('Node unavailable; not verified')
+        prelude = ('function esc(x){return String(x==null?"":x).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c]))}\n'
+                   'function when(x){return x} function hms(x){return String(x)} function openBtn(k){return "<button>"+esc(k)+"</button>"}\n')
+        done = subprocess.run([node, '-'], input=prelude + SCRIPT + '\nconsole.log(JSON.stringify(' + expr + '));', text=True, encoding='utf8',
+                              capture_output=True, timeout=20)
+        self.assertEqual(done.returncode, 0, done.stderr[-1500:])
+        return json.loads(done.stdout)
+
+    def test_the_item_carries_the_owner_part_and_the_approval_asks_in_its_words(self):
+        new, old = self.item('NEW'), self.item('OLD')
+        self.assertEqual(new['owner_view']['request'], PLAIN['request'])
+        self.assertEqual(new['owner_view']['user_sees'], PLAIN['user_sees'])
+        self.assertEqual(new['owner_view']['acceptance_steps'], PLAIN['acceptance_steps'])
+        self.assertEqual(new['owner_view']['not_doing'], PLAIN['not_doing'])
+        [need] = [n for n in new['needs_user'] if n['kind'] == 'approve']
+        self.assertEqual(need['owner_ask'], 'Duyệt việc: ' + PLAIN['request'])
+        self.assertFalse(old['owner_view']['present'])
+        self.assertNotIn('owner_ask', [n for n in old['needs_user'] if n['kind'] == 'approve'][0])
+
+    def test_card_title_description_and_waiting_line_use_the_owner_part(self):
+        new, old = self.item('NEW'), self.item('OLD')
+        out = self.js('[workTitle(%s), workDesc(%s), workWaiting(%s), workNoOwner(%s)]' % ((json.dumps(new),) * 4))
+        self.assertEqual(out[0], PLAIN['request'])
+        self.assertIn(PLAIN['user_sees'][0], out[1])
+        self.assertEqual(out[2], 'Đang chờ bạn: Duyệt việc: ' + PLAIN['request'])
+        self.assertEqual(out[3], '')
+        legacy = self.js('[workTitle(%s), workDesc(%s), workNoOwner(%s)]' % ((json.dumps(old),) * 3))
+        self.assertEqual(legacy[0], old['goal'])                                         # as before
+        self.assertEqual(legacy[1], '')
+        self.assertEqual(legacy[2], 'chưa có mô tả cho chủ')
+
+    def test_detail_shows_the_four_parts_and_keeps_the_technical_goal_plan_and_task_in_technical_details(self):
+        from onecrew.v2 import tracking
+        d = tracking.detail(self.ledger.state_root, 'NEW')
+        html = self.js('workOwnerSection(%s)' % json.dumps(d))
+        for label in ('Việc này làm gì', 'Xong bạn thấy gì', 'Làm sao biết đạt', 'Không làm gì'):
+            self.assertIn(label, html)
+        head, tech = html.split('chi tiết kỹ thuật', 1)
+        self.assertNotIn(d['goal'], head); self.assertNotIn('NEW', head)
+        self.assertIn(d['goal'], tech); self.assertIn('NEW', tech); self.assertIn(d['id'], tech)
+        legacy = self.js('workOwnerSection(%s)' % json.dumps(tracking.detail(self.ledger.state_root, 'OLD')))
+        self.assertIn('chưa có mô tả cho chủ', legacy.lower())
+
+    def test_the_list_row_and_the_detail_header_call_the_owner_helpers(self):
+        from onecrew.v2.tracking_web import PAGE
+        row = PAGE[PAGE.index('function row(t)'):PAGE.index('function render(force)')]
+        for helper in ('workTitle(t)', 'workDesc(t)', 'workWaiting(t)', 'workNoOwner(t)'):
+            self.assertIn(helper, row)
+        detail = PAGE[PAGE.index('function renderDetail(d)'):]
+        self.assertIn('workOwnerSection(d)', detail[:4000])
