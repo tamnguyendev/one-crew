@@ -417,6 +417,8 @@ class OwnerTests(Base):
                     'output': ['The sample exists'], 'scope': {'owned': ['a.txt']}, 'non_goals': ['Nothing else'],
                     'items': [{'id': 'I1', 'title': 'Do it', 'tier': 'must', 'milestone': 'M1', 'source': 'origin'}],
                     'origin': {'by': 'owner', 'at': '2026-10-20', 'quote': 'Prove the owner verbs work.'},       # init writes the owner rules, so approve is strict about where a contract comes from
+                    'presentation': {'request': 'Thử các lệnh của chủ trên một dự án mẫu.', 'user_sees': ['Duyệt và bật chặn đều ghi nhận được.'],
+                                     'acceptance_steps': ['Lệnh duyệt báo đã ghi nhận.'], 'not_doing': 'Không đụng dự án thật.'},   # dev11: and the owner part
                     'milestones': [{'id': 'M1', 'title': 'Milestone M1', 'covers': ['O1'], 'verifier': {'type': 'command', 'config': {'argv': [sys.executable, '-c', 'print("ok")']}}}],
                     'budget': {'max_calls': 10, 'time': 30}, 'attention': {'questions': 1}, 'profile_version': None}
         file = self.base / 'contract.json'; file.write_text(json.dumps(contract), encoding='utf-8')
