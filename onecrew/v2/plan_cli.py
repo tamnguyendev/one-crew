@@ -137,6 +137,7 @@ def _dispatch(ledger, args):
             return report.write_out(text, args.out, ledger.state_root) if args.out else text
         if args.command == 'propose': return plans.propose(ledger, args.name, read_json(args.file), args.author, workflow=args.workflow, capabilities=args.capability, reuse_existing=args.reuse_existing, check_form=True)
         if args.command == 'show': return plans.show(ledger, args.name, args.revision)
+        if args.command == 'approve': plans.refuse_owner_view(ledger, args.name, args.revision)      # dev11: approve agrees with lint
         if args.command == 'approve': return plans.approve(ledger, args.name, args.by, args.reference, args.revision, args.tick, args.choose,
                                                          estimate=read_json(args.estimate_file) if args.estimate_file else None)
         if args.command == 'precheck': return step0.precheck(ledger, args.name)
@@ -177,7 +178,7 @@ def _dispatch(ledger, args):
                 chosen = (state['approved'] or {}).get('chosen') if state['approved'] and state['approved']['revision'] == state['latest'] else None
             return step0.brainstorm_table(plans.load(ledger, state)[0], chosen)
         if args.command == 'accept': return plans.accept(ledger, args.name, args.by, args.reference, args.artifact_sha, expected_revision=args.revision)
-        if args.command == 'amend': return plans.amend(ledger, args.name, read_json(args.file), args.reason, args.author)
+        if args.command == 'amend': return plans.amend(ledger, args.name, read_json(args.file), args.reason, args.author, check_form=True)
         plans.require_owner(args.by, 'Changing enforcement')
         return gate.set_enforced(ledger, args.state == 'on', args.by, args.reference)
     if args.command == 'run': return verdict.run(ledger, args.plan, args.milestone, args.cwd)

@@ -89,6 +89,9 @@ def _human_result(parsed, code, output, errors='', *, refused=False):
             print(safe('Chế độ ' + str(value.get('mode')) + ' đã ghi; quyền của plan chưa xuất xong. Đọc lại sổ và xử lý lỗi xuất trước khi tiếp tục.', 1000))
         elif parsed.verb == 'enforce' and 'no mode was changed' in str(detail):
             print('Chưa đổi chế độ: plan chưa đủ điều kiện. Sửa nguyên nhân bên dưới rồi chạy lại.')
+        elif parsed.verb == 'approve' and '[owner_view_' in str(detail):
+            print('Chưa duyệt: phần viết cho người theo dõi (việc này làm gì, xong bạn thấy gì, làm sao biết đạt, không làm gì) chưa có '
+                  'hoặc còn chữ kỹ thuật. AI cần viết lại bằng plan amend rồi bạn duyệt bản mới; lý do bên dưới.')
         elif refused and 'AI tool session' in str(detail):
             print('Chưa ghi nhận: thao tác này cần terminal của chủ sở hữu.')
         elif refused:

@@ -328,17 +328,33 @@ def _anchor(ledger, name, title, then=None):
     return submit(ledger, f'Plan {name}: {title}'[:2000], namespaces.NAMESPACED + name, mode='audit', _then=then)['id']
 
 
-def refuse_form(ledger, raw, author):
+def refuse_form(ledger, raw, author, verb='Propose'):
     """dev11 (dogfood 05/11): the form refusals of `plan lint` (step 0 FORM_CODES: target, evidence, origin, item sources, decisions; and an
     argv control character) are raised at propose, in approve's ' - [code] text' lines, so a contract approve would refuse is never written.
     The same functions lint calls; the approval-only rules (open unknowns, options, preconditions, confidence) stay with approve, and the
     author/criteria notes stay lint's."""
     from . import lint
     reasons = [r for r in lint.lint(lint.ReadOnlyLedger(ledger.project, ledger.state_root), raw, author)
-               if r[0] in lint.FORM_CODES or r[0] == 'argv_control_char']
+               if r[0] in lint.FORM_CODES or r[0] == 'argv_control_char' or r[0] in lint.OWNER_CODES]     # dev11: and the owner part
     if reasons:
-        raise LedgerError(f'Propose refused: plan lint reports {len(reasons)} form reason{"s" if len(reasons) != 1 else ""} that approve would refuse; '
-                          'nothing was written. Fix them and propose again:\n' + '\n'.join(f' - [{code}] {text}' for code, text in reasons))
+        raise LedgerError(f'{verb} refused: plan lint reports {len(reasons)} form reason{"s" if len(reasons) != 1 else ""} that approve would refuse; '
+                          f'nothing was written. Fix them and {verb.lower()} again:\n' + '\n'.join(f' - [{code}] {text}' for code, text in reasons))
+
+
+def refuse_owner_view(ledger, name, revision=None):
+    """dev11: the plan approve command (owner approve runs it) refuses the revision to approve when lint would refuse its owner part, so
+    approve and lint agree. A plan recorded without the part, under a state root with the owner-rules file, needs plan amend first."""
+    from . import lint
+    with ledger.transaction() as conn:
+        state = anchor_events(ledger, conn, name)
+        rev = revision if revision is not None else state['latest']
+        if rev not in state['revisions']: return            # approve itself names a missing revision
+        contract, _ = contracts.read_revision(ledger, state['selector'], rev, state['revisions'][rev]['sha'])
+    reasons = lint.owner_view(ledger, contract)
+    if reasons:
+        raise LedgerError(f'Approve refused: the part of revision {rev} written for whoever follows the work is not ready '
+                          f'({len(reasons)} reason{"s" if len(reasons) != 1 else ""}); write it with plan amend, then approve the new revision:\n'
+                          + '\n'.join(f' - [{code}] {text}' for code, text in reasons))
 
 
 def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_existing=False, check_form=False):
@@ -385,13 +401,14 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_
     return _show(ledger, selector)
 
 
-def amend(ledger, name, raw, reason, author, events=None, keep_content_author=False):
+def amend(ledger, name, raw, reason, author, events=None, keep_content_author=False, check_form=False):
     """A new revision, never an edit. Approval and verdicts belong to a revision, so an amendment needs a new approval.
     `events(revision)` -> [(kind, payload)] are written in the same transaction (step 0: unknown.closed, poc.answered).
     `content_author` is who wrote the text of the revision (step 0 judges evidence by it, C12): the author, except when closing an unknown only
     changes that unknown (keep_content_author), which leaves the text with whoever wrote it before."""
     text_field(reason, 'reason', 200); text_field(author, 'author', 100); refuse_owner_author(author)
     contract = contracts.validate(raw)
+    if check_form: refuse_form(ledger, raw, author, verb='Amend')        # dev11: the plan amend command, as plan propose
     with ledger.transaction(write=True) as conn:
         state = anchor_events(ledger, conn, name)
         if state['status'] in ('accepted', 'closed'): raise LedgerError(f'Plan {name} is {state["status"]}; it cannot be amended.')

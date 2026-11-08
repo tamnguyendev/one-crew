@@ -73,3 +73,68 @@ class OwnerViewRules(Fixture):
             with self.subTest(sample=sample):
                 value = json.loads((REPO / sample).read_text(encoding='utf-8'))
                 self.assertEqual(self.lint(value), [])
+
+
+class CommandRefusals(Fixture):
+    """Part 2: the plan propose, plan amend and plan approve commands (owner approve runs plan approve) refuse what lint reports."""
+    def setUp(self):
+        super().setUp()
+        path = Path(self.ledger.state_root) / 'plans' / 'owner-rules.md'
+        path.parent.mkdir(parents=True, exist_ok=True); path.write_text('# rules\n', encoding='utf-8')
+
+    def contract(self, **presentation):
+        value = plan_json(origin={'by': 'owner', 'at': '2026-11-08', 'quote': 'viết cho người theo dõi đọc được'})
+        value['items'] = [dict(i, source='origin') for i in value['items']]
+        if presentation.get('none') is None: value['presentation'] = dict(PLAIN, **presentation)
+        return value
+
+    def cli(self, *argv):
+        import contextlib, io
+        from onecrew.v2 import cli
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = cli.main(['--project', str(self.root), '--state-root', str(self.ledger.state_root), *argv])
+        return code, out.getvalue()
+
+    def file(self, value, name='c.json'):
+        path = self.root.parent / name; path.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8'); return str(path)
+
+    def test_propose_refuses_a_missing_or_technical_owner_part_and_writes_nothing(self):
+        for value, code in ((self.contract(none=True), 'owner_view_missing'), (self.contract(request='Sửa docs/a.md.'), 'owner_view_technical')):
+            with self.subTest(code=code):
+                rc, text = self.cli('plan', 'propose', 'P1', '--file', self.file(value), '--author', 'claude-opus-5-5')
+                self.assertNotEqual(rc, 0, text)
+                error = json.loads(text)['error']
+                self.assertIn('[' + code + ']', error); self.assertIn('nothing was written', error)
+                with self.ledger.transaction() as conn:
+                    self.assertEqual(0 if conn is None else conn.execute("SELECT count(*) FROM tasks WHERE request_key LIKE '%P1'").fetchone()[0], 0)
+        rc, text = self.cli('plan', 'propose', 'P1', '--file', self.file(self.contract()), '--author', 'claude-opus-5-5')
+        self.assertEqual(rc, 0, text)
+
+    def test_amend_refuses_a_technical_owner_part(self):
+        self.assertEqual(self.cli('plan', 'propose', 'P1', '--file', self.file(self.contract()), '--author', 'claude-opus-5-5')[0], 0)
+        rc, text = self.cli('plan', 'amend', 'P1', '--file', self.file(self.contract(user_sees=['Mốc M1 đạt.']), 'a.json'),
+                            '--reason', 'owner asked', '--author', 'claude-opus-5-5')
+        self.assertNotEqual(rc, 0, text)
+        self.assertIn('[owner_view_technical]', json.loads(text)['error'])
+        self.assertEqual(self.cli('plan', 'show', 'P1')[1].count('"revision": 2'), 0)
+
+    def test_approve_command_refuses_a_plan_whose_owner_part_lint_refuses(self):
+        from onecrew.v2 import plan as plans
+        plans.propose(self.ledger, 'OLD', self.contract(none=True), 'claude-opus-5-5')          # recorded without the part (library, as before)
+        rc, text = self.cli('plan', 'approve', 'OLD', '--by', 'owner', '--reference', 'fixture')
+        self.assertNotEqual(rc, 0, text)
+        error = json.loads(text)['error']
+        self.assertIn('[owner_view_missing]', error); self.assertIn('plan amend', error)
+        self.assertEqual(plans.show(self.ledger, 'OLD')['status'], 'proposed')
+        self.assertEqual(self.cli('plan', 'propose', 'NEW', '--file', self.file(self.contract()), '--author', 'claude-opus-5-5')[0], 0)
+        rc, text = self.cli('plan', 'approve', 'NEW', '--by', 'owner', '--reference', 'fixture')
+        self.assertEqual(rc, 0, text)
+
+    def test_owner_approve_human_says_in_plain_words_why_it_did_not_approve(self):
+        from onecrew.v2 import plan as plans
+        plans.propose(self.ledger, 'OLD', self.contract(none=True), 'claude-opus-5-5')
+        rc, text = self.cli('owner', 'approve', 'OLD', '--reference', 'fixture', '--human')
+        self.assertNotEqual(rc, 0, text)
+        self.assertIn('Chưa duyệt: phần viết cho người theo dõi', text)
+        self.assertNotIn('Đã ghi nhận', text)
