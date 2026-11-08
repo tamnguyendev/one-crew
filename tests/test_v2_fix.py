@@ -331,7 +331,8 @@ class C12Evidence(l3.Step0):
 
     def test_closing_an_unknown_as_the_owner_does_not_turn_the_ais_sentence_into_evidence(self):
         value = l3.step0_json(size='S', unknowns=['U1'], assumptions=[('the base builds', 'trust me, it builds')])
-        self.propose('P1', value)
+        with self.assertRaisesRegex(LedgerError, 'assumption_evidence_invalid'): self.propose('P1', value)      # dev11: refused at propose
+        with patch('onecrew.v2.plan.refuse_form'): self.propose('P1', value)       # a plan recorded before dev11: approve still refuses it
         step0.close_unknown(self.ledger, 'P1', 'U1', 'owner', 'the owner decided this in chat')                  # revision 2, author owner, text still the AI's
         with self.assertRaises(LedgerError) as caught: plans.approve(self.ledger, 'P1', 'owner', 'r')
         self.assertEqual(l3.reasons(caught.exception), ['assumption_evidence_invalid'])

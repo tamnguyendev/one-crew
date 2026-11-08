@@ -59,7 +59,9 @@ class AuditW12aNameTests(unittest.TestCase):
                 self.assertRaises(LedgerError, plans.valid_plan_name, name)
         with self.assertRaises(LedgerError):
             plans.propose(self.f.l1, 'x.', ov.contract('X'), 'claude')
-        plans.propose(self.f.l1, 'x', ov.contract('X'), 'claude')
+        from unittest.mock import patch
+        with patch('onecrew.v2.plan.refuse_form'):    # dev11: this fixture project is no Git repository (target_repo); the name is what is tested
+            plans.propose(self.f.l1, 'x', ov.contract('X'), 'claude')
         self.assertTrue((self.f.state_root / 'plans' / self.f.l1.project_id / 'x' / 'v1.json').exists())
         self.assertEqual(plans.valid_plan_name('x.y'), 'x.y')
 

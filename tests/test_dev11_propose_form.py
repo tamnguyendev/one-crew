@@ -40,6 +40,12 @@ class ProposeFormTests(Fixture):
     def test_an_argv_control_character_is_refused_at_propose(self):
         self.refused_like_lint(plan_json(milestones=[milestone('M1', [PY, '-c', 'print(1)\x07'])]), 'argv_control_char')
 
+    def test_provenance_reasons_of_an_opted_in_contract_are_refused_at_propose(self):
+        self.refused_like_lint(plan_json(decisions=[]), 'origin_missing')                 # an empty new field opts the contract in (C-rules)
+        with self.assertRaises(LedgerError) as caught:
+            plans.propose(self.ledger, 'P1', plan_json(decisions=[]), 'claude-opus-5-5')
+        self.assertEqual(codes(caught.exception), ['origin_missing', 'item_without_source'])
+
     def test_a_clean_contract_still_proposes_and_approval_only_rules_stay_at_approve(self):
         plans.propose(self.ledger, 'P1', plan_json(), 'claude-opus-5-5')
         value = plan_json(); value['understanding']['confidence'] = 'low'      # not a form rule: approve refuses it, propose does not

@@ -72,8 +72,15 @@ class RealRuns(Fixture):
         self.assertEqual(result, 'pass'); self.assertNotIn('suspicious', receipt)
 
     def test_a_control_character_in_argv_is_inconclusive(self):
-        result, receipt = self.run_one([PY, '-c', 'print("ok")', 'x\x07'])
+        # dev11: propose refuses this argv (argv_control_char); the verifier rule still guards a plan written before that check.
+        with patch('onecrew.v2.plan.refuse_form'):
+            result, receipt = self.run_one([PY, '-c', 'print("ok")', 'x\x07'])
         self.assertEqual((result, receipt['suspicious']), ('inconclusive', 'suspicious: control_char_argv'))
+
+    def test_a_control_character_in_argv_is_refused_at_propose(self):
+        from onecrew.ledger import LedgerError
+        with self.assertRaisesRegex(LedgerError, 'argv_control_char'):
+            self.run_one([PY, '-c', 'print("ok")', 'x\x07'])
 
     def test_a_missing_executable_is_inconclusive(self):
         result, receipt = self.run_one(['onecrew-no-such-program-11a'])

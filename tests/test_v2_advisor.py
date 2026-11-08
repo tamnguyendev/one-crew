@@ -85,6 +85,12 @@ class ValidationTests(Fixture):
 
 
 class ApproveGateTests(Fixture):
+    def setUp(self):
+        super().setUp()
+        # dev11: propose refuses these form reasons first (tests/test_dev11_propose_form.py). This class tests approve's own gate, which still
+        # holds for a plan recorded before that check or changed by plan amend, so the plans here are written as before dev11.
+        guard = patch('onecrew.v2.plan.refuse_form'); guard.start(); self.addCleanup(guard.stop)
+
     def advice_event(self, revision=1, usable=True, sha=None):
         with self.ledger.transaction() as conn:
             state = plans.derive(self.ledger, conn, 'P1')
