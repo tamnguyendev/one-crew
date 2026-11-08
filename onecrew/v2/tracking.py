@@ -998,6 +998,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
                     'node': next((nid for nid, r in nodes.items() if r['attempt'] == a['id']), None)} for a in attempts if a['status'] in ('reserved', 'running', 'unknown')]
     item = {'id': row['id'], 'plan': state['name'], 'selector': row['request_key'], 'project': row['project_path'], 'project_id': row['project_id'],
             'goal': _goal(contract, payload), 'title': clean(payload.get('title'), 200), 'contract_revision': state['latest'],
+            'headline': clean((contract or {}).get('title'), 200),     # mep6: the owner's line for the card; the AI's restated goal stays in 'goal'
             'created_at': row['created_at'], 'started_at': first_started, 'has_started': has_started, 'deadline': None,
             'node_titles': {n['id']: clean(n.get('goal'), 200) for n in ((engine_view or {}).get('definition') or {}).get('nodes', [])},
             'root_status': state['status'],

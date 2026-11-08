@@ -923,7 +923,7 @@ function visible(){var cur=$('#proj').value,kind=$('#kind').value,q=($('#q').val
 function row(t){var sel=sameSel(selected,{plan:t.selector,project:t.project_id}),lastv=!sel&&sameSel(lastViewed,{plan:t.selector,project:t.project_id});
   return '<li class="task'+(lastv?' last':'')+'" role="option" tabindex="0" aria-selected="'+sel+'" data-plan="'+esc(t.selector)+'" data-project="'+esc(t.project_id)+'" data-k="task:'+esc(t.project_id)+':'+esc(t.selector)+'">'
    +'<div class="r1"><span class="name">'+esc(t.plan)+'</span><span class="ttl">'+esc(workTitle(t))+'</span>'+workBadge(t)+((t.needs_user||[]).length?'<span class="needb">'+t.needs_user.length+' quyết định cần bạn</span>':'')+'</div>'
-   +'<div class="r2"><span>'+esc((t.status||{}).kind==='blocked'?(t.current_step||t.status.reason):((t.needs_user||[]).length?'Mở thẻ để xem nội dung cần quyết định':'Không có yêu cầu dành cho bạn'))+'</span>'+(t.last_update?'<span class="mut">Cập nhật '+rel(t.last_update.at)+'</span>':'')+'</div>'
+   +'<div class="r2"><span>'+esc((t.status||{}).kind==='blocked'?(t.current_step||t.status.reason):((t.needs_user||[]).length?'Mở thẻ để xem nội dung cần quyết định':(workStage(t)==='doing'&&nextMilestone(t)?'Mốc tiếp theo: '+nextMilestone(t):'Không có yêu cầu dành cho bạn')))+'</span>'+(t.last_update?'<span class="mut">Cập nhật '+rel(t.last_update.at)+'</span>':'')+'</div>'
    +'<div class="r3" title="'+esc(t.project)+'">'+esc(short(t.project))+(t.deadline?' · Hạn '+esc(when(t.deadline)):'')+'</div></li>'}
 function render(force){
   if(!last)return;var ps=$('#proj'),cur=ps.value,opts='<option value="">tất cả</option>';
@@ -996,6 +996,7 @@ function renderDetail(d){
   h.push('<div class="small mut">Đang xem task <b>'+esc(d.plan)+'</b> của project <span title="'+esc(d.project)+'">'+esc(short(d.project))+'</span> · <a href="'+esc(urlOf({plan:d.selector,project:d.project_id}))+'">liên kết tới task này</a></div>');
   var needs=d.needs_user||[],nq=needs.filter(function(n){return n.kind==='request'}).length,nother=needs.length-nq;
   h.push('<div class="dsum"><span class="step">'+esc(workStatus(d))+'</span>'+(needs.length?'<a href="#needs" class="small">'+(nq?nq+' câu hỏi chờ bạn':'')+(nq&&nother?' · ':'')+(nother?nother+' việc cần bạn':'')+'</a>':'<span class="small mut">không cần bạn lúc này</span>')+'</div>');
+  if(workStage(d)==='doing'&&nextMilestone(d))h.push('<p class="small" data-k="dnext" style="margin:6px 0">Mốc tiếp theo: <b>'+esc(nextMilestone(d))+'</b></p>');   // mep6
   if(d.goal&&!d.work)h.push('<p style="margin:6px 0">'+esc(d.goal)+'</p>');
   var done=d.status.kind==='done';
   var nowKeys={};needs.forEach(function(n){nowKeys[needKey(n)]=n});

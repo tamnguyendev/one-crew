@@ -64,8 +64,12 @@ function workStatus(t){var needs=t.needs_user||[],s=t.status||{},n=t.nodes_summa
   if(stage==='accept')return 'Đã kiểm đạt · chờ nghiệm thu';
   if(stage==='done')return 'Đã nghiệm thu';if(stage==='closed')return 'Đã đóng · không phải nghiệm thu';
   if(stage==='todo')return 'Chưa khởi chạy';if(stage==='doing'&&t.has_started&&!(t.milestones||[]).length)return 'Chờ bước tiếp theo';   // a milestone root says which milestone (its sourced step below)
+  var ms=t.milestones||[];                                   // mep6: a milestone root in progress, no failed check: the count, in the owner's words (the full reason stays in status.reason)
+  var left=ms.filter(function(m){return m.state!=='passed'}).map(function(m){return m.id});
+  if(stage==='doing'&&left.length&&!ms.some(function(m){return m.state==='failed'}))return 'Đang làm · đạt '+(ms.length-left.length)+'/'+ms.length+' mốc · chờ kiểm '+left.join(', ');
   return t.current_step||s.reason||'Chưa xác định tiến độ'}
-function workTitle(t){return t.goal||t.title||t.plan||'Công việc chưa có tên'}
+function workTitle(t){return t.headline||t.goal||t.title||t.plan||'Công việc chưa có tên'}   // mep6: the contract's title first; the AI's restated goal is the detail
+function nextMilestone(t){var m=(t.milestones||[]).find(function(m){return m.state!=='passed'});return m?m.id+(m.title?' — '+m.title:''):''}   // mep6: shown on the card and in the detail
 function workBadge(t){var s=t.status||{};return '<span class="st '+esc(s.kind||'unknown')+'">'+esc(workStatus(t))+'</span>'}
 function workOrder(rows,mode){function time(x){var n=Date.parse(x||'');return Number.isFinite(n)?n:null}function attention(t){return (t.needs_user||[]).length?0:(t.status||{}).kind==='blocked'?1:(t.status||{}).kind==='running'?2:3}
   return rows.slice().sort(function(a,b){var x,y;if(mode==='attention'){x=attention(a)-attention(b);if(x)return x;mode='attention'}
