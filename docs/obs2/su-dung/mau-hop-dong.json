@@ -3,6 +3,7 @@
   "title": "Bài đầu tiên: thêm file docs/xin-chao.md",
   "size": "S",
   "origin": {"by": "owner", "at": "<ngày giờ bạn giao việc>", "quote": "<lời bạn giao việc, nguyên văn>"},
+  "presentation": {"request": "Thêm một trang chào ngắn để thử OneCrew lần đầu.", "user_sees": ["Trong thư mục tài liệu có một trang mới, chỉ một câu chào."], "acceptance_steps": ["Mở trang chào mới và đọc thấy đúng câu chào.", "Bộ kiểm tự động báo đạt."], "not_doing": "Không sửa trang hay tài liệu nào khác."},
   "understanding": {
     "restated_goal": "Tạo file docs/xin-chao.md, nội dung đúng một dòng: Xin chao OneCrew. Không sửa file nào khác.",
     "target": {"repo": ".", "ref": "HEAD", "paths": ["docs"]},

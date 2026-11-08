@@ -70,9 +70,10 @@ class LintTests(Fixture):
         rules = Path(self.ledger.state_root) / 'plans' / 'owner-rules.md'
         rules.parent.mkdir(parents=True); rules.write_text('# rules\n', encoding='utf-8')
         reasons = self.lint(plan_json())
-        self.assertEqual(codes(reasons), ['origin_missing', 'item_without_source'])
+        self.assertEqual(codes(reasons), ['origin_missing', 'item_without_source', 'owner_view_missing'])     # dev11: and the owner part
         origin = {'by': 'owner', 'at': '2026-10-19', 'quote': 'Do the sample.'}
-        sourced = plan_json(origin=origin, items=[dict(i, source='origin') for i in plan_json()['items']])
+        from tests.test_dev11_owner_view import PLAIN
+        sourced = plan_json(origin=origin, items=[dict(i, source='origin') for i in plan_json()['items']], presentation=dict(PLAIN))
         self.assertEqual(self.lint(sourced), [])
         bad = copy.deepcopy(sourced); bad['items'][0]['source'] = 'D2'
         bad['decisions'] = [{'id': 'D1', 'choice': 'a', 'alternative': 'b', 'cost': 'c'}]

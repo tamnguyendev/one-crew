@@ -83,7 +83,59 @@ def lint(ledger, raw, author=None):
         return reasons + [(code, str(error))]
     verdict = step0.evaluate(ledger, 'lint', 0, content_hash(contract), contract, {}, choose=contract['options']['recommended'] if contract['options'] else None,
                              run=False, author=author)
-    return reasons + [r for r in verdict['reasons'] if r[0] in FORM_CODES]
+    return reasons + [r for r in verdict['reasons'] if r[0] in FORM_CODES] + owner_view(ledger, contract)
+
+
+# ---- dev11: the owner part of a contract ---------------------------------------------------------------------------------------------
+# presentation.request / user_sees / acceptance_steps / not_doing: the four sentences the tracking page shows whoever follows the work.
+# Required once the owner-rules file exists in the state root (the owner's own setup, as for the provenance rules); plain words whenever given.
+OWNER_PARTS = (('request', 'Việc này làm gì'), ('user_sees', 'Xong bạn thấy gì'), ('acceptance_steps', 'Làm sao biết đạt'), ('not_doing', 'Không làm gì'))
+OWNER_CODES = ('owner_view_missing', 'owner_view_technical')
+_A = r'A-Za-z0-9_'
+TECHNICAL = (
+    ('đường dẫn', re.compile(r'(?<![\w])[A-Za-z]:\\[^\s,;]*|\\\\[^\s,;]+')),
+    ('tên file hoặc đường dẫn', re.compile(rf'(?<![\w/])[{_A}.-]*[A-Za-z_][{_A}.-]*/[{_A}./-]*|(?<![\w/])[{_A}.-]+/[{_A}.-]*[A-Za-z_][{_A}./-]*')),
+    ('tên file', re.compile(r'(?<![\w.])[\w-]+\.(?:py|json|md|ps1|psm1|txt|js|ts|tsx|html?|css|ya?ml|toml|ini|cfg|sqlite3?|db|whl|exe|dll|sh|bat|cmd|cs|java|kt|xml|csv|log|apk|zip|lock)\b', re.I)),
+    ('cờ lệnh', re.compile(r'(?<![\w-])--?[A-Za-z][\w-]*')),
+    ('mã lỗi', re.compile(r'\b(?:Errno|errno|exit code|exit status|Traceback|Exception|WinError)\b(?:\s*\d+)?|\b0x[0-9A-Fa-f]+\b|\b[A-Z]{2,}-[0-9A-Fa-f]{4,}\b')),
+    ('mã nội bộ', re.compile(r'\b[A-Z]{1,3}\d+[a-z]?\b|\brev(?:ision)?\s*\d+\b|\bv\d+(?:\.\d+)+\b')),
+    ('mã băm', re.compile(r'\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,64}\b')),
+    ('mã lệnh', re.compile(r'`[^`]+`')),
+)
+
+
+def _owner_texts(shown, key):
+    value = shown.get(key)
+    if isinstance(value, str): return [value] if value.strip() else []
+    if isinstance(value, list): return [v for v in value if isinstance(v, str) and v.strip()]
+    return []
+
+
+def technical_word(text):
+    """(kind, word) of the first technical token in an owner sentence, else None."""
+    for kind, pattern in TECHNICAL:
+        found = pattern.search(text)
+        if found: return kind, found.group(0).strip()
+    return None
+
+
+def owner_view(ledger, contract):
+    """[(code, text)] for the owner part: missing parts (only once the owner-rules file exists), and technical words (whenever present)."""
+    shown = contract.get('presentation') or {}
+    reasons = []
+    missing = [label for key, label in OWNER_PARTS if not _owner_texts(shown, key)]
+    if missing and step0.rules_path(ledger).exists():
+        reasons.append(('owner_view_missing', 'Hợp đồng thiếu phần viết cho người theo dõi: ' + ', '.join(f'"{m}"' for m in missing)
+                        + '. Mỗi phần là một hai câu lời thường, tiếng Việt, không tên file hay mã lệnh (presentation.request, user_sees, '
+                          'acceptance_steps, not_doing). Trang theo dõi dùng đúng các câu này làm tiêu đề và mô tả của thẻ.'))
+    for key, label in OWNER_PARTS:
+        for text in _owner_texts(shown, key):
+            hit = technical_word(text)
+            if hit:
+                reasons.append(('owner_view_technical', f'Phần "{label}" có {hit[0]} «{hit[1][:60]}»: người theo dõi không đọc được chữ này. '
+                                                        'Viết lại bằng lời thường (nói việc và kết quả, không nêu tên file, đường dẫn, cờ lệnh, mã lỗi hay mã nội bộ).'))
+                break
+    return reasons
 
 
 QUOTED = (re.compile(r"'([^'\n]{4,}?)'"), re.compile(r'"([^"\n]{4,}?)"'), re.compile(r'`([^`\n]{4,}?)`'))
