@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v2.5.0.dev11 (08/11/2026) — gộp dòng Sol6.4 vào dòng UI dev10; khép 4 lỗi dùng thật — LOCAL, chưa tag/push/phát hành
+
+- **Gộp:** `claude/sol6-close-s5` (`9df359a`, beta giám sát Sol6.4, đã chứa `claude/review-cycle2` `9933bbf`) vào `main` (`f1205bc`). Xung đột duy nhất: `docs/proposal-coverage.md`. Code sau gộp trùng `9df359a`.
+- **Không gộp:** `claude/mrr-r3` (nền 2.4, va chạm ngữ nghĩa với cách ly đọc của Sol6: hai bên cùng đặt `GIT_OBJECT_DIRECTORY`); `claude/hotfix-verifier-inputs` (chờ phiên MEP).
+- **Đã khép:**
+  - `owner enforce --human` báo "chưa xác nhận" + exit 1 dù đã bật chặn: đã sửa trong dòng Sol, test đỏ trên `main`, xanh sau gộp;
+  - `test_a_r13` giữ node khi hai cửa chạy đua: nguyên nhân là ghi lại manifest snapshot định danh theo nội dung trong lúc luồng kia đang đọc (Windows từ chối thay file đang mở); `Snapshots.save` không ghi lại manifest đã đúng byte;
+  - stdout/stderr của verifier lệnh mở được qua `track evidence` và trang theo dõi; plan không `--workflow` nói rõ không có sổ finding;
+  - `plan propose` từ chối trước khi ghi các lý do hình thức mà `plan lint` báo và `owner approve` sẽ từ chối.
+- **Chưa kiểm:** provider thật, hook phiên thật, repo cỡ MEP. Xem bàn giao trong gói `D:/OneCrewRuns/v25/pkg`.
+
 ## v2.5.0.dev10 (05/11/2026) — beta UI OBS-2 (prerelease)
 
 **Bản prerelease beta của giao diện theo dõi OBS-2, không phải bản ổn định 2.5 và không phải toàn bộ lộ trình 2.5** (MR-R, 2.5-A/B, RD-A, CP-1 không có). Tag `v2.5.0.dev10` → snapshot `c4951f6`; wheel SHA256 `57445419e7c616f8e7c9f00039c7ac1b8ccc384c4cf464a27e3bc04b9d6879a1`. Codex đã review dev10, không phát hiện blocker mới trong phạm vi bản vá. Chưa nghiệm thu.
