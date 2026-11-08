@@ -328,12 +328,26 @@ def _anchor(ledger, name, title, then=None):
     return submit(ledger, f'Plan {name}: {title}'[:2000], namespaces.NAMESPACED + name, mode='audit', _then=then)['id']
 
 
+def refuse_form(ledger, raw, author):
+    """dev11 (dogfood 05/11): the form refusals of `plan lint` (step 0 FORM_CODES: target, evidence, origin, item sources, decisions; and an
+    argv control character) are raised at propose, in approve's ' - [code] text' lines, so a contract approve would refuse is never written.
+    The same functions lint calls; the approval-only rules (open unknowns, options, preconditions, confidence) stay with approve, and the
+    author/criteria notes stay lint's."""
+    from . import lint
+    reasons = [r for r in lint.lint(lint.ReadOnlyLedger(ledger.project, ledger.state_root), raw, author)
+               if r[0] in lint.FORM_CODES or r[0] == 'argv_control_char']
+    if reasons:
+        raise LedgerError(f'Propose refused: plan lint reports {len(reasons)} form reason{"s" if len(reasons) != 1 else ""} that approve would refuse; '
+                          'nothing was written. Fix them and propose again:\n' + '\n'.join(f' - [{code}] {text}' for code, text in reasons))
+
+
 def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_existing=False):
     valid_plan_name(name)                       # W12a: reject ':', path chars, drive form, absolute — before any write
     key_field(name); key_field(ANCHOR + name)
     metadata = namespaces.workflow_metadata(workflow, capabilities)
     text_field(author, 'author', 100); refuse_owner_author(author)
     contract = contracts.validate(raw)
+    refuse_form(ledger, raw, author)            # dev11: what lint reports as a form refusal (and approve would refuse) stops here, before any write
     if reuse_existing:
         # Re-entry only: never amend, upgrade capabilities, approve or revive an
         # old plan. The execution gates still check its current grant/deadline.
