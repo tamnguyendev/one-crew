@@ -118,6 +118,8 @@ class PowerShellTemplate(EngineFixture):
     def test_hostile_path_survives_powershell_and_the_answer_is_recorded(self):
         from tests.obs1_ux_fixture import make_root
         hostile = Path(self.temp.name) / "demo$SDK 'q' (a)&b`t"; hostile.mkdir(); (hostile / 'a.txt').write_text('base\n')
+        for args in (('init', '-q'), ('config', 'user.name', 'T'), ('config', 'user.email', 't@localhost'), ('add', '.'), ('commit', '-q', '-m', 'base')):
+            subprocess.run(['git', '-C', str(hostile), *args], check=True, capture_output=True)   # dev11: propose checks the target is a repository
         other = Ledger(hostile, self.ledger.state_root)
         make_root(self, 'PS', 'đường dẫn đặc biệt', ledger=other)
         with other.transaction() as conn:
