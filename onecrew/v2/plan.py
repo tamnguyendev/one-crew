@@ -617,7 +617,10 @@ def accept(ledger, name, by, reference, artifact_sha, *, expected_revision=None)
             if elsewhere:
                 raise LedgerError(f'Cannot accept artifact {artifact_sha}: every milestone must have passed on exactly that artifact; '
                                    + '; '.join(f'{v["id"]}: ' + ', '.join(v.get('stale_reasons') or ['artifact changed']) for v in elsewhere)
-                                   + '. Inspect plan show and re-run only the named stale milestones in their execution environment.')
+                                   + '. Inspect plan show and re-run only the named stale milestones in their execution environment.'
+                                   + (f' The milestones declare inputs: a receipt\'s artifact_sha holds only its own milestone\'s inputs; take the sha from '
+                                      f'`verdict artifact --plan {name}` (one tree holding every milestone\'s inputs).'
+                                      if any(contracts.verifier_inputs(m) for m in contract['milestones']) else ''))
             if namespaces.has_capability(state, 'finding-register'):
                 from .findings import list_findings
                 open_findings = list_findings(ledger, name, task_id=state['task_id'], open_only=True)

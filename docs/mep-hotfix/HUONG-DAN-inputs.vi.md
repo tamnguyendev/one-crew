@@ -95,6 +95,24 @@ Cả hai điểm áp dụng cho đường cũ lẫn đường `inputs`.
 - Tệp được miễn vẫn là input: đổi nó thì bằng chứng cũ hết hiệu lực.
 - Chỉ miễn tệp mà lệnh **không đi theo đường dẫn trong đó**: văn bản, ghi chép, tệp chỉ kiểm tồn tại. Miễn một tệp cấu hình mà lệnh đọc đường dẫn từ đó sẽ mở lại đường đạt giả của mep1.
 
+## Thêm từ mep5: nghiệm thu plan nhiều mốc khai `inputs`
+
+**Vì sao cần.** Một plan bản 4 trên một dự án dùng thử có M1, M2, M3 đều đạt, mỗi mốc khai `inputs` riêng. Hai điều sau gặp nhau:
+- `artifact_sha` trong receipt chỉ là cây input của **riêng mốc đó**.
+- `owner accept` xét **mọi** mốc trong một cây duy nhất.
+
+Vì vậy, nghiệm thu bằng sha của receipt M3 bị từ chối với lý do «M1: a declared input changed», dù không có gì đổi. `verdict artifact` lúc đó chụp toàn cây, mà trên repo MEP toàn cây cỡ hàng chục GB.
+
+**Thay đổi:**
+- `verdict artifact --plan <tên>`: khi **mọi** mốc của bản mới nhất là lệnh có khai `inputs` (repo Git, không phải workflow root), lệnh trả cây của **hợp** các inputs. Hàm dùng để lập cây là `scoped_tree`, cùng hàm `verdict run` dùng. Kết quả có thêm `"scope": "inputs"` và danh sách `inputs`.
+  - Chỉ cần một mốc không khai, hoặc không phải mốc lệnh, là lệnh chụp toàn cây như trước.
+- Lời từ chối của `owner accept` thêm câu chỉ sang `verdict artifact --plan <tên>` khi plan có mốc khai `inputs`.
+
+**Không đổi:**
+- Một input của bất kỳ mốc nào đổi thì `owner accept` vẫn từ chối mốc đó.
+- Tệp ngoài mọi input đổi thì cây hợp không đổi.
+- Cây hợp vẫn ghi object vào `.git`, nhưng chỉ cho các input.
+
 ## Giới hạn phải biết
 
 - **Khai thiếu là trách nhiệm của người viết hợp đồng.** Lệnh đọc file không khai qua đường tương đối sẽ không thấy file, nên thường báo lỗi.
@@ -104,7 +122,7 @@ Cả hai điểm áp dụng cho đường cũ lẫn đường `inputs`.
 - **Đường dẫn tuyệt đối ra ngoài repo** (ví dụ `<thư mục làm việc ngoài repo>`) không bị từ chối, và không nằm trong bằng chứng. Ở đường cũ cũng vậy. Bằng chứng không hết hiệu lực khi các tệp đó đổi.
 - **Chương trình:** chỉ băm đúng file được khởi động, không băm thư viện nó nạp. Thứ gì trong repo thì khai vào `inputs`.
 - **Dữ liệu ngoài input đổi không làm bằng chứng cũ hết hiệu lực,** đó chính là mục đích. Chỉ dùng khi chắc lệnh không phụ thuộc phần đó.
-- **Nghiệm thu:** `--artifact-sha` nhận một cây hoặc commit chứa đúng các input đã kiểm, không cần chụp toàn cây. `verdict artifact` vẫn chụp toàn cây và ghi object; trên repo lớn hãy truyền commit thay vì gọi lệnh này.
+- **Nghiệm thu:** `--artifact-sha` phải là một cây chứa input của **mọi** mốc, đúng như lúc kiểm; `artifact_sha` của một receipt chỉ đủ khi plan có một mốc. Từ mep5, `verdict artifact` trả đúng cây đó khi mọi mốc khai `inputs`; plan trộn thì lệnh vẫn chụp toàn cây.
 - **Plan trộn** mốc có và không có `inputs`: mốc không khai vẫn chụp toàn cây, và lúc xem trạng thái vẫn phải đi cả cây.
 - **Tiến trình bị giết cứng:**
   - Thư mục tạm có dấu chủ được dọn ở lần `verdict run` sau.

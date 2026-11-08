@@ -1,6 +1,6 @@
 [project]
 name = "onecrew"
-version = "2.5.0.dev10+sol6.4.mep4"
+version = "2.5.0.dev10+sol6.4.mep5"
 description = "OneCrew v2: an AI work contract (approved plan, independent verdicts, human acceptance)"
 requires-python = ">=3.10"
 dependencies = []

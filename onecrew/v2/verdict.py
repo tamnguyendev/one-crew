@@ -342,11 +342,28 @@ def diff(ledger, name, milestone_id):
 
 
 def artifact(ledger, name):
-    """The artifact sha of the project now (what a verdict run now would observe, and what `owner accept --artifact-sha` takes)."""
+    """The artifact sha of the project now (what a verdict run now would observe, and what `owner accept --artifact-sha` takes).
+    mep5: when every milestone of the latest revision is a command with declared inputs, a receipt's artifact_sha holds only its own milestone's inputs and
+    accept judges every milestone inside ONE tree; the answer is then the tree of the union of the inputs (the same scoped_tree a run makes), never the
+    whole working tree (tens of GB on a large repository). Any other milestone: the whole tree, as before."""
     with ledger.transaction() as conn:
-        plans.anchor_events(ledger, conn, name)
+        state = plans.anchor_events(ledger, conn, name)
+        union = inputs_union(ledger, state)
+    if union:
+        return {'artifact_sha': command.scoped_tree(ledger.project, union), 'scope': 'inputs', 'inputs': union}
     with command.snapshot_limits():
         return {'artifact_sha': artifacts.identity(ledger.project)}
+
+
+def inputs_union(ledger, state):
+    """The sorted union of the declared inputs when every milestone of the latest revision is a command verifier that declares them, the project is a Git
+    repository and the plan is not a workflow root (those judge the whole artifact); else None."""
+    if not artifacts.is_git(ledger.project): return None
+    if namespaces.has_capability(state, 'sequential-engine') or state.get('workflow_version'): return None
+    contract, _ = plans.load(ledger, state, state['latest'])
+    milestones = contract['milestones']
+    if not milestones or any(m['verifier']['type'] != 'command' or not contracts.verifier_inputs(m) for m in milestones): return None
+    return sorted({i for m in milestones for i in contracts.verifier_inputs(m)})
 
 
 def run(ledger, name, milestone_id, directory=None):
