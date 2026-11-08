@@ -8,6 +8,7 @@ import copy
 import json
 import re
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -78,6 +79,7 @@ def state(ledger, selector, conn=None):
             record['state'] = 'accepted'
         elif event['kind'] == 'node.held':
             record.update(phase='held', reason=payload['reason'], classification=payload.get('classification'))
+            record.update({k: payload[k] for k in ('trigger', 'cleanup', 'process_receipt', 'recovery_action', 'exit_code', 'stderr', 'cause') if k in payload})
             if payload.get('candidate'): record['retained_candidate'] = payload['candidate']
         elif event['kind'] == 'node.resumed':
             fresh = _fresh([next(item for item in definition['nodes'] if item['id'] == nid)])[nid]
@@ -109,10 +111,14 @@ def state(ledger, selector, conn=None):
             'internal_revision': internal_revision, 'definition': definition, 'nodes': records, 'inflight': inflight,
             'active_nodes':active_nodes,'capabilities':list(root.get('capabilities',())),
             'unknown_blockers': runtime_unknowns.blockers(ledger, root['selector'], conn),
-            'finding_blockers': finding_scope.blockers(ledger, root['selector'], definition['nodes'] if definition else [], conn),
+            **_finding_view(finding_scope.holds(ledger, root['selector'], definition['nodes'] if definition else [], conn)),
             'request_blockers': finding_scope.request_blockers(ledger, root['selector'], definition['nodes'] if definition else [], conn),
             'failed_blockers':failed_blockers,
             **({'tool_claims': _open_claims(conn, root['task_id'], records)} if 'execution-mode' in root.get('capabilities', ()) else {})}
+
+
+def _finding_view(holds):
+    return {'finding_blockers': holds['blockers'], 'finding_covered': holds['covered']}
 
 
 def _open_claims(conn, task_id, records):
@@ -672,7 +678,9 @@ def _wait(ledger, view, nid, mode, swept):
     from . import execution_mode
     mode = mode or execution_mode.idle(view)
     _record_mode(ledger, view, nid, mode)
-    return {**({'node': nid} if nid else {}), 'state': 'waiting', 'internal_revision': view['internal_revision'], 'mode': mode['mode'],
+    from . import review_dispatch
+    return {**({'node': nid} if nid else {}), **(review_dispatch.held_note(ledger, view['selector'], nid) if nid else {}),
+            'state': 'waiting', 'internal_revision': view['internal_revision'], 'mode': mode['mode'],
             'reasons': mode['reasons'], **({'recommendation': mode['recommendation']} if mode.get('recommendation') else {}),
             **({'reconciled': swept} if swept else {})}
 
@@ -735,10 +743,12 @@ def _tool_choices(ledger, view, checker, target=None, contract=None):
     from . import execution_mode
     with ledger.transaction() as conn:
         if contract is None: contract = ip.context(ledger, conn, view['selector'], 'sequential-engine')[1]
-        errors = {}
-        for row in conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='workflow.mode' AND json_extract(payload,'$.phase')='released' "
-                                "AND json_extract(payload,'$.result')='error'", (view['root'],)):
+        from . import review_dispatch
+        errors, closed = {}, review_dispatch.released_seq(conn, view['root'])
+        for row in conn.execute("SELECT seq,payload FROM events WHERE task_id=? AND kind='workflow.mode' AND json_extract(payload,'$.phase')='released' "
+                                "AND json_extract(payload,'$.result') IN ('error','held')", (view['root'],)):     # 2.5-B: a held check is not tried again by itself
             payload = json.loads(row['payload'])
+            if row['seq'] <= closed.get(payload['node'], 0): continue      # a recorded release decided it may run again
             key = (payload['node'], payload['generation'], (payload.get('inputs') or {}).get('artifact'))
             errors[key] = errors.get(key, 0) + 1
     runnable, waiting = [], []
@@ -807,10 +817,15 @@ def _tools(ledger, root, contract, view, checker, target):
             waiting.insert(0, (nid, execution_mode.rewrite(decision, 'wait', why)))
             continue
         try:
-            body = verify(ledger, root['selector'], nid, checker)
+            body = verify(ledger, root['selector'], nid, checker, door='engine.step-checks')
         except Exception as error:                     # review C-R09: a checker failure is a released try, never a lost batch
             _release_tools(ledger, view, nid, decision, claim, 'error', error)
-            return {'node': nid, 'state': 'waiting', 'mode': 'tools', 'reason': str(error)[:500]}, None
+            from . import review_dispatch
+            return {'node': nid, 'state': 'waiting', 'mode': 'tools', 'reason': str(error)[:500], **review_dispatch.held_note(ledger, root['selector'], nid)}, None
+        if body.get('status') in ('pending', 'held', 'late'):                   # another run of the same request owns the outcome (2.5-B): the next node goes on
+            _release_tools(ledger, view, nid, decision, claim, body['status'])
+            waiting.insert(0, (nid, execution_mode.rewrite(decision, 'wait', [str(body.get('reason') or body['status'])[:300]])))
+            continue
         _release_tools(ledger, view, nid, decision, claim, body['result'])
         return {'node': nid, 'state': 'verified' if body['result'] == 'pass' else 'produced', 'mode': 'tools', 'verification': body['result']}, None
     return None, (waiting[0] if waiting else None)
@@ -838,7 +853,7 @@ def _session(ledger, control, executor, receipt_body, observed, item):
     return {'session': execution_mode.session(declaration, launched, returned, previous=previous, pin=pin, role=pin.get('role', 'worker'))}
 
 
-def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _swept=False, checker=None, _peer=None):
+def _step(ledger, selector, executor, *, control=None, slots=1, _target=None, _swept=False, checker=None, _peer=None):
     from . import answer_effects
     answer_effects.reconcile(ledger, selector)
     control = control or getattr(executor, 'control', None)
@@ -868,7 +883,10 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
             if tool_wait: return _wait(ledger, view, tool_wait[0], tool_wait[1], swept)
             if _target is not None: return {'node': _target, 'state': 'waiting', 'internal_revision': view['internal_revision']}
             return _wait(ledger, view, None, None, swept)
-    if not choices: return {'state': 'waiting', 'internal_revision': view['internal_revision'], **({'reconciled': swept} if swept else {})}
+    if not choices:
+        action = next_action(ledger, selector)
+        return {'state': action['state'], 'reason': action['reason'], 'next_action': action,
+                'internal_revision': view['internal_revision'], **({'reconciled': swept} if swept else {})}
     if view['definition_contract_sha'] != sha:
         raise LedgerError('Revise the internal plan against the current approved contract before dispatch.')
     if _target is not None:
@@ -990,6 +1008,35 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
             return {'node': nid, 'state': 'held' if progress_status == 'blocked' else 'waiting', 'progress': progress_status}
     except Exception as error:
         observed = control.attempt(attempt['id'])
+        failure = {'classification': 'unknown'}
+        process_result = _row_json(observed, 'result')
+        if observed['status'] == 'settled' and process_result.get('tree_stopped') is True:
+            # Known Supervisor outcomes must reach the controller with their
+            # actual cleanup proof. An exception alone still remains unknown.
+            with ledger.transaction() as conn:
+                trigger = _trigger(ledger, conn, observed)
+            kind = _classify(process_result, trigger)
+            if kind != 'result_unknown':
+                failure = {'classification': 'executor_' + kind,
+                           'process_receipt': Snapshots(ledger.state_root).blob(canonical(process_result).encode()),
+                           'cleanup': 'confirmed', **({'trigger': trigger} if trigger else {})}
+                if process_result.get('reason') in ('timeout', 'deadline'):
+                    # A child's finite window may expire while the shared root
+                    # still has time. That is not an exhausted root grant.
+                    with ledger.transaction() as conn:
+                        room = ip.ceilings(ledger, conn, root)
+                    root_expired = room['remaining_seconds'] <= 0
+                    failure['recovery_action'] = 'owner_decision' if root_expired else 'revise_node'
+                    failure['cause'] = (f'Node {nid} reached its execution window ({process_result["reason"]}; '
+                                        f'node cap {item["execution_cap_seconds"]} s). Supervisor confirmed the process tree stopped.')
+                    failure['reason'] = failure['cause'] + ' ' + ('The root deadline is exhausted.' if root_expired else
+                           'Review the retained evidence, then use engine revise to adjust the node within the remaining root grant; no automatic retry.')
+                elif kind == 'failed':
+                    failure['recovery_action'] = 'revise_node'
+                    failure['cause'] = f'Worker exited with code {process_result.get("exit_code")}; Supervisor confirmed cleanup.'
+                    failure['reason'] = failure['cause'] + ' Read the retained process receipt and stderr, correct the cause, then engine revise within the grant; no automatic retry.'
+                    failure['exit_code'] = process_result.get('exit_code')
+                    failure['stderr'] = process_result.get('stderr')
         lost = False
         if observed['status'] != 'settled':
             control.unknown(attempt['id'], str(error)[:1000])
@@ -1002,10 +1049,10 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
         with ledger.transaction(write=True) as conn:
             current = state(ledger, root['selector'], conn)
             if _publication_current(current, view, nid) and not lost:
-                _event(ledger, conn, current, nid, 'node.held', reason=str(error)[:1000], classification='unknown')
+                _event(ledger, conn, current, nid, 'node.held', **dict({'reason': str(error)[:1000]}, **failure))
             else:
                 _retain(ledger, conn, view, nid, str(error)[:1000], attempt=attempt['id'])
-        return {'node': nid, 'state': 'retained' if lost else 'held', 'reason': str(error)}
+        return {'node': nid, 'state': 'retained' if lost else 'held', 'reason': failure.get('reason', str(error))}
     with ledger.transaction(write=True) as conn:
         current = state(ledger, root['selector'], conn)
         mine = current['nodes'].get(nid) or {}
@@ -1024,6 +1071,325 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
                **(_session(ledger, control, executor, receipt_body, observed, item) if mode else {}))
     _forecast(ledger, state(ledger, root['selector']), f'node-{nid}-g{view["nodes"][nid]["generation"]}-produced', 'Node produced an artifact; verification remains separate')
     return {'node': nid, 'state': 'produced', **produced}
+
+
+def _operator_command(ledger, *args):
+    """A pinned argv, never an automatically executed operator instruction."""
+    exe = Path(sys.executable).parent / ('onecrew.exe' if sys.platform == 'win32' else 'onecrew')
+    if exe.is_file(): prefix = [str(exe)]
+    else:
+        code = 'import sys;sys.path.insert(0,' + repr(str(Path(__file__).resolve().parents[2])) + ');from onecrew.console import main;raise SystemExit(main())'
+        prefix = [sys.executable, '-I', '-X', 'utf8', '-c', code]
+    return prefix + ['--project', str(ledger.project), '--state-root', str(ledger.state_root), *args]
+
+
+def finding_gate(view):
+    """The finding holds that stop delivery: a milestone finding whose prepared repair is under way does not, on a node that repair leaves as it is. It stays
+    open (a verdict on the delivered tree closes it) and the node still takes no new work; its evidence is not touched by that repair."""
+    covered = set(view.get('finding_covered') or ())
+    gate = {}
+    for nid, ids in (view.get('finding_blockers') or {}).items():
+        left = [fid for fid in ids if fid not in covered]
+        if left: gate[nid] = left
+    return gate
+
+
+SEALED = ('Hạn và số call của root được niêm phong từ lần duyệt đầu: amend chỉ có thể siết, không nới, và bản này không có lệnh gia hạn. '
+          'Bằng chứng được giữ nguyên; phần việc còn lại cần một plan mới do chủ sở hữu duyệt.')
+
+
+def _pending_holds(conn, root):
+    rows = []
+    for row in conn.execute("SELECT id,revision,payload FROM requests WHERE task_id=? AND state='pending' ORDER BY created_at,id", (root['task_id'],)):
+        question = json.loads(row['payload'])
+        if (question.get('action') or {}).get('type') == 'v2.workflow_hold':
+            rows.append({'id': row['id'], 'revision': row['revision'], 'options': [o['id'] for o in question.get('options', [])],
+                         'parameters': question['action'].get('parameters', {})})
+    return rows
+
+
+def _amend_chosen(conn, root, nid):
+    """Did the owner answer this hold with amend_plan, on the revision still approved? Then the amendment is the next step, not another question."""
+    for row in conn.execute("SELECT payload,answer FROM requests WHERE task_id=? AND state='answered'", (root['task_id'],)):
+        question, answer = json.loads(row['payload']), json.loads(row['answer'] or '{}')
+        action = question.get('action') or {}
+        parameters = action.get('parameters') or {}
+        if (action.get('type') == 'v2.workflow_hold' and answer.get('choice') == 'amend_plan' and parameters.get('contract_sha') == (root.get('approved') or {}).get('sha')
+                and nid in (parameters.get('affected') or [])):
+            return True
+    return False
+
+
+def next_action(ledger, selector, node=None, *, conn=None, view=None, observe_project=True):
+    """Read-only guidance from the current workflow; it grants or executes nothing. `observe_project=False` is for views (tracking, digest): nothing here then
+    hashes the working tree or writes to the project, and the answer rests on recorded evidence; the door that acts (acceptance, handoff, verdict) rechecks.
+    With it the working tree is judged, and still nothing is stored in the project."""
+    from .verifiers import command as _command
+    if observe_project and not _command.reading_only():
+        try:
+            with _command.leaves_no_objects():
+                return next_action(ledger, selector, node, conn=conn, view=view, observe_project=True)
+        except _command.ReadIsolationFailed as error:     # a clear stop, not guidance judged on nothing; a door that already acted still reports its own effect
+            return dict(kind='inspect', state='blocked', reason=str(error), owner_only=False, grants_authority=False, command=None)
+    if conn is None:
+        with ledger.transaction() as connection:
+            return next_action(ledger, selector, node, conn=connection, view=view, observe_project=observe_project)
+    root = plans.anchor_events(ledger, conn, selector)
+    view = view or state(ledger, root['selector'], conn)
+    selector = root['selector']
+    def action(kind, status, reason, *argv, owner=False, **fields):
+        return dict(kind=kind, state=status, reason=reason, owner_only=owner, grants_authority=False,
+                    command=_operator_command(ledger, *argv) if argv else None, **fields)
+    if root['status'] == 'accepted': return action('none', 'accepted', 'Owner acceptance is recorded; no further execution is needed.')
+    if root['status'] == 'stopped_with_report':
+        stopped = root['stopped'].get(root['latest']) or {}
+        lead = 'Dừng có báo cáo ở mốc ' + str(stopped.get('milestone')) + ' (' + str(stopped.get('reason')) + '). Không việc mới nào chạy. Chủ sở hữu chọn: duyệt một bản amend để đi tiếp, hoặc kết thúc; bằng chứng được giữ.'
+        asked = conn.execute("SELECT id,revision,payload FROM requests WHERE task_id=? AND state='pending' ORDER BY created_at,id", (root['task_id'],)).fetchall()
+        for row in asked:
+            question = json.loads(row['payload'])
+            if (question.get('action') or {}).get('type') == 'v2.plan_stopped':
+                return action('read_plan', 'stopped', lead, 'owner', 'answer', row['id'], '--revision', row['revision'], '--choice', '<choice>', '--reference', '<owner-reference>', '--human',
+                              owner=True, requests=[row['id']], choices=[o['id'] for o in question.get('options', [])])
+        return action('read_plan', 'stopped', lead, 'plan', 'show', selector, owner=True)
+    if root['status'] == 'closed': return action('read_plan', 'stopped', 'Chủ sở hữu đã đóng root này; bằng chứng được giữ, không việc mới nào chạy.', 'plan', 'show', selector)
+    if root['status'] != 'approved':
+        return action('read_plan', 'waiting' if root['status'] == 'proposed' else 'blocked', 'The root is ' + root['status'] + '; read its existing report and current grant.', 'plan', 'show', selector)
+    contract = plans.load(ledger, root, root['approved']['revision'])[0]
+    grant = authority.effective(contract)
+    limit = None if grant.get('apply_to_project') else 'apply_to_project is not granted; handoff will require an owner-approved contract amendment.'
+    q5_owner = bool(grant.get('declared')) and 'Q5' not in grant.get('self_decide', [])
+    records = view['nodes']
+    if node is not None and node not in records: raise LedgerError('Unknown internal node ' + node + '.')
+    room = ip.ceilings(ledger, conn, root)
+    def stopped(reason, **fields):
+        """No door inside this root can move it on: say so, with what is kept, instead of naming a door that refuses."""
+        return action('owner_decision', 'stopped', reason + ' ' + SEALED, 'plan', 'show', selector, owner=True, **fields)
+    pending = sorted({r for n, rows in view.get('request_blockers', {}).items() if node is None or n == node for r in rows})
+    if pending:
+        return action('owner_decision', 'held', 'An existing owner request holds this work: ' + ', '.join(pending) + '. Read and answer that request; no repair is authorized by this guidance.', 'plan', 'show', selector, owner=True, requests=pending)
+    definition_nodes = (view.get('definition') or {}).get('nodes', [])
+    if view.get('definition') and view['definition_contract_sha'] != view['contract_sha']:
+        # A new approved revision: the evidence of every node was bound to the old one, so all of them run again in the new one. The cost is the whole plan.
+        calls, seconds = sum(n['budget_calls'] for n in definition_nodes), sum(n['estimate_seconds'][1] for n in definition_nodes)
+        if room['remaining_seconds'] <= 0 or room['remaining_calls'] < calls:
+            return stopped('Bản duyệt mới cần chạy lại ' + str(calls) + ' call (' + ', '.join(n['id'] for n in definition_nodes) + '); root còn ' + str(room['remaining_calls']) + ' call và ' + str(int(room['remaining_seconds'])) + ' giây.')
+        return action('revise_plan', 'waiting', 'Bản duyệt đã đổi: gắn kế hoạch nội bộ vào bản ' + str(view['contract_revision']) + ' bằng engine revise (giữ nguyên các node trong engine state nếu không cần đổi). '
+                      'Bằng chứng cũ thuộc bản trước nên mọi node chạy lại: ' + str(calls) + ' call, tối đa ' + str(seconds) + ' giây.',
+                      'engine', 'revise', selector, '--file', '<revision.json>', cost={'calls': calls, 'seconds': seconds, 'nodes': [n['id'] for n in definition_nodes]})
+    from . import review_dispatch
+    for run in reversed(review_dispatch._run_rows(conn, root['task_id'])):
+        nid = (run.get('subject') or {}).get('node')
+        if nid not in records or (node is not None and nid != node) or run.get('parent'): continue
+        if run['state'] == 'held':
+            return action('release_check', 'waiting', 'Lần kiểm của node ' + nid + ' không rõ kết quả và không có kết quả nào đã phát hành: xem nó đã làm gì, rồi ghi quyết định bằng release-check để cho chạy lại. Không gì tự chạy lại.',
+                          'engine', 'release-check', selector, run['run_id'], '--reason', '<reason>', node=nid, run=run['run_id'])
+        if run['state'] in ('running', 'issued'):
+            return action('reconcile_check', 'waiting', 'The existing check is ' + run['state'] + '; reconcile its retained result before any retry.',
+                          'engine', 'reconcile-check', selector, run['run_id'], node=nid, run=run['run_id'])
+    if node is None:
+        from . import verdict as verdicts
+        held_runs = verdicts.held_runs(conn, root['task_id'])
+        held_runs.update({run['run_id']: run for run in verdicts.runs_to_hold(ledger, conn, root['task_id'])})
+        if held_runs:
+            run_id, hold = next(iter(held_runs.items()))
+            return action('release_run', 'held', 'Lần chạy verdict của mốc ' + str(hold.get('milestone')) + ' không rõ kết quả: xem verifier đã làm gì, rồi ghi quyết định bằng release-run để cho chạy lại. Không gì tự chạy lại.',
+                          'verdict', 'release-run', '--plan', selector, '--run', str(run_id), '--reason', '<reason>', run=run_id, milestone=hold.get('milestone'))
+    def closure(nid):
+        return set(dependency_core.affected_tasks(ip.influence_projection(definition_nodes), [nid]))
+    def recovery_cost(nid):
+        affected = closure(nid)
+        return sum(n['budget_calls'] for n in definition_nodes if n['id'] in affected or records[n['id']].get('state') not in ('verified', 'accepted'))
+    def recovery_room(nid):
+        return room['remaining_seconds'] > 0 and room['remaining_calls'] >= recovery_cost(nid)
+    def no_room(nid, what):
+        return stopped(what + ' Việc sửa ở ' + nid + ' cần ' + str(recovery_cost(nid)) + ' call; root còn ' + str(room['remaining_calls']) + ' call và ' + str(int(room['remaining_seconds'])) + ' giây.', node=nid)
+    from . import recovery_policy, repair_tasks
+    def recover(failed_node, receipt, targets, lead):
+        """The way on from one failed receipt, from the decision the bounded policy recorded for it."""
+        decision = recovery_policy.decision_for(conn, root['task_id'], receipt, root['approved']['revision'])
+        disposition = (decision or {}).get('disposition')
+        if disposition == 'blocked':
+            return action('owner_decision', 'stopped', lead + ' Đã dùng hết đường sửa tự động cho lỗi này (' + str(((decision or {}).get('diagnosis') or {}).get('next')) + '). Bằng chứng được giữ. '
+                          'Đi tiếp cần một bản amend do chủ sở hữu duyệt.', 'plan', 'show', selector, owner=True, node=failed_node, source_receipt=receipt)
+        if disposition == 'diagnose':
+            return action('replan', 'waiting', lead + ' Đã sửa đủ số lần cho phép với cùng lỗi: đề xuất một cách khác thật sự bằng engine replan (failed_node, nodes đã đổi, reason, evidence gồm receipt lỗi). Mỗi lỗi có một lần.'
+                          + (' Q5 chưa giao: lệnh sẽ tạo câu hỏi cho chủ sở hữu.' if q5_owner else ''),
+                          'engine', 'replan', selector, '--file', '<replan.json>', node=failed_node, source_receipt=receipt, replan_file={'failed_node': failed_node, 'nodes': '<nodes>', 'reason': '<reason>', 'evidence': [receipt]})
+        choices = [{'target': t, 'calls': recovery_cost(t), 'runs_again': sorted(closure(t))} for t in targets]
+        return action('diagnose', 'waiting', lead + ' Xem chẩn đoán bằng engine diagnose, rồi engine repair --file với target là node sửa'
+                      + (' (chọn một trong: ' + ', '.join(c['target'] + ' ' + str(c['calls']) + ' call' for c in choices) + ')' if len(choices) > 1 else (' ' + targets[0] + ' (' + str(choices[0]['calls']) + ' call)' if choices else ''))
+                      + '.' + (' Q5 chưa giao: engine repair sẽ tạo câu hỏi cho chủ sở hữu, không tạo bản sửa.' if q5_owner else ''),
+                      'engine', 'diagnose', selector, failed_node, node=failed_node, source_receipt=receipt, repair_targets=choices, needs_owner_decision=q5_owner,
+                      repair_file={'target': targets[0] if targets else '<target>', 'failed_node': failed_node, 'reason': '<reason>', 'evidence': [receipt]})
+    held = [(n, r) for n, r in records.items() if r.get('phase') == 'held' and (node is None or n == node)]
+    if held:
+        nid, record = held[0]
+        reason = record.get('reason') or 'The node is held; inspect its retained evidence.'
+        cause = record.get('cause') or reason
+        if record.get('classification') in ('U1', 'U2', 'U3', 'U4'):
+            asked = next((r for r in _pending_holds(conn, root) if nid in (r['parameters'].get('affected') or [nid])), None)
+            if asked:
+                return action('owner_decision', 'held', cause + ' Chủ sở hữu trả lời câu hỏi ' + asked['id'] + ' bằng một trong: ' + ', '.join(asked['options']) + '.',
+                              'owner', 'answer', asked['id'], '--revision', asked['revision'], '--choice', '<choice>', '--reference', '<owner-reference>', '--human',
+                              owner=True, node=nid, requests=[asked['id']], choices=asked['options'])
+            if _amend_chosen(conn, root, nid):
+                return action('amend_grant', 'held', cause + ' Chủ sở hữu đã chọn sửa hợp đồng: đề xuất bản amend giao đúng quyền này, rồi chủ sở hữu duyệt. Trả lời đó chưa cấp quyền gì.',
+                              'plan', 'amend', selector, '--file', '<contract.json>', '--reason', '<reason>', '--author', '<author>', node=nid)
+            return action('owner_decision', 'held', cause + ' Read the existing owner decision; this guidance cannot authorize the held action.', 'plan', 'show', selector, owner=True, node=nid)
+        recovery = record.get('recovery_action')
+        if not recovery_room(nid):
+            return no_room(nid, cause + ' The remaining root time/calls cannot admit the recovery; no automatic retry or budget reset.')
+        if recovery is None and record.get('classification') == 'executor_stopped' and record.get('trigger') in ('execution_cap', 'deadline'):
+            recovery = 'owner_decision' if room['remaining_seconds'] <= 0 else 'revise_node'
+        if recovery == 'owner_decision': return stopped(cause, node=nid)
+        if recovery == 'revise_node': return action('revise_node', 'held', reason + ' Use engine revise PLAN --file <revision.json>.', 'engine', 'revise', selector, '--file', '<revision.json>', node=nid)
+        if record.get('classification') == 'unknown' or str(record.get('classification', '')).startswith('executor_'):
+            return action('inspect_execution', 'held', reason + ' Inspect the existing attempt/process receipt in engine state; no automatic replay or confirmed stop is inferred.', 'engine', 'state', selector, node=nid)
+        return action('diagnose', 'held', reason + ' Inspect engine diagnose before changing the held work.', 'engine', 'diagnose', selector, nid, node=nid)
+    if view['active_nodes']: return action('observe', 'waiting', 'A managed attempt is still running; observe its existing attempt, do not dispatch again.', 'engine', 'state', selector)
+    failed = [n for n, r in records.items() if r.get('verification_result') == 'fail' and (node is None or n == node)]
+    if failed:
+        nid = failed[0]
+        if not recovery_room(nid):
+            return no_room(nid, 'The failed node needs recovery but the remaining root budget is insufficient.')
+        byid = {n['id']: n for n in definition_nodes}
+        targets = [nid] if byid[nid]['write'] and not byid[nid]['integration'] else [n['id'] for n in definition_nodes if n['write'] and not n['integration'] and nid in closure(n['id'])]
+        return recover(nid, records[nid]['verification_receipt'], targets, 'The check failed.')
+    # External milestone findings can be repaired through the same node repair
+    # door. They must not trap the node that is explicitly assigned the repair.
+    from . import findings
+    opened = findings.list_findings(ledger, selector, open_only=True) if namespaces.has_capability(root, 'finding-register') else []
+    external = [f for f in opened if not f.get('internal')]
+    if external:
+        # Recorded verdicts are enough to name the step; only an acting door needs today's tree.
+        recorded = plans.milestone_views(contract, root, root['approved']['revision'], ledger if observe_project else None, conn=conn, recorded_environment=True)
+        passed = {v['id']: v for v in recorded if v['state'] == 'passed'}
+        for finding in external:
+            if finding['node'] in passed:
+                last = passed[finding['node']]['last_verdict']
+                same = last.get('artifact_sha') in (finding.get('artifact_sha'), finding.get('candidate'), (finding.get('last_observed') or {}).get('artifact_sha'))
+                if same:
+                    return action('reject_finding', 'blocked', 'Finding ' + finding['id'] + ' mở trên đúng cây vừa kiểm đạt, nên đây không phải bản đã sửa và recheck sẽ từ chối. Nếu lần đỏ là do môi trường hoặc không phải lỗi, ghi lý do có bằng chứng bằng findings reject; nếu là lỗi thật, sửa rồi kiểm lại.',
+                                  'findings', 'reject', selector, finding['id'], '--receipt', last['receipt'], '--artifact-sha', last['artifact_sha'], '--reason', '<reason>', finding=finding['id'])
+                return action('recheck_findings', 'blocked', 'A passing verdict still has finding ' + finding['id'] + '. Recheck that finding against this receipt.',
+                              'findings', 'recheck', selector, finding['id'], '--receipt', last['receipt'], finding=finding['id'])
+        covered = set(view.get('finding_covered') or ())
+        for finding, receipt, _ in repair_tasks.final_failures(ledger, conn, view):
+            if finding['id'] in covered: continue
+            checking = [n for n in definition_nodes if finding['node'] in {c['id'] for c in n['checks']}]
+            owners = [n['id'] for n in checking if n['write'] and not n['integration']]
+            failed_node = owners[0] if owners else (checking[0]['id'] if checking else None)
+            if failed_node is None: continue
+            targets = owners or [n['id'] for n in definition_nodes if n['write'] and not n['integration'] and failed_node in closure(n['id'])]
+            if not targets: continue
+            best = min(targets, key=recovery_cost)
+            if not recovery_room(best):
+                return no_room(best, 'Final-verdict repair exceeds the remaining root budget.')
+            return recover(failed_node, receipt, sorted(targets, key=lambda t: (t != failed_node, t)), 'Mốc ' + finding['node'] + ' đỏ ở verdict cuối (finding ' + finding['id'] + ').')
+    gate = finding_gate(view)
+    for finding in opened:
+        # A node finding whose failed generation a revision has moved (an amendment re-bound the plan, or a replan): still the repair door's to answer.
+        nid = finding['node']
+        if not finding.get('internal') or nid not in records or finding['id'] not in gate.get(nid, ()): continue
+        carried = repair_tasks._carried(ledger, conn, view, nid, records[nid])
+        if carried is None: continue
+        byid = {n['id']: n for n in definition_nodes}
+        targets = [nid] if byid[nid]['write'] and not byid[nid]['integration'] else [n['id'] for n in definition_nodes if n['write'] and not n['integration'] and nid in closure(n['id'])]
+        if not targets: continue
+        if not recovery_room(min(targets, key=recovery_cost)):
+            return no_room(nid, 'Finding ' + finding['id'] + ' cần sửa nhưng không đủ ngân sách còn lại.')
+        return recover(nid, carried[0], targets, 'Finding ' + finding['id'] + ' của node ' + nid + ' còn mở.')
+    produced = [n for n, r in records.items() if r.get('state') == 'produced' and r.get('verification_result') != 'pass']
+    if produced:
+        nid = produced[0]
+        if room['remaining_seconds'] <= 0:
+            return stopped('Root deadline exhausted before verification; no new verifier may start.', node=nid)
+        return action('verify_node', 'verification_required', f'Đầu ra đã tạo, chờ kiểm. Run engine verify {selector} {nid}.' + (' ' + limit if limit else ''), 'engine', 'verify', selector, nid, node=nid, delivery_limit=limit)
+    ready_nodes = _ready(view)
+    if ready_nodes:
+        cost = next(n['budget_calls'] for n in definition_nodes if n['id'] == ready_nodes[0]['id'])
+        if room['remaining_seconds'] <= 0 or room['remaining_calls'] < cost:
+            return stopped('The remaining root deadline/call budget cannot admit the next node.', delivery_limit=limit)
+        return action('step', 'ready', 'A node is ready inside the existing grant; use engine step --managed.' + (' ' + limit if limit else ''), 'engine', 'step', selector, '--managed', delivery_limit=limit)
+    if not records:
+        return action('revise_plan', 'waiting', 'The root is approved but has no internal task plan; prepare its nodes inside the existing grant.', 'engine', 'revise', selector, '--file', '<revision.json>')
+    if not verification_ready(ledger, selector):
+        parts = []
+        if view.get('unknown_blockers'): parts.append('điều chưa biết giữ ' + ', '.join(sorted(view['unknown_blockers'])))
+        if gate: parts.append('finding giữ ' + ', '.join(sorted(gate)) + ' (' + ', '.join(sorted({f for ids in gate.values() for f in ids})) + ')')
+        if not any(n['integration'] for n in definition_nodes): parts.append('kế hoạch thiếu node tích hợp')
+        return action('inspect', 'blocked' if parts else 'waiting', 'Chưa bàn giao được: ' + ('; '.join(parts) if parts else 'bằng chứng đầu vào của một node không còn khớp node nguồn') + '. Xem engine state; không có lệnh nào được phép bỏ qua điều này.', 'engine', 'state', selector, delivery_limit=limit)
+    if limit: return action('amend_grant', 'handoff_blocked', limit + ' No owner acceptance or project apply was performed.', 'plan', 'show', selector, owner=True, delivery_limit=limit)
+    proof = handoff_evidence(ledger, selector)
+    if not proof:
+        if room['remaining_seconds'] <= 0:
+            return stopped('Root deadline exhausted before project handoff; no new project apply is authorized.')
+        return action('handoff', 'handoff_ready', 'Các node đã kiểm xong; bước tiếp theo: engine handoff để bàn giao trong quyền đã duyệt.', 'engine', 'handoff', selector)
+    artifact = proof['delivered_artifact']
+    if observe_project:
+        from .verifiers import command
+        try: observed = command.artifact_sha(ledger.project)
+        except command.SnapshotFailed as error:
+            return action('inspect', 'blocked', str(error), 'plan', 'show', selector)
+        if observed != artifact:
+            return action('inspect', 'blocked', 'Project changed after handoff; preserve the edits and reconcile them before acceptance. No old receipt certifies the changed tree.', 'plan', 'show', selector)
+    views = plans.milestone_views(contract, root, root['approved']['revision'], ledger, artifact=artifact, conn=conn, recorded_environment=True)
+    missing = [m['id'] for m in views if m['state'] != 'passed' or m.get('stale')]
+    if missing:
+        mid = missing[0]
+        if room['remaining_seconds'] <= 0:
+            return stopped('Root deadline exhausted before the required final verdict; existing proof has not yet been recorded as that verdict.')
+        return action('verify_milestone', 'verification_required', f'Đã bàn giao; cần ghi verdict mốc {mid}: verdict run (bằng chứng còn hiệu lực được xét dùng lại).', 'verdict', 'run', '--plan', selector, '--milestone', mid, milestone=mid)
+    if namespaces.has_capability(root, 'finding-register') and opened:
+        return action('recheck_findings', 'blocked', 'Passing milestones still have an unresolved finding; inspect findings and its current receipt.', 'findings', 'list', selector)
+    return action('owner_accept', 'awaiting_acceptance', 'Đủ bằng chứng bàn giao và verdict; chờ chủ sở hữu nghiệm thu, không có worker đang chạy.'
+                  + ('' if observe_project else ' Lệnh nghiệm thu sẽ kiểm lại cây hiện tại.'),
+                  'owner', 'accept', selector, '--revision', str(root['approved']['revision']), '--artifact-sha', artifact,
+                  '--reference', '<owner-reference>', '--human', owner=True, artifact=artifact, recorded_only=not observe_project)
+
+
+def _notify_held(ledger, selector):
+    """Publish each current held transition once through the existing notice/outbox."""
+    wrote = False
+    with ledger.transaction(write=True) as conn:
+        view = state(ledger, selector, conn)
+        for nid, record in view['nodes'].items():
+            if record.get('phase') != 'held': continue
+            if view.get('request_blockers', {}).get(nid): continue  # the existing typed request already owns this notification
+            row = conn.execute("SELECT seq,payload FROM events WHERE task_id=? AND kind='node.held' AND json_extract(payload,'$.node')=? ORDER BY seq DESC LIMIT 1", (view['root'], nid)).fetchone()
+            if row is None: continue
+            cause = f'node-held:{nid}:{record["generation"]}:{row["seq"]}'
+            if conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='notice.exception' AND json_extract(payload,'$.cause')=?", (view['root'], cause)).fetchone(): continue
+            need = next_action(ledger, selector, nid, conn=conn, view=view)
+            facts = json.loads(row['payload'])
+            evidence = [f'event:{row["seq"]}'] + ([facts['process_receipt']] if facts.get('process_receipt') else [])
+            plans.emit(ledger, conn, view['root'], 'notice.exception', dict(version=1, category='execution', cause=cause,
+                plan=namespaces.parse(selector)[0], revision=view['contract_revision'], reason=facts['reason'], evidence=evidence,
+                node=nid, generation=record['generation'], user_action=need['reason'], next_action=need,
+                grants_authority=False, creates_owner_request=False))
+            wrote = True
+    if wrote:
+        from .notification_cli import best_effort
+        return best_effort(ledger)
+    return None
+
+
+def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _swept=False, checker=None, _peer=None):
+    current = state(ledger, selector)
+    if current['root_status'] == 'accepted':
+        need = next_action(ledger, selector, view=current)
+        return {'state': need['state'], 'reason': need['reason'], 'next_action': need}
+    result = _step(ledger, selector, executor, control=control, slots=slots, _target=_target, _swept=_swept, checker=checker, _peer=_peer)
+    try:
+        _notify_held(ledger, selector)
+        if result.get('state') in ('held', 'waiting', 'produced') and 'next_action' not in result:
+            result['next_action'] = next_action(ledger, selector, result.get('node'))
+            if result['next_action'].get('delivery_limit'): result['delivery_limit'] = result['next_action']['delivery_limit']
+            if result['state'] == 'waiting' and result['next_action']['state'] in ('handoff_ready', 'handoff_blocked', 'verification_required', 'awaiting_acceptance'):
+                result.update(state=result['next_action']['state'], reason=result['next_action']['reason'])
+    except Exception as error:                        # a projection/delivery fault must not discard the committed executor outcome
+        result['operator_guidance_pending'] = str(error)[:300]
+    return result
 
 
 def run_batch(ledger,selector,executor,*,slots=1,control=None,checker=None):
@@ -1107,16 +1473,28 @@ def _continue(ledger, conn, view, nid, candidate, attempt_id, continuation):
            continuation=continuation, reason='work remains after the safe point: a new attempt continues it', budget_reset=False)
 
 
-def verify(ledger, selector, nid, checker):
+def _execution_of(checker, item):
+    """The execution identity of the port about to run: only the production CandidateChecker states it, from the approved contract and
+    the effective environment. Any other callable has no sourced identity: it may run, its result is never reusable by identity."""
+    from ..common_verification import CandidateChecker, InvestigationChecker
+    return checker.execution_identity(item) if type(checker) in (CandidateChecker, InvestigationChecker) else None
+
+
+def verify(ledger, selector, nid, checker, *, door='engine.verify'):
+    """The required check of a produced node, through one run per request (review_dispatch): the same request running elsewhere is observed
+    (status pending, same run id), an unknown outcome is held (no replay), an issued result is completed from its receipt."""
+    from . import review_dispatch
     with ledger.transaction() as conn:
         root, contract, sha = ip.context(ledger, conn, selector, 'sequential-engine')
         view = state(ledger, root['selector'], conn)
         if nid not in view['nodes'] or view['nodes'][nid]['state'] != 'produced' or view['nodes'][nid]['phase'] == 'held':
-            raise LedgerError('Only the current produced node can be verified.')
+            record = view['nodes'].get(nid) or {}
+            run = review_dispatch.published_run(conn, root['task_id'], nid, record.get('verification_receipt')) if record.get('verification_receipt') else None
+            raise LedgerError('Only the current produced node can be verified.' + (
+                f' Node {nid} was verified by run {run} (receipt {record["verification_receipt"][:12]}); nothing was dispatched.' if run else ''))
         item = next(node for node in view['definition']['nodes'] if node['id'] == nid)
         artifact = view['nodes'][nid]['artifact']
         ctx = ip.ceilings(ledger, conn, root)
-    from . import review_dispatch
     decision = review_dispatch.required(ledger, root['selector'], nid, [check['id'] for check in item['checks']])
     if decision['action'] != 'REVIEW':
         raise LedgerError('The required verification is held or deferred by its rule decision.')
@@ -1133,7 +1511,31 @@ def verify(ledger, selector, nid, checker):
         raise LedgerError('The knowledge or sources delivered to this candidate changed since it was produced; nothing was verified (the node is '
                           + gated['state'] + '): ' + '; '.join(str(c.get('id') or c.get('path') or c.get('node')) + ' ' + c['reason']
                                                                 for c in gated['knowledge_changed']['critical'][:5]))
-    observed = checker(item, artifact)
+    claim, request = review_dispatch.claim_node_check(ledger, root['selector'], nid, execution=_execution_of(checker, item), door=door,
+                                                      expected=(artifact, view['nodes'][nid]['generation']))
+    if claim['status'] in ('pending', 'held'):
+        return review_dispatch.run_held_view(root['selector'], nid, claim, request)
+    if claim['status'] == 'issued':
+        with ledger.transaction() as conn:
+            run = review_dispatch._parented(review_dispatch._runs(conn, root['task_id']))[claim['run_id']]
+        return publish_issued(ledger, root['selector'], run)
+    run_id = claim['run_id']
+    token = review_dispatch._CURRENT.set(run_id)
+    try:
+        observed = checker(item, artifact)
+    except BaseException as error:
+        if isinstance(error, review_dispatch.NotDispatched) or getattr(error, 'not_dispatched', False):   # refused before any verifier ran: known outcome
+            with ledger.transaction(write=True) as conn:
+                review_dispatch.finish_check(ledger, conn, root['task_id'], run_id, outcome='not_dispatched', reason=str(error)[:500])
+            if isinstance(error, review_dispatch.NotDispatched):
+                blocker = error.claim
+                return review_dispatch.run_held_view(root['selector'], nid, dict(claim, status='held' if blocker.get('status') == 'held' else 'pending', reason=str(error)[:500],
+                                                                                 run_id=blocker.get('run_id') or run_id, door=blocker.get('door') or claim['door'], next=blocker.get('next')), request)
+        else:
+            review_dispatch._hold(ledger, root['selector'], run_id, 'Outcome unknown: ' + type(error).__name__ + ' while the checker ran and no result was issued.')
+        raise
+    finally:
+        review_dispatch._CURRENT.reset(token)
     rows = observed.get('checks', []) if isinstance(observed, dict) and isinstance(observed.get('checks'), list) else []
     configured = {check['id'] for check in item['checks']}
     actual = {row.get('id') for row in rows if isinstance(row, dict)}
@@ -1156,10 +1558,27 @@ def verify(ledger, selector, nid, checker):
             'evidence_errors': evidence_errors, 'checks_sha': content_hash(item['checks']),
             'result': 'pass' if passed else 'fail' if failed else 'inconclusive'}
     receipt = Snapshots(ledger.state_root).blob(canonical(body).encode())
-    if matches:
+    issued = review_dispatch.issue_check(ledger, root['selector'], run_id, receipt)              # the effect is known from here on
+    run_view = review_dispatch.node_check_view(claim, executed=True, request=request)
+    if issued != 'running':                                                                      # held or closed meanwhile: evidence kept, only reconcile publishes
+        return dict(body, status='late', receipt=receipt, check_run=run_view,
+                    reason='The result arrived after this run was held or closed; it is kept as evidence and was not published.',
+                    **({'next': review_dispatch._next(root['selector'], run_id)} if issued == 'held' else {}))
+    return _publish_verification(ledger, root, contract, sha, view, nid, item, artifact, body, receipt, ctx, run_id, run_view)
+
+
+def _publish_verification(ledger, root, contract, sha, view, nid, item, artifact, body, receipt, ctx, run_id, run_view):
+    """The one publication of an issued node result: node.verification and the end of its run commit together."""
+    from . import review_dispatch
+    observed = body['observed']
+    configured = {check['id'] for check in item['checks']}
+    if isinstance(observed, dict) and observed.get('artifact') == artifact:
         ip.decide(ledger, root, contract, sha, {'kind': 'decision', 'q': 'Q9', 'nodes': [nid],
                   'evidence': [receipt], 'artifact_matches': True}, ctx, 'onecrew.engine')
     with ledger.transaction(write=True) as conn:
+        settled = review_dispatch._runs(conn, root['task_id']).get(run_id, {}).get('finished')
+        if settled:                                         # another door completed this very run from its issued receipt: one publication
+            return dict(body, status=settled.get('outcome'), receipt=settled.get('receipt'), check_run=run_view)
         current = state(ledger, root['selector'], conn)
         publish = (_publication_current(current, view, nid)
                    and current['nodes'][nid]['artifact'] == artifact and current['nodes'][nid]['phase'] != 'held')
@@ -1174,9 +1593,10 @@ def verify(ledger, selector, nid, checker):
                 changed = _knowledge_apply(ledger, conn, current, nid, {'artifact': artifact, 'receipt': mine.get('receipt')}, mine['attempt'], again)
                 publish = False
         if publish:
-            _event(ledger, conn, current, nid, 'node.verification', result=body['result'], receipt=receipt)
+            _event(ledger, conn, current, nid, 'node.verification', result=body['result'], receipt=receipt, run_id=run_id)
         elif changed is None:
             _retain(ledger, conn, view, nid, 'Root or node changed while checker ran', receipt=receipt)
+        review_dispatch.finish_check(ledger, conn, root['task_id'], run_id, outcome='published' if publish else 'stale', receipt=receipt, applicable=publish)
     if changed is not None:
         raise LedgerError('The knowledge or sources delivered to this candidate changed while its checker ran; the verification was retained, not '
                           'written (the node is ' + changed['state'] + ').')
@@ -1197,6 +1617,7 @@ def verify(ledger, selector, nid, checker):
             pass
     if not publish:
         raise LedgerError('The root or node changed while its checker ran; evidence was retained without verification.')
+    body = dict(body, check_run=run_view)
     if 'finding-register' in view['capabilities'] and body['result'] in ('pass', 'fail'):
         # W21 (T11): a failed check of a node is a finding in the shared register, scoped by the node's dependency edges; the same node
         # passing on a later generation closes them. The register, not the engine, owns the transition.
@@ -1222,6 +1643,37 @@ def verify(ledger, selector, nid, checker):
     return body
 
 
+def publish_issued(ledger, selector, run):
+    """Reconcile: complete a node run from the receipt it issued; the checker is never called. Current facts equal to the run's request
+    (execution aside: its configuration is stored only as fingerprints) publish; anything else closes the run stale, unpublished."""
+    from . import review_dispatch
+    receipt, subject = run['issued']['receipt'], run['subject']
+    nid = subject['node']
+    try:
+        body = review_dispatch.issued_node_body(ledger, run)
+    except LedgerError:
+        return review_dispatch.receipt_lost_view(ledger, selector, nid, run)
+    with ledger.transaction() as conn:
+        root, contract, sha = ip.context(ledger, conn, selector, 'sequential-engine')
+        view = state(ledger, root['selector'], conn)
+        ctx = ip.ceilings(ledger, conn, root)
+    claim = {'run_id': run['run_id'], 'request_id': run['request']['id'], 'door': run.get('door', 'optional')}
+    run_view = review_dispatch.node_check_view(claim, reconciled=True, request=run['request'])
+    same = {k: v for k, v in run['request']['identity'].items() if k != 'execution'}
+    try:
+        now = review_dispatch.node_request(ledger, selector, nid)[3]['identity']
+    except LedgerError:
+        now = None
+    if now is None or {k: v for k, v in now.items() if k != 'execution'} != same:
+        with ledger.transaction(write=True) as conn:
+            review_dispatch.finish_check(ledger, conn, root['task_id'], run['run_id'], outcome='stale', receipt=receipt, applicable=False,
+                                         reason='The node, its criteria or its inputs changed; this result certifies only its own request.')
+        return dict(body, status='stale', receipt=receipt, check_run=run_view)
+    item = next(node for node in view['definition']['nodes'] if node['id'] == nid)
+    return dict(_publish_verification(ledger, root, contract, sha, view, nid, item, subject['artifact'], body, receipt, ctx, run['run_id'], run_view),
+                status='published', receipt=receipt)
+
+
 def accept_node(ledger, selector, nid):
     with ledger.transaction() as conn:
         root, contract, sha = ip.context(ledger, conn, selector, 'sequential-engine')
@@ -1239,9 +1691,12 @@ def accept_node(ledger, selector, nid):
     return state(ledger, root['selector'])['nodes'][nid]
 
 
-def review_optional(ledger, selector, nid, review_id, checker, artifact):
+def review_optional(ledger, selector, nid, review_id, checker, artifact, *, execution=None):
     from .review_dispatch import optional
-    return optional(ledger, selector, nid, review_id, checker, artifact)
+    if execution is None:                          # 2.5-B: the production port states what it executes; nothing else gets a sourced identity
+        item = next((node for node in (state(ledger, selector)['definition'] or {}).get('nodes', []) if node['id'] == nid), None)
+        execution = _execution_of(checker, item) if item else None
+    return optional(ledger, selector, nid, review_id, checker, artifact, execution=execution)
 
 
 def request_action(ledger, selector, nid, action):
@@ -1269,6 +1724,8 @@ def hold_out_of_authority(ledger, root, sha, view, ctx, nid, action, result, dec
     with ledger.transaction(write=True) as conn:
         current = state(ledger, root['selector'], conn)
         for target in sorted(affected):
+            record = current['nodes'][target]
+            if record.get('phase') == 'held' and record.get('classification') == result['class'] and record.get('reason') == result['reason']: continue    # the same hold is one hold, one notice
             _event(ledger, conn, current, target, 'node.held', reason=result['reason'], classification=result['class'])
     if result['class'] not in ('U1', 'U2', 'U3', 'U4'):
         return None
@@ -1278,16 +1735,41 @@ def hold_out_of_authority(ledger, root, sha, view, ctx, nid, action, result, dec
                   'generations': {target: view['nodes'][target]['generation'] for target in sorted(affected)},
                   'reason_class': result['class'], 'requested_action': action}
     parameters['key'] = 'wfhold-' + content_hash(parameters)[:48]
+    # Asking again about the same hold is the same request, whatever has been recorded since: answered or not, it is not asked twice.
+    with ledger.transaction() as conn:
+        asked = conn.execute('SELECT id FROM requests WHERE task_id=? AND request_key=?', (root['task_id'], parameters['key'])).fetchone()
+    if asked: return ledger.request(asked['id'])
+    held_by_finding = _finding_holds(ledger, root, view, affected)
     question = {'schema_version': 1,
         'question': 'Node ' + nid + ' needs a decision outside its current delegated action.',
         'reason': result['reason'], 'impact': 'Only ' + ', '.join(sorted(affected)) + ' is held; independent nodes may continue.',
         'options': [{'id': 'continue', 'label': 'Continue the affected work strictly inside the existing grant'},
                     {'id': 'stop', 'label': 'Close this root and retain its evidence'}],
         'recommendation': 'continue'}
+    if held_by_finding:
+        # `continue` runs the held work inside the existing grant. It grants nothing, and finding(s) hold this work, so it could not move it: it is not offered.
+        question.update(impact=question['impact'] + ' Finding ' + ', '.join(held_by_finding) + ' giữ phần việc này cho đến khi có bản sửa đã được phép.',
+                        options=[{'id': 'amend_plan', 'label': 'Sửa hợp đồng để giao đúng quyền này (bản mới, chủ sở hữu duyệt), rồi đi tiếp'},
+                                 {'id': 'stop', 'label': 'Close this root and retain its evidence'}],
+                        recommendation='amend_plan')
     card, deadline = _hold_card(ledger, root, view, nid, sorted(affected), action, result, decision, ctx, question)
     parameters.update(card=card, decide_by_deadline=deadline)
     return ledger.create_request(root['task_id'], parameters['key'],
                                  dict(question, action={'type': 'v2.workflow_hold', 'parameters': parameters}))
+
+
+def _finding_holds(ledger, root, view, affected):
+    """The open findings that would keep `affected` from resuming: the rule resume_held applies, so a question can say what an answer can do."""
+    if not namespaces.has_capability(root, 'finding-register'): return []
+    from . import findings
+    nodes = {node['id']: node for node in view['definition']['nodes']}
+    paths = [path for nid in affected for path in nodes[nid]['read'] + nodes[nid]['write']]
+    held = []
+    for finding in findings.list_findings(ledger, root['selector'], task_id=root['task_id'], open_only=True):
+        scope = finding.get('scope') or {}
+        if finding.get('node') in affected or dependency_core.owned_overlap(paths, scope.get('read', []) + scope.get('write', [])):
+            held.append(finding['id'])
+    return held
 
 
 def _hold_card(ledger, root, view, nid, affected, action, result, decision, ctx, question):
@@ -1369,14 +1851,10 @@ def resume_held(ledger, selector, *, request_id, request_revision, contract_sha,
                 raise LedgerError('Reconcile the active/unknown attempt before resuming; an answer cannot reset it.')
     if sum(nodes[nid]['budget_calls'] for nid in affected) > ctx['remaining_calls'] or sum(nodes[nid]['estimate_seconds'][1] for nid in affected) > ctx['remaining_seconds']:
         raise LedgerError('The held work does not fit its remaining original budget/deadline.')
-    if namespaces.has_capability(root, 'finding-register'):
-        from . import findings
-        opened = findings.list_findings(ledger, root['selector'], task_id=root['task_id'], open_only=True)
-        paths = {path for nid in affected for path in nodes[nid]['read'] + nodes[nid]['write']}
-        for finding in opened:
-            scope = finding.get('scope') or {}
-            if finding.get('node') in affected or paths & set(scope.get('read', []) + scope.get('write', [])):
-                raise LedgerError('An unresolved finding still holds the affected work.')
+    holding = _finding_holds(ledger, root, view, affected)
+    if holding:
+        raise LedgerError('Finding ' + ', '.join(holding) + ' still holds the affected work, and continue grants nothing: it cannot run a repair. '
+                          'Delegate the action through an approved amendment, or stop. Nothing was recorded.')
     for nid in affected:
         _event(ledger, conn, view, nid, 'node.resumed', request_id=request_id, request_revision=request_revision,
                grants_authority=False, original_unauthorized_action_executed=False)
@@ -1387,7 +1865,7 @@ def resume_held(ledger, selector, *, request_id, request_revision, contract_sha,
 
 def verification_ready(ledger, selector):
     view = state(ledger, selector)
-    if (view['root_status'] != 'approved' or view['unknown_blockers'] or view['finding_blockers'] or view.get('failed_blockers') or not view['definition'] or view['definition_contract_sha'] != view['contract_sha'] or
+    if (view['root_status'] != 'approved' or view['unknown_blockers'] or finding_gate(view) or view.get('failed_blockers') or not view['definition'] or view['definition_contract_sha'] != view['contract_sha'] or
             not any(node['integration'] for node in view['definition']['nodes'])):
         return False
     if not all(_rank(record) >= STATES['verified'] for record in view['nodes'].values()): return False
@@ -1432,7 +1910,11 @@ def root_ready(ledger, selector, artifact=None):
     if not proof: return False
     from .verifiers import command
     try:
+        # Observing already delivered work is not admission of new work: acceptance sets no root limit and keeps the finite snapshot budget. A door that does
+        # admit work (handoff, verdict) calls this inside its own snapshot_limits(deadline), and that bound stays in force here.
         observed = command.artifact_sha(ledger.project)
         return proof.get('delivered_artifact') == observed and (artifact is None or artifact == observed)
+    except command.SnapshotFailed:
+        raise                         # retain the actual diagnostic, not "not verified"
     except (OSError, ValueError, KeyError, StopIteration):
         return False

@@ -66,6 +66,26 @@ class HumanOwnerTests(Fixture):
         self.assertEqual(code, 1); self.assertIn('Chưa xác nhận được', text); self.assertNotIn('Đã ghi nhận', text)
         self.assertIn('opaque output', text)
 
+    def test_enforce_human_reports_real_mode_and_export_and_keeps_owner_guard(self):
+        from onecrew.v2 import active_plan
+        self.approved()
+        code, text = self.call('enforce', 'P1', '--human')
+        self.assertEqual(code, 0, text)
+        self.assertIn('Đã bật chế độ enforce', text)
+        self.assertEqual(active_plan.policy(self.ledger)['mode'], 'enforce')
+        with patch.dict(os.environ, {'CLAUDE_CODE_CHILD_SESSION': '1'}):
+            code, text = self.call('enforce', 'P1', '--mode', 'log', '--human')
+        self.assertEqual(code, 2, text)
+        self.assertEqual(active_plan.policy(self.ledger)['mode'], 'enforce')
+
+    def test_enforce_does_not_claim_success_for_wrong_mode_or_missing_export(self):
+        for body in ({'mode': 'log', 'exported': True}, {'mode': 'enforce', 'exported': False},
+                     {'mode': 'enforce'}, {'mode': 'enforce', 'exported': 'yes'}):
+            with self.subTest(body=body), patch('onecrew.v2.hook_cli.main', side_effect=lambda args: (print(json.dumps(body)), 0)[1]):
+                code, text = self.call('enforce', 'P1', '--human')
+            self.assertEqual(code, 1, text)
+            self.assertNotIn('Đã bật', text)
+
     def test_human_terminal_text_is_safe_and_help_is_visible(self):
         with patch('onecrew.v2.plan_cli.main', side_effect=lambda args: (print(json.dumps({'error': '\x1b[31mpassword=never-show-this\x1b[0m'})), 2)[1]):
             code, text = self.call('approve', 'P1', '--reference', 'fixture', '--human')

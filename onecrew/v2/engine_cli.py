@@ -19,9 +19,10 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
     parser.add_argument('--state-root', type=Path)
     parser.add_argument('group', choices=['engine'])
     sub = parser.add_subparsers(dest='command', required=True)
-    for verb in ('state', 'ready', 'handoff'):
+    for verb in ('state', 'ready', 'handoff', 'check-runs', 'review-trace'):
         sub.add_parser(verb).add_argument('plan')
     p = sub.add_parser('step'); p.add_argument('plan')
+    p.add_argument('--managed', action='store_true', help='Use the existing managed executor journal and safe-point controls for this node.')
     p.add_argument('--checks', action='store_true', help='2.4-C (root capability execution-mode): first run the checks of a produced node that need '
                                                          'no model (command/adapter milestones) through the connected checker; no child task, no attempt.')
     p=sub.add_parser('batch');p.add_argument('plan');p.add_argument('--slots',type=int,choices=(1,2),default=2)
@@ -36,12 +37,27 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
     p = sub.add_parser('review-optional', help='W26: run the rule-based decision (SKIP/DEFER/HOLD/REVIEW) for one sealed optional review of a produced node; '
                                                'REVIEW calls the connected checker, the result is an observation and never the mandatory gate.')
     p.add_argument('plan'); p.add_argument('node'); p.add_argument('review')
+    p.add_argument('--investigate', type=Path, help='2.5-B: a JSON file {provider, model, question, paths, max_minutes?}: a limited investigation of named paths in an isolated copy '
+                                                    'of the candidate, not a full review; the result stays an observation.')
+    p = sub.add_parser('reconcile-check', help='2.5-B: settle one check run from what is known: its issued result is published or closed stale; '
+                                               'a run without a result is pending or held. Nothing is run again.')
+    p.add_argument('plan'); p.add_argument('run')
+    p = sub.add_parser('rerun-order', help='2.5-A/B: what to run again for one open node finding after a repair: the evidence comes from the ledger '
+                                           'and the production check port; a node whose pass still stands is listed reusable. Read-only.')
+    p.add_argument('plan'); p.add_argument('finding')
+    p = sub.add_parser('release-check', help='2.5-B: the recorded decision that lets a held check (unknown outcome) run again; spent budget stays spent, '
+                                             'exactly-once is not promised.')
+    p.add_argument('plan'); p.add_argument('run'); p.add_argument('--reason', required=True)
     node_actions_cli.register(sub)
     opts = parser.parse_args(args)
     try:
         if opts.command == 'step' and native_executor is _AUTO:
-            from ..common_executor import NativeExecutor
-            native_executor = NativeExecutor
+            if opts.managed:
+                from .managed_executor import ManagedExecutor
+                native_executor = ManagedExecutor
+            else:
+                from ..common_executor import NativeExecutor
+                native_executor = NativeExecutor
         if (opts.command in ('verify', 'review-optional') or getattr(opts, 'checks', False)) and checker is _AUTO:
             from ..common_verification import CandidateChecker
             checker = CandidateChecker
@@ -53,7 +69,7 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
                 or (opts.command == 'handoff' and handoff is None)):
             raise LedgerError('This operation needs a connected native host adapter; the supplied host port is disabled.')
         project = opts.project.resolve()
-        ledger_class = ReadOnlyLedger if opts.command in ('state', 'ready', 'measure') else Ledger
+        ledger_class = ReadOnlyLedger if opts.command in ('state', 'ready', 'measure', 'check-runs', 'review-trace', 'rerun-order') else Ledger
         ledger = ledger_class(project, state_root_for(project, opts.state_root))
         if getattr(opts, 'checks', False) and 'execution-mode' not in engine.state(ledger, opts.plan)['capabilities']:
             # review C-R11: --checks never falls back to a plain step or batch that starts a model worker
@@ -61,6 +77,15 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
         if opts.command in node_actions_cli.ACTIONS: result = node_actions_cli.execute(opts, ledger)
         elif opts.command == 'state': result = engine.state(ledger, opts.plan)
         elif opts.command == 'ready': result = engine.ready(ledger, opts.plan)
+        elif opts.command == 'check-runs':
+            from . import review_dispatch
+            result = [{k: v for k, v in row.items() if k != 'request'} for row in review_dispatch.check_runs(ledger, opts.plan)]
+        elif opts.command == 'rerun-order':
+            from . import repair_tasks
+            result = repair_tasks.rerun_recorded(ledger, opts.plan, opts.finding)
+        elif opts.command == 'review-trace':
+            from . import tracking_work
+            result = tracking_work.review_trace(ledger, opts.plan)
         elif opts.command == 'revise':
             body = json.loads(opts.file.read_text(encoding='utf-8-sig'))
             if not isinstance(body, dict) or set(body) - {'nodes', 'reason', 'evidence', 'expected_revision'}:
@@ -79,11 +104,22 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
             result=engine.release_paused(ledger,opts.plan,opts.node,ManagedExecutor(ledger,initialize=False))
         elif opts.command == 'verify': result = engine.verify(ledger, opts.plan, opts.node, checker(ledger, opts.plan))
         elif opts.command == 'accept-node': result = engine.accept_node(ledger, opts.plan, opts.node)
+        elif opts.command == 'reconcile-check':
+            from . import review_dispatch
+            result = review_dispatch.reconcile_check(ledger, opts.plan, opts.run)
+        elif opts.command == 'release-check':
+            from . import review_dispatch
+            result = review_dispatch.release_check(ledger, opts.plan, opts.run, opts.reason)
         elif opts.command == 'review-optional':
             record = engine.state(ledger, opts.plan)['nodes'].get(opts.node)
             if not record or not record.get('artifact'):
                 raise LedgerError('Optional review needs a produced node (no current artifact).')
-            result = engine.review_optional(ledger, opts.plan, opts.node, opts.review, checker(ledger, opts.plan), record['artifact'])
+            if opts.investigate:
+                from ..common_verification import InvestigationChecker
+                port = InvestigationChecker(ledger, opts.plan, opts.review, json.loads(opts.investigate.read_text(encoding='utf-8-sig')))
+            else:
+                port = checker(ledger, opts.plan)
+            result = engine.review_optional(ledger, opts.plan, opts.node, opts.review, port, record['artifact'])
         else: result = handoff(ledger, opts.plan)
         print(json.dumps(result, ensure_ascii=False, indent=2)); return 0
     except (LedgerError, OSError, ValueError, KeyError, TypeError) as error:

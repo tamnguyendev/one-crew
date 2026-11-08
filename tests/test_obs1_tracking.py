@@ -198,10 +198,11 @@ class EngineTests(EngineFixture):
         self.step(); engine.verify(self.ledger, 'P1', 'A', self.checker)
         self.step(); engine.verify(self.ledger, 'P1', 'I', self.checker)
         t = first_task(self.overview())
-        self.assertEqual((t['status']['kind'], t['level']['kind']), ('waiting', 'verified'))
+        self.assertEqual((t['status']['kind'], t['level']['kind']), ('blocked', 'verified'))
+        self.assertIn('apply_to_project', t['status']['reason'])
         self.assertEqual(t['needs_user'], [])
         self.assertFalse(t['acceptance']['ready'])
-        self.assertIn('M1',t['current_step'])
+        self.assertIn('apply_to_project',t['current_step'])
         self.assertEqual(t['last_evidence']['kind'], 'node.verification')
         with self.ledger.transaction(write=True) as conn:
             plans.emit(self.ledger, conn, self.root_view['anchor_task'], 'plan.accepted', {'plan': 'P1', 'revision': 1, 'by': 'owner', 'artifact_sha': 'x'})

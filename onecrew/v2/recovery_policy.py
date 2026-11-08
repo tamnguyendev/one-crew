@@ -67,8 +67,8 @@ def _durable(ledger, history, view):
 
 def _stop_next(stop):
     if stop['ceiling']=='calls':
-        return f'Root call budget reached ({stop["spent"]}/{stop["limit"]}): stop here with this evidence; only the owner can extend the grant.'
-    return f'Root deadline reached ({stop["limit"]}): stop here with this evidence; only the owner can extend the grant.'
+        return f'Root call budget reached ({stop["spent"]}/{stop["limit"]}): stop here with this evidence. It was sealed at the first approval and an amendment cannot raise it; the remaining work needs a new plan the owner approves.'
+    return f'Root deadline reached ({stop["limit"]}): stop here with this evidence. It was sealed at the first approval and an amendment cannot move it; the remaining work needs a new plan the owner approves.'
 
 
 def _value(root, sha, view, node, receipt, source_event, failed, action, record, disposition, attempts, spent, stop, basis, durable, ledger, **extra):
@@ -101,7 +101,9 @@ def assess(ledger, selector, failed_node, now=None):
         root, contract, sha=ip.context(ledger,conn,selector,'sequential-engine')
         view=engine.state(ledger,root['selector'],conn)
         receipt, source_event, failed=repair_tasks._source(ledger,conn,view,failed_node)
-        history=_history(conn,root['task_id'])
+        # An owner-approved revision opens a new allowance of the bounded policy (it was the owner's decision to go on); the sealed call and time
+        # ceilings of the root are not touched by it. Inside one revision nothing resets the counters.
+        history=[item for item in _history(conn,root['task_id']) if item.get('revision')==root['approved']['revision']]
         old=next((item for item in history if item['source_receipt']==receipt),None)
         if old: return old
         durable=_durable(ledger,history,view)
@@ -111,8 +113,8 @@ def assess(ledger, selector, failed_node, now=None):
             disposition='blocked'
         else:
             action, record=recovery_core.decide(durable,failed_node,'product',sorted(failed),'Configured checks still fail: '+', '.join(failed))
-            replanned=conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind=? AND json_extract(payload,'$.signature')=?",
-                                  (root['task_id'],REPLAN,record['signature'])).fetchone()
+            replanned=conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind=? AND json_extract(payload,'$.signature')=? AND json_extract(payload,'$.revision')=?",
+                                  (root['task_id'],REPLAN,record['signature'],root['approved']['revision'])).fetchone()
             disposition='repair' if action=='repair' else 'blocked' if replanned else 'diagnose'
         # T18a [E2]: the blocker carries its evidence - every failed verification of this node so far (the attempts) and what the root
         # has spent against its sealed ceilings. Read from the ledger, never from the policy's own count.
@@ -120,6 +122,11 @@ def assess(ledger, selector, failed_node, now=None):
         plan.emit(ledger,conn,root['task_id'],KIND,_value(root,sha,view,failed_node,receipt,source_event,failed,action,record,
                                                           disposition,attempts,spent,stop,basis,durable,ledger))
         return _history(conn,root['task_id'])[-1]
+
+
+def decision_for(conn, task_id, receipt, revision):
+    """The recorded decision for one failed receipt on this revision, or None. Read-only."""
+    return next((item for item in _history(conn,task_id) if item['source_receipt']==receipt and item.get('revision')==revision),None)
 
 
 def stop_at_ceiling(ledger, selector, node, now=None):
@@ -168,8 +175,8 @@ def replan(ledger, selector, failed_node, nodes, *, reason, evidence):
     proposal_hash=content_hash(nodes)
     with ledger.transaction() as conn:
         root, _, _=ip.context(ledger,conn,selector,'sequential-engine')
-        row=conn.execute("SELECT payload FROM events WHERE task_id=? AND kind=? AND json_extract(payload,'$.node')=? ORDER BY seq DESC LIMIT 1",
-                         (root['task_id'],REPLAN,failed_node)).fetchone()
+        row=conn.execute("SELECT payload FROM events WHERE task_id=? AND kind=? AND json_extract(payload,'$.node')=? AND json_extract(payload,'$.revision')=? ORDER BY seq DESC LIMIT 1",
+                         (root['task_id'],REPLAN,failed_node,root['approved']['revision'])).fetchone()
         reservation=json.loads(row['payload']) if row else None
     if reservation and reservation['state']=='reserved':
         if reservation.get('caller_proposal_sha',reservation['proposed_nodes_sha'])!=proposal_hash or reservation['evidence']!=refs or reservation['reason']!=reason:
@@ -182,11 +189,32 @@ def replan(ledger, selector, failed_node, nodes, *, reason, evidence):
     with ledger.transaction() as conn:
         root, contract, sha=ip.context(ledger,conn,selector,'sequential-engine')
         before=ip.current(ledger,root['selector'],conn)
-        if conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind=? AND json_extract(payload,'$.signature')=?",
-                        (root['task_id'],REPLAN,decision['signature'])).fetchone():
+        if conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind=? AND json_extract(payload,'$.signature')=? AND json_extract(payload,'$.revision')=?",
+                        (root['task_id'],REPLAN,decision['signature'],root['approved']['revision'])).fetchone():
             raise LedgerError('This failure already used its bounded diagnostic replan.')
     if nodes==before['definition']['nodes']: raise LedgerError('A diagnostic replan must change the proposed approach.')
-    rebound=repair_tasks.rebind_order(ledger,selector,nodes,expected_revision=before['internal_revision'])
+    rebound=repair_tasks.rebind_order(ledger,selector,nodes,expected_revision=before['internal_revision'],failed_node=failed_node,
+                                      source=decision['source_receipt'],failed_checks=decision['diagnosis']['failed_checks'])
+    marker=next((value[len(repair_tasks.PREFIX):] for node in rebound for value in node['input'] if isinstance(value,str) and value.startswith(repair_tasks.PREFIX)),None)
+    with ledger.transaction() as conn:
+        counted,_=ip._to_come(ledger,root,before['definition']['nodes'],rebound,before,conn)
+        room=ip.ceilings(ledger,conn,root)
+    calls=sum(node['budget_calls'] for node in rebound if node['id'] in counted)
+    seconds=sum(node['estimate_seconds'][1] for node in rebound if node['id'] in counted)
+    if calls>room['remaining_calls'] or seconds>room['remaining_seconds']:
+        raise LedgerError(f'U2: this replan needs {calls} calls and up to {seconds} s ({", ".join(sorted(counted))}); the root has {room["remaining_calls"]} calls and '
+                          f'{int(room["remaining_seconds"])} s left. Nothing was changed; the sealed ceilings of the root cannot be raised here.')
+    if marker:
+        # It lifts holds as a repair does, so it stands on the same authority: Q5, delegated or answered by the owner.
+        verdict=ip.self_decided(ledger,root['selector'],'Q5',sorted(counted),'onecrew.recovery_policy',key='q5-replan-'+proposal_hash[:48],
+                                failed_node=failed_node,evidence=[decision['source_receipt'],marker])
+        if verdict['delegation']==ip.NOT_DELEGATED:
+            result=verdict['result']
+            with ledger.transaction() as conn:
+                view=engine.state(ledger,root['selector'],conn)
+            request=engine.hold_out_of_authority(ledger,root,sha,view,verdict['ctx'],failed_node,verdict['action'],result,verdict['decision'],
+                                                 affected=sorted(set(counted)&set(view['nodes'])))
+            raise LedgerError(str(result['class'])+': '+result['reason']+'; the replan was not created (request '+request['id']+').')
     nodes_blob=Snapshots(ledger.state_root).blob(canonical(rebound).encode())
     # Use an explicit durable reservation BEFORE plan mutation: a crash does not
     # silently refund the one permitted diagnostic replan.
@@ -194,9 +222,12 @@ def replan(ledger, selector, failed_node, nodes, *, reason, evidence):
         current=ip.current(ledger,root['selector'],conn)
         if current['internal_revision']!=before['internal_revision']:
             raise LedgerError('Plan changed before diagnostic replan reservation.')
-        if conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind=? AND json_extract(payload,'$.signature')=?",
-                        (root['task_id'],REPLAN,decision['signature'])).fetchone():
+        if conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind=? AND json_extract(payload,'$.signature')=? AND json_extract(payload,'$.revision')=?",
+                        (root['task_id'],REPLAN,decision['signature'],root['approved']['revision'])).fetchone():
             raise LedgerError('This failure already reserved its diagnostic replan.')
+        if marker:
+            plan.emit(ledger,conn,root['task_id'],'workflow.repair_prepared',{'receipt':marker,'source_receipt':decision['source_receipt'],
+                      'source_receipts':sorted(repair_tasks.finding_scope._sources_of(json.loads(Snapshots(ledger.state_root).read_blob(marker)))),'contract_sha':sha})
         reservation={'plan':root['name'],'revision':root['approved']['revision'],'contract_sha':sha,'node':failed_node,
             'signature':decision['signature'],'source_receipt':decision['source_receipt'],'reason':reason,
             'evidence':refs,'internal_revision':before['internal_revision'],'caller_proposal_sha':proposal_hash,

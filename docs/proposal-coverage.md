@@ -1,3 +1,65 @@
+# Sol6 — close Sol5 review S5-1…S5-8 and N1…N7
+
+Proposal source: `C:/OneCrewRuns-rv3/REVIEW-SOL5.vi.md`. Baseline `38fe8e7` (code `8f53170`). Final code `39d47be`, version `2.5.0.dev10+sol6.3`, wheel `50d3d4bde87a7814027754501972b9fb201b826a6d9d61cbc9addbedab2e7c90`, package `C:/OneCrewRuns-sol6/final3`. Handover with per-issue evidence: [Sol6 handoff](SOL6-CODEX-HANDOFF.vi.md). Not pushed, tagged, released or accepted; no independent review yet.
+
+| ID | Requirement | Type | Implementation evidence | Test evidence | Status | Notes |
+|---|---|---|---|---|---|---|
+| S5-1 | Several open findings stay repairable; a repeat moves nothing | Reliability | finding_scope; repair_tasks | test_sol6_recovery RepairChains, TwoMilestones, UnrelatedHold; p_s5 S4 S5 S10; p_s5b S32 | Verified on final wheel | Reuses repair and CAS |
+| S5-2 | Replan runs to acceptance; red after replan stops with a reason | Reliability | recovery_policy; engine.next_action | RepairChains, EvidenceAndNodeFailures; p_s5 S6b S6c | Verified on final wheel | No loop |
+| S5-3 | Without Q5 the question offers only what can be done; continue grants nothing | Functional | engine.next_action; answer_effects; plan._supersede_holds | NoQ5, NoQ5AtNode; p_s5b S9b S9c S9d | Verified on final wheel | No implicit Q5 |
+| S5-4 | Views neither hash the tree nor write to the project; a read whose isolation fails stops; doors still judge | Performance | tracking and report with observe_project=False; command.leaves_no_objects, _object_env, ReadIsolationFailed; plan._show for doors | ReadsAndStates; p_s5 S18 S20; p_s5b S34; p_read_fault red on sol6.3, green on sol6.4 | Partial on sol6.3; fixed on sol6.4, awaiting Codex | plan show and engine.next_action keep one live walk, zero objects |
+| S5-5 | Guidance names the working repair for integration-only, folder scope, stop and amend | Functional | engine.next_action; common_handoff | IntegrationOnly, FolderScope, Stopped; S3 S28 S31b | Verified on final wheel | |
+| S5-6/N4 | Expired or short budget is a clear stop that promises no door | Functional | engine.next_action | ReadsAndStates; S16; p_deadline2; p_f8 N23 | Verified on final wheel | No extension door added, as instructed |
+| S5-7 | Old plan root: green verdict raises nothing | Compatibility | verdict capability guard | LegacyRoot; S33 | Verified on final wheel | No namespace migration |
+| S5-8 | Rerun scope follows real impact and the whole cost is stated first | Functional | repair_tasks.prepare | ManyWriters, ManyWritersWithReader; S2 S25 | Verified on final wheel | |
+| N1/N2 | Held verdict and held check name their release at the first read | Observability | verdict.runs_to_hold; engine.next_action | ReadsAndStates; S21 S30 | Verified on final wheel | |
+| N3 | Owner terminal reads the recorded verdict; new runs stay strict | Reliability | plan.milestone_views; verification_evidence | ReadsAndStates; test_wf_evidence_binding; p_ownerenv; S34 | Verified on final wheel | Real owner terminal still not exercised |
+| N5/N6/N7 | Printed door works; second milestone walks as Sol4; snapshot error names the limit that applies | Reliability | engine; verdict.snapshot_limits; verifiers.command | RepairChains, ReadsAndStates; S22 S19 S17 | Verified on final wheel | |
+
+# Sol5 — close Claude review L1–L15
+
+Proposal source: `C:/OneCrewRuns-rv2/REVIEW-SOL4.vi.md`; user authorized fixing all remaining findings for release. Baseline `40d7ba7` (docs `7df1b0e`). Preserve real runtime; no full gate, provider calls or publication.
+
+| ID | Requirement | Type | Implementation evidence | Test evidence | Status | Notes |
+|---|---|---|---|---|---|---|
+| L1/L8/L13 | Acceptance of completed evidence after execution deadline; truthful budget guidance | Reliability | engine.root_ready/next_action; command._Budget | test_sol5_review L1/L13; Sol4 budget regression | Verified local | No new execution after deadline |
+| L2/L11 | Owner observation uses recorded execution context; new checks still bind current environment | Reliability | verification_evidence.receipt_assessment; plan.accept; verdict._check_receipt | test_sol5_review L2; strict environment regression | Verified local | Never ignore environment changes for execution reuse |
+| L3 | Existing repair can recover final-verdict findings without releasing unrelated holds | Reliability | repair_tasks._final_source/prepare; finding_scope; common_handoff CAS | test_sol5_review L3; D6 existing repair negatives | Partial on Sol5; closed in Sol6 above | Sol5 tests walked one round, one writer, file-owned scope; engine roots deadlocked (S5-1…S5-3) |
+| L4/L5/L9/L10 | Next action respects failed/held checks, authority and remaining grant | Functional | engine.next_action | r14; Q5 authority; Sol4 operator tests | Verified local; L10 caused regression S5-4, fixed in Sol6 | No new scheduler |
+| L6/L12 | Durable closure reconciliation and actionable remaining finding commands | Reliability | verdict._finish_findings/_resume_closure | test_sol5_review closure/doc; review_b2_e2e | Verified local; L6 caused regression S5-7, fixed in Sol6 | Reviewer closure remains explicit |
+| L7 | Known worker failure exposes retained cause and legal recovery | Observability | engine._step/state/next_action | Claude p_f8b worker_error on final wheel | Verified local | Unknown outcome is never auto-retried |
+| L14/L15 | Align valid state assertions and truthful CLI errors | Testing | affected test fixtures; hook_cli/owner_cli | affected complete modules; Sol4 enforce negatives | Verified local | Do not weaken behavioral assertions |
+
+Historical Sol4 F2/F6/F8 claims below are superseded by Claude's Partial assessment on `40d7ba7`. Sol5 verification is tracked separately above and in its handoff; source tests alone do not certify the final wheel.
+
+
+Final artifact: [Sol5 handoff](SOL5-CLAUDE-HANDOFF.vi.md), `8f53170`, wheel `0e0a1def6828f66a663cf4a23dbd994be07e08908ecf1f80c7ac6a3c6bbe9513`. 71 final-wheel tests; 38 smoke checks; 37 output assertions on reused probes. No full gate or real-runtime acceptance.
+
+# Review backend — isolated cycle 1 (historical)
+
+Proposal source: shared ROADMAP / ROADMAP-DESIGN / ROADMAP-CLAUDE-HANDOFF, sections `review-responsibilities-20261104` and `work-history-jev-20261104`.
+Baseline: `bdb13bf` / product `6cb2fa9`. User authorized parallel work while Claude owns the OBS-2 UI patch. This branch does not certify or release that UI baseline.
+
+| ID | Requirement | Type | Implementation evidence | Test evidence | Status | Notes |
+|---|---|---|---|---|---|---|
+| RA-1 | A complete optional-review request has stable identity and conservative applicability | Data | Agent A isolated worktree | Pending | Missing | Reuse canonical hashes; no new authority/store |
+| RA-2 | Changed inputs, criteria, execution identity, policy or grant cannot reuse a result | Reliability | Agent A/B | Pending | Missing | Missing identity is not authenticated reuse |
+| RB-1 | Concurrent same-request optional reviews invoke the checker once | Reliability | Agent B | Baseline reproduction invokes twice | Missing | Existing ledger lifecycle; no double provider charging |
+| RB-2 | Interrupted/unknown calls cannot be blindly replayed; only issued receipts reconcile | Reliability | Agent B | Pending | Missing | No time-expiring claim that starts duplicate effects |
+| RB-3 | Existing mandatory checks and unrelated branches keep their semantics | Security | Existing policy/engine retained | Pending regression | Partial | Optional observations never verify nodes or grant acceptance |
+| RD-1 | Bounded Jev advice is a proposal over allowed choices, with deterministic fallback | Functional | Agent RD | Pending fake-client cases | Missing | No automatic application, actual API calls or pin changes |
+| RD-2 | v1 and v2 reuse one transport implementation without shipping v1 CLI modules | Architecture | Agent RD + integration packaging | Pending closure/wheel tests | Missing | Preserve v1 API behavior |
+| PK-1 | Selected APIs run from a fixed wheel outside the checkout | Deployment | Parent integration | Pending | Missing | Local experimental artifact, not a release or runtime upgrade |
+| SCOPE-1 | Cross-door mandatory review dedup and investigative worker wiring | Functional | Existing foundations only | Not attempted in this cycle | Partial | Remains part of 2.5-A/B, not certified by optional adapter |
+| SCOPE-2 | Runtime RD-A scheduling/cache/budget integration and labeled false-SKIP evaluation | Functional | Not part of proposal-only adapter | Not attempted | Missing | No claim advice reduces review time |
+| SCOPE-3 | OBS-2B projections and current UI patch | UI | Claude-owned separate checkout | Separate review | Not applicable | Do not edit tracking files or delay UI release |
+
+Cycle 1 validation: failing reproductions first, targeted module regression, import closure, installed-wheel integration. No full 2.2 gate, no real provider, no runtime/registry mutation. Agents own separate files/worktrees; parent owns integration and packaging.
+
+The historical UI coverage below is retained verbatim. Its U7-1/U7-2 Complete claims were superseded by REVIEW-OBS2-DEV7-20261104 (R7-1/R7-2); this branch does not fix or re-certify those UI findings.
+
+---
+
 # Dev10 dev9-review fix — cycle10 (Claude implementation, Codex to verify)
 
 Source: Codex review of dev9, D:/OneCrewRuns/obs2-codex-review-dev9-20261105-011254 (superseded_probe 20/23 and late_reject_probe 20/22 per size: a late rejection of a superseded copy ran the fallback with the old owner command). Baseline cd567d3 / docs ba61298.
@@ -1265,3 +1327,21 @@ Branch `codex/wf-development`, worktree `wf-codex`. Source of status: `wfkit/dev
 Verification: development gate on one wheel (`python -m wfkit.development_gate run …`), last complete run `b2cc754` 1 074/1 073 tests;
 run on `0d296fe` in progress at the time of writing (results in `docs/wf/TAKEOVER-CLAUDE-2026-10-24.md` §3). Not run: real provider calls,
 `tests.test_v2_reviewer` RealCliTests, any real ledger. No Codex review and no owner acceptance has happened.
+
+
+## Sol4 — Claude findings F1–F11 (05/11/2026)
+Baseline e6d58bb / final3 remains immutable. Scope: local repair, final wheel, no full gate, no real runtime/provider.
+
+| ID | Requirement | Status | Evidence |
+|---|---|---|---|
+| F1 | Claude sol3 finding 1, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F2 | Claude sol3 finding 2, attachment 9edd8c85 | Partial on Sol4; fixed in Sol5 above | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F3 | Claude sol3 finding 3, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F4 | Claude sol3 finding 4, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F5 | Claude sol3 finding 5, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F6 | Claude sol3 finding 6, attachment 9edd8c85 | Partial on Sol4; fixed in Sol5 above | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F7 | Claude sol3 finding 7, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F8 | Claude sol3 finding 8, attachment 9edd8c85 | Partial on Sol4; fixed in Sol5 above | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F9 | Claude sol3 finding 9, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F10 | Claude sol3 finding 10, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+| F11 | Claude sol3 finding 11, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |

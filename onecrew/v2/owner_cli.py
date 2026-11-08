@@ -75,6 +75,8 @@ def _human_result(parsed, code, output, errors='', *, refused=False):
             success = f'Đã ghi nhận nghiệm thu {parsed.plan}, bản {value.get("revision")}. Đại diện bởi artifact {parsed.artifact_sha}.'
         elif parsed.verb == 'answer' and value.get('request_id') == parsed.request and str(value.get('revision')) == str(parsed.revision) and value.get('choice') == parsed.choice:
             success = f'Đã ghi nhận lựa chọn {parsed.choice} cho câu hỏi {parsed.request}. Đây không phải là duyệt phương án.'
+        elif parsed.verb == 'enforce' and value.get('mode') == parsed.mode and value.get('exported') is True:
+            success = f'Đã bật chế độ {parsed.mode} và xuất quyền của {parsed.plan}. Cấu hình này chưa chứng minh hook đã chạy trong phiên làm việc.'
     if success:
         print(safe(success, 1000))
         if value.get('post_commit_errors'):
@@ -83,7 +85,11 @@ def _human_result(parsed, code, output, errors='', *, refused=False):
         if value.get('state_root'): print(safe('Sổ: ' + str(value['state_root']), 1000))
     else:
         detail = value.get('error') if isinstance(value, dict) else output
-        if refused and 'AI tool session' in str(detail):
+        if parsed.verb == 'enforce' and isinstance(value, dict) and value.get('mode_committed') is True:
+            print(safe('Chế độ ' + str(value.get('mode')) + ' đã ghi; quyền của plan chưa xuất xong. Đọc lại sổ và xử lý lỗi xuất trước khi tiếp tục.', 1000))
+        elif parsed.verb == 'enforce' and 'no mode was changed' in str(detail):
+            print('Chưa đổi chế độ: plan chưa đủ điều kiện. Sửa nguyên nhân bên dưới rồi chạy lại.')
+        elif refused and 'AI tool session' in str(detail):
             print('Chưa ghi nhận: thao tác này cần terminal của chủ sở hữu.')
         elif refused:
             print('Chưa ghi nhận: cần điền lựa chọn và lý do của chính bạn.')

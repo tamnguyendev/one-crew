@@ -50,6 +50,7 @@ LEVELS = ('none', 'produced', 'verified', 'accepted')
 LEVEL_WORDS = {'none': 'chưa có đầu ra', 'produced': 'đã tạo đầu ra', 'verified': 'đã kiểm', 'accepted': 'đã nghiệm thu'}
 # UX-05: a "done" root is one of three different things, and the word (and the colour the page gives it) says which
 OUTCOME_WORDS = {'accepted': 'đã nghiệm thu', 'verified': 'đã kiểm, chờ nghiệm thu', 'closed': 'đã đóng'}
+STOPPED_WORD = 'đã dừng'
 ELAPSED_LABEL = 'từ khi duyệt (thời gian lịch, gồm cả chờ)'
 NOISE = ('learning.outcome', 'control.intervention', 'context.entry', 'learning.incident', 'learning.lesson')
 NOT_TRACKED = 'chưa được theo dõi'
@@ -304,6 +305,13 @@ def _acceptance(reader, conn, state, contract, engine_view, level):
     result = {'ready': False, 'artifact': None, 'basis': 'recorded evidence; CLI rechecks current project', 'reason': None}
     if state['status'] != 'approved' or level != 'verified' or not contract: return result
     try:
+        if engine_view is not None:
+            from . import engine
+            guidance = engine.next_action(reader, state['selector'], conn=conn, view=engine_view, observe_project=False)
+            result['next_action'] = guidance
+            if guidance['kind'] != 'owner_accept':
+                result['reason'] = guidance['reason']
+                return result
         views = plans.milestone_views(contract, state, state['latest'])
         missing = [v['id'] for v in views if v['state'] != 'passed' or v.get('stale')]
         if not views or missing:
@@ -323,7 +331,7 @@ def _acceptance(reader, conn, state, contract, engine_view, level):
             if not proof or proof.get('delivered_artifact') != artifact:
                 result['reason'] = 'Chờ bộ thực thi hoàn tất kiểm tích hợp và bằng chứng bàn giao; chưa đến bước nghiệm thu.'
                 return result
-        views = plans.milestone_views(contract, state, state['latest'], reader, artifact=artifact, conn=conn)
+        views = plans.milestone_views(contract, state, state['latest'], reader, artifact=artifact, conn=conn, recorded_environment=True)
         if any(v['state'] != 'passed' or v.get('stale') for v in views):
             result['reason'] = 'Chờ bộ thực thi kiểm lại bằng chứng các mốc của bản bàn giao.'
             return result
@@ -393,7 +401,7 @@ def _needs_user(state, requests, views, level, engine_view, project=None, state_
                       'source': [f"plan.{'amended' if state['latest'] > 1 else 'proposed'}:rev{state['latest']}"]})
     elif state['status'] == 'stopped_with_report':
         stopped = state['stopped'].get(state['latest']) or {}
-        needs.append({'kind': 'stopped', 'question': 'Đọc báo cáo dừng ở mốc ' + clean(stopped.get('milestone'), 50) + ' và quyết định (tiếp tục / amend / dừng)',
+        needs.append({'kind': 'stopped', 'question': 'Đọc báo cáo dừng ở mốc ' + clean(stopped.get('milestone'), 50) + ' và quyết định (amend để đi tiếp / kết thúc)',
                       'source': [f"milestone.stopped:rev{state['latest']}"]})
     elif state['status'] == 'approved' and level == 'verified':
         if acceptance and acceptance['ready']:
@@ -429,7 +437,7 @@ def _level(state, engine_view, views):
     return 'none'
 
 
-def _status(state, engine_view, attempts, progress, waits, requests, views, verifier_runs, level, first_started, acceptance=None):
+def _status(state, engine_view, attempts, progress, waits, requests, views, verifier_runs, level, first_started, acceptance=None, guidance=None):
     """(kind, reason, sources): the sourced status of a root. Order: done > blocked > activity (running / unknown attempt) > waiting > not started."""
     src = []
     if state['status'] == 'accepted':
@@ -442,9 +450,14 @@ def _status(state, engine_view, attempts, progress, waits, requests, views, veri
         return 'waiting', 'chờ chủ sở hữu duyệt bản ' + str(state['latest']), [f"plan.proposed:rev{state['latest']}"]
     active = [a for a in attempts if a['status'] in ('reserved', 'running', 'unknown')]
     unknown = [a['id'] for a in active if a['status'] == 'unknown']
+    if (guidance or {}).get('state') == 'stopped' and not active:
+        return 'blocked', guidance['reason'], ['engine.next_action']
     if engine_view is not None:
+        from . import engine
         held = [nid for nid, r in engine_view['nodes'].items() if r.get('phase') == 'held']
-        blockers = {k: v for k in ('finding_blockers', 'unknown_blockers', 'failed_blockers', 'request_blockers') for v in [engine_view.get(k) or {}] if v}
+        gate = {'finding_blockers': engine.finding_gate(engine_view), 'unknown_blockers': engine_view.get('unknown_blockers') or {},
+                'failed_blockers': engine_view.get('failed_blockers') or {}, 'request_blockers': engine_view.get('request_blockers') or {}}
+        blockers = {k: v for k, v in gate.items() if v}
         stalled = [nid for nid, p in progress.items() if p['status'] == 'blocked' and engine_view['nodes'].get(nid, {}).get('phase') == 'running']
         if held or blockers or stalled:
             parts = []
@@ -482,12 +495,16 @@ def _status(state, engine_view, attempts, progress, waits, requests, views, veri
     if level == 'verified':
         if acceptance and acceptance['ready']:
             return 'done', acceptance['reason'], ['milestone.passed', 'acceptance.recorded_evidence']
+        if (acceptance or {}).get('next_action', {}).get('state') in ('blocked', 'handoff_blocked', 'held', 'stopped'):
+            return 'blocked', acceptance['reason'], ['engine.next_action']
         return 'waiting', (acceptance or {}).get('reason') or 'Chờ kiểm đủ điều kiện bàn giao, chưa đến bước nghiệm thu.', ['acceptance.recorded_evidence']
     if engine_view is not None:
+        if not engine_view['nodes']:
+            return 'waiting', 'đã duyệt, chưa có kế hoạch nội bộ; bước tiếp theo engine revise', ['engine.state']
         produced = [nid for nid, r in engine_view['nodes'].items() if r.get('state') == 'produced']
         pending_nodes = [nid for nid, r in engine_view['nodes'].items() if r.get('phase') == 'pending']
         if produced:
-            return 'waiting', 'đầu ra đã tạo, chờ kiểm: ' + ', '.join(produced), ['node.produced:' + n for n in produced]
+            return 'waiting', 'đầu ra đã tạo, chờ kiểm; bước tiếp theo engine verify cho node: ' + ', '.join(produced), ['node.produced:' + n for n in produced]
         if pending_nodes and not first_started:
             return 'waiting', 'đã duyệt, chưa có worker nào được bắt đầu (chờ engine step)', ['plan.approved']
         if pending_nodes:
@@ -954,7 +971,14 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     # revision). A milestone-only root never writes node.started. Started is not progress toward acceptance: acceptance keeps its own rule.
     has_started = first_started is not None or bool(attempts) or bool(state.get('verdicts')) or bool(runs)
     acceptance = _acceptance(rd, conn, state, contract, engine_view, level)
-    kind, reason, sources = _status(state, engine_view, attempts, progress, open_waits, requests, views, runs, level, first_started, acceptance)
+    guidance = acceptance.get('next_action')
+    if engine_view is not None and guidance is None:
+        from . import engine
+        try: guidance = engine.next_action(rd, state['selector'], conn=conn, view=engine_view, observe_project=False)
+        except (LedgerError, OSError, ValueError, KeyError, TypeError): pass
+    kind, reason, sources = _status(state, engine_view, attempts, progress, open_waits, requests, views, runs, level, first_started, acceptance, guidance)
+    if guidance and guidance.get('delivery_limit') and state['status'] == 'approved' and kind != 'done':
+        reason += '; bàn giao: ' + guidance['delivery_limit']
     last = events[-1] if events else None
     nodes = {}
     if engine_view is not None:
@@ -969,6 +993,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
         if r['phase'] in counts: counts[r['phase']] += 1
         if r['state'] in counts: counts[r['state']] += 1
     outcome = _outcome(state, kind, level)
+    stopped_now = kind == 'blocked' and (state['status'] == 'stopped_with_report' or (guidance or {}).get('state') == 'stopped')    # the fifth state: nothing runs until the owner decides; a block has a next step
     active_rows = [{'attempt': a['id'], 'status': a['status'], 'since': a['created_at'], 'unit': a['unit'], 'stage': a['stage'],
                     'node': next((nid for nid, r in nodes.items() if r['attempt'] == a['id']), None)} for a in attempts if a['status'] in ('reserved', 'running', 'unknown')]
     item = {'id': row['id'], 'plan': state['name'], 'selector': row['request_key'], 'project': row['project_path'], 'project_id': row['project_id'],
@@ -976,11 +1001,12 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
             'created_at': row['created_at'], 'started_at': first_started, 'has_started': has_started, 'deadline': None,
             'node_titles': {n['id']: clean(n.get('goal'), 200) for n in ((engine_view or {}).get('definition') or {}).get('nodes', [])},
             'root_status': state['status'],
-            'status': {'kind': kind, 'label': OUTCOME_WORDS[outcome] if outcome else WORDS[kind], 'outcome': outcome, 'reason': clean(reason, 600), 'source': sources},
+            'status': {'kind': kind, 'label': OUTCOME_WORDS[outcome] if outcome else (STOPPED_WORD if stopped_now else WORDS[kind]), 'outcome': outcome, 'reason': clean(reason, 600), 'source': sources},
             'level': {'kind': level, 'label': LEVEL_WORDS[level]},
             'elapsed': _elapsed(state, events, now),
-            'current_step': clean(_current_step(kind, state, engine_view, active_rows, requests, progress) or reason, 200),
+            'current_step': clean((STOPPED_WORD + ': ' + reason if stopped_now and state['status'] != 'stopped_with_report' else _current_step(kind, state, engine_view, active_rows, requests, progress)) or reason, 200),
             'acceptance': acceptance,
+            'next_action': guidance,
             'last_update': {'seq': last[0], 'kind': last[1], 'at': last[3], 'summary': clean(_summary(last[1], last[2]), 200)} if last else None,
             'last_evidence': _last_evidence(events),
             'needs_user': _needs_user(state, requests, views, level, engine_view, project=row['project_path'], state_root=str(reader.state_root), contract=contract, acceptance=acceptance),

@@ -98,9 +98,11 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
            max_calls=None, max_seconds=None, image=None, branch=None, remote=None, android_build=None, native_change=None,
            solution_id=None, solution_revision=None, contract=None, qc=None,
            plan_selector=None, plan_revision=None,
-           _delivery_parent=None, _delivery_node=None, _delivery_generation=0, _delivery_scope=None, extension=None, _then=None):
+           _delivery_parent=None, _delivery_node=None, _delivery_generation=0, _delivery_scope=None, extension=None, _then=None,
+           _metered_label=None):
     # `_then(conn, task_id)`: internal (plan.propose). Runs inside the same write transaction as the task row, also on an idempotent
     # replay, so a refusal there rolls the row back; it is not part of the sealed payload.
+    # `_metered_label`: internal (metered_verifier). Names a metered call that is no job provider (RD-A's Jev call); no CLI reaches it.
     calls_default, seconds_default = max_calls is None, max_seconds is None
     ext = extension or Audit
     if mode == 'work':
@@ -163,7 +165,7 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
     inherit_fallbacks = provider is None and model is None
     preference = previous or read(ledger)
     provider,model=resolve(ledger,provider,model,preference)
-    if mode not in ('audit','change','delivery','branch','work') or provider not in ('codex','claude','kiro'):
+    if mode not in ('audit','change','delivery','branch','work') or (provider not in ('codex','claude','kiro') and provider != _metered_label):
         raise LedgerError('Unsupported job mode or provider.')
     text_field(model, 'model', 120)
     native_change, qc, android_build, permissions = ext.admit(mode, provider, model, image, branch, remote, android_build, native_change, qc, contract)

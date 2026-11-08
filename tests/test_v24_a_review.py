@@ -217,7 +217,7 @@ class RoundTests(SourceFixture):
         for t in threads: t.start()
         for t in threads: t.join(120)
         self.assertEqual(len(self.calls), 2, results)                            # one more model round, not two
-        self.assertIn('produced', results)
+        self.assertIn('produced', results, [p.get('reason') for k, p in self.events() if k == 'node.held'])   # the reason, should a write fail under load
 
 
 class GrantRuleTests(SourceFixture):

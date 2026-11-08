@@ -424,3 +424,162 @@ def project(reader, conn, row, state, events, engine, evidence_keys):
             'findings': _findings(reader, conn, state, contract, engine, limitations) if contract else [],
             'repairs': _repairs(events, row['id'], blobs, checks, engine), 'actors': actors,
             'limitations': list(dict.fromkeys(limitations)), 'history_complete': True, 'read_only': True}
+
+
+# ---- 2.5-A cycle 2: review trace (data only, for OBS-2B) ------------------------------------------------------------------------------
+
+_RUN_EVENTS = ('review.run_started', 'review.run_result', 'review.run_finished', 'review.run_held',
+               'verdict.run_started', 'verdict.receipt_issued', 'verdict.run_abandoned', 'verdict.run_reconciled', 'verdict.run_held', 'verdict.run_released')
+
+
+def _unknown(reason):
+    return {'link': 'unknown', 'reason': reason}
+
+
+def review_trace(ledger, selector):
+    """Read-only chain request -> run (door, actor, status) -> receipt -> finding -> repair assignment -> repair output -> recheck.
+
+    Every value is copied from an event or a sealed receipt blob; a link no event or receipt establishes is {'link': 'unknown', 'reason'}
+    and is never inferred (no decision logic here: no pass/fail verdict is computed, a request's applicability is not judged). A run's
+    `status` is the latest recorded lifecycle event, not a liveness check. `door` is the recorded `door` field, or the writer of that
+    event kind (`door_source` says which)."""
+    from . import findings, namespaces, repair_tasks, review_request
+    limitations = ['Chain links come only from events and sealed receipts; "unknown" means no record establishes the link.',
+                   'A run status is its latest recorded lifecycle event; liveness and applicability are not judged here.']
+    with ledger.transaction() as conn:
+        state = plans.anchor_events(ledger, conn, selector)
+        task = state['task_id']
+        events = [(r['seq'], r['kind'], json.loads(r['payload']), r['created_at']) for r in
+                  conn.execute('SELECT seq, kind, payload, created_at FROM events WHERE task_id=? ORDER BY seq', (task,))]
+        register = (findings._read(ledger, conn, task) if namespaces.has_capability(state, 'finding-register') else {'findings': []})
+    blobs = _Blobs(ledger, limitations)
+
+    runs, requests, receipts = {}, {}, {}
+    for seq, kind, p, at in events:
+        if kind in _RUN_EVENTS and isinstance(p.get('run_id'), str):
+            run = runs.setdefault(p['run_id'], {'run_id': p['run_id'], 'request_id': p.get('request_id') or (p.get('request') or {}).get('id'),
+                                                'status': 'unknown', 'receipt': None, 'applicable': None, 'sources': []})
+            run['sources'].append(_source(seq, kind, at, task))
+            if kind in ('review.run_started', 'verdict.run_started'):
+                request = p.get('request') if isinstance(p.get('request'), dict) else {}
+                subject = p.get('subject') if isinstance(p.get('subject'), dict) else {}
+                actor = p.get('actor') or p.get('by')
+                node = p.get('node') or subject.get('node')
+                milestone = p.get('milestone') or subject.get('milestone')
+                candidate = p.get('artifact') or p.get('candidate') or subject.get('candidate') or subject.get('artifact')
+                review_id = p.get('review_id') or p.get('check') or milestone
+                door = p.get('door') or ('verdict.run' if kind == 'verdict.run_started' else 'review_dispatch.optional')
+                # who ran it: the execution identity a door derived from what it runs; a declaration, not proof of independence
+                execution = (request.get('identity') or {}).get('execution')
+                executor = ({k: execution.get(k) for k in ('method', 'implementation', 'provider', 'model')}
+                            if isinstance(execution, dict) else _unknown('the request names no execution identity'))
+                run.update(node=node, milestone=milestone, review_id=review_id, artifact=candidate, check=p.get('check'), parent=p.get('parent'),
+                           request_id=request.get('id') or run['request_id'],
+                           door=door, door_source='recorded' if p.get('door') else 'event-kind', executor=executor,
+                           actor=actor or None, actor_status='recorded' if actor else 'unknown',
+                           process={'host': p.get('host'), 'pid': p.get('pid')}, status='started')
+                if request:
+                    requests.setdefault(request['id'], {'id': request['id'], 'kind': review_request.kind_of(request) or 'unknown',
+                        'node': node, 'milestone': milestone, 'review_id': review_id, 'candidate': candidate,
+                        'execution_complete': request.get('execution_complete'), 'missing': request.get('missing') or [], 'runs': [],
+                        'source': _source(seq, kind, at, task)})
+            elif kind == 'verdict.receipt_issued':
+                run['status'] = 'result_issued'; run['receipt'] = p.get('receipt')
+                receipts.setdefault(p.get('receipt'), {'origin': 'verdict.run', 'run_id': p['run_id'], 'request_id': run['request_id'],
+                                                       'source': _source(seq, kind, at, task)})
+            elif kind == 'review.run_result':
+                run['status'] = 'result_issued'; run['receipt'] = p.get('receipt')
+                receipts.setdefault(p.get('receipt'), {'origin': 'review.run', 'run_id': p['run_id'], 'request_id': p.get('request_id'),
+                                                       'source': _source(seq, kind, at, task)})
+            elif kind == 'review.run_finished':
+                # `outcome` (2.5-B): published | stale | observed | not_dispatched | released; cycle-1 rows carry only `applicable`
+                run['status'] = p.get('outcome') or ('observed' if p.get('applicable') else 'stale_observation')
+                run['applicable'] = p.get('applicable'); run['receipt'] = p.get('receipt') or run['receipt']
+            elif kind in ('review.run_held', 'verdict.run_held'):
+                run['status'] = 'held'; run['hold_reason'] = _display(p.get('reason'))
+            elif kind == 'verdict.run_abandoned':
+                if run['status'] != 'held': run['status'] = 'abandoned'
+            elif kind == 'verdict.run_reconciled':
+                if p.get('determination') == 'unknown':          # the record itself is the hold (verdict._hold_of)
+                    run['status'] = 'held'; run['hold_reason'] = _display(p.get('detail'))
+                else:
+                    run['status'] = p.get('determination')
+            elif kind == 'verdict.run_released':
+                run['status'] = 'released'
+    for run in runs.values():
+        run.setdefault('door', 'unknown'); run.setdefault('actor_status', 'unknown'); run.setdefault('node', None)
+        if run['request_id'] in requests: requests[run['request_id']]['runs'].append(run['run_id'])
+    for seq, kind, p, at in events:
+        if kind in ('node.verification', 'verdict.recorded') and isinstance(p.get('receipt'), str):
+            body = blobs.get(p['receipt'], optional_json=True) or {}
+            issued = receipts.get(p['receipt']) or {}
+            run_id = p.get('run_id') or issued.get('run_id')
+            # A door's published receipt: the run names its request; the record event says what it was published as.
+            receipts[p['receipt']] = {'origin': kind, 'run_id': run_id, 'node': p.get('node') or p.get('milestone'),
+                'result': p.get('result'), 'generation': p.get('generation'), 'artifact': p.get('artifact_sha') or body.get('artifact'),
+                'request_id': body.get('request_id') or issued.get('request_id') or (runs.get(run_id) or {}).get('request_id'),
+                'source': _source(seq, kind, at, task)}
+    for ref, row in receipts.items():
+        row['receipt'] = ref
+        row['request_link'] = (_unknown('the receipt names no request') if row.get('request_id') is None
+                               else {'link': 'known', 'request_id': row['request_id']})
+
+    # repair assignments (node-repair-plan receipts in plan.revised definitions) and node outputs
+    repairs, produced = {}, []
+    for seq, kind, p, at in events:
+        if kind == 'node.produced': produced.append((seq, p))
+        if kind != 'plan.revised': continue
+        for item in (blobs.get(p.get('definition')) or {}).get('nodes', []):
+            for ref in item.get('input', []):
+                if not isinstance(ref, str) or not ref.startswith(repair_tasks.PREFIX): continue
+                key = ref[len(repair_tasks.PREFIX):]
+                if key in repairs: continue
+                body = blobs.get(key)
+                if body and body.get('kind') == repair_tasks.KIND and body.get('root') == task:
+                    repairs[key] = dict(body, id=key, seq=seq)
+    out = []
+    for f in register.get('findings', []):
+        sources = [r for r in (f.get('source', {}).get('receipt'), (f.get('last_observed') or {}).get('receipt')) if r]
+        resolution = f.get('resolution') if isinstance(f.get('resolution'), dict) else {}
+        from_run = next((r['run_id'] for r in runs.values() if r.get('receipt') in sources), None)
+        row = {'id': f['id'], 'status': f.get('status'), 'node': f.get('node'), 'criterion': f.get('criterion'),
+               'severity': f.get('severity'), 'internal': bool(f.get('internal')), 'candidate': f.get('artifact_sha'),
+               'generation': f.get('generation'), 'source_receipt': f.get('source', {}).get('receipt'),
+               'from_run': ({'link': 'known', 'run_id': from_run} if from_run
+                            else _unknown('the opening receipt is not the result of a recorded run')),
+               'recurrence_of': f.get('recurrence_of'), 'recurred_as': f.get('recurred_as') or []}
+        repair = next((r for r in repairs.values() if {r.get('source_receipt'), *(r.get('source_receipts') or [])} & set(sources)), None)
+        output = None
+        if repair:
+            gen = (repair.get('generations') or {}).get(repair.get('target'))
+            found = next(((s, p) for s, p in produced if s > repair['seq'] and p.get('node') == repair.get('target')
+                          and p.get('generation') == gen), None)
+            if found:
+                output = {'link': 'known', 'artifact': found[1].get('artifact'), 'generation': gen, 'node': repair.get('target'),
+                          'source': {'seq': found[0], 'kind': 'node.produced', 'task': task}}
+        row['repair'] = ({'link': 'known', 'id': repair['id'], 'target': repair.get('target'), 'failed_node': repair.get('failed_node'),
+                          'failed_checks': repair.get('failed_checks') or [], 'source': {'seq': repair['seq'], 'kind': 'plan.revised', 'task': task}}
+                         if repair else _unknown('no repair assignment names the failing receipt of this finding'))
+        row['output'] = output or _unknown('no produced output of the repaired generation is recorded' if repair else 'no repair assignment')
+        recheck = _unknown('no recheck receipt is recorded for this finding')
+        if resolution.get('receipt'):
+            known = receipts.get(resolution['receipt']) or {}
+            request_id = (resolution.get('recheck') or {}).get('request')
+            recheck = {'link': 'known', 'receipt': resolution['receipt'], 'result': known.get('result'),
+                       'closed': f.get('status') in ('resolved', 'rejected'),
+                       'request': ({'link': 'known', 'request_id': request_id} if request_id
+                                   else known.get('request_link') or _unknown('closed without a recorded request')),
+                       'source': known.get('source')}
+        elif output:
+            later = [r for r in receipts.values() if r.get('origin') == 'node.verification' and r.get('node') == f.get('node')
+                     and r['source']['seq'] > output['source']['seq']]
+            if later:
+                last = later[-1]
+                recheck = {'link': 'known', 'receipt': last['receipt'], 'result': last.get('result'), 'closed': False,
+                           'request': last['request_link'], 'source': last['source']}
+        row['recheck'] = recheck
+        out.append(row)
+    return {'schema_version': VERSION, 'read_only': True, 'task': task, 'plan': state.get('name'),
+            'requests': sorted(requests.values(), key=lambda r: r['source']['seq']),
+            'runs': sorted(runs.values(), key=lambda r: r['sources'][0]['seq']),
+            'receipts': sorted(receipts.values(), key=lambda r: r['source']['seq']), 'findings': out, 'limitations': limitations}

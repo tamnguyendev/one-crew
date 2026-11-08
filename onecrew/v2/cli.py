@@ -7,11 +7,11 @@ import sys
 
 from .messages import t
 
-GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner', 'compat', 'findings', 'executor', 'outcome', 'continue', 'context', 'question', 'estimate', 'notifications', 'desktop', 'incident', 'lesson', 'issue', 'unknown', 'engine', 'wiki', 'support', 'track')
+GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner', 'compat', 'findings', 'executor', 'outcome', 'continue', 'context', 'question', 'estimate', 'notifications', 'desktop', 'incident', 'lesson', 'issue', 'unknown', 'engine', 'wiki', 'support', 'track', 'review')
 OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enforce (v2 AI work contract; owner-only approval and acceptance)\n'
                   '  verdict    record / run (v2 milestone verdicts with receipts)\n'
                   '  hook       check / prompt / stop / session / sync / export / mode / install --print (v2 Claude Code hooks)\n'
-                  '  findings   list / review / resolve / reject (namespaced plan finding register)\n'
+                  '  findings   list / review / resolve / recheck / reject (namespaced plan finding register)\n'
                   '  outcome    record / show / missing / reconcile / intervene (recorded results)\n'
                   '  continue   read-only resume pack; grants no authority\n'
                   '  context    add / observe / retrieve (project and shared knowledge)\n'
@@ -22,6 +22,7 @@ OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enfo
                   '  issue      localize / map (pinned file and method hypotheses)\n'
                   '  unknown    list / open / resolve (scoped execution questions)\n'
                   '  engine     revise / state / ready / step / verify / handoff (common workflow)\n'
+                  '  engine     check-runs / reconcile-check / release-check / rerun-order (one check lifecycle)\n'
                   '  engine     batch / resume-paused (explicit parallel capability and managed safe points)\n'
                   '  engine     prepare-tests / repair / diagnose / replan (bounded in-grant work)\n'
                   '  question   list / show / answer (owner-only answers)\n'
@@ -31,7 +32,8 @@ OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enfo
                   '  executor   list / observe / summary (declared capabilities and observed runs)\n'
                   '  executor   state / pause / stop / recover / isolate (managed attempts)\n'
                   '  support    report / show / status / list / classify / link / bundle / import-spool / confirm (report an error once, 2.4-S1)\n'
-                  '  track      list / show / evidence / serve / open (read-only tracking: task list, detail/timeline, local web page; OBS-1)\n')
+                  '  track      list / show / evidence / serve / open (read-only tracking: task list, detail/timeline, local web page; OBS-1)\n'
+                  '  review     advise show / request (stored advice on how to check; a proposal, never a pass; RD-A2)\n')
 
 
 def help_lines():
@@ -97,6 +99,9 @@ def route(args, index):
     if args[index] == 'engine':
         from .engine_cli import main as engine_main
         return engine_main(args)
+    if args[index] == 'review':                      # RD-A2: advice on the check method (one block)
+        from .review_advice import main as review_main
+        return review_main(args)
     if args[index] == 'track':
         from .tracking_cli import main as track_main
         return track_main(args)

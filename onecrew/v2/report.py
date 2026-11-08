@@ -21,6 +21,7 @@ import sqlite3
 import subprocess
 import textwrap
 from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
 
 from ..ledger import APP_ID, VERSION, Ledger, LedgerError
@@ -243,7 +244,8 @@ def _standing(f):
     if f['contract'] is None: return 'open', NO_DATA
     if status == 'proposed': return 'open', 'chủ sở hữu'
     pending = next((v for v in views if v['state'] != 'passed'), None)
-    if pending and pending['state'] == 'failed' and pending['repairs_left'] == 0: return 'failed', '—'
+    # An engine root that used its last repair round is still open: the engine names its next step (replan, or a stop with a reason); nothing closed it.
+    if pending and pending['state'] == 'failed' and pending['repairs_left'] == 0 and not namespaces.has_capability(state, 'sequential-engine'): return 'failed', '—'
     if any(r['state'] == 'pending' for r in f['requests']): return 'open', 'chủ sở hữu'
     if f.get('runtime_unknowns'):
         return 'open', 'chủ sở hữu' if any(u['resolver']=='owner' for u in f['runtime_unknowns']) else 'AI'
@@ -264,7 +266,7 @@ def _needs(f):
     if f['contract'] is None: return NO_DATA
     if f.get('runtime_unknowns'):
         return 'giải điều chưa biết thuộc chủ sở hữu' if any(u['resolver']=='owner' for u in f['runtime_unknowns']) else 'chưa cần quyết; AI cần giải unknown đúng phần bị giữ'
-    if _open_findings(f): return 'chưa cần quyết; AI cần xử lý finding còn mở trước khi bàn giao'
+    if _open_findings(f): return 'chưa cần quyết; AI cần xử lý finding còn mở'
     if f.get('finding_error'): return 'chưa thể nghiệm thu: không đọc được sổ finding'
     first = next((v for v in f['views'] if v['state'] != 'passed'), None)
     if first is None or (first['state'] == 'pending' and first['verifier'] == 'owner-manual'): return 'nghiệm thu'
@@ -531,6 +533,17 @@ def _report(f):
     return '\n'.join(lines) + '\n'
 
 
+def _stores_nothing(function):
+    """A report judges evidence against the tree now and stores nothing in the project."""
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        from .verifiers import command
+        with command.leaves_no_objects():
+            return function(*args, **kwargs)
+    return wrapped
+
+
+@_stores_nothing
 def render_report(state_root, name, revision=None, project_id=None):
     return _report(_lookup(state_root, name, revision, project_id))
 
@@ -544,18 +557,37 @@ def render_digest(state_root):
     for row, last in anchors:
         f = _gather(state_root, row)
         kind, _ = _standing(f)
-        if kind != 'open': counts[kind] += 1; continue
+        if kind not in ('open', 'stopped'): counts[kind] += 1; continue
+        if kind == 'stopped': counts[kind] += 1                                    # not closed: the owner decides it, so it stays on the list with that decision
         passed = len([v for v in f['views'] if v['state'] == 'passed'])
         total = f'{passed}/{len(f["views"])}' if f['contract'] else '?/?'
         label = f['name'] if names.count(f['name']) == 1 else f'{row["request_key"]} [{row["project_id"][:12]}]'
-        opened.append((last, f'{label:<38} {f["state"]["status"]:<12} mốc {total:<5} cần bạn làm gì: {_needs(f)}'))
+        need, next_step = _needs(f), ''
+        if namespaces.has_capability(f['state'], 'sequential-engine'):
+            try:
+                from . import engine
+                guidance = engine.next_action(_Reader(state_root, row['project_id'], row['project_path']), row['request_key'], observe_project=False)
+                role = 'chủ sở hữu' if guidance['owner_only'] else 'bộ thực thi'
+                next_step = '; bước tiếp theo (' + role + '): ' + guidance['reason']
+                if guidance['kind'] == 'owner_accept': need = 'nghiệm thu'
+                elif kind == 'stopped': pass
+                elif guidance['state'] == 'stopped': need = 'đã dừng: đọc lý do, bằng chứng được giữ'
+                elif guidance['owner_only'] and need.startswith('chưa cần quyết'):
+                    need = 'quyết định quyền hoặc ngân sách còn thiếu'
+                elif need in (NOTHING, 'nghiệm thu'): need = 'quyết định quyền còn thiếu' if guidance['owner_only'] else 'chưa cần quyết'
+            except (LedgerError, OSError, ValueError, KeyError, TypeError) as error:
+                next_step = '; chưa xác minh được bước engine tiếp theo: ' + str(error)[:160]
+        if kind == 'stopped' and not next_step:
+            next_step = '; đã dừng ở mốc ' + str((f['state']['stopped'].get(f['state']['latest']) or {}).get('milestone')) + ': xem plan show'
+        opened.append((last, f'{label:<38} {f["state"]["status"]:<12} mốc {total:<5} cần bạn làm gì: {need}' + next_step))
     opened.sort(key=lambda item: item[0], reverse=True)
     lines = [f'TÓM TẮT CÁC VIỆC ({len(anchors)} kế hoạch) — sổ: {Path(state_root).resolve()}']
     lines += [text for _, text in opened[:OPEN_CAP]]
     if len(opened) > OPEN_CAP: lines.append(f'(còn {len(opened) - OPEN_CAP} việc mở nữa, không hiển thị)')
     if not anchors: lines.append(NO_DATA)
-    else: lines.append(f'{sum(counts.values())} việc đã đóng: {counts["accepted"]} nghiệm thu, {counts["stopped"]} dừng, {counts["failed"]} hỏng' +
-                       (f', {counts["closed"]} chủ sở hữu đóng' if counts['closed'] else ''))
+    else: lines.append(f'{counts["accepted"] + counts["failed"] + counts["closed"]} việc đã đóng: {counts["accepted"]} nghiệm thu, {counts["failed"]} hỏng' +
+                       (f', {counts["closed"]} chủ sở hữu đóng' if counts['closed'] else '') +
+                       (f'; {counts["stopped"]} việc đã dừng chờ bạn quyết định' if counts['stopped'] else ''))
     return '\n'.join(lines) + '\n'
 
 
@@ -610,7 +642,8 @@ def _artifact_now(f):
     if 'artifact_now' not in f:
         from .verifiers import artifact as identities
         try:
-            f['artifact_now'] = identities.identity(Path(f['row']['project_path'])) if f['row']['project_path'] else None
+            with identities.command.snapshot_limits():
+                f['artifact_now'] = identities.identity(Path(f['row']['project_path'])) if f['row']['project_path'] else None
         except (LedgerError, OSError, subprocess.SubprocessError):
             f['artifact_now'] = None
     return f['artifact_now']
@@ -691,6 +724,7 @@ def _heading(f, word):
     return lines + _wrap(f'Dự án: {f["row"]["project_path"]}', '', '  ')
 
 
+@_stores_nothing
 def render_handover(state_root, name, revision=None, project_id=None):
     """The handover report by acceptance: each output criterion as đạt / cần kiểm lại / chưa có with the evidence behind it, then what is left."""
     f = _lookup(state_root, name, revision, project_id)
@@ -852,6 +886,7 @@ def _present_missing(f):
     return lines or ['  không thiếu bằng chứng nào cho các acceptance']
 
 
+@_stores_nothing
 def render_present(state_root, name, revision=None, project_id=None):
     """`plan present`: one page of plain text, from the ledger, no model - what the owner reads before approving or accepting."""
     f = _lookup(state_root, name, revision, project_id)

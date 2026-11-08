@@ -171,7 +171,8 @@ class NativeExecutor(executors.Executor):
         ticks = [0]
         def hook(current, snapshot):
             ticks[0] += 1
-            digest = content_hash({'stdout': snapshot.get('stdout_bytes'), 'stderr': snapshot.get('stderr_bytes')})
+            sizes = {'stdout': snapshot.get('stdout_bytes'), 'stderr': snapshot.get('stderr_bytes')}
+            digest = content_hash(sizes) if any(sizes.values()) else None
             progress_track.observe(ledger, binding['selector'], node['id'], self, current['id'], f"liveness-{current['id']}-{ticks[0]}",
                                    {'kind': 'command', 'elapsed_seconds': snapshot['elapsed_seconds'], 'output_hash': digest},
                                    source='executor_clock', ref=f"attempt:{current['id']}:stdout={snapshot.get('stdout_bytes')}:stderr={snapshot.get('stderr_bytes')}",

@@ -27,6 +27,8 @@ CLASS_0 = (
 CLASS_A = (
     'executor.managed',
     'review.observed',
+    'review.run_started', 'review.run_result', 'review.run_finished', 'review.run_held',  # optional observations, never milestone/node authority
+    'review.advice_started', 'review.advice',         # RD-A2: stored advice and its lifecycle; a proposal only, never node/milestone authority
     'evidence.reuse',
     'adapter.violation',
     'executor.observed',
@@ -49,7 +51,7 @@ CLASS_B = (
     'node.result_retained', 'workflow.handoff',
     'budget.group',
     'finding.registered',
-    'plan.revoked', 'plan.revised', 'plan.closed', 'request.applied',
+    'plan.revoked', 'plan.revised', 'plan.closed', 'request.applied', 'request.superseded', 'workflow.repair_prepared',
     'decision.hold', 'decision.defer', 'milestone.held',              # W26 rule-based decisions / W36 pauses (named here for the boundary)
     'workflow.mode',                                  # 2.4-C: the recorded execution-mode choice of a node (waits included); plan-ns roots only
 )

@@ -117,7 +117,9 @@ class Q5NotDelegatedTests(_Root):
         with self.assertRaises(LedgerError):
             repair_tasks.prepare(self.ledger, 'P1', 'C', 'C', reason='Fix the actual F1 failure',
                                  evidence=[before['nodes']['C']['verification_receipt']])
-        self.assertEqual(self.step()['state'], 'waiting')                       # no answer: the held work does not move
+        held = self.step()
+        self.assertEqual(held['state'], 'held')                       # no answer: the held work does not move
+        self.assertTrue(held['next_action']['owner_only'])
         [request] = questions.list_for_plan(self.ledger, 'P1', pending=True)
         with patch.dict(os.environ, {'ONECREW_ACTOR': ''}):
             effect = questions.answer(self.ledger, request['id'], request['revision'], 'continue', 'owner decision fixture')['controller_effect']

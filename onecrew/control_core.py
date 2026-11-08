@@ -164,8 +164,17 @@ class Control:
             if any(unit == 'root' or json.loads(r['operation']).get('unit', 'root') in ('root', unit) for r in active):
                 raise LedgerError('Previous attempt must stop and reconcile first.')
             from .admission_core import active_consultations as active_count
-            if conn.execute("SELECT COUNT(*) FROM attempts WHERE status IN ('reserved','running','unknown')").fetchone()[0]+active_count(conn) >= 2:
-                raise CapacityWait('Global worker capacity exhausted.')
+            # An advisory attempt (RD-A's Jev call, `advisory` in its operation) is no worker and has no effect on the work: lost or running, it holds no
+            # capacity. A lost verifier call has an unknown effect, so it keeps its place until a recorded release; the message says how.
+            if conn.execute("SELECT COUNT(*) FROM attempts WHERE status IN ('reserved','running','unknown') "
+                            "AND COALESCE(json_extract(operation,'$.advisory'),0)=0").fetchone()[0]+active_count(conn) >= 2:
+                lost = [row[0] for row in conn.execute("SELECT json_extract(operation,'$.verifier_context') FROM attempts WHERE status='unknown' "
+                                                       "AND json_extract(operation,'$.verifier_context') IS NOT NULL "
+                                                       "AND COALESCE(json_extract(operation,'$.advisory'),0)=0").fetchall()]
+                raise CapacityWait('Global worker capacity exhausted.' + (
+                    f" {len(lost)} check call(s) of unknown outcome hold it ({', '.join(lost[:4])}) and nothing releases them by itself: check what they did, "
+                    'list the runs with `onecrew engine check-runs PLAN`, then `onecrew engine release-check PLAN RUN --reason "..."` '
+                    '(`onecrew verdict release-run` for a verdict run). The calls stay charged.' if lost else ''))
             generation = conn.execute('SELECT COALESCE(MAX(generation),0)+1 FROM attempts WHERE task_id=?',
                                       (task_id,)).fetchone()[0]
             attempt_id = 'ATT-' + uuid.uuid4().hex

@@ -715,6 +715,33 @@ def refreshed(root, plan):
     return plan
 
 
+def running_checks(plan):
+    """The checks running now in the shared lifecycle (review_dispatch.active_checks), read-only; none when the ledger cannot be read."""
+    try:
+        from ..ledger import Ledger
+        from . import review_dispatch
+        return review_dispatch.active_checks(Ledger(Path(plan['project']), Path(plan['state_root'])), plan.get('anchor', plan['plan']))
+    except Exception:                                    # noqa: BLE001 - a hook must not lock the session
+        return []
+
+
+def engine_next(plan):
+    """What moves a workflow root (the engine owns its execution and the owner accepts its handoff; a milestone verdict does not count there):
+    {'delivered': True} or {'delivered': False, 'command': the next engine verb}. None for any other root or when the ledger cannot be read."""
+    if 'sequential-engine' not in (plan.get('capabilities') or []): return None
+    try:
+        from ..ledger import Ledger
+        from . import engine
+        anchor = plan.get('anchor', plan['plan'])
+        ledger = Ledger(Path(plan['project']), Path(plan['state_root']))
+        if engine.root_ready(ledger, anchor): return {'delivered': True}
+        records = engine.state(ledger, anchor)['nodes']
+        produced = [nid for nid, record in records.items() if record.get('state') == 'produced' and record.get('phase') != 'held']
+        return {'delivered': False, 'command': f"onecrew engine verify {plan['plan']} {produced[0]}" if produced else f"onecrew engine step {plan['plan']}"}
+    except Exception:                                    # noqa: BLE001 - a hook must not lock the session
+        return None
+
+
 def owner_wait(milestone):
     """Why a milestone without a passing verdict waits for the owner and not for the session, or None (beta report B6, 29/10): the owner checks it
     (owner-manual), its last verdict was inconclusive (another run on the same work gives the same answer and uses a repair), or no repair is
@@ -739,23 +766,27 @@ def stop(args):
         session_state(root, session, {'stop_blocks': 0})
         return 0
     waiting = plan.get('waiting') or {}
-    if waiting.get('receipt_without_verdict') or waiting.get('open_questions') or waiting.get('run_in_progress'):
+    checks = running_checks(plan)                       # 2.5-B: the same requests the engine and candidate doors run; the hook never runs a check itself
+    if waiting.get('receipt_without_verdict') or waiting.get('open_questions') or waiting.get('run_in_progress') or checks:
         # The turn can end: what is missing is not the session's to do. A receipt waits for its verdict (verdict run records it), or the owner
         # has an open question. Nothing else lets go of an unfinished plan; the cap below still applies to it.
         what = ('a receipt without a verdict for ' + ', '.join(waiting['receipt_without_verdict'])) if waiting.get('receipt_without_verdict') else ''
         if waiting.get('run_in_progress'):
             what += ('; ' if what else '') + 'a verdict run in progress for ' + ', '.join(waiting['run_in_progress'])
+        if checks:
+            what += ('; ' if what else '') + 'a check running: ' + ', '.join(f"{c['door']} run {c['run_id']}" for c in checks[:5])
         what += ('; ' if what else '') + ('an open owner question (' + ', '.join(waiting['open_questions']) + ')') if waiting.get('open_questions') else ''
         record(root, plan, 'logged', 'Stop', f"waiting, the session is let go: {what}; milestone {pending['id']} ({pending['title']}) has no verdict yet", 'stop_waiting', session=session)
         return 0
     state = session_state(root, session)
-    why = owner_wait(pending)
+    moves = engine_next(plan)
+    why = 'the verified candidate was delivered and only the owner accepts it' if moves and moves['delivered'] else None if moves else owner_wait(pending)
     if why:
         # B6: the session cannot move this milestone. Say so once for each (plan, revision, milestone, number of runs), then let the session
         # stop: a new verdict or a new revision is a new reminder. The milestone stays unpassed, so "done" is still not true.
         key = f"{plan.get('anchor', plan['plan'])}:{plan.get('revision')}:{pending['id']}:{pending.get('runs')}"
-        reason = (f"Milestone {pending['id']} ({pending['title']}) has no passing verdict and waits for the owner: {why}. "
-                  f"Stop here and say what the owner has to decide. Do not say it is done.")
+        reason = ((f"Plan {plan['plan']} waits for the owner: {why}. " if moves else f"Milestone {pending['id']} ({pending['title']}) has no passing verdict and waits for the owner: {why}. ")
+                  + "Stop here and say what the owner has to decide. Do not say it is done.")
         if plan.get('mode') != 'enforce':
             record(root, plan, 'logged', 'Stop', 'would block once: ' + reason, 'stop_owner_wait', session=session)
             return 0
@@ -766,7 +797,8 @@ def stop(args):
         record(root, plan, 'stop_blocked', 'Stop', reason, 'stop_owner_wait', session=session)
         print(json.dumps({'decision': 'block', 'reason': reason}, ensure_ascii=False))
         return 0
-    reason = (f"Milestone {pending['id']} ({pending['title']}) has no passing verdict; run `onecrew verdict run --plan {plan['plan']} --milestone {pending['id']}` "
+    reason = (f"Plan {plan['plan']} is not delivered yet; run `{moves['command']}` (or `onecrew plan amend {plan['plan']}` to change the contract). Do not say it is done." if moves else
+              f"Milestone {pending['id']} ({pending['title']}) has no passing verdict; run `onecrew verdict run --plan {plan['plan']} --milestone {pending['id']}` "
               f"(or `onecrew plan amend {plan['plan']}` to change the contract). Do not say it is done.")
     if plan.get('mode') != 'enforce':
         record(root, plan, 'logged', 'Stop', 'would block: ' + reason, 'stop_pending_milestone', session=session)
@@ -920,10 +952,26 @@ def main(argv=None):
                 require_owner(args.by, 'Changing the hook mode')
                 from .ownership import refuse_in_ai_session
                 refuse_in_ai_session('Changing the hook mode')
-                out = {'mode': active_plan.set_mode(ledger, args.mode)}
                 found = find_plan_file([project])
                 name = args.plan or (load_plan(found)[0].get('plan') if found else None)
-                out['exported'] = bool(name and active_plan.export(ledger, name))
+                if not name:
+                    raise LedgerError('Select an approved plan before changing hook mode; no mode was changed.')
+                try:
+                    document = active_plan.build(ledger, name)
+                except (LedgerError, ValueError, OSError) as error:
+                    raise LedgerError(str(error) + '; no mode was changed.') from error
+                if document is None:
+                    raise LedgerError('Plan ' + name + ' has never been approved; no mode was changed.')
+                # Validate the named grant before the first mode write. A later
+                # export failure still reports the policy effect truthfully.
+                out = {'mode': active_plan.set_mode(ledger, args.mode), 'mode_committed': True,
+                       'plan': document['plan'], 'revision': document['revision'], 'exported': False}
+                try:
+                    out['exported'] = bool(active_plan.export(ledger, name))
+                    if not out['exported']: raise LedgerError('Active-plan export did not complete; see the retained export warning for its cause. The mode was already written.')
+                except (LedgerError, ValueError, OSError) as error:
+                    print(json.dumps(dict(out, error=str(error), type=type(error).__name__), ensure_ascii=False))
+                    return 2
             else:
                 out = active_plan.export(ledger, args.plan)
                 if out is None: raise LedgerError('Plan ' + args.plan + ' has never been approved; nothing to export.')

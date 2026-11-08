@@ -37,6 +37,8 @@ def archive(sha, repo, into):
     tree = Path(into) / ('base-' + sha[:12])
     tree.mkdir(parents=True, exist_ok=True)
     tar = Path(into) / (sha[:12] + '.tar')
+    # A test tree extracted from an archive has no history: ONECREW_BASELINE_REPO names the real repository the old baselines are read from.
+    repo = os.environ.get('ONECREW_BASELINE_REPO') or repo
     subprocess.run(['git', 'archive', '--format=tar', '-o', str(tar), sha], cwd=repo, check=True, capture_output=True)
     import tarfile
     with tarfile.open(tar) as t:

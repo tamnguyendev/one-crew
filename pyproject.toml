@@ -1,6 +1,6 @@
 [project]
 name = "onecrew"
-version = "2.5.0.dev10"
+version = "2.5.0.dev10+sol6.4"
 description = "OneCrew v2: an AI work contract (approved plan, independent verdicts, human acceptance)"
 requires-python = ">=3.10"
 dependencies = []
@@ -38,6 +38,7 @@ py-modules = [
     "onecrew.common_engine_cli",
     "onecrew.budget_core",
     "onecrew.dependency_core",
+    "onecrew.decision_client_core",
     "onecrew.finding_core",
     "onecrew.progress_core",
     "onecrew.recovery_core",
@@ -59,6 +60,8 @@ py-modules = [
     "onecrew.task_intake",
     "onecrew.work_contract",
     "onecrew.v2.active_plan",
+    "onecrew.v2.review_request",
+    "onecrew.v2.review_advice",
     "onecrew.v2.authority",
     "onecrew.v2.boundary",
     "onecrew.v2.claude_cli",

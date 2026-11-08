@@ -48,6 +48,19 @@ def _check_receipt(ledger, name, revision, plan_sha, milestone, result, by, arti
     # A well-formed receipt is not enough: it must be one that verdict.run issued. Anything hand-written is refused (F1).
     if (revision, milestone['id'], receipt) not in issued:
         raise LedgerError(f'This receipt was not issued by verdict run. A {verifier} milestone is verified only by verdict run.')
+    if body.get('reused_from'):
+        # Reconcile/publication must recheck provenance too: a newer fail or
+        # changed environment between preparation and recording forbids reuse.
+        from . import review_dispatch
+        with ledger.transaction() as conn:
+            state = plans.anchor_events(ledger, conn, name)
+            contract = plans.load(ledger, state, revision)[0]
+            request = review_dispatch._milestone_request(ledger, state['task_id'], state['name'], revision, plan_sha, contract, milestone, artifact)
+            prior = review_dispatch.prior_pass(conn, state['task_id'], request, exclude_proof=receipt)
+        source = body['reused_from']
+        if (not prior or prior['proof'] != source.get('receipt') or prior['run_id'] != source.get('run_id')
+                or request['id'] != source.get('request_id')):
+            raise LedgerError('The reused candidate proof is no longer the latest applicable result. Reconcile in the original execution environment; if the request changed, inspect and release the retained run with a recorded reason before checking the new request.')
     return body
 
 
@@ -64,6 +77,7 @@ def integrity_result(result, integrity):
     return result
 
 
+@artifacts.observed_view
 def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receipt_bytes=None, reference=None, integrity=None):
     """receipt_bytes: a file to store as the receipt blob. Only owner-manual milestones take one. reference: where the owner said so
     (`onecrew owner record`); it is kept in the verdict event when given."""
@@ -113,6 +127,9 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
                  if body and body.get('kind') == 'reviewer-receipt' else {})
         if body and (body.get('kind') == 'command-receipt' or port.known(milestone['verifier']['type'])):
             extra['calls'] = body.get('calls', 0)
+        if body and body.get('reused_from'):
+            extra['calls'] = 0  # the authenticated source call was already charged and recorded
+            extra['reused_from'] = body['reused_from']
         if integrity and (integrity.get('weakened') or integrity.get('added') or integrity.get('insufficient') or integrity.get('error')):     # W05/T19
             extra['test_integrity'] = {'weakened': integrity.get('weakened', [])[:20], 'added': integrity.get('added', [])[:20],
                                        'insufficient': integrity.get('insufficient', [])[:20],
@@ -124,7 +141,7 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
                                                                             **({'reference': reference} if reference else {})))
         # W17: the authentic verdict and its findings commit together. A crash
         # cannot publish a failed criterion without its durable open finding.
-        if body and (body.get('kind') == 'reviewer-receipt' or port.known(milestone['verifier']['type'])) and namespaces.has_capability(state, 'finding-register'):
+        if body and (body.get('kind') in ('reviewer-receipt', 'command-receipt') or port.known(milestone['verifier']['type'])) and namespaces.has_capability(state, 'finding-register'):
             from . import findings
             findings.record_verification(ledger, name, milestone_id, receipt, conn=conn, task_id=state['task_id'],
                                          revision=revision, generation=body.get('generation', 1), write=contract['scope']['owned'])
@@ -149,15 +166,63 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
     except Exception as error:
         import sys
         print('OneCrew learning pending: ' + type(error).__name__ + ': ' + str(error)[:200], file=sys.stderr)
+    # Preserve the existing learning observation before closing its open
+    # finding. Closure still uses the authenticated recheck door.
+    closures, actions = _finish_findings(ledger, name, milestone_id, receipt, body) if result == 'pass' and namespaces.has_capability(state, 'finding-register') else ([], [])
     from . import active_plan; active_plan.export(ledger, name)  # L2: the hooks see the new milestone state
     if body and namespaces.has_capability(state, 'finding-register'):
         from . import findings
         findings.after_change(ledger, name)                        # W36: a running managed attempt of a node a new finding holds is asked to pause
-    out = plans.show(ledger, name, revision)         # the revision the verdict was about (the approved one while an amendment waits)
+    out = plans._show(ledger, name, revision)        # the revision the verdict was about (the approved one while an amendment waits)
+    if closures: out['finding_rechecks'] = closures
+    if actions: out['finding_actions'] = actions
     if escalation: out['stopped'] = escalation
     if result != 'pass':
         from . import outcome
         outcome.note(ledger, name)
+    return out
+
+
+def _finish_findings(ledger, name, milestone_id, receipt, body):
+    """Replayable post-verdict reconciliation; no new verifier or automatic acceptance."""
+    from . import findings, review_dispatch
+    closed, actions = [], []
+    for finding in findings.list_findings(ledger, name, open_only=True):
+        if finding.get('internal') or finding.get('node') != milestone_id: continue
+        automatic = body and body.get('kind') != 'reviewer-receipt'
+        if automatic:
+            request = review_dispatch.recheck_request(ledger, name, finding, receipt)
+            result = findings.close_from_recheck(ledger, name, finding['id'], run_receipt=receipt, request=request)
+            closed.append(result)
+            if result['closed']: continue
+        artifact = (body or {}).get('artifact_sha')
+        unchanged = artifact in (finding.get('artifact_sha'), finding.get('candidate'), (finding.get('last_observed') or {}).get('artifact_sha'))
+        actions.append({'finding': finding['id'], 'receipt': receipt,
+                        'command': (['findings', 'reject', name, finding['id'], '--receipt', receipt, '--artifact-sha', artifact, '--reason', '<reason>'] if unchanged and artifact
+                                    else ['findings', 'recheck', name, finding['id'], '--receipt', receipt]),
+                        'reason': 'Review this finding against the current passing receipt; same-candidate/non-defect cases require an explicit evidence-backed rejection, not a repair claim.'})
+    return closed, actions
+
+
+def _resume_closure(ledger, name, milestone_id):
+    from . import findings
+    with ledger.transaction() as conn:
+        state = plans.anchor_events(ledger, conn, name)
+        if state['status'] != 'approved' or not namespaces.has_capability(state, 'finding-register'): return None
+        # The common case first: with no open finding of this milestone there is nothing to reconcile, and no reason to hash the tree here.
+        if not any(not f.get('internal') and f['node'] == milestone_id for f in findings.list_findings(ledger, name, open_only=True)): return None
+        revision = state['approved']['revision']
+        contract = plans.load(ledger, state, revision)[0]
+        current = next((m for m in plans.milestone_views(contract, state, revision, ledger) if m['id'] == milestone_id), None)
+        if not current or current['state'] != 'passed' or current.get('stale'): return None
+        receipt = current['last_verdict']['receipt']
+    body = json.loads(_blob(ledger, receipt))
+    closures, actions = _finish_findings(ledger, name, milestone_id, receipt, body)
+    from . import active_plan
+    active_plan.export(ledger, name)
+    findings.after_change(ledger, name)
+    out = plans._show(ledger, name)
+    out.update(finding_rechecks=closures, finding_actions=actions, verifier_executed=False)
     return out
 
 
@@ -272,19 +337,23 @@ def diff(ledger, name, milestone_id):
         if milestone is None: raise LedgerError('Unknown milestone ' + milestone_id + '.')
         if milestone['verifier']['type'] != 'reviewer': raise LedgerError('Milestone ' + milestone_id + ' is not verified by a reviewer.')
         approved, previous = _review_context(ledger, conn, state, milestone_id, milestone['verifier']['config'])
-    return reviewer.review_diff(_directory(ledger, milestone, None), approved, previous)[0]
+    with command.leaves_no_objects():
+        return reviewer.review_diff(_directory(ledger, milestone, None), approved, previous)[0]
 
 
 def artifact(ledger, name):
     """The artifact sha of the project now (what a verdict run now would observe, and what `owner accept --artifact-sha` takes)."""
     with ledger.transaction() as conn:
         plans.anchor_events(ledger, conn, name)
-    return {'artifact_sha': artifacts.identity(ledger.project)}
+    with command.snapshot_limits():
+        return {'artifact_sha': artifacts.identity(ledger.project)}
 
 
 def run(ledger, name, milestone_id, directory=None):
     """Run the milestone's `command` or `reviewer` verifier. This is the only way to a verdict for such a milestone: the receipt is
     announced in the ledger (verdict.receipt_issued) before it is recorded, and record() accepts no other receipt."""
+    recovered_closure = _resume_closure(ledger, name, milestone_id)
+    if recovered_closure is not None: return recovered_closure
     with ledger.transaction() as conn:
         state = plans.anchor_events(ledger, conn, name)
         target = plans.resolve(ledger, state)
@@ -321,15 +390,22 @@ def run(ledger, name, milestone_id, directory=None):
     recovered = reconcile(ledger, name, revision, milestone_id)           # W37a: a run of unknown outcome is settled, or held, before any new dispatch
     if recovered is not None:
         return recovered
-    run_id = _begin_run(ledger, name, revision, milestone_id, kind, minutes)
+    check = _check_request(ledger, state, revision, sha, contract, milestone, directory, deadline=bounded.get('deadline'))
+    run_id = _begin_run(ledger, name, revision, milestone_id, kind, minutes, check=check)
     evidence_context = ({'evidence_context': {'selector': state['selector'], 'revision': revision, 'contract': contract}}
                         if namespaces.has_capability(state, 'sequential-engine') else {})
     integrity = None
     phase = 'before_dispatch'                                         # W37a: where an exception was raised, kept in the abandonment
     try:
-        _mark(ledger, run_id, 'dispatched', {'plan': name, 'revision': revision, 'milestone': milestone_id, 'kind': kind, 'at': utcnow()})
-        phase = 'verifier'
-        if kind == 'command':
+        reused = _reuse_candidate_pass(ledger, state, revision, sha, contract, milestone, directory, check, level, bounded.get('deadline'))
+        if reused is None:
+            _mark(ledger, run_id, 'dispatched', {'plan': name, 'revision': revision, 'milestone': milestone_id, 'kind': kind, 'at': utcnow()})
+            phase = 'verifier'
+        if reused is not None:
+            blob, receipt = reused
+            if kind == 'command' and integrity_applies(state):
+                integrity = _test_integrity(ledger, directory, approved, receipt)
+        elif kind == 'command':
             blob, receipt = command.run(ledger, state['name'], revision, sha, milestone, directory, **evidence_context, **bounded)
             phase = 'after_verifier'
             if integrity_applies(state):                                               # W11b/T25 [E4]: schema-2 roots keep the old rule
@@ -342,9 +418,11 @@ def run(ledger, name, milestone_id, directory=None):
             if namespaces.has_capability(state, 'finding-register'):
                 from . import findings
                 context['open_findings'] = findings.reviewer_context(ledger, name, milestone_id, task_id=state['task_id'])
-            blob, receipt = reviewer.run(ledger, state['name'], revision, sha, milestone, directory, level, approved, previous, **context)
+            with command.snapshot_limits(bounded.get('deadline')):
+                blob, receipt = reviewer.run(ledger, state['name'], revision, sha, milestone, directory, level, approved, previous, **context)
         else:
-            blob, receipt = port.run(ledger, state['name'], revision, sha, milestone, directory, **evidence_context, **bounded)
+            with command.snapshot_limits(bounded.get('deadline')):
+                blob, receipt = port.run(ledger, state['name'], revision, sha, milestone, directory, **evidence_context, **bounded)
             port.record_violations(ledger, name, revision, milestone_id, blob, receipt)
         phase = 'after_verifier'
         _mark(ledger, run_id, 'receipt', {'blob': blob, 'receipt': receipt, 'integrity': integrity, 'cwd': str(directory)})   # the effect is known from here on
@@ -358,12 +436,71 @@ def run(ledger, name, milestone_id, directory=None):
             plans.emit(ledger, conn, current['task_id'], 'verdict.receipt_issued',
                        {'plan': current['name'], 'revision': revision, 'milestone': milestone_id, 'receipt': blob, 'cwd': str(directory), 'run_id': run_id})
     except BaseException as error:
+        if getattr(error, 'verifier_started', None) is False: phase = 'before_dispatch'     # proven by the code that raised it: the verifier was not called
         _abandon_own(ledger, name, run_id, error, phase)
         raise
     result = integrity_result(_result(kind, receipt), integrity)      # T19 [E1]/[E3]: red on a weakened suite, not green on an unproven one
     shown = record(ledger, name, milestone_id, result, kind, blob, receipt['artifact_sha'], integrity=integrity)
     _unmark(ledger, run_id)
     return shown
+
+
+def _reuse_candidate_pass(ledger, state, revision, sha, contract, milestone, directory, check, level, deadline):
+    """Promote an authentic latest candidate pass; keep the original proof.
+
+    Exact request (tree, criteria, environment, authority) and current handoff
+    are required. This creates a verdict receipt, never an owner acceptance.
+    """
+    from . import review_dispatch, verification_evidence, engine
+    from ..common_verification import PROOF_KIND, PROOF_FIELD, proof_mismatch, expected_of
+    if check is None or milestone['verifier']['type'] == 'owner-manual':
+        return None
+    request, tree = check
+    with ledger.transaction() as conn:
+        prior = review_dispatch.prior_pass(conn, state['task_id'], request)
+    if prior is None or prior['door'] != 'candidate': return None
+    with command.snapshot_limits(deadline):
+        if not engine.root_ready(ledger, state['selector'], tree): return None
+    store = Snapshots(ledger.state_root)
+    try:
+        proof = json.loads(store.read_blob(prior['proof']))
+        kind, config = milestone['verifier']['type'], milestone['verifier']['config']
+        family = PROOF_KIND.get(kind, 'candidate-adapter-check')
+        handoff = engine.handoff_evidence(ledger, state['selector'])
+        wrapper = None
+        for row in (handoff or {}).get('checks', {}).get('checks', []):
+            if row.get('id') != milestone['id'] or row.get('result') != 'pass': continue
+            candidate = json.loads(store.read_blob(row['evidence']))
+            if candidate.get(PROOF_FIELD[family]) == prior['proof']: wrapper = candidate
+        if wrapper is None: return None
+        if proof_mismatch(wrapper, proof, milestone, sha, revision, tree) or expected_of(family, proof) != 'pass': return None
+        if namespaces.parse(proof.get('plan', ''))[0] != state['name']: return None
+        if kind == 'reviewer':
+            rank = {'cross_vendor': 2, 'same_vendor_other_model': 1, 'unknown_author_vendor': 0}
+            if rank.get((proof.get('independence') or {}).get('level'), -1) < rank[level['level']]: return None
+        env = command.verifier_env(ledger.project)
+        current = review_dispatch._milestone_request(ledger, state['task_id'], state['name'], revision, sha, contract, milestone, tree, env=env)
+        if current['id'] != request['id']: return None
+        with command.before_verifier(), command.snapshot_limits(deadline):
+            if artifacts.verified_identity(directory) != tree: return None
+        body = dict(proof, plan=state['name'], cwd=str(directory), calls=0, seconds=0.0, execution_seconds=0.0,
+                    started=utcnow(), usage={},
+                    reused_from={'run_id': prior['run_id'], 'receipt': prior['proof'], 'door': prior['door'], 'request_id': request['id']},
+                    evidence_binding=verification_evidence.for_receipt(ledger, {'contract': contract, 'revision': revision}, milestone, tree,
+                        env if kind in ('command', 'reviewer') else None))
+        if kind != 'command': body['config'] = config
+        if kind == 'reviewer':
+            # Preserve the proof's real model-call fact: the reviewer law must
+            # still reject an invented zero-call pass. Publication charges zero
+            # new calls; the original call lives at reused_from.receipt.
+            body['calls'] = proof['calls']
+            body['new_calls'] = 0
+        body.pop('snapshot', None)  # original timings remain in the linked source proof, not charged twice
+        return store.blob(canonical(body).encode()), body
+    except command.SnapshotFailed:
+        raise
+    except (OSError, ValueError, KeyError, TypeError, LedgerError):
+        return None
 
 
 # ---- W37a: reconcile a run of unknown outcome before any retry (T08a) -------------------------------------------------------------------
@@ -423,6 +560,21 @@ def held_runs(conn, task_id):
     """The runs held with an unknown outcome and not released (run_id -> the hold record). A run is held as soon as its reconcile record
     says `unknown` — the hold is that record, not a second event, so no write boundary can leave an unknown run unheld."""
     return {run_id: _hold_of(rows) for run_id, rows in _reconcile_events(conn, task_id).items() if _hold_of(rows) is not None}
+
+
+def runs_to_hold(ledger, conn, task_id, now=None, alive=None):
+    """Read only: the runs the next `verdict run` of their milestone would hold, by the same marker rules as `reconcile`. They have no hold record yet,
+    because reconcile writes it lazily; a reader must not name a door that can only refuse. Marker absent, a refusal before dispatch, or a finished verifier: not here."""
+    now, alive = now or _now(), alive or process_alive
+    events = _reconcile_events(conn, task_id)
+    found = []
+    for run in run_records(conn, task_id):
+        if run['receipt'] is not None or 'verdict.run_reconciled' in events.get(run.get('run_id'), {}): continue
+        abandoned = run['abandoned']
+        if abandoned is None and not (_open(run) and lost_reason(run, now, alive)): continue
+        if abandoned is not None and abandoned.get('reason') == 'error' and _refused_before_x(abandoned): continue
+        if _marker(ledger, run['run_id'], 'receipt') is None and _marker(ledger, run['run_id'], 'dispatched') is not None: found.append(run)
+    return found
 
 
 def _hold_of(rows):
@@ -588,6 +740,14 @@ def release_run(ledger, name, run_id, reason):
     silence, a restart or a second `verdict run`. It does not change the grant: the next run is checked by the same rules as any run."""
     text_field(reason, 'reason', 2000)
     if not reason.strip(): raise LedgerError('A release needs a reason (what was checked about the lost run).')
+    with ledger.transaction() as conn:
+        state = plans.anchor_events(ledger, conn, name)
+        waiting = next((r for r in runs_to_hold(ledger, conn, state['task_id']) if r.get('run_id') == run_id), None)
+    if waiting is not None:           # the guidance names this run before anything recorded its hold: record it the one way there is, so the release answers a hold on record
+        try:
+            reconcile(ledger, name, waiting.get('revision'), waiting.get('milestone'))
+        except LedgerError:
+            pass
     with ledger.transaction(write=True) as conn:
         state = plans.anchor_events(ledger, conn, name)
         held = held_runs(conn, state['task_id'])
@@ -599,6 +759,8 @@ def release_run(ledger, name, run_id, reason):
                    'note': 'A release lets the verifier run a second time; the first dispatch may have had an effect. Exactly-once is not promised.'}
         plans.emit(ledger, conn, state['task_id'], 'verdict.run_released', payload)
     _unmark(ledger, run_id)
+    from . import review_dispatch                                 # 2.5-B: the metered provider attempt of the released run settles, charged; otherwise Control refuses every new call
+    if hold.get('milestone'): review_dispatch.settle_released_attempts(ledger, state['task_id'], ['milestone:' + hold['milestone']], 'run ' + run_id + ': ' + reason.strip()[:300])
     return payload
 
 
@@ -782,8 +944,49 @@ def reap(ledger, name, now=None, alive=None):
     return closed
 
 
-def _begin_run(ledger, name, revision, milestone_id, kind, max_minutes):
+def _check_request(ledger, state, revision, sha, contract, milestone, directory, *, deadline=None):
+    """2.5-B: the same request id CandidateChecker claims for this milestone on this tree, read before dispatch from what the runtime will
+    execute (the approved verifier config, the effective environment, the current artifact). A failed capture refuses before dispatch;
+    it never silently drops the identity used for dedupe. Legacy roots without a candidate door return None."""
+    from . import review_dispatch
+    if not namespaces.has_capability(state, 'sequential-engine'):
+        return None                              # no candidate door exists for this legacy/hook-only root
+    with command.before_verifier(), command.snapshot_limits(deadline):
+        candidate = artifacts.identity(directory)
+    return review_dispatch._milestone_request(ledger, state['task_id'], state['name'], revision, sha, contract, milestone, candidate), candidate
+
+
+def unsettled_run(ledger, conn, task_id, same_work):
+    """What another door must respect about this door's runs of the same work: ('pending'|'held'|'issued', run, reason) of the newest one
+    whose end is not settled, or None. Read-only and marker-first, like reconcile, so a lost run counts before any reader reconciled it:
+    a receipt means the effect is known and verdict run records it; a dispatch with no receipt is an unknown outcome."""
+    events = _reconcile_events(conn, task_id)
+    rows = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='verdict.recorded'", (task_id,)).fetchall()
+    recorded = {json.loads(row['payload']).get('receipt') for row in rows}
+    now, waiting = _now(), 'its receipt is issued and its verdict is not recorded yet; `onecrew verdict run` records it from that receipt'
+    for run in reversed(run_records(conn, task_id)):
+        request = run.get('request')
+        if not isinstance(request, dict) or not same_work(request): continue
+        marks = events.get(run.get('run_id'), {})
+        if 'verdict.run_released' in marks: continue
+        hold = _hold_of(marks)
+        if hold is not None: return 'held', run, hold.get('reason') or hold.get('detail')
+        if run['receipt'] is not None:
+            if run['receipt'].get('receipt') not in recorded: return 'issued', run, waiting
+            continue
+        if 'verdict.run_reconciled' in marks: continue
+        if _open(run) and lost_reason(run, now, process_alive) is None: return 'pending', run, None
+        ended = run['abandoned'] or {'reason': 'lost'}
+        if _marker(ledger, run.get('run_id'), 'receipt') is not None: return 'issued', run, waiting
+        if _marker(ledger, run.get('run_id'), 'dispatched') is None or (ended.get('reason') == 'error' and _refused_before_x(ended)): continue
+        return 'held', run, 'The verifier was dispatched and its process was lost before any receipt: its effect is unknown; it is not run again by itself.'
+    return None
+
+
+def _begin_run(ledger, name, revision, milestone_id, kind, max_minutes, check=None):
+    request, candidate = check if check else (None, None)
     reap(ledger, name)                                              # a lost earlier run must not refuse this one
+    snapshot = command.snapshot_seconds()
     started = _now()
     run_id = uuid.uuid4().hex[:12]
     with ledger.transaction(write=True) as conn:                    # the check and the write are one transaction: two runs cannot both pass it
@@ -795,10 +998,18 @@ def _begin_run(ledger, name, revision, milestone_id, kind, max_minutes):
             if _open(run) and (run.get('revision'), run.get('milestone')) == (revision, milestone_id) and lost_reason(run, started, process_alive) is None:
                 raise LedgerError(f'Milestone {milestone_id} is already being checked (run {run.get("run_id")}, process {run.get("pid")} since {run.get("started")}); '
                                   f'wait for it to end, or until {run.get("deadline")}.')
+        if request is not None:                                     # 2.5-B: the same milestone on the same tree running through CandidateChecker
+            from . import review_dispatch
+            other = review_dispatch.verdict_conflict(conn, state['task_id'], request)
+            if other:
+                raise LedgerError(f'Milestone {milestone_id} on this artifact is already being checked through {other["door"]} (run {other["run_id"]}, {other["state"]}); '
+                                  'nothing was dispatched. Observe that run; `onecrew engine reconcile-check` settles it.')
         plans.emit(ledger, conn, state['task_id'], 'verdict.run_started',
                    {'plan': name, 'revision': revision, 'milestone': milestone_id, 'run_id': run_id, 'kind': kind, 'pid': os.getpid(), 'host': this_host(),
                     'started': started.isoformat(), 'max_minutes': max_minutes,
-                    'deadline': (started + dt.timedelta(minutes=max_minutes, seconds=RUN_GRACE_SECONDS)).isoformat()})
+                    **({'request_id': request['id'], 'request': request, 'candidate': candidate} if request is not None else {}),
+                    # what the run may spend around the verifier: three snapshots (before, checkout, after), or a long one looks like a lost run to `reap`
+                    'deadline': (started + dt.timedelta(minutes=max_minutes, seconds=RUN_GRACE_SECONDS + 3 * snapshot)).isoformat()})
     return run_id
 
 

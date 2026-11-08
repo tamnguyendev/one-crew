@@ -153,7 +153,7 @@ def _inherited(ledger, state, revision, milestone, contract):
     return earlier[-1]
 
 
-def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=None):
+def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=None, *, recorded_environment=False):
     """A milestone is passed only while its LATEST verdict on this revision is a pass; a later failure reopens it.
 
     With a `ledger` (its project is a Git repository) or an explicit `artifact`, the views also say whether that verdict still speaks for the
@@ -196,8 +196,11 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=
                     from . import verification_evidence
                     binding = verification_evidence.receipt_assessment(ledger, contract, m, revision,
                         candidate['receipt'], now(), task_id=state['task_id'], conn=conn,
-                        require_bound=namespaces.has_capability(state, 'sequential-engine'))
+                        require_bound=namespaces.has_capability(state, 'sequential-engine'), recorded_environment=recorded_environment)
                     if binding is not None:
+                        if binding.get('environment_changed'):
+                            extra.update(execution_environment_changed=True,
+                                         environment_note='Verdict ghi trong môi trường khác: nghiệm thu vẫn dựa trên nó; một lần verdict run mới ở đây sẽ chạy lại verifier.')
                         if not binding['reusable'] or (binding['requires_record'] and not binding['recorded']):
                             how = None
                             extra.update(stale=True, stale_reasons=binding['reasons'] or ['Evidence reuse basis must be recorded.'],
@@ -238,7 +241,7 @@ def views_for(ledger, contract, state, revision):
     (_accepted_views), so what was accepted reads the same forever; any other is read at the project's artifact now."""
     accepted = state['accepted'] if state['accepted'] and state['accepted']['revision'] == revision else None
     if accepted and isinstance(accepted.get('receipts'), dict): return _accepted_views(contract, state, revision, accepted)
-    return milestone_views(contract, state, revision, ledger, artifact=accepted['artifact_sha'] if accepted else None)
+    return milestone_views(contract, state, revision, ledger, artifact=accepted['artifact_sha'] if accepted else None, recorded_environment=True)
 
 
 def resolve(ledger, state):
@@ -325,12 +328,26 @@ def _anchor(ledger, name, title, then=None):
     return submit(ledger, f'Plan {name}: {title}'[:2000], namespaces.NAMESPACED + name, mode='audit', _then=then)['id']
 
 
-def propose(ledger, name, raw, author, workflow=False, capabilities=None):
+def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_existing=False):
     valid_plan_name(name)                       # W12a: reject ':', path chars, drive form, absolute — before any write
     key_field(name); key_field(ANCHOR + name)
     metadata = namespaces.workflow_metadata(workflow, capabilities)
     text_field(author, 'author', 100); refuse_owner_author(author)
     contract = contracts.validate(raw)
+    if reuse_existing:
+        # Re-entry only: never amend, upgrade capabilities, approve or revive an
+        # old plan. The execution gates still check its current grant/deadline.
+        with ledger.transaction() as conn:
+            existing = namespaces.resolve(ledger, conn, name)
+            if existing:
+                state = anchor_events(ledger, conn, existing['request_key'])
+                if state['status'] in ('accepted', 'closed', 'stopped_with_report'):
+                    raise LedgerError('Cannot reuse a completed or stopped plan; read its report and use a new work name or the authorized recovery path.')
+                if state['revisions'][state['latest']]['sha'] != content_hash(contract):
+                    raise LedgerError('Existing plan has a different contract; read it and use plan amend if authorized.')
+                if {k: state[k] for k in ('workflow_version', 'capabilities') if k in state} != metadata:
+                    raise LedgerError('Existing plan has different workflow capabilities; reuse cannot upgrade its grant.')
+                return _show(ledger, state['selector'])
     selector = namespaces.NAMESPACED + name
     from . import solution_link
     solution_link.prepare(ledger, selector, contract)
@@ -348,7 +365,7 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None):
             raise LedgerError(f'Plan {name}: the written revision does not hash to the proposed contract.')
 
     _anchor(ledger, name, contract['title'], then=first_revision)
-    return show(ledger, selector)
+    return _show(ledger, selector)
 
 
 def amend(ledger, name, raw, reason, author, events=None, keep_content_author=False):
@@ -378,7 +395,7 @@ def amend(ledger, name, raw, reason, author, events=None, keep_content_author=Fa
         for kind, payload in (events(revision) if events else ()): emit(ledger, conn, state['task_id'], kind, payload)
         solution_link.record(ledger, conn, state['task_id'], state['selector'], revision, sha, contract)
     from . import active_plan; active_plan.export(ledger, name)  # L2: one line (hooks read the exported file, not the ledger)
-    return show(ledger, name)
+    return _show(ledger, name)
 
 
 def _base_tracked(ledger):
@@ -386,8 +403,9 @@ def _base_tracked(ledger):
     starts, so no untracked content can be on the base side of it. None outside a Git repository."""
     from .verifiers import command
     try:
-        command.refuse_hard_links(ledger.project)          # its content may be a kept file's: never hashed into a pinned base (review D-R04)
-        return command.tracked_tree(ledger.project)
+        with command.snapshot_limits():
+            command.refuse_hard_links(ledger.project)      # its content may be a kept file's: never hashed into a pinned base (review D-R04)
+            return command.tracked_tree(ledger.project)
     except command.HardLinked:
         raise
     except (LedgerError, OSError, subprocess.SubprocessError):
@@ -399,7 +417,8 @@ def _base_artifact(ledger):
     holds a hard-linked name (or one reached through a junction) is refused, never approved without a base (command.verified_sha, review D-R02)."""
     from .verifiers import command
     try:
-        return command.verified_sha(ledger.project)
+        with command.snapshot_limits():
+            return command.verified_sha(ledger.project)
     except command.HardLinked:
         raise
     except (LedgerError, OSError, subprocess.SubprocessError):
@@ -412,7 +431,8 @@ def _refuse_hard_links(ledger):
     the link with a copy and approves again; nothing is recorded until then."""
     from .verifiers import command
     try:
-        command.refuse_hard_links(ledger.project)
+        with command.snapshot_limits():
+            command.refuse_hard_links(ledger.project)
     except command.HardLinked:
         raise
     except (LedgerError, OSError, subprocess.SubprocessError):
@@ -441,7 +461,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
     if approved and approved['revision'] == revision and approved['sha'] == sha:   # a repeat is a no-op, but the choice is made once
         if choose is not None and choose != approved.get('chosen'):
             raise LedgerError(f'The choice was made once ({approved.get("chosen")}); changing it needs plan amend (a change request).')
-        return show(ledger, name)
+        return _show(ledger, name)
     _refuse_hard_links(ledger)
     from . import root_writer
     with ledger.transaction() as conn:                       # T26 E4: refused before step 0 runs (repeated at the write below)
@@ -468,11 +488,28 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
                                                                     **({'base_tracked': base_tracked} if base_tracked else {}), **session_info()})
             from ..budget_core import ensure_plan_group
             ensure_plan_group(ledger, conn, state['selector'])
+            _supersede_holds(ledger, conn, state, revision)
             estimates.ensure_baseline(ledger, conn, state['selector'], estimate)
             step0.record_closed(ledger, conn, state['task_id'], name, revision, sha, verdict, choose)
     if not verdict['ok']: raise LedgerError(step0.refusal_text(verdict))   # after the commit, so the precondition run stays recorded
     from . import active_plan; active_plan.export(ledger, name)  # L2: one line (hooks read the exported file, not the ledger)
-    return show(ledger, name)
+    return _show(ledger, name)
+
+
+def _supersede_holds(ledger, conn, state, revision):
+    """A question about holding work under an earlier revision has no answer left once the owner approved a newer one: that approval is the owner's own act, and
+    it answers the question's subject. The row says so with its own provenance; it is never written as a choice among the question's options."""
+    rows = conn.execute("SELECT id,revision,payload FROM requests WHERE task_id=? AND state='pending'", (state['task_id'],)).fetchall()
+    for row in rows:
+        action = json.loads(row['payload']).get('action') or {}
+        if action.get('type') != 'v2.workflow_hold' or (action.get('parameters') or {}).get('contract_revision') == revision: continue
+        stamp = utcnow()
+        answer = {'id': 'SUPERSEDED-' + row['id'], 'request_id': row['id'], 'revision': row['revision'], 'choice': 'superseded_by_approval', 'recorded_at': stamp,
+                  'provenance': {'actor': None, 'source': 'plan.approved', 'reference': f'revision {revision} approved', 'trust': 'ledger_event', 'by': None, 'decided_by': None},
+                  'action_applied': False}
+        conn.execute("UPDATE requests SET state='answered',answer=?,updated_at=? WHERE id=? AND state='pending'", (canonical(answer), stamp, row['id']))
+        emit(ledger, conn, state['task_id'], 'request.superseded', {'plan': state['name'], 'revision': revision, 'request_id': row['id'], 'request_revision': row['revision'],
+                                                                    'by_approval': True, 'grants_authority': False})
 
 
 def _as_tree(ledger, value):
@@ -511,6 +548,8 @@ def accept(ledger, name, by, reference, artifact_sha, *, expected_revision=None)
             if namespaces.has_capability(state, 'sequential-engine'):
                 from . import engine
                 if not engine.root_ready(ledger, state['selector'], artifact=artifact_sha):
+                    if engine.handoff_evidence(ledger, state['selector']):
+                        raise LedgerError('Cannot accept: the current project or requested artifact differs from the verified handoff. Preserve the changes and reconcile them; no old receipt certifies this tree.')
                     raise LedgerError('Cannot accept: workflow nodes, integration and authorized delivered-artifact handoff are not verified.')
             from . import verification_evidence
             for milestone in contract['milestones']:
@@ -519,16 +558,17 @@ def accept(ledger, name, by, reference, artifact_sha, *, expected_revision=None)
                 if candidate and candidate['result'] == 'pass' and milestone['verifier']['type'] != 'owner-manual':
                     assessment = verification_evidence.receipt_assessment(ledger, contract, milestone, revision,
                         candidate['receipt'], artifact_sha, task_id=state['task_id'], conn=conn,
-                        require_bound=namespaces.has_capability(state, 'sequential-engine'))
+                        require_bound=namespaces.has_capability(state, 'sequential-engine'), recorded_environment=True)
                     if assessment and assessment['reusable'] and assessment['requires_record'] and not assessment['recorded']:
-                        verification_evidence.record_reuse(ledger, name, milestone['id'], candidate['receipt'], artifact_sha, conn=conn)
-            views = milestone_views(contract, state, revision, ledger, artifact=artifact_sha, conn=conn)
+                        verification_evidence.record_reuse(ledger, name, milestone['id'], candidate['receipt'], artifact_sha, conn=conn, recorded_environment=True)
+            views = milestone_views(contract, state, revision, ledger, artifact=artifact_sha, conn=conn, recorded_environment=True)
             missing = [v['id'] for v in views if v['state'] != 'passed' and not v.get('stale')]
             if missing: raise LedgerError('Cannot accept: no passing verdict for milestone ' + ', '.join(missing) + '.')
             elsewhere = [v for v in views if v.get('stale')]
             if elsewhere:
                 raise LedgerError(f'Cannot accept artifact {artifact_sha}: every milestone must have passed on exactly that artifact; '
-                                  + '; '.join(f'{v["id"]} passed on {v["last_verdict"]["artifact_sha"]}' for v in views if v['last_verdict']) + '. Re-run the milestones that differ.')
+                                   + '; '.join(f'{v["id"]}: ' + ', '.join(v.get('stale_reasons') or ['artifact changed']) for v in elsewhere)
+                                   + '. Inspect plan show and re-run only the named stale milestones in their execution environment.')
             if namespaces.has_capability(state, 'finding-register'):
                 from .findings import list_findings
                 open_findings = list_findings(ledger, name, task_id=state['task_id'], open_only=True)
@@ -543,7 +583,7 @@ def accept(ledger, name, by, reference, artifact_sha, *, expected_revision=None)
                                                                     **({'carried': carried} if carried else {}), **session_info()})
     from . import outcome
     outcome.note(ledger, name)
-    return show(ledger, name)
+    return _show(ledger, name)
 
 
 def _advice_view(event, sha):
@@ -553,6 +593,14 @@ def _advice_view(event, sha):
 
 
 def show(ledger, name, revision=None):
+    """A read: it judges the evidence against the tree now and stores nothing in the project, or it raises (ReadIsolationFailed) and has no result.
+    A door that acts reports its effect through _show: a failed read must not make a recorded effect look failed."""
+    from .verifiers import command
+    with command.leaves_no_objects():
+        return _show(ledger, name, revision)
+
+
+def _show(ledger, name, revision=None):
     from . import step0
     with ledger.transaction() as conn:
         state = anchor_events(ledger, conn, name)
