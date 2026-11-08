@@ -347,7 +347,6 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_
     metadata = namespaces.workflow_metadata(workflow, capabilities)
     text_field(author, 'author', 100); refuse_owner_author(author)
     contract = contracts.validate(raw)
-    refuse_form(ledger, raw, author)            # dev11: what lint reports as a form refusal (and approve would refuse) stops here, before any write
     if reuse_existing:
         # Re-entry only: never amend, upgrade capabilities, approve or revive an
         # old plan. The execution gates still check its current grant/deadline.
@@ -366,6 +365,9 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_
     from . import solution_link
     solution_link.prepare(ledger, selector, contract)
     contracts.require_unknown_scope(contract)   # W31a: the write-time rule of a plan-ns revision, checked before anything is written
+    # dev11: what lint reports as a form refusal (and approve would refuse) stops here, before any write; after re-entry (an existing plan is
+    # read, not re-judged) and after the more specific refusals above (another project's solution, an unscoped unknown).
+    refuse_form(ledger, raw, author)
     if contracts.revision_path(ledger, selector, 1).exists(): raise LedgerError(f'Plan {name} already exists; change it with plan amend.')
     sha = content_hash(contract)                # what write_revision records as content_sha
 
