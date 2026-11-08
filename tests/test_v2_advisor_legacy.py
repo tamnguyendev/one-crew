@@ -1,6 +1,5 @@
 """Job 9, revision 3 of the contract: a contract proposed before the owner-rules file exists, and without any new field, is exempt; once the file
 exists (or the contract uses a new field) the gate is strict. This pins the exempt side."""
-from unittest.mock import patch
 import unittest
 
 from onecrew.ledger import LedgerError
@@ -12,12 +11,6 @@ from test_v2_l3 import reasons
 
 
 class LegacyExemptionTests(Fixture):
-    def setUp(self):
-        super().setUp()
-        # dev11: propose refuses these form reasons first (tests/test_dev11_propose_form.py). This class tests approve's own gate, which still
-        # holds for a plan recorded before that check or changed by plan amend, so the plans here are written as before dev11.
-        guard = patch('onecrew.v2.plan.refuse_form'); guard.start(); self.addCleanup(guard.stop)
-
     def test_a_legacy_size_s_contract_is_approved_without_origin_sources_or_advice(self):
         self.propose()
         self.assertEqual(plans.approve(self.ledger, 'P1', 'owner', 'said yes')['status'], 'approved')

@@ -20,7 +20,7 @@ from tests.test_v2_l1 import BAD, OK, PY, Fixture, milestone, plan_json
 DOC = 'onecrew/conversations.py:167'
 
 
-def option(oid, evidence=('a.txt:1',), **extra):     # dev11: a file every fixture project has (propose now checks evidence)
+def option(oid, evidence=('x/y.py:1',), **extra):
     return dict({'id': oid, 'summary': f'Option {oid}', 'evidence': list(evidence), 'strengths': ['simple'], 'weaknesses': ['slow'],
                  'unknowns': [], 'cost': '3 calls', 'risk': 'low'}, **extra)
 
@@ -54,11 +54,7 @@ class Step0(Fixture):
             path = self.root / relative; path.parent.mkdir(parents=True, exist_ok=True); path.write_text('x = 1\n' * lines)
 
     def refused(self, value, name='P1', **kw):
-        try:
-            self.propose(name, value)
-        except LedgerError as error:                  # dev11: a form reason is refused at propose already, in approve's ' - [code]' lines
-            self.assertIn('Propose refused', str(error))
-            return error
+        self.propose(name, value)
         with self.assertRaises(LedgerError) as caught: plans.approve(self.ledger, name, 'owner', 'ref', **kw)
         self.assertNotIn('plan.approved', self.kinds(name))
         return caught.exception
@@ -118,17 +114,11 @@ class AllReasons(Step0):
     def test_the_refusal_lists_every_reason_not_only_the_first(self):
         pre = [{'id': 'P1', 'check': 'path_exists', 'args': {'path': 'missing.txt'}, 'why': 'w'},
                {'id': 'P2', 'check': 'command_ok', 'args': {'argv': BAD}, 'why': 'w'}]
-        # dev11: the form reasons come at propose, every one of them at once ...
-        value = step0_json(confidence='low', unknowns=['U1', 'U2'], assumptions=[('a', None), ('b', 'gone.py:1')], pre=pre)
+        value = step0_json(confidence='low', unknowns=['U1', 'U2'], assumptions=[('a', None)], pre=pre)
         error = self.refused(value)
-        self.assertEqual(reasons(error), ['assumption_no_evidence', 'assumption_evidence_invalid'])
-        self.assertIn('2 form reasons', str(error))
-        # ... and approve still lists every reason of its own, not only the first
-        value = step0_json(confidence='low', unknowns=['U1', 'U2'], pre=pre)
-        error = self.refused(value, 'P2')
-        self.assertEqual(reasons(error), ['confidence_low', 'unknown_open', 'unknown_open', 'options_not_chosen',
+        self.assertEqual(reasons(error), ['confidence_low', 'unknown_open', 'unknown_open', 'assumption_no_evidence', 'options_not_chosen',
                                           'precondition_red', 'precondition_red'])
-        self.assertIn('6 reasons', str(error))
+        self.assertIn('7 reasons', str(error))
 
 
 class Preconditions(Step0):

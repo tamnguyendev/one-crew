@@ -9,7 +9,7 @@
   - `test_a_r13` giữ node khi hai cửa chạy đua: nguyên nhân là ghi lại manifest snapshot định danh theo nội dung trong lúc luồng kia đang đọc (Windows từ chối thay file đang mở); `Snapshots.save` không ghi lại manifest đã đúng byte;
   - stdout/stderr của verifier lệnh mở được qua `track evidence` và trang theo dõi; plan không `--workflow` nói rõ không có sổ finding;
   - `plan propose` từ chối trước khi ghi các lý do hình thức mà `plan lint` báo và `owner approve` sẽ từ chối.
-- **Chưa kiểm:** provider thật, hook phiên thật, repo cỡ MEP. Xem bàn giao trong gói `D:/OneCrewRuns/v25/pkg`.
+- **Chưa kiểm:** provider thật, hook phiên thật, repo cỡ MEP. Xem bàn giao trong gói dev11 (ngoài repo, chưa phát hành).
 
 ## v2.5.0.dev10 (05/11/2026) — beta UI OBS-2 (prerelease)
 

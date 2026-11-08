@@ -236,12 +236,7 @@ class NonGitLifecycle(unittest.TestCase):
     def test_head_and_nonadapter_cannot_bypass_non_git_target_check(self):
         for name, value in (('HEAD', self.contract('data', DATA, 'HEAD')),
                             ('COMMAND', self.contract('command', {'argv': ['python', '-c', 'pass']}))):
-            from unittest.mock import patch
-            with self.assertRaisesRegex(LedgerError, 'target_repo'):
-                plan.propose(self.ledger, name, value, 'codex-fixture')          # dev11: refused at propose, nothing written
-            with self.assertRaises(LedgerError): plan.show(self.ledger, name)
-            with patch('onecrew.v2.plan.refuse_form'):                            # a plan recorded before dev11: approve still refuses it
-                plan.propose(self.ledger, name, value, 'codex-fixture')
+            plan.propose(self.ledger, name, value, 'codex-fixture')
             with self.assertRaisesRegex(LedgerError, 'target_repo'):
                 plan.approve(self.ledger, name, 'owner', 'fixture')
             self.assertEqual(plan.show(self.ledger, name)['status'], 'proposed')

@@ -341,7 +341,7 @@ def refuse_form(ledger, raw, author):
                           'nothing was written. Fix them and propose again:\n' + '\n'.join(f' - [{code}] {text}' for code, text in reasons))
 
 
-def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_existing=False):
+def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_existing=False, check_form=False):
     valid_plan_name(name)                       # W12a: reject ':', path chars, drive form, absolute — before any write
     key_field(name); key_field(ANCHOR + name)
     metadata = namespaces.workflow_metadata(workflow, capabilities)
@@ -365,9 +365,10 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_
     from . import solution_link
     solution_link.prepare(ledger, selector, contract)
     contracts.require_unknown_scope(contract)   # W31a: the write-time rule of a plan-ns revision, checked before anything is written
-    # dev11: what lint reports as a form refusal (and approve would refuse) stops here, before any write; after re-entry (an existing plan is
-    # read, not re-judged) and after the more specific refusals above (another project's solution, an unscoped unknown).
-    refuse_form(ledger, raw, author)
+    # dev11: with check_form (the `plan propose` command), what lint reports as a form refusal and approve would refuse stops here, before any
+    # write; after re-entry (an existing plan is read, not re-judged) and after the more specific refusals above. The library default is
+    # unchanged: approve stays the gate for every other caller, and for a plan recorded before dev11 or changed by plan amend.
+    if check_form: refuse_form(ledger, raw, author)
     if contracts.revision_path(ledger, selector, 1).exists(): raise LedgerError(f'Plan {name} already exists; change it with plan amend.')
     sha = content_hash(contract)                # what write_revision records as content_sha
 

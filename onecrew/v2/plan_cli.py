@@ -135,7 +135,7 @@ def _dispatch(ledger, args):
             elif args.command == 'report' and args.handover: text = report.render_handover(ledger.state_root, args.name, args.revision, project_id=ledger.project_id)
             else: text = report.render_report(ledger.state_root, args.name, args.revision, project_id=ledger.project_id) if args.command == 'report' else report.render_digest(ledger.state_root)
             return report.write_out(text, args.out, ledger.state_root) if args.out else text
-        if args.command == 'propose': return plans.propose(ledger, args.name, read_json(args.file), args.author, workflow=args.workflow, capabilities=args.capability, reuse_existing=args.reuse_existing)
+        if args.command == 'propose': return plans.propose(ledger, args.name, read_json(args.file), args.author, workflow=args.workflow, capabilities=args.capability, reuse_existing=args.reuse_existing, check_form=True)
         if args.command == 'show': return plans.show(ledger, args.name, args.revision)
         if args.command == 'approve': return plans.approve(ledger, args.name, args.by, args.reference, args.revision, args.tick, args.choose,
                                                          estimate=read_json(args.estimate_file) if args.estimate_file else None)
