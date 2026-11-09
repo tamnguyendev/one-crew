@@ -91,15 +91,28 @@ def lint(ledger, raw, author=None):
 # Required once the owner-rules file exists in the state root (the owner's own setup, as for the provenance rules); plain words whenever given.
 OWNER_PARTS = (('request', 'Việc này làm gì'), ('user_sees', 'Xong bạn thấy gì'), ('acceptance_steps', 'Làm sao biết đạt'), ('not_doing', 'Không làm gì'))
 OWNER_CODES = ('owner_view_missing', 'owner_view_technical')
-_A = r'A-Za-z0-9_'
+_S = r'[A-Za-z0-9_.-]'                 # one character of a path segment (ASCII: a Vietnamese word never is one)
+_EXT = (r'py|pyc|json|md|ps1|psm1|txt|js|mjs|cjs|jsx|ts|tsx|vue|html?|css|scss|less|ya?ml|toml|ini|cfg|conf|env|sqlite3?|db|sql|whl|exe|dll|so|'
+        r'dylib|msi|msix|sh|bat|cmd|cs|csproj|sln|java|kt|kts|gradle|go|rs|c|h|cpp|hpp|rb|php|swift|xml|plist|proto|csv|log|apk|aab|ipa|jar|'
+        r'zip|tar|gz|tgz|7z|lock|ipynb|pem|crt|pfx|p12')
+# dev12 (review F5, F6): a slash between plain words ("10 km/h", "có/không", "3/5", "ngày/tuần") is not a path. A path is: an absolute or home
+# path (/etc/passwd, ~/.claude, ./scripts), three or more ASCII segments with a letter (onecrew/v2/lint.py), a segment holding a dot or an
+# underscore on either side of one slash (docs/a.md, src_x/y), a folder named with its slash (docs/), or a Windows path of either kind.
 TECHNICAL = (
-    ('đường dẫn', re.compile(r'(?<![\w])[A-Za-z]:\\[^\s,;]*|\\\\[^\s,;]+')),
-    ('tên file hoặc đường dẫn', re.compile(rf'(?<![\w/])[{_A}.-]*[A-Za-z_][{_A}.-]*/[{_A}./-]*|(?<![\w/])[{_A}.-]+/[{_A}.-]*[A-Za-z_][{_A}./-]*')),
-    ('tên file', re.compile(r'(?<![\w.])[\w-]+\.(?:py|json|md|ps1|psm1|txt|js|ts|tsx|html?|css|ya?ml|toml|ini|cfg|sqlite3?|db|whl|exe|dll|sh|bat|cmd|cs|java|kt|xml|csv|log|apk|zip|lock)\b', re.I)),
+    ('đường dẫn', re.compile(r'(?<![\w])[A-Za-z]:\\[^\s,;]*|\\\\[^\s,;]+|(?<![\w\\])[\w.-]+(?:\\[\w.-]+)+|\b[a-z][a-z0-9+.-]*://\S+')),
+    ('tên file hoặc đường dẫn', re.compile(
+        rf'(?<![\w/.~])(?:~|\.\.?)?/[A-Za-z_.]{_S}*(?:/{_S}+)*(?!\w)'
+        rf'|(?<![\w/.~])(?!(?:dd|mm|yy|yyyy|hh)/(?:dd|mm|yy|yyyy)\b)(?={_S}*[A-Za-z_]){_S}+(?:/{_S}+){{2,}}/?(?![\w/])'
+        rf'|(?<![\w/.~])(?=[A-Za-z0-9_./-]*[A-Za-z])[A-Za-z0-9_-]*[._]{_S}*/{_S}*[A-Za-z0-9_](?![\w/])'
+        rf'|(?<![\w/.~])(?=[A-Za-z0-9_./-]*[A-Za-z]){_S}+/[A-Za-z0-9_-]*[._]{_S}*[A-Za-z0-9_](?![\w/])'
+        rf'|(?<![\w/.~])[A-Za-z_]{_S}*/(?=[\s,;:)]|$)')),
+    ('tên file', re.compile(rf'(?<![\w.])[\w-]+\.(?:{_EXT})\b|(?<![\w.])\.(?:env|git|gitignore|venv|vscode|claude|onecrew)\b', re.I)),
     ('cờ lệnh', re.compile(r'(?<![\w-])--?[A-Za-z][\w-]*')),
-    ('mã lỗi', re.compile(r'\b(?:Errno|errno|exit code|exit status|Traceback|Exception|WinError)\b(?:\s*\d+)?|\b0x[0-9A-Fa-f]+\b|\b[A-Z]{2,}-[0-9A-Fa-f]{4,}\b')),
-    ('mã nội bộ', re.compile(r'\b[A-Z]{1,3}\d+[a-z]?\b|\brev(?:ision)?\s*\d+\b|\bv\d+(?:\.\d+)+\b')),
-    ('mã băm', re.compile(r'\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,64}\b')),
+    ('mã lỗi', re.compile(r'\b(?:Errno|errno|exit code|exit status|Traceback|Exception|WinError)\b(?:\s*\d+)?|\b0x[0-9A-Fa-f]+\b|\b[A-Z]{2,}-[0-9A-Fa-f]{4,}\b'
+                          r'|\bE(?:ACCES|NOENT|PERM|EXIST|INVAL|BUSY|ISDIR|NOTDIR|NOSPC|AGAIN|TIMEDOUT|CONNREFUSED|CONNRESET|PIPE|MFILE|NOTEMPTY|ROFS|XDEV)\b'
+                          r'|\bSIG(?:KILL|TERM|INT|SEGV|ABRT|HUP)\b|\bHTTP\s*\d{3}\b|\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b')),
+    ('mã nội bộ', re.compile(r'\b(?!Q[1-4]\b)[A-Z]{1,3}\d+[a-z]?\b|\brev(?:ision)?\s*\d+\b|\bv\d+(?:\.\d+)+\b')),
+    ('mã băm', re.compile(r'\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,64}\b|\b(?=[0-9A-F]*\d)(?=[0-9A-F]*[A-F])[0-9A-F]{7,64}\b')),
     ('mã lệnh', re.compile(r'`[^`]+`')),
 )
 
@@ -115,7 +128,7 @@ def technical_word(text):
     """(kind, word) of the first technical token in an owner sentence, else None."""
     for kind, pattern in TECHNICAL:
         found = pattern.search(text)
-        if found: return kind, found.group(0).strip()
+        if found: return kind, found.group(0).strip().rstrip('.,;:')
     return None
 
 
