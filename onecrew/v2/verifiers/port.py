@@ -432,10 +432,11 @@ def _checks(report, box):
 
 def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context=None, *, deadline=None):
     """Run the milestone's adapter on a clean checkout of the artifact; returns (receipt_blob, receipt)."""
-    adapter = get(milestone['verifier']['type'])
-    directory = Path(directory).resolve()
-    if not directory.is_dir(): raise LedgerError('Verifier working directory does not exist: ' + str(directory))
-    scratch = tempfile.mkdtemp(prefix='ocv-')
+    with artifact.command.before_verifier():           # issue #2 (dev14): nothing here calls the adapter; a failure says so
+        adapter = get(milestone['verifier']['type'])
+        directory = Path(directory).resolve()
+        if not directory.is_dir(): raise LedgerError('Verifier working directory does not exist: ' + str(directory))
+        scratch = tempfile.mkdtemp(prefix='ocv-')
     try:
         with artifact.command.before_verifier():
             workspace, before, proof = artifact.capture(ledger, directory, scratch)

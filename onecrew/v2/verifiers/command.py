@@ -894,22 +894,33 @@ def before_verifier():
     of unknown outcome only when that is not known)."""
     try:
         yield
-    except SnapshotFailed as failed:
-        failed.verifier_started = False
+    except Exception as failed:                        # issue #2 (dev14): any failure in here, not only SnapshotFailed: a git checkout that
+        if getattr(failed, 'verifier_started', None) is None:      # fails, an OSError, a LedgerError from the environment, a bad value
+            try:
+                failed.verifier_started = False
+            except (AttributeError, TypeError):
+                raise NotStarted(f'{type(failed).__name__}: {failed}'[:500]) from failed
         raise
+
+
+class NotStarted(LedgerError):
+    """A failure before the verifier was called whose own exception cannot carry the mark."""
+    verifier_started = False
 
 
 def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context=None, *, effective_environment=None, deadline=None):
     """Execute the milestone's command; returns (receipt_blob, receipt)."""
-    argv, limit = milestone['verifier']['config']['argv'], milestone['verifier']['config']['max_minutes']
-    directory = Path(directory).resolve()
-    if not directory.is_dir(): raise LedgerError('Verifier working directory does not exist: ' + str(directory))
+    with before_verifier():                            # issue #2 (dev14): the directory check and the scratch directory too
+        argv, limit = milestone['verifier']['config']['argv'], milestone['verifier']['config']['max_minutes']
+        directory = Path(directory).resolve()
+        if not directory.is_dir(): raise LedgerError('Verifier working directory does not exist: ' + str(directory))
     with snapshot_limits(deadline):
         begin = time.monotonic()
         with before_verifier(), _snapshot('before the verifier'):
             before = verified_sha(directory)
         timing = {'before_seconds': round(time.monotonic() - begin, 2), 'limit_seconds': round(snapshot_seconds(), 1)}
-        scratch = tempfile.mkdtemp(prefix='ocv-')
+        with before_verifier():
+            scratch = tempfile.mkdtemp(prefix='ocv-')
         try:
             return _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context,
                         effective_environment=effective_environment, deadline=deadline, timing=timing)
@@ -928,15 +939,15 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
         env = verifier_env(directory) if effective_environment is None else dict(effective_environment)
         from .. import verification_evidence
         binding = verification_evidence.for_receipt(ledger, evidence_context, milestone, before, env) if evidence_context else None
-    started, error, timed_out, code, out, err = utcnow(), None, False, None, b'', b''
-    begin = time.monotonic()
-    if deadline is not None:
-        left = (dt.datetime.fromisoformat(deadline) - dt.datetime.now(dt.timezone.utc)).total_seconds()
-        if left <= 0:
-            failed = LedgerError('The original root deadline elapsed before verifier command dispatch.')
-            failed.verifier_started = False
-            raise failed
-        limit = min(limit, left / 60)
+        started, error, timed_out, code, out, err = utcnow(), None, False, None, b'', b''
+        begin = time.monotonic()
+        if deadline is not None:                       # issue #2 (dev14): inside before_verifier too, up to the Popen
+            left = (dt.datetime.fromisoformat(deadline) - dt.datetime.now(dt.timezone.utc)).total_seconds()
+            if left <= 0:
+                failed = LedgerError('The original root deadline elapsed before verifier command dispatch.')
+                failed.verifier_started = False
+                raise failed
+            limit = min(limit, left / 60)
     try:
         process = subprocess.Popen(argv, cwd=str(workspace), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, creationflags=0x08000000 if os.name == 'nt' else 0)
