@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## v2.5.0.dev14 (09/11/2026) — review lại dev13 `698e118` (Kiro, FAIL); chủ: "Đồng ý" lọc hai mức — LOCAL, chưa tag/push/phát hành
+
+Mỗi mục có test đỏ trên `698e118` (`tests/test_dev13_review_fixes.py`).
+- **Lọc lời thường hai mức.**
+  - **Chặn** (`owner_view_technical`) chỉ chữ chắc chắn kỹ thuật:
+    - đường dẫn Windows hoặc UNC, đường dẫn bắt đầu bằng `/ ./ ../ ~/`;
+    - URL có scheme, tên file có đuôi đã biết;
+    - `--cờ`, đoạn trong backtick, mã băm, tên lỗi hệ thống;
+    - mã OneCrew trong ngữ cảnh rõ (`mốc M1`, `rev 2`, `v2.5`, `dev12`, `Sol6`).
+  - **Cảnh báo** (`owner_view_maybe_technical`) cho chữ có thể kỹ thuật: `api/v2`, `src/app`, `Dockerfile`, `REQ-123`, `www.example.com`, `TEN_HANG`, mã trần như `U1`, `F7`. `plan lint` vẫn exit 0; `propose`/`amend`/`approve` trả kèm `warnings`; `owner approve --human` in "Cảnh báo (không chặn)".
+  - **Câu y tế qua sạch:** mã ICD (`F32.1`, `I10`, `J18.9`, `T39`), liều (`5 mg/kg/ngày`, `1 mg/kg/24 giờ`), `vitamin D3/B12`, `phòng B12`, `SpO2 95%`, `120/80 mmHg`.
+- **Thư viện `propose`/`amend`/`--reuse-existing`** từ chối mọi quy tắc trên chữ của hợp đồng mà approve áp, gồm cả "fail if".
+- **`plan rules init` ghi owner-rules dưới khóa ghi của ledger,** nên file không thể xuất hiện giữa lần kiểm cuối của approve và lúc ghi duyệt.
+
 ## v2.5.0.dev13 (09/11/2026) — review lại dev12 `b0d3bdb` (Kiro, FAIL); chủ: "Sửa tiếp hết" — LOCAL, chưa tag/push/phát hành
 
 Mỗi mục có test đỏ trên `b0d3bdb` (`tests/test_dev12b_review_fixes.py`).
