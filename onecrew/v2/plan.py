@@ -328,7 +328,7 @@ def _anchor(ledger, name, title, then=None):
     return submit(ledger, f'Plan {name}: {title}'[:2000], namespaces.NAMESPACED + name, mode='audit', _then=then)['id']
 
 
-def refuse_form(ledger, raw, author, verb='Propose'):
+def refuse_form(ledger, raw, author, verb='Propose', fix=None):
     """dev11 (dogfood 05/11): the form refusals of `plan lint` (step 0 FORM_CODES: target, evidence, origin, item sources, decisions; and an
     argv control character) are raised at propose, in approve's ' - [code] text' lines, so a contract approve would refuse is never written.
     The same functions lint calls; the approval-only rules (open unknowns, options, preconditions, confidence) stay with approve, and the
@@ -338,7 +338,7 @@ def refuse_form(ledger, raw, author, verb='Propose'):
                if r[0] in lint.FORM_CODES or r[0] == 'argv_control_char' or r[0] in lint.OWNER_CODES]     # dev11: and the owner part
     if reasons:
         raise LedgerError(f'{verb} refused: plan lint reports {len(reasons)} form reason{"s" if len(reasons) != 1 else ""} that approve would refuse; '
-                          f'nothing was written. Fix them and {verb.lower()} again:\n' + '\n'.join(f' - [{code}] {text}' for code, text in reasons))
+                          f'nothing was written. {fix[0].upper() + fix[1:] if fix else "Fix them and " + verb.lower() + " again"}:\n' + '\n'.join(f' - [{code}] {text}' for code, text in reasons))
 
 
 def refuse_owner_view(ledger, contract, revision):
@@ -373,13 +373,24 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_
                     raise LedgerError('Existing plan has a different contract; read it and use plan amend if authorized.')
                 if {k: state[k] for k in ('workflow_version', 'capabilities') if k in state} != metadata:
                     raise LedgerError('Existing plan has different workflow capabilities; reuse cannot upgrade its grant.')
-                return _show(ledger, state['selector'])
+                approved = state['approved']
+                reused = state['selector'], bool(approved and approved['revision'] == state['latest'] and approved['sha'] == state['revisions'][state['latest']]['sha'])
+            else:
+                reused = None
+        if reused:
+            # dev12 (review F4): the command does not hand back as reused a plan waiting for approval that lint refuses today (one recorded
+            # before dev11, or by the library); it says why, and the fix is a new revision. A plan the owner already approved at this revision
+            # is re-entered as before: the owner judged it, and a running workflow is not stopped by a rule added after. The library default
+            # stays unchanged, as for a new plan below.
+            if check_form and not reused[1]:
+                refuse_form(ledger, raw, author, verb='Reuse', fix='the existing plan was not reused; write the fix with plan amend')
+            return _show(ledger, reused[0])
     selector = namespaces.NAMESPACED + name
     from . import solution_link
     solution_link.prepare(ledger, selector, contract)
     contracts.require_unknown_scope(contract)   # W31a: the write-time rule of a plan-ns revision, checked before anything is written
     # dev11: with check_form (the `plan propose` command), what lint reports as a form refusal and approve would refuse stops here, before any
-    # write; after re-entry (an existing plan is read, not re-judged) and after the more specific refusals above. The library default is
+    # write; after re-entry (judged above, dev12) and after the more specific refusals above. The library default is
     # unchanged: approve stays the gate for every other caller, and for a plan recorded before dev11 or changed by plan amend.
     if check_form: refuse_form(ledger, raw, author)
     if contracts.revision_path(ledger, selector, 1).exists(): raise LedgerError(f'Plan {name} already exists; change it with plan amend.')
