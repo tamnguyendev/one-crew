@@ -4,7 +4,7 @@
 
 Review: Kiro CLI (gpt-5.6-sol), chỉ đọc, kết luận FAIL. Chủ duyệt sửa ngày 09/11. Mỗi lỗi có test đỏ trên `1fba2a4` trước khi sửa (`tests/test_dev12_review_fixes.py`).
 - **`--revision 0` vượt cổng phần cho chủ:** `approve()` coi 0 là số bản, nên từ chối vì đó không phải bản mới nhất.
-- **Race giữa lần kiểm ở lệnh và lần duyệt:** phần cho chủ được kiểm trong `approve()` trên đúng bản sẽ ghi. Lệnh `plan approve`/`owner approve` bật kiểm này. Thư viện giữ mặc định cũ, vì các test cổng duyệt bị kit-guard khóa dựa vào mặc định đó; bật cho mọi nơi gọi là quyết định của chủ.
+- **Cổng phần cho chủ ở mọi đường duyệt (chủ quyết 09/11: "Mở khóa test, bật hết"):** phần cho chủ nay là một lý do của step 0. Vì vậy `approve()` từ chối ở mọi đường gọi: thư viện, `plan approve`, `owner approve`. Lời từ chối gộp chung với các lý do step 0 khác, và kiểm trên đúng bản sẽ ghi, nên hết race với bản amend chen giữa. Hợp đồng chương trình mẫu (`wfkit/program_contract.py`) có phần cho chủ. Sửa test bị khóa: `tests/test_v2_advisor.py`, cần U1 của chủ (script chủ chạy); `tests/test_wf_program_transition.py` không phải sửa.
 - **`plan propose --reuse-existing`:** không dùng lại plan đang chờ duyệt mà lint từ chối. Plan đã được duyệt ở đúng bản đó vẫn vào lại như cũ.
 - **Nhận chữ kỹ thuật:** dấu `/` giữa lời thường (`10 km/h`, `mg/kg`, `có/không`) không còn bị bắt. Thêm đường dẫn tuyệt đối, home và Windows tương đối, URL, đuôi file, tên errno, hằng và hash viết hoa. Giới hạn: đường dẫn hai đoạn toàn chữ (`src/app`) chưa bắt được.
 - **Ô tìm kiếm trên trang theo dõi** tìm cả trong phần cho chủ, tức tiêu đề và mô tả của thẻ.
