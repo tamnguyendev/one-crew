@@ -1,4 +1,4 @@
-"""2.5.0.dev15 — fourth independent review (Kiro CLI, 09/11; BAO-CAO-REVIEW-dev14.md, verdict FAIL) on 3662b47. Every test here is red on 3662b47.
+"""2.5.0.dev15 — fourth independent review (Kiro CLI, 09/11; BAO-CAO-REVIEW-dev14.md, verdict FAIL) on 3662b47. On 3662b47, 9 of the 12 tests here are red; the other 3 are controls (white space only, everyday Vietnamese, the tree's own .gitattributes) that pass on both.
 
 P1 (#9)  a reviewer criterion changed in punctuation or in a literal ("safe-mode" -> "safe mode") was shown as "wording or added checks only";
          reordered criteria were not seen. Now only a change of white space is harmless.
