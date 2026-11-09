@@ -272,16 +272,24 @@ def provider_env(env, auth):
     return dict(env, **{KEY: key}), None
 
 
-def call(prompt, config, env, scratch, limit):
+def prepare(env, config):
+    """(provider environment, argv, refusal) of a Claude CLI call, decided ONCE before anything is launched or charged (review of dev19): the
+    credential (provider_env) and the CLI itself (cli_argv, which raises when there is none). `call(..., prepared=)` then runs exactly this."""
+    cli_env, refused = provider_env(env, config.get('auth', 'subscription'))
+    if refused: return None, None, refused
+    argv = [*cli_argv(cli_env), '-p', '--output-format', 'json', '--model', config['model'], '--tools', '', '--no-session-persistence',
+            '--disable-slash-commands', '--setting-sources', 'user']
+    return cli_env, argv, None
+
+
+def call(prompt, config, env, scratch, limit, prepared=None):
     """One read-only CLI call of the provider the config names (default claude): prompt in, JSON out, no tools, no session file, an empty working
     directory (so no project hook or CLAUDE.md is loaded). Returns (answer_text, usage, error, timed_out, raw_stdout). Claude is `claude -p` as ever,
     with the credential `auth` names (2.3 hotfix: subscription, the default, or api; provider_env); codex and kiro are built in providers.py.
     A usage limit is an error that starts `quota_exhausted:`; no other provider and no other credential is tried."""
     if config.get('provider', 'claude') != 'claude': return providers.call(config['provider'], prompt, config['model'], env, scratch, limit)
-    env, refused = provider_env(env, config.get('auth', 'subscription'))
+    env, argv, refused = prepared if prepared is not None else prepare(env, config)     # review of dev19: found once, by the caller when it can
     if refused: return '', {}, refused, False, b''
-    argv = [*cli_argv(env), '-p', '--output-format', 'json', '--model', config['model'], '--tools', '', '--no-session-persistence',
-            '--disable-slash-commands', '--setting-sources', 'user']
     out, err, code, timed_out, os_error = providers.run_process(argv, prompt, scratch, env, limit)
     # 2.4 (hotfix auth, Codex): a provider may reflect the key back (an error envelope quoting the x-api-key, stderr, a non-JSON stdout); it is
     # withheld from everything recorded (error text, raw blob) BEFORE any of it is read, so no receipt, blob or problem line holds the value
@@ -298,6 +306,9 @@ def call(prompt, config, env, scratch, limit):
         return '', {}, providers.quota_error('claude', text) if quota else 'CLI reported an error (exit %s): %s' % (code, text), False, out
     usage = {k: body.get(k) for k in ('usage', 'total_cost_usd', 'duration_ms', 'num_turns') if k in body}
     return body['result'][:MAX_ANSWER], usage, None, False, out
+
+
+call.takes_prepared = True        # a test that replaces `call` with a plain fake is called without `prepared`, and nothing is prepared for it
 
 
 def run(ledger, name, revision, plan_sha, milestone, directory, independence_result, approved, previous=None, open_findings=None, evidence_context=None, call_port=None):
@@ -358,7 +369,14 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
             try:
                 calls = 1
                 call_begin = time.monotonic()
-                answer, usage, error, timed_out, raw = (call_port or call)(prompt, config, env, scratch, config['max_minutes'])
+                if call_port is None and config.get('provider', 'claude') == 'claude' and getattr(call, 'takes_prepared', False) is True:
+                    # review of dev19 (legacy, no root budget): the credential and the CLI are found before the model call, once; no CLI says
+                    # the reviewer did not start, so the run is not held
+                    with command.before_verifier():
+                        prepared = prepare(env, config)
+                    answer, usage, error, timed_out, raw = call(prompt, config, env, scratch, config['max_minutes'], prepared=prepared)
+                else:
+                    answer, usage, error, timed_out, raw = (call_port or call)(prompt, config, env, scratch, config['max_minutes'])
                 execution_seconds = time.monotonic() - call_begin
                 if providers.error_kind(error) == providers.CREDENTIAL_MISSING: calls = 0      # refused before any process: not a model call
             finally:
@@ -370,7 +388,7 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
         after = before if no_artifact else command.verified_sha(directory)
     except LedgerError:
         after = None                         # not the same as before: never a pass
-    receipt = {'kind': 'reviewer-receipt', 'plan': name, 'revision': revision, 'plan_sha': plan_sha, 'milestone': milestone['id'],
+    receipt = {'kind': 'reviewer-receipt', 'checkout_policy': command.CHECKOUT_POLICY, 'plan': name, 'revision': revision, 'plan_sha': plan_sha, 'milestone': milestone['id'],
                'provider': config['provider'], 'model': config['model'], 'role': 'reviewer', 'auth': config.get('auth', 'subscription'),
                'provider_error': providers.CREDENTIAL_MISSING if providers.error_kind(error) == providers.CREDENTIAL_MISSING else None if not calls else 'timeout' if timed_out else providers.error_kind(error) or ('invalid_response' if problems else None),
                'config': config, 'cwd': str(directory), 'started': started, 'seconds': round(time.monotonic() - begin, 2),

@@ -115,7 +115,7 @@ def for_receipt(ledger, context, milestone, artifact, env=None):
                  configuration={'verifier': milestone['verifier'], 'milestone_title': milestone['title'],
                                 # review of dev17 (#4): the bytes a checking verifier ran on depend on the checkout policy (dev17: exact blob
                                 # bytes); a receipt made under another policy is stale ("checker configuration changed") and runs again
-                                **({} if kind == 'reviewer' else {'checkout_policy': command.CHECKOUT_POLICY})},
+                                'checkout_policy': command.CHECKOUT_POLICY},
                  environment=observed, checks=checks)
     value['input_paths'] = list(target['paths'])
     value['source'] = target['repo']
@@ -208,6 +208,10 @@ def receipt_assessment(ledger, contract, milestone, revision, receipt, current_a
     except LedgerError as error:
         return {'status': 'stale', 'reusable': False, 'reasons': [str(error)], 'checks_to_rerun': [milestone['id']],
                 'reuse_basis': None, 'requires_record': False, 'recorded': False}
+    if not command.policy_current(body):           # review of dev19: the one rule of every reuse sink, whatever the verifier type
+        return {'status': 'stale', 'reusable': False, 'reasons': ['checker configuration changed', 'the receipt was made under another checkout policy'],
+                'checks_to_rerun': old.get('checks') or [milestone['id']], 'reuse_basis': None,
+                'requires_record': False, 'recorded': False}
     kind = milestone['verifier']['type']
     directory = Path(body.get('cwd') or ledger.project)
     env = command.verifier_env(directory) if kind in ('command', 'reviewer') else None

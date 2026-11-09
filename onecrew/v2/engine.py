@@ -1552,7 +1552,8 @@ def verify(ledger, selector, nid, checker, *, door='engine.verify'):
     failed = (matches and len(rows) == len(configured) and actual == configured and not evidence_errors
               and any(row.get('result') == 'fail' for row in rows)
               and all(row.get('result') in ('pass', 'fail', 'blocked') for row in rows))
-    body = {'kind': 'node-verifier-receipt', 'root': root['task_id'], 'node': nid,
+    from .verifiers import command
+    body = {'kind': 'node-verifier-receipt', 'checkout_policy': command.CHECKOUT_POLICY, 'root': root['task_id'], 'node': nid,
             'internal_revision': view['internal_revision'], 'generation': view['nodes'][nid]['generation'],
             'artifact': artifact, 'inputs': view['nodes'][nid]['inputs'], 'observed': observed,
             'evidence_errors': evidence_errors, 'checks_sha': content_hash(item['checks']),
@@ -1664,7 +1665,9 @@ def publish_issued(ledger, selector, run):
         now = review_dispatch.node_request(ledger, selector, nid)[3]['identity']
     except LedgerError:
         now = None
-    if now is None or {k: v for k, v in now.items() if k != 'execution'} != same:
+    # review of dev19 (P2): a result issued under another checkout policy (before an upgrade) is never published: the node runs again
+    from .verifiers import command
+    if now is None or {k: v for k, v in now.items() if k != 'execution'} != same or not command.policy_current(body):
         with ledger.transaction(write=True) as conn:
             review_dispatch.finish_check(ledger, conn, root['task_id'], run['run_id'], outcome='stale', receipt=receipt, applicable=False,
                                          reason='The node, its criteria or its inputs changed; this result certifies only its own request.')

@@ -842,6 +842,13 @@ def _require_attr_source(top):
 CHECKOUT_POLICY = 'exact-blob-bytes/1'   # in the evidence binding: a receipt made under another checkout policy is stale (review of dev17)
 
 
+def policy_current(body):
+    """Review of dev19: the ONE rule every place that reuses or publishes a verifier result applies (the candidate proofs, the node receipt, an
+    issued result, a recorded receipt): it was made under the checkout policy of this OneCrew. Every receipt a verifier writes carries the field;
+    one written before it (or under another policy) is never reused, whatever the verifier type."""
+    return isinstance(body, dict) and body.get('checkout_policy') == CHECKOUT_POLICY
+
+
 def object_format(top):
     form = _git(top, 'rev-parse', '--show-object-format').strip() or 'sha1'
     if form not in EMPTY_TREE: raise LedgerError(f'The repository uses the object format {form!r}, which this checkout does not know.')
@@ -1040,7 +1047,7 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
             timing['failed'] = problem.structured()
     timing['after_seconds'] = round(time.monotonic() - finished, 2)
     store = Snapshots(ledger.state_root)
-    receipt = {'kind': 'command-receipt', 'plan': name, 'revision': revision, 'plan_sha': plan_sha, 'milestone': milestone['id'],
+    receipt = {'kind': 'command-receipt', 'checkout_policy': CHECKOUT_POLICY, 'plan': name, 'revision': revision, 'plan_sha': plan_sha, 'milestone': milestone['id'],
                'argv': argv, 'cwd': str(directory), 'exit_code': code, 'timed_out': timed_out, 'error': error,
                'seconds': seconds, 'snapshot': timing, 'started': started, 'artifact_sha': before, 'artifact_sha_after': after,
                'stdout': store.blob(out[-OUTPUT_CAP:]), 'stderr': store.blob(err[-OUTPUT_CAP:]),

@@ -487,7 +487,7 @@ def _run(ledger, adapter, name, revision, plan_sha, milestone, directory, before
         after = artifact.verified_identity(directory)   # made the way the before one is (review D-R05)
     except LedgerError as problem:                      # the adapter ran: its receipt is kept, inconclusive, with the reason (review E-R01)
         after, error = None, error or 'inconclusive: the artifact after the check cannot be identified: ' + str(problem)[:240]
-    receipt = {'kind': receipt_kind(adapter.NAME), 'adapter': adapter.NAME, 'plan': name, 'revision': revision, 'plan_sha': plan_sha, 'milestone': milestone['id'],
+    receipt = {'kind': receipt_kind(adapter.NAME), 'checkout_policy': artifact.command.CHECKOUT_POLICY, 'adapter': adapter.NAME, 'plan': name, 'revision': revision, 'plan_sha': plan_sha, 'milestone': milestone['id'],
                'config': config, 'cwd': str(directory), 'started': started, 'seconds': round(time.monotonic() - begin, 2),
                'execution_seconds': round(execution_seconds, 3),
                'artifact_sha': before, 'artifact_sha_after': after, 'checks': checks, 'findings': findings, 'unverified': unverified,

@@ -137,8 +137,7 @@ def _milestone_execution(ledger, milestone, sha, env=None):
             'provider': config.get('provider', 'claude') if kind == 'reviewer' else None,
             'model': config.get('model') if kind == 'reviewer' else None,
             # review of dev18 (#4): a check that runs on a checkout says which checkout policy, so a pass of another one is a different request
-            'configuration': dict({k: v for k, v in config.items() if k != 'max_minutes'},
-                                  **({} if kind == 'reviewer' else {'checkout_policy': command.CHECKOUT_POLICY})),
+            'configuration': dict({k: v for k, v in config.items() if k != 'max_minutes'}, checkout_policy=command.CHECKOUT_POLICY),   # every type
             'environment': verification_evidence.environment(env),
             'provenance': {'source': 'approved-contract', 'plan_sha': sha, 'milestone': milestone['id']}}
 

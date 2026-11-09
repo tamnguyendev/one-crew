@@ -59,20 +59,22 @@ class ProviderCall:
                 budget = control.status(task['id'])['budget']
                 left = (dt.datetime.fromisoformat(budget['deadline']) - dt.datetime.fromisoformat(utcnow())).total_seconds()
                 if left <= 0: raise LedgerError('Verifier deadline elapsed before provider dispatch.')
-                if config.get('provider', 'claude') == 'claude' and self.call is None:
-                    # review of dev17 (P2): auth api without a key runs no process; settled as not started, so no call is charged
-                    cli_env, refused = reviewer.provider_env(env, config.get('auth', 'subscription'))
-                    if refused:
+                prepared = None
+                if config.get('provider', 'claude') == 'claude' and self.call is None and getattr(reviewer.call, 'takes_prepared', False) is True:
+                    # reviews of dev17-dev19: the credential and the CLI are decided once, here, before the launch; the call below runs exactly
+                    # what was found. No key or no CLI: settled as not started, so no call is charged and the run is not held
+                    prepared = reviewer.prepare(env, config)
+                    if prepared[2]:
                         control.finish(attempt['id'], attempt['generation'], {'reason': providers.CREDENTIAL_MISSING, 'provider_invocations': 0},
                                        not_started=True)
-                        return '', {}, refused, False, b''
-                    reviewer.cli_argv(cli_env)         # review of dev18 (P2): no Claude CLI raises here, before the launch: settled as not started
+                        return '', {}, prepared[2], False, b''
                 control.launched(attempt['id'], attempt['generation'],
                                  {'kind': 'verifier-controller', 'controller_pid': os.getpid(), 'provider': config['provider']})
             # From here on the model may have run. Between `calling = True` and the call itself there remain a few bytecodes; an interrupt landing
             # exactly there leaves the attempt unknown (the safe side: never "not started" for a call that may have happened). Review of dev18 P3.
             calling = True
-            result = (self.call or reviewer.call)(prompt, config, env, scratch, min(seconds, left) / 60)
+            result = (self.call(prompt, config, env, scratch, min(seconds, left) / 60) if self.call is not None else
+                      reviewer.call(prompt, config, env, scratch, min(seconds, left) / 60, **({'prepared': prepared} if prepared else {})))
             answer, usage, error, timed_out, raw = result
             store = Snapshots(ledger.state_root)
             receipt = store.blob(canonical({'kind': 'metered-verifier-result', 'attempt': attempt['id'],

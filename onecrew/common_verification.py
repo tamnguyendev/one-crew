@@ -348,6 +348,7 @@ def proof_mismatch(wrapper, proof, milestone, plan_sha, revision, tree):
     kind = wrapper.get('kind')
     field = PROOF_FIELD.get(kind)
     if not field or field not in wrapper: return 'unknown candidate proof kind'
+    if not command.policy_current(proof): return 'proof was made under another checkout policy'      # review of dev19: every reuse sink
     vtype = milestone['verifier']['type']
     want = PROOF_KIND.get(vtype, 'candidate-adapter-check')
     if kind != want: return 'proof family differs from the approved verifier type'
@@ -389,7 +390,7 @@ def _reuse(ledger, view, item, artifact, previous_receipt, tree, binding, plan_s
     try:
         previous = json.loads(store.read_blob(previous_receipt))
         record = view['nodes'][item['id']]
-        if (previous.get('kind') != 'node-verifier-receipt' or previous.get('root') != view['root']
+        if (previous.get('kind') != 'node-verifier-receipt' or not command.policy_current(previous) or previous.get('root') != view['root']
                 or previous.get('node') != item['id'] or previous.get('generation') != record['generation']
                 or previous.get('artifact') != artifact or previous.get('result') != 'pass'
                 or previous.get('checks_sha') != content_hash(item['checks'])
