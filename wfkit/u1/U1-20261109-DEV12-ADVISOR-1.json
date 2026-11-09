@@ -1,0 +1,18 @@
+{
+ "id": "U1-20261109-DEV12-ADVISOR-1",
+ "file": "tests/test_v2_advisor.py",
+ "old_sha256": "7b74cc5ebb8c5d46443fad54ec370d79d92025d097b64f3be9dabf54247ebb70",
+ "new_sha256": "d7044e379cc4947eb506f7a8318dc5afbef073c03f20e6f224645618b8d0ea9f",
+ "reason": "2.5.0.dev12, review F1 (Kiro 09/11): the owner part of a contract (presentation.request/user_sees/acceptance_steps/not_doing) became a step 0 reason, so approve() refuses it on every path once the owner-rules file exists. ApproveGateTests and AdvisorTests approve strict contracts built by sourced(), which had no owner part (6 of 44 red). Edit: sourced() adds a plain owner part (OWNER_PART), and test_the_owner_rules_make_every_contract_strict expects owner_view_missing after origin_missing and item_without_source. No assertion removed or loosened, no skip; every other test unchanged. Counterexample: the old file on the new code fails 6 of 44.",
+ "authorized_by": "Chủ sở hữu, 09/11/2026 ~11:50, qua phiên điều phối 'Plan digest và báo trạng thái', trả lời câu 'Giữ bước kiểm bốn câu chỉ ở các lệnh duyệt, để mở khóa 2 bài test sau?': \"Mở khóa test, bật hết\". Chỉ cho đúng file này (file thứ hai, tests/test_wf_program_transition.py, không phải sửa) và đúng lý do này. Bản ghi do chủ sở hữu chạy script tạo ra.",
+ "applied_by": "claude (phiên onecrew-2.5-dev11, Opus 5.5), nhánh onecrew-2.5-dev11, commit 220e064",
+ "evidence": {
+  "base": "0d94af0ef7ade66b00c22a398246a79e79d21883",
+  "commit": "220e064",
+  "diff": "git diff 0d94af0 220e064 -- tests/test_v2_advisor.py",
+  "red": "D:/OneCrewRuns/v25/dev12/u1-advisor-red.txt (old test file, new code: failures=3, errors=3)",
+  "green": "D:/OneCrewRuns/v25/dev12/u1-advisor-green.txt (44/44 OK)"
+ },
+ "note": "sha256 of the LF form (the committed blob), as kit-guard pins it",
+ "at": "2026-11-09"
+}
