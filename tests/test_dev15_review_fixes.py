@@ -141,10 +141,11 @@ class CheckoutIgnoresAttributesOutsideTheTree(Fixture):
         self.assertEqual(subprocess.check_output(['git', '-C', str(self.root), 'config', 'core.attributesFile']).decode().strip(), attributes.as_posix())
         self.assertEqual(self.checked_out('b.txt'), b'x\ny\n')
 
-    def test_the_tree_s_own_gitattributes_still_applies(self):
+    def test_the_tree_s_own_gitattributes_does_not_change_the_bytes_either(self):
+        # dev17, owner 09/11 "Đồng ý" (the check runs on exactly the content locked in git): until dev16 this test asserted CRLF here
         (self.root / '.gitattributes').write_text(self.CRLF)
         (self.root / 'b.txt').write_bytes(b'x\ny\n')
-        self.assertEqual(self.checked_out('b.txt'), b'x\r\ny\r\n')        # by design: part of the artifact, and hashed with it
+        self.assertEqual(self.checked_out('b.txt'), b'x\ny\n')
 
 
 class PlainWordsWarnings(Fixture):
