@@ -341,18 +341,15 @@ def refuse_form(ledger, raw, author, verb='Propose'):
                           f'nothing was written. Fix them and {verb.lower()} again:\n' + '\n'.join(f' - [{code}] {text}' for code, text in reasons))
 
 
-def refuse_owner_view(ledger, name, revision=None):
-    """dev11: the plan approve command (owner approve runs it) refuses the revision to approve when lint would refuse its owner part, so
-    approve and lint agree. A plan recorded without the part, under a state root with the owner-rules file, needs plan amend first."""
+def refuse_owner_view(ledger, contract, revision):
+    """dev11, dev12 (review F1): approve(check_owner_view=True), what the plan approve command passes (owner approve runs it), refuses the
+    revision it approves when lint would refuse its owner part, so the command and lint agree. It judges the contract approve itself read, and
+    approve records only if that revision is still the latest, so an amendment written meanwhile is never approved unchecked. A plan recorded
+    without the part, under a state root with the owner-rules file, needs plan amend first."""
     from . import lint
-    with ledger.transaction() as conn:
-        state = anchor_events(ledger, conn, name)
-        rev = revision if revision is not None else state['latest']
-        if rev not in state['revisions']: return            # approve itself names a missing revision
-        contract, _ = contracts.read_revision(ledger, state['selector'], rev, state['revisions'][rev]['sha'])
     reasons = lint.owner_view(ledger, contract)
     if reasons:
-        raise LedgerError(f'Approve refused: the part of revision {rev} written for whoever follows the work is not ready '
+        raise LedgerError(f'Approve refused: the part of revision {revision} written for whoever follows the work is not ready '
                           f'({len(reasons)} reason{"s" if len(reasons) != 1 else ""}); write it with plan amend, then approve the new revision:\n'
                           + '\n'.join(f' - [{code}] {text}' for code, text in reasons))
 
@@ -473,7 +470,7 @@ def _refuse_hard_links(ledger):
         pass                                                # not a Git repository, or no commit yet: there is no base tree to make
 
 
-def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, estimate=None):
+def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, estimate=None, check_owner_view=False):
     """Owner only, and only when step 0 is done (step0.evaluate): every reason it is not is returned in one refusal. The
     owner's `choose` is recorded here and nowhere else."""
     from . import step0
@@ -483,7 +480,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
     with ledger.transaction() as conn:                       # read first: the preconditions below may run for minutes
         state = anchor_events(ledger, conn, name)
         if state['status'] == 'closed': raise LedgerError('A closed root cannot be reopened by approval; create a new root.')
-        revision = revision or state['latest']
+        revision = state['latest'] if revision is None else revision        # dev12 (review F2): 0 is a revision number, never 'the latest'
         if revision != state['latest']: raise LedgerError(f'Only the latest revision ({state["latest"]}) can be approved.')
         contract, sha = load(ledger, state, revision)
         approved, closed = state['approved'], step0.closed_events(conn, state['task_id'])
@@ -496,6 +493,10 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
         if choose is not None and choose != approved.get('chosen'):
             raise LedgerError(f'The choice was made once ({approved.get("chosen")}); changing it needs plan amend (a change request).')
         return _show(ledger, name)
+    # dev12 (review F1): inside approve, on the contract approve read; the write below records only that revision at that sha, so an amendment
+    # written meanwhile is never approved unchecked. Off by default: the approve-gate tests pinned by kit-guard call the library with contracts
+    # that have no owner part under the owner-rules file, so making it the library default is the owner's call (handover: dev12 decision).
+    if check_owner_view: refuse_owner_view(ledger, contract, revision)
     _refuse_hard_links(ledger)
     from . import root_writer
     with ledger.transaction() as conn:                       # T26 E4: refused before step 0 runs (repeated at the write below)
