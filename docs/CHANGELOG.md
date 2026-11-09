@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v2.5.0.dev17 (09/11/2026) — review lại dev16 `5d7c289` (Kiro, FAIL); chủ: "Đồng ý" kiểm trên đúng nội dung git — LOCAL, chưa tag/push/phát hành
+
+Test đỏ trên `5d7c289`/`293db4a`: `tests/test_dev17_review_fixes.py`.
+- **Issue #9:** milestone mới chỉ là "thêm bước kiểm" khi nằm sau mọi milestone cũ; chèn trước một milestone đã duyệt là thay đổi nghiệm thu.
+- **Issue #2:** reviewer có ngân sách: mọi bước trước khi gọi model mang `verifier_started=False`. Hạn chót được kiểm trước khi ghi "đã khởi chạy", nên khi hết hạn thì lượt gọi được chốt không bắt đầu, không tính lượt.
+- **Issue #4, chủ duyệt 09/11** ("bước kiểm chạy trên đúng nội dung đã khóa trong git, giống hệt trên mọi máy"):
+  - bản chép giữ đúng byte của blob, không áp attributes nào, kể cả `.gitattributes` trong cây (`--attr-source` là cây rỗng);
+  - symlink là tệp thường chứa đích, trên mọi hệ điều hành;
+  - git cũ hơn 2.40 bị từ chối với lời báo rõ.
+- **Hướng dẫn** (`BAT-DAU-SU-DUNG`) ghi hai hệ quả: tệp cần CRLF lúc chạy sẽ thấy LF; repo cần symlink thật phải bỏ symlink khỏi artifact.
+
 ## v2.5.0.dev16 (09/11/2026) — review lại dev15 `cecd9c5` (Kiro, FAIL) — LOCAL, chưa tag/push/phát hành
 
 4 test đỏ trên `cecd9c5` (`tests/test_dev16_review_fixes.py`).
