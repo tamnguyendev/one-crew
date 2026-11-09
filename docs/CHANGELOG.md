@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v2.5.0.dev18 (10/11/2026) — review lại dev17 `b77966e` (Kiro, FAIL) — LOCAL, chưa tag/push/phát hành
+
+5 test đỏ trên `b77966e` (`tests/test_dev18_review_fixes.py`).
+- **Issue #9:** thẻ duyệt so bản sửa với bản **đã duyệt** gần nhất, không phải bản ngay trước. Sự kiện `plan.amended` ghi `compared_with`.
+- **Issue #4:**
+  - receipt tạo theo cách chép cũ thành stale ("checker configuration changed"): ràng buộc bằng chứng của verifier lệnh và dữ liệu/tài liệu nay mang `checkout_policy`;
+  - bước dựng lại candidate (`materialized_tree`) chạy git dưới cùng cách cô lập với bản chép: không attributes, không filter, không cấu hình máy, symlink là tệp thường.
+- **Issue #2:**
+  - reviewer `auth api` thiếu key dưới ngân sách root không bị tính lượt gọi (chốt "không bắt đầu" trước khi ghi "đã khởi chạy");
+  - Ctrl+C sau khi ghi "đã khởi chạy" mà trước lời gọi model được chốt, không để "chưa rõ kết quả". Lượt gọi vẫn bị tính theo quy tắc của Control: một lượt đã khởi chạy không bao giờ được hoàn.
+
 ## v2.5.0.dev17 (09/11/2026) — review lại dev16 `5d7c289` (Kiro, FAIL); chủ: "Đồng ý" kiểm trên đúng nội dung git — LOCAL, chưa tag/push/phát hành
 
 Test đỏ trên `5d7c289`/`293db4a`: `tests/test_dev17_review_fixes.py`.
