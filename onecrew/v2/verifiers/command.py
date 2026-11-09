@@ -120,7 +120,9 @@ def snapshot_seconds():
     except ValueError:
         minutes = 0
     if not 0 < minutes <= SNAPSHOT_MINUTES_MAX:
-        raise LedgerError(f'{SNAPSHOT_ENV} must be a number of minutes above 0 and at most {SNAPSHOT_MINUTES_MAX}, not {text!r}.')
+        refused = LedgerError(f'{SNAPSHOT_ENV} must be a number of minutes above 0 and at most {SNAPSHOT_MINUTES_MAX}, not {text!r}.')
+        refused.verifier_started = False               # issue #2, review of dev14: reading a setting never calls a verifier, wherever it is read
+        raise refused
     return minutes * 60
 
 
@@ -819,6 +821,17 @@ def text_hidden_paths(directory, first, second, paths):
     return found
 
 
+def _bare_git_dir(top, destination):
+    """An empty git folder in `destination` for the checkout: no info/attributes, no config but the object format of the repository at `top`."""
+    own = destination / 'checkout.git'
+    for folder in ('objects', 'refs', 'info'): (own / folder).mkdir(parents=True)
+    (own / 'HEAD').write_text('ref: refs/heads/checkout\n', encoding='ascii')
+    (own / 'no-attributes').write_bytes(b'')
+    form = _git(top, 'rev-parse', '--show-object-format').strip() or 'sha1'
+    (own / 'config').write_text('[core]\n\trepositoryformatversion = 1\n\tbare = false\n[extensions]\n\tobjectformat = ' + form + '\n', encoding='ascii')
+    return own
+
+
 def _checkout(directory, tree, destination):
     """C8: a clean checkout of exactly the artifact (`git archive <tree>`), so ignored files (__pycache__, build output) of the
     live workspace cannot change the result while the sha stays the same. Returns the directory to run in."""
@@ -830,7 +843,12 @@ def _checkout(directory, tree, destination):
     _git(top, 'read-tree', tree, env=env)
     # Issue #4 (dev14): the line endings of the checkout never follow this machine's git config (core.autocrlf, core.eol), which is not part of
     # the artifact's identity; the bytes depend only on the tree and its .gitattributes, both hashed. Times of change are those of the checkout.
-    _git(top, '-c', 'core.autocrlf=false', '-c', 'core.eol=lf', '-c', 'core.safecrlf=false',
+    # Review of dev14: nor the attributes kept outside the tree. checkout-index runs against an empty git folder of our own (so the repository's
+    # info/attributes and its own config are not read; the objects are the repository's), with core.attributesFile pointed at an empty file and the
+    # system attributes off. What is left is the tree's own .gitattributes, read from the index.
+    own = _bare_git_dir(top, Path(destination))
+    env = dict(env, GIT_DIR=str(own), GIT_OBJECT_DIRECTORY=str(_objects_of(top)), GIT_ATTR_NOSYSTEM='1')
+    _git(top, '-c', 'core.autocrlf=false', '-c', 'core.eol=lf', '-c', 'core.safecrlf=false', '-c', 'core.attributesFile=' + (own / 'no-attributes').as_posix(),
          'checkout-index', '-a', '-f', '--prefix=' + root.as_posix() + '/', env=env)
     relative = Path(directory).resolve().relative_to(top)
     return root / relative

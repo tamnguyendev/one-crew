@@ -131,7 +131,12 @@ MAYBE = (
     ('mã phiếu', re.compile(r'\b[A-Z]{2,}-\d{3,}\b')),
     ('tên file', _BUILD),
     ('mã nội bộ', re.compile(r'\b(?:M|R|U|F|P|T|W|G|D|I|O|S|L)\d[a-z]?\b')),
+    # review of dev14: a short command flag (-v, -rf; not a Vietnamese word after a dash: "-Không"), a file name with any short lower-case extension
+    # (report.pdf; a person may write it too, hence a warning). A folder written with a trailing slash (docs/) is checked in maybe_technical_word.
+    ('cờ lệnh', re.compile(r'(?<![\w-])-[A-Za-z][A-Za-z0-9-]*(?![^\W\d_])')),
+    ('tên file', re.compile(r'(?<![\w.])[A-Za-z0-9_-]+\.[a-z][a-z0-9]{1,3}(?!\w)(?!\.\w)')),
 )
+_FOLDER = re.compile(r'(?<![\w/.~])([A-Za-z0-9_.-]+)/(?![\w/])')
 
 
 def _plain_segment(part):
@@ -163,6 +168,8 @@ def maybe_technical_word(text):
     """(kind, word) of the first token that MAY be technical, else None (a warning only: owner_view_maybe_technical)."""
     for match in _SLASHED.finditer(text):
         if _slash_may_be_path(match.group(0)): return 'đường dẫn', match.group(0).strip('.,;:')
+    for match in _FOLDER.finditer(text):
+        if not _plain_segment(match.group(1)): return 'đường dẫn', match.group(0)
     for kind, pattern in MAYBE:
         for match in pattern.finditer(text):
             if kind == 'mã nội bộ' and _previous_word(text, match.start()) in _PLACE: continue

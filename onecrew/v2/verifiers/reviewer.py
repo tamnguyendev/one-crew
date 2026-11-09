@@ -302,34 +302,37 @@ def call(prompt, config, env, scratch, limit):
 
 def run(ledger, name, revision, plan_sha, milestone, directory, independence_result, approved, previous=None, open_findings=None, evidence_context=None, call_port=None):
     """Review the milestone: returns (receipt_blob, receipt). The caller has already checked independence (before this call, so a refusal costs nothing)."""
-    config = milestone['verifier']['config']
-    directory = Path(directory).resolve()
-    if not directory.is_dir(): raise LedgerError('Verifier working directory does not exist: ' + str(directory))
-    started, begin = utcnow(), time.monotonic()
-    execution_seconds = 0.0
-    hidden, unshown, binary = [], [], []
-    try:       # the artifact first; what the reviewer is shown is cut from ONE tree made right after it, and checked against it
-        with command.before_verifier():
-            before = command.verified_sha(directory)
-        no_artifact = None
-    except command.SnapshotFailed:      # not the same as git being unable to make it: no verdict is recorded, the same run can be tried again
-        raise
-    except LedgerError as problem:      # git cannot make the artifact (a repository with no commit, say): the verdict is inconclusive, with this reason
-        before, no_artifact = NO_ARTIFACT, f'the artifact of the working tree cannot be made, so nothing is reviewed: {problem}'
-    try:
-        if no_artifact: raise LedgerError(no_artifact)
-        diff, base, base_source, tracked, base_tracked = review_diff(directory, approved, previous)
-        hidden = command.changed_paths(directory, tracked, before)           # the tree the reviewer is shown and the artifact differ here (see HIDDEN)
-        if not hidden:
-            unshown = not_shown(directory, base_tracked, tracked, diff)
-            binary = command.text_hidden_paths(directory, base_tracked, tracked, [p for p in command.binary_paths(directory, base_tracked, tracked) if p not in unshown])
-        no_base = None
-    except LedgerError as problem:      # no tree to start from (or git cannot make one): nothing is sent, the verdict is inconclusive with this reason
-        diff, base, base_source, tracked, base_tracked, no_base = '', None, 'none', None, None, str(problem)
-    store = Snapshots(ledger.state_root)
-    from .. import verification_evidence
-    env = command.verifier_env(directory)
-    binding = verification_evidence.for_receipt(ledger, evidence_context, milestone, before, env) if evidence_context and not no_artifact else None
+    # issue #2, review of dev14: up to the model call below no verifier has been called; a failure in here (the directory, git, the evidence binding,
+    # the environment) says so. A LedgerError git raises while making the trees is still caught below and becomes an inconclusive verdict.
+    with command.before_verifier():
+        config = milestone['verifier']['config']
+        directory = Path(directory).resolve()
+        if not directory.is_dir(): raise LedgerError('Verifier working directory does not exist: ' + str(directory))
+        started, begin = utcnow(), time.monotonic()
+        execution_seconds = 0.0
+        hidden, unshown, binary = [], [], []
+        try:       # the artifact first; what the reviewer is shown is cut from ONE tree made right after it, and checked against it
+            with command.before_verifier():
+                before = command.verified_sha(directory)
+            no_artifact = None
+        except command.SnapshotFailed:      # not the same as git being unable to make it: no verdict is recorded, the same run can be tried again
+            raise
+        except LedgerError as problem:      # git cannot make the artifact (a repository with no commit, say): the verdict is inconclusive, with this reason
+            before, no_artifact = NO_ARTIFACT, f'the artifact of the working tree cannot be made, so nothing is reviewed: {problem}'
+        try:
+            if no_artifact: raise LedgerError(no_artifact)
+            diff, base, base_source, tracked, base_tracked = review_diff(directory, approved, previous)
+            hidden = command.changed_paths(directory, tracked, before)           # the tree the reviewer is shown and the artifact differ here (see HIDDEN)
+            if not hidden:
+                unshown = not_shown(directory, base_tracked, tracked, diff)
+                binary = command.text_hidden_paths(directory, base_tracked, tracked, [p for p in command.binary_paths(directory, base_tracked, tracked) if p not in unshown])
+            no_base = None
+        except LedgerError as problem:      # no tree to start from (or git cannot make one): nothing is sent, the verdict is inconclusive with this reason
+            diff, base, base_source, tracked, base_tracked, no_base = '', None, 'none', None, None, str(problem)
+        store = Snapshots(ledger.state_root)
+        from .. import verification_evidence
+        env = command.verifier_env(directory)
+        binding = verification_evidence.for_receipt(ledger, evidence_context, milestone, before, env) if evidence_context and not no_artifact else None
     answer, usage, error, timed_out, raw, calls, prompt, note = '', {}, None, False, b'', 0, None, None
     if no_base: error = no_base
     elif hidden: error = f'the tree the reviewer is shown and the artifact differ at {len(hidden)} path(s): {named(hidden)}. {HIDDEN}'
@@ -350,7 +353,8 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
             error = f'prior findings and diff exceed the {MAX_DIFF}-byte review context cap; nothing was reviewed in part'
             prompt = None
         else:
-            scratch = tempfile.mkdtemp(prefix='ocr-')
+            with command.before_verifier():
+                scratch = tempfile.mkdtemp(prefix='ocr-')
             try:
                 calls = 1
                 call_begin = time.monotonic()

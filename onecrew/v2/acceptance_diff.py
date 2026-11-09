@@ -88,12 +88,25 @@ def classify_nodes(old_nodes, new_nodes, output_ids):
 
 # Issue #9 (09/11, owner "Đưa vào"): an allow-list, not a deny-list. Every change of a milestone, of its verifier or of the verifier's configuration
 # is a change of acceptance (the owner approves it), except what is listed here as harmless: a milestone title (how it is shown), a review
-# criterion added or reworded (more verification or the same). A verifier key nobody listed, a dropped count or pattern, an added exemption,
+# criterion added (more verification) or changed only in its white space. Reworded, reordered or given twice: acceptance (review of dev14). A verifier key nobody listed, a dropped count or pattern, an added exemption,
 # another auth: acceptance. Comparing whole values errs on the safe side (a reordered list is reported too).
 MILESTONE_COMPARED = frozenset({'id', 'covers', 'verifier', 'mode', 'max_repairs'})
 MILESTONE_HARMLESS = frozenset({'title'})
 CONFIG_SPECIAL = frozenset({'criteria'})
 CONFIG_DEFAULTS = {'cwd': '.'}
+
+
+SPACES = re.compile(r'\s+')
+
+
+def _criterion_change(path, before, after):
+    """Issue #9, review of dev14: a reviewer reads every character of its question ("safe-mode" and "safe mode" are two literals to look for), so only
+    a change of white space is harmless; any other character changed is a change the owner approves."""
+    if before == after: return None
+    if SPACES.sub(' ', str(before)).strip() == SPACES.sub(' ', str(after)).strip():
+        return {'path': path, 'kind': 'wording', 'acceptance': False, 'why': 'review criterion: only the white space changed'}
+    return {'path': path, 'kind': 'narrowed_or_changed', 'acceptance': True,
+            'why': 'review criterion: its text changed (the reviewer checks what it says, character by character)'}
 
 
 def _milestone_changes(mid, m, n):
@@ -117,13 +130,21 @@ def _milestone_changes(mid, m, n):
         numeric = all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in (before, after))
         changes.append({'path': f'milestones.{mid}.{key}', 'kind': 'threshold' if numeric or key == 'max_minutes' else 'obligation', 'acceptance': True,
                         'why': f'the approved verifier setting {key} changed' + ('' if key in oc and key in nc else ' (added)' if key in nc else ' (removed)')})
-    old_cr = {c['id']: c for c in oc.get('criteria') or []}
-    new_cr = {c['id']: c for c in nc.get('criteria') or []}
+    old_list, new_list = list(oc.get('criteria') or []), list(nc.get('criteria') or [])
+    old_cr = {c['id']: c for c in old_list}
+    new_cr = {c['id']: c for c in new_list}
+    old_ids, new_ids = [c['id'] for c in old_list], [c['id'] for c in new_list]
+    if len(old_ids) != len(old_cr) or len(new_ids) != len(new_cr):
+        if old_list != new_list:          # an id given twice: which question the reviewer answers under it is not settled
+            changes.append({'path': f'milestones.{mid}.criteria', 'kind': 'obligation', 'acceptance': True, 'why': 'a review criterion id appears twice'})
+    elif [i for i in old_ids if i in new_cr] != [i for i in new_ids if i in old_cr]:
+        changes.append({'path': f'milestones.{mid}.criteria', 'kind': 'obligation', 'acceptance': True,
+                        'why': 'the review criteria were reordered (the reviewer answers them in this order)'})
     for cid, c in old_cr.items():
         if cid not in new_cr:
             changes.append({'path': f'milestones.{mid}.criteria.{cid}', 'kind': 'removed_check', 'acceptance': True, 'why': 'a review criterion was dropped'})
             continue
-        item = _text_change(f'milestones.{mid}.criteria.{cid}', c.get('question', ''), new_cr[cid].get('question', ''), what='review criterion')
+        item = _criterion_change(f'milestones.{mid}.criteria.{cid}', c.get('question', ''), new_cr[cid].get('question', ''))
         if item: changes.append(item)
         if {k: v for k, v in c.items() if k != 'question'} != {k: v for k, v in new_cr[cid].items() if k != 'question'}:
             changes.append({'path': f'milestones.{mid}.criteria.{cid}', 'kind': 'obligation', 'acceptance': True, 'why': 'a review criterion setting changed'})

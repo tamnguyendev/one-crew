@@ -391,7 +391,7 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_
             # way out: plan amend, then approve the new revision.
             if check_form: refuse_form(ledger, raw, author, verb='Reuse', fix=AMEND_FIX)
             else: refuse_owner_part(ledger, contract, verb='Reuse', fix=AMEND_FIX)
-            return _show(ledger, reused)
+            return with_warnings(_show(ledger, reused), contract)     # review of dev14 (P3): the warnings of a first propose, again
     selector = namespaces.NAMESPACED + name
     from . import solution_link
     solution_link.prepare(ledger, selector, contract)
@@ -519,7 +519,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
             raise LedgerError(f'Approve refused: revision {revision} was approved before the rules of today and does not meet them '
                               f'({len(today)} reason{"s" if len(today) != 1 else ""}); the approval it has stays recorded. Write the fix with plan amend '
                               '(the four sentences of the owner part), then approve the new revision:' +''.join(f'\n - [{c}] {t}' for c, t in today))
-        return _show(ledger, name)
+        return with_warnings(_show(ledger, name), contract)       # review of dev14 (P3): a repeat shows the warnings too
     _refuse_hard_links(ledger)
     from . import root_writer
     with ledger.transaction() as conn:                       # T26 E4: refused before step 0 runs (repeated at the write below)

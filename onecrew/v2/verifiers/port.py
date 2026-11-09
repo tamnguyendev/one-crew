@@ -446,19 +446,20 @@ def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context
 
 
 def _run(ledger, adapter, name, revision, plan_sha, milestone, directory, before, scratch, workspace, proof, evidence_context=None, *, deadline=None):
-    config = milestone['verifier']['config']
-    own = {k: v for k, v in config.items() if k != 'authority'}
-    from .. import verification_evidence
-    binding = verification_evidence.for_receipt(ledger, evidence_context, milestone, before) if evidence_context else None
-    top = Path(scratch) / 'src'
-    granted = copy.deepcopy(config['authority'])
-    if deadline is not None:
-        left = (dt.datetime.fromisoformat(deadline) - dt.datetime.now(dt.timezone.utc)).total_seconds()
-        if left <= 0: raise LedgerError('The original root deadline elapsed before verifier adapter dispatch.')
-        granted['max_minutes'] = min(granted['max_minutes'], left / 60)
-    box = Port(workspace, granted, adapter.NAME, left_out=proof.get('artifact_kept', ()))
-    first = _fingerprint(top)
-    started, begin, error, timed_out, report = utcnow(), time.monotonic(), None, False, None
+    with artifact.command.before_verifier():           # issue #2, review of dev14: up to adapter.run below the adapter has not been called
+        config = milestone['verifier']['config']
+        own = {k: v for k, v in config.items() if k != 'authority'}
+        from .. import verification_evidence
+        binding = verification_evidence.for_receipt(ledger, evidence_context, milestone, before) if evidence_context else None
+        top = Path(scratch) / 'src'
+        granted = copy.deepcopy(config['authority'])
+        if deadline is not None:
+            left = (dt.datetime.fromisoformat(deadline) - dt.datetime.now(dt.timezone.utc)).total_seconds()
+            if left <= 0: raise LedgerError('The original root deadline elapsed before verifier adapter dispatch.')
+            granted['max_minutes'] = min(granted['max_minutes'], left / 60)
+        box = Port(workspace, granted, adapter.NAME, left_out=proof.get('artifact_kept', ()))
+        first = _fingerprint(top)
+        started, begin, error, timed_out, report = utcnow(), time.monotonic(), None, False, None
     try:
         report = adapter.run(copy.deepcopy(own), box)
         box._tick()
