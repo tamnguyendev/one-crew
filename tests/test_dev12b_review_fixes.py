@@ -52,8 +52,11 @@ class NoFailClause(Base):
 
     def test_approve_refuses_a_criterion_without_fail_if_on_the_library_path(self):
         from onecrew.v2 import plan as plans
+        from unittest.mock import patch
+        from onecrew.v2 import step0
         value = self.contract(); value['milestones'] = reviewer(NO_FAIL)
-        plans.propose(self.ledger, 'P1', value, 'claude-opus-5-5')          # the library propose judges the owner part only (K3)
+        with patch.object(plans, 'refuse_owner_part'):                       # recorded by an older OneCrew (dev14: the library refuses it now)
+            plans.propose(self.ledger, 'P1', value, 'claude-opus-5-5')
         with self.assertRaises(LedgerError) as caught:
             plans.approve(self.ledger, 'P1', 'owner', 'fixture')
         self.assertIn('[criterion_no_fail_clause]', str(caught.exception))
@@ -158,9 +161,9 @@ class PlainWordsAgain(Fixture):
                 self.assertEqual(self.reasons(request=text), [])
 
     def test_the_tokens_the_review_found_and_onecrew_codes_are_refused(self):
-        for text, word in (('Sửa src/app trước.', 'src/app'), ('Mở HTTPS://x.com/a.', 'HTTPS://x.com/a'), ('Theo bản 0eF1B12a.', '0eF1B12a'),
-                           ('Mốc M1 đạt.', 'M1'), ('Theo quy tắc R3.', 'R3'), ('Có bản U1 của chủ.', 'U1'), ('Sửa lỗi F7.', 'F7'),
-                           ('Mức P2 trong review.', 'P2'), ('Bản dev12 chạy được.', 'dev12'), ('Sửa lib/core trước.', 'lib/core'),
+        # dev14 (owner "Đồng ý"): src/app, lib/core and a bare R3, U1, F7, P2 are warnings now (tests/test_dev13_review_fixes.py)
+        for text, word in (('Mở HTTPS://x.com/a.', 'HTTPS://x.com/a'), ('Theo bản 0eF1B12a.', '0eF1B12a'),
+                           ('Mốc M1 đạt.', 'M1'), ('Bản dev12 chạy được.', 'dev12'),
                            ('Mở Http://x.com.', 'Http://x.com'), ('Theo bản AbC1234dEf.', 'AbC1234dEf')):
             with self.subTest(word=word):
                 [(code, said)] = self.reasons(not_doing=text)

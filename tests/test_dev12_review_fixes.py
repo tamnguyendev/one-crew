@@ -76,8 +76,7 @@ class LibraryApprove(Base):
         evaluate = step0.evaluate
 
         def amend_meanwhile(*a, **k):          # dev12b: an amendment the library writes (owner part fine) that approve refuses (no "fail if")
-            value = self.contract(); value['milestones'] = [{'id': 'M1', 'title': 'Review', 'covers': ['O1'], 'verifier': {'type': 'reviewer', 'config': {
-                'provider': 'claude', 'model': 'claude-haiku-5-5', 'criteria': [{'id': 'R1', 'question': 'Does the diff update a.txt?'}], 'max_minutes': 5}}}]
+            value = self.contract(); value['understanding']['confidence'] = 'low'      # dev14: a rule approve applies, the library amend does not
             plans.amend(self.ledger, 'P', value, 'meanwhile', 'claude-opus-5-5')
             return evaluate(*a, **k)
         step0.evaluate = amend_meanwhile
@@ -89,7 +88,7 @@ class LibraryApprove(Base):
         self.assertEqual(plans.show(self.ledger, 'P')['status'], 'proposed')
         with self.assertRaises(LedgerError) as caught:
             plans.approve(self.ledger, 'P', 'owner', 'fixture')
-        self.assertIn('[criterion_no_fail_clause]', str(caught.exception))
+        self.assertIn('[confidence_low]', str(caught.exception))
 
 
 class ReuseExisting(Base):
@@ -126,8 +125,8 @@ class PlainWords(Fixture):
                            ('Theo bản 0EF1B12A của nhánh.', '0EF1B12A'), ('Không còn lỗi ENOENT.', 'ENOENT'),
                            ('Sửa onecrew/v2/lint.py.', 'onecrew/v2/lint.py'), ('Sửa trong docs/a.md.', 'docs/a.md'),
                            ('Đọc ./scripts trước.', './scripts'), ('Đọc ~/.claude trước.', '~/.claude'),
-                           ('Mở https://x.com/a.', 'https://x.com/a'), ('Sửa thư mục docs/ trước.', 'docs/'), ('Đọc .env trước.', '.env'),
-                           ('Lỗi ERROR_ACCESS_DENIED.', 'ERROR_ACCESS_DENIED'), ('Sửa wfkit\\manifest.json.', 'wfkit\\manifest.json')):
+                           ('Mở https://x.com/a.', 'https://x.com/a'), ('Đọc .env trước.', '.env'),
+                           ('Sửa wfkit\\manifest.json.', 'wfkit\\manifest.json')):
             with self.subTest(word=word):
                 [(code, said)] = self.reasons(not_doing=text)
                 self.assertEqual(code, 'owner_view_technical')

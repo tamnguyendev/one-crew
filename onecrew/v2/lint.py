@@ -91,47 +91,59 @@ def lint(ledger, raw, author=None):
 # Required once the owner-rules file exists in the state root (the owner's own setup, as for the provenance rules); plain words whenever given.
 OWNER_PARTS = (('request', 'Việc này làm gì'), ('user_sees', 'Xong bạn thấy gì'), ('acceptance_steps', 'Làm sao biết đạt'), ('not_doing', 'Không làm gì'))
 OWNER_CODES = ('owner_view_missing', 'owner_view_technical')
-# dev12 (reviews F5, F6 and K5, K6): what a person following the work cannot read. Patterns find candidates; for a slash and for a short code a
-# judgement decides, because the same shapes are everyday Vietnamese: units and choices ("10 km/h", "mg/kg", "A/B/C", "Q1/Q2", "có/không"), a room,
-# bed or vitamin ("phòng B12", "giường A12", "vitamin B12"), a paper size ("A4"). OneCrew's own codes are named by their known prefixes.
-_URL = re.compile(r'\b[A-Za-z][A-Za-z0-9+.-]*://\S+')
-_WINDOWS = re.compile(r'(?<![\w])[A-Za-z]:\\[^\s,;]*|\\\\[^\s,;]+|(?<![\w\\])[\w.-]+(?:\\[\w.-]+)+')
-_ROOTED = re.compile(r'(?<![\w/.~])(?:~|\.\.?)?/[A-Za-z_.][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_.-]+)*(?!\w)')
-_SLASHED = re.compile(r'(?<![\w/.~])[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*/?(?![\w/])')      # the judge keeps only tokens with a slash
-_EVERYDAY = frozenset('online offline input output email sms web mobile desktop tablet android ios windows mac linux video audio text yes no on off '
-                      'in out am pm am/pm male female nam nu'.split())
-_DATE = re.compile(r'(?:dd|mm|yy|yyyy|hh)(?:/(?:dd|mm|yy|yyyy|hh))+', re.I)
+# dev14 (owner 09/11 "Đồng ý": refuse only what is certainly technical, warn on what may be). Two levels, because the same shapes are everyday
+# Vietnamese, medical above all: ICD codes (F32.1, I10, J18.9), doses (5 mg/kg/ngày, 1 mg/kg/24 giờ), vitamins and rooms (D3, phòng B12), choices
+# (A/B/C, Q1/Q2). A pattern list that refuses every ambiguous shape never stops growing; a warning lets the author look and the owner decide.
+# CERTAIN (owner_view_technical, refused): a Windows/UNC path; a path starting with / ./ ../ ~/; a URL with a scheme; a file name with a known
+# extension; a --flag; text in backticks; a hash; a system error name; a OneCrew code in its own context (mốc M1, rev 2, v2.5, dev12, Sol6, OBS-1).
 _EXT = (r'py|pyc|json|md|ps1|psm1|txt|js|mjs|cjs|jsx|ts|tsx|vue|html?|css|scss|less|ya?ml|toml|ini|cfg|conf|env|sqlite3?|db|sql|whl|exe|dll|so|'
         r'dylib|msi|msix|sh|bat|cmd|cs|csproj|sln|java|kt|kts|gradle|go|rs|c|h|cpp|hpp|rb|php|swift|xml|plist|proto|csv|log|apk|aab|ipa|jar|'
         r'zip|tar|gz|tgz|7z|lock|ipynb|pem|crt|pfx|p12')
-_FILE = re.compile(rf'(?<![\w.])[\w-]+\.(?:{_EXT})\b|(?<![\w.])\.(?:env|git|gitignore|venv|vscode|claude|onecrew)\b', re.I)
-_FLAG = re.compile(r'(?<![\w-])--?[A-Za-z][\w-]*')
-_ERROR = re.compile(r'\b(?:Errno|errno|exit code|exit status|Traceback|Exception|WinError)\b(?:\s*\d+)?|\b0x[0-9A-Fa-f]+\b|\b[A-Z]{2,}-[0-9A-Fa-f]{4,}\b'
-                    r'|\bE(?:ACCES|NOENT|PERM|EXIST|INVAL|BUSY|ISDIR|NOTDIR|NOSPC|AGAIN|TIMEDOUT|CONNREFUSED|CONNRESET|PIPE|MFILE|NOTEMPTY|ROFS|XDEV)\b'
-                    r'|\bSIG(?:KILL|TERM|INT|SEGV|ABRT|HUP)\b|\bHTTP\s*\d{3}\b|\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b')
-# OneCrew's codes: milestone M, release/rule R, owner record U, finding F, priority/precondition P, testcase T, wave W, gate G, decision D, item I,
-# output O, should-item S, lesson L; KN/RP/RX/PL/CG/KET kit groups; OBS-, MR-, RD-, CP- lines; Sol6, dev12, rev 2, v2.5.
-_CODE = re.compile(r'\b(?:M|R|U|F|P|T|W|G|D|I|O|S|L|KN|RP|RX|PL|CG)\d+[a-z]?\b|\b(?:OBS|MR|RD|CP|KN)-[A-Z0-9]+\b|\bSol\d+(?:\.\d+)?\b'
-                   r'|\bdev\d+\b|\brev(?:ision)?\s*\d+\b|\bv\d+(?:\.\d+)+\b')
-# A short code right after one of these words is a place, a group or a substance, not a OneCrew code ("phòng P2", "tầng T3", "nhóm D1").
+CERTAIN = (
+    ('đường dẫn', re.compile(r'(?<![\w])[A-Za-z]:\\[^\s,;]*|\\\\[^\s,;]+|(?<![\w\\])[\w.-]+(?:\\[\w.-]+)+')),
+    ('đường dẫn', re.compile(r'(?<![\w/.~])(?:~|\.\.?)/[A-Za-z0-9_.][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_.-]+)*'
+                             r'|(?<![\w/.~])/[A-Za-z_.][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_.-]+)+')),
+    ('địa chỉ web', re.compile(r'\b[A-Za-z][A-Za-z0-9+.-]*://\S+')),
+    ('tên file', re.compile(rf'(?<![\w.])[\w/-]*[\w-]\.(?:{_EXT})\b|(?<![\w.])\.(?:env|git|gitignore|venv|vscode|claude|onecrew)\b', re.I)),
+    ('cờ lệnh', re.compile(r'(?<![\w-])--[A-Za-z][\w-]*')),
+    ('mã lệnh', re.compile(r'`[^`]+`')),
+    ('mã băm', re.compile(r'\b(?=[0-9A-Fa-f]*\d)(?=[0-9A-Fa-f]*[A-Fa-f])[0-9A-Fa-f]{7,64}\b')),
+    ('mã lỗi', re.compile(r'\b(?:Errno|errno|WinError)\b(?:\s*\d+)?|\bTraceback\b|\bexit (?:code|status)\s*-?\d+|\b0x[0-9A-Fa-f]{2,}\b'
+                          r'|\bE(?:ACCES|NOENT|PERM|EXIST|INVAL|BUSY|ISDIR|NOTDIR|NOSPC|AGAIN|TIMEDOUT|CONNREFUSED|CONNRESET|PIPE|MFILE|NOTEMPTY|ROFS|XDEV)\b'
+                          r'|\bSIG(?:KILL|TERM|INT|SEGV|ABRT|HUP)\b')),
+    ('mã nội bộ', re.compile(r'(?i:\b(?:mốc|milestone)\s+)M\d+\b|\brev(?:ision)?\s*\d+\b|\bv\d+\.\d+(?:\.\d+)*\b|\bdev\d+\b|\bSol\d+(?:\.\d+)?\b'
+                             r'|\b(?:OBS|MR|RD|CP)-[A-Z0-9]+\b')),
+)
+# MAYBE (owner_view_maybe_technical, a warning): a slash between words that are not numbers, units, letters with a number, everyday words or a
+# date format; a web address without scheme; a CONSTANT_NAME; a ticket-like code (REQ-123); a build file name; a bare OneCrew-like code with
+# one digit (U1, F7, R3) not after a word that names a place, group or substance.
+_SLASHED = re.compile(r'(?<![\w/.~])[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+(?![\w/])')
+_UNITS = frozenset('mg kg g mcg ug ml l dl cl km m cm mm h s min mmol mol iu ui mmhg bpm kcal cal mg% mmhg l/ph'.split())
+_EVERYDAY = frozenset('online offline input output email sms web mobile desktop tablet android ios windows mac linux video audio text yes no on '
+                      'off in out am pm male female nam nu'.split())
+_DATE = re.compile(r'(?:dd|mm|yy|yyyy|hh)(?:/(?:dd|mm|yy|yyyy|hh))+', re.I)
 _PLACE = frozenset('phòng giường buồng tầng lầu khu dãy lớp nhóm tổ khoa vitamin khổ mẫu đơn số quý hạng loại cỡ size bàn ghế ô hộp kệ tủ '
-                   'xe tuyến đường lô block căn nhà'.split())
-_HASH = re.compile(r'\b(?=[0-9A-Fa-f]*\d)(?=[0-9A-Fa-f]*[A-Fa-f])[0-9A-Fa-f]{7,64}\b')
-_TICK = re.compile(r'`[^`]+`')
+                   'xe tuyến đường lô block căn nhà máu type typ tuýp'.split())
+_BUILD = re.compile(r'\b(?:Dockerfile|Makefile|Jenkinsfile|Procfile|Gemfile|Rakefile|Vagrantfile|CMakeLists|README|LICENSE|CHANGELOG)\b')
+MAYBE = (
+    ('địa chỉ web', re.compile(r'\bwww\.[\w.-]+\w|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|vn|dev|app|ai|info)\b')),
+    ('tên hằng', re.compile(r'\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b')),
+    ('mã phiếu', re.compile(r'\b[A-Z]{2,}-\d{3,}\b')),
+    ('tên file', _BUILD),
+    ('mã nội bộ', re.compile(r'\b(?:M|R|U|F|P|T|W|G|D|I|O|S|L)\d[a-z]?\b')),
+)
 
 
-def _slashed_is_path(token):
-    """A slash token of ASCII segments that names a path, not a unit, a choice, a date or a ratio."""
-    if '/' not in token or _DATE.fullmatch(token.rstrip('/')): return False
-    folder = token.endswith('/')
-    parts = [p for p in token.split('/') if p]
-    if not any(re.search(r'[A-Za-z]', p) for p in parts): return False                  # 3/5, 08/11/2026, 120/80
-    if any(re.search(r'[A-Za-z]', p) and re.search(r'[._]', p.strip('.')) for p in parts): return True   # docs/a.md, src_x/y
-    if folder and len(parts) == 1: return len(parts[0]) >= 2 and parts[0][0].isalpha()   # docs/
-    words = [p for p in parts if len(p) >= 2 and re.search(r'[A-Za-z]', p)]
-    if len(parts) >= 3: return len(words) >= 2 and not all(p.lower() in _EVERYDAY for p in parts)    # src/app/main; not A/B/C
-    return (all(len(p) >= 3 and re.search(r'[a-z]', p) for p in parts)                     # src/app, lib/core; not km/h, mg/kg, Q1/Q2
-            and not all(p.lower() in _EVERYDAY for p in parts))
+def _plain_segment(part):
+    p = part.strip('.,;:').lower()
+    return (not p or p.isdigit() or re.fullmatch(r'\d+(?:[.,]\d+)?', p) is not None or re.fullmatch(r'[a-z]\d{0,2}', p) is not None
+            or p in _UNITS or p in _EVERYDAY)
+
+
+def _slash_may_be_path(token):
+    token = token.strip('.,;:')
+    if _DATE.fullmatch(token): return False
+    return not all(_plain_segment(p) for p in token.split('/'))
 
 
 def _previous_word(text, at):
@@ -140,18 +152,21 @@ def _previous_word(text, at):
 
 
 def technical_word(text):
-    """(kind, word) of the first technical token in an owner sentence, else None."""
-    found = []
-    for kind, pattern, judge in (('đường dẫn', _URL, None), ('đường dẫn', _WINDOWS, None), ('tên file hoặc đường dẫn', _ROOTED, None),
-                                 ('tên file hoặc đường dẫn', _SLASHED, lambda m: _slashed_is_path(m.group(0))), ('tên file', _FILE, None),
-                                 ('cờ lệnh', _FLAG, None), ('mã lỗi', _ERROR, None),
-                                 ('mã nội bộ', _CODE, lambda m: _previous_word(text, m.start()) not in _PLACE),
-                                 ('mã băm', _HASH, None), ('mã lệnh', _TICK, None)):
+    """(kind, word) of the first CERTAIN technical token in an owner sentence, else None (a refusal: owner_view_technical)."""
+    for kind, pattern in CERTAIN:
+        found = pattern.search(text)
+        if found: return kind, found.group(0).strip().rstrip('.,;:')
+    return None
+
+
+def maybe_technical_word(text):
+    """(kind, word) of the first token that MAY be technical, else None (a warning only: owner_view_maybe_technical)."""
+    for match in _SLASHED.finditer(text):
+        if _slash_may_be_path(match.group(0)): return 'đường dẫn', match.group(0).strip('.,;:')
+    for kind, pattern in MAYBE:
         for match in pattern.finditer(text):
-            if judge is None or judge(match):
-                found.append((kind, match.group(0).strip().rstrip('.,;:')))
-                break
-        if found: return found[0]
+            if kind == 'mã nội bộ' and _previous_word(text, match.start()) in _PLACE: continue
+            return kind, match.group(0).strip('.,;:')
     return None
 
 
@@ -181,7 +196,22 @@ def owner_view(ledger, contract):
     return reasons
 
 
-QUOTED = (re.compile(r"'([^'\n]{4,}?)'"), re.compile(r'"([^"\n]{4,}?)"'), re.compile(r'`([^`\n]{4,}?)`'))
+def owner_view_warnings(contract):
+    """dev14: [(code, text)] warnings (never refusals) for words of the owner part that MAY be technical; plan lint prints them and exits 0,
+    propose and approve go on and return them as `warnings`. A sentence already refused for a certain technical word is not warned twice."""
+    shown = contract.get('presentation') or {}
+    out = []
+    for key, label in OWNER_PARTS:
+        for text in _owner_texts(shown, key):
+            hit = None if technical_word(text) else maybe_technical_word(text)
+            if hit:
+                out.append(('owner_view_maybe_technical', f'Phần "{label}" có chữ có thể là {hit[0]} «{hit[1][:60]}». Chỉ là cảnh báo, không chặn: '
+                                                          'nếu người theo dõi không hiểu chữ này thì viết lại bằng lời thường.'))
+                break
+    return out
+
+
+QUOTED =(re.compile(r"'([^'\n]{4,}?)'"), re.compile(r'"([^"\n]{4,}?)"'), re.compile(r'`([^`\n]{4,}?)`'))
 WORD = re.compile(r'[^\W\d_]{6,}')
 SHARED = 6                      # letters two words must share at the start to count as the same word (message / messages, translated / translating)
 
@@ -245,7 +275,7 @@ def check(ledger, raw, author=None, ack_criteria=False):
         contract = contracts.validate(raw)
     except LedgerError:
         return reasons, []
-    return reasons, ([] if ack_criteria else _warnings(ledger, raw, contract))
+    return reasons, ([] if ack_criteria else _warnings(ledger, raw, contract)) + owner_view_warnings(contract)
 
 
 def notes(raw):

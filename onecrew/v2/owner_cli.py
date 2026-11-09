@@ -79,6 +79,8 @@ def _human_result(parsed, code, output, errors='', *, refused=False):
             success = f'Đã bật chế độ {parsed.mode} và xuất quyền của {parsed.plan}. Cấu hình này chưa chứng minh hook đã chạy trong phiên làm việc.'
     if success:
         print(safe(success, 1000))
+        for _code, text in value.get('warnings') or ():           # dev14: words that may be technical; a warning, never a refusal
+            print(safe('Cảnh báo (không chặn): ' + str(text), 1000))
         if value.get('post_commit_errors'):
             print(safe('Phần đồng bộ sau khi ghi chưa hoàn tất: ' + json.dumps(value['post_commit_errors'], ensure_ascii=False), 2000))
         print('Bước tiếp theo: xem lại task trên trang theo dõi; trạng thái dựa trên lần đọc sổ mới.')
