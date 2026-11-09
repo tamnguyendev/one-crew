@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## v2.5.0.dev13 (09/11/2026) — review lại dev12 `b0d3bdb` (Kiro, FAIL); chủ: "Sửa tiếp hết" — LOCAL, chưa tag/push/phát hành
+
+Mỗi mục có test đỏ trên `b0d3bdb` (`tests/test_dev12b_review_fixes.py`).
+- **Tiêu chí reviewer phải có "fail if" ở mọi đường** (trước là F3, ngoài phạm vi; nay sửa): lint, lệnh `plan propose`/`plan amend` và `approve` (thư viện, `plan approve`, `owner approve`) cùng từ chối `criterion_no_fail_clause`.
+- **Plan đã duyệt theo quy tắc hiện hành:** duyệt lặp và `plan propose --reuse-existing` kiểm phần cho chủ (và "fail if") theo quy tắc hôm nay. Lời từ chối chỉ cách gỡ: `plan amend` thêm bốn câu rồi duyệt bản mới. Lần duyệt cũ vẫn được ghi giữ.
+- **Thư viện `propose`/`amend`** từ chối phần cho chủ thiếu (khi có owner-rules) hoặc có chữ kỹ thuật, trước khi ghi gì.
+- **Race khi owner-rules ra đời giữa lúc duyệt:** giao dịch ghi cuối của `approve` kiểm lại phần cho chủ và "fail if".
+- **Nhận chữ kỹ thuật thiết kế lại:**
+  - giữ lời thường: `A/B/C`, `Q1/Q2`, `vitamin B12`, `phòng B12`, `A4`, `online/offline`;
+  - vẫn bắt mã nội bộ OneCrew theo tiền tố đã biết (`M1`, `R3`, `U1`, `F7`, `P2`, `dev12`, ...), trừ khi đứng sau từ chỉ chỗ hay nhóm (`phòng`, `tầng`, `nhóm`, ...);
+  - bắt thêm `src/app`, URL viết hoa, hash viết hoa thường lẫn lộn.
+- **Test bị kit-guard khóa:** 6 file chỉ thêm "fail if" vào câu hỏi tiêu chí trong dữ liệu test. U1 do chủ chạy một script.
+
 ## v2.5.0.dev12 (09/11/2026) — sửa các lỗi thật của review độc lập trên dev11 `1fba2a4` — LOCAL, chưa tag/push/phát hành
 
 Review: Kiro CLI (gpt-5.6-sol), chỉ đọc, kết luận FAIL. Chủ duyệt sửa ngày 09/11. Mỗi lỗi có test đỏ trên `1fba2a4` trước khi sửa (`tests/test_dev12_review_fixes.py`).
