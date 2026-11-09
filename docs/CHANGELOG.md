@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## v2.5.0.dev12 (09/11/2026) — sửa các lỗi thật của review độc lập trên dev11 `1fba2a4` — LOCAL, chưa tag/push/phát hành
+
+Review: Kiro CLI (gpt-5.6-sol), chỉ đọc, kết luận FAIL. Chủ duyệt sửa ngày 09/11. Mỗi lỗi có test đỏ trên `1fba2a4` trước khi sửa (`tests/test_dev12_review_fixes.py`).
+- **`--revision 0` vượt cổng phần cho chủ:** `approve()` coi 0 là số bản, nên từ chối vì đó không phải bản mới nhất.
+- **Race giữa lần kiểm ở lệnh và lần duyệt:** phần cho chủ được kiểm trong `approve()` trên đúng bản sẽ ghi. Lệnh `plan approve`/`owner approve` bật kiểm này. Thư viện giữ mặc định cũ, vì các test cổng duyệt bị kit-guard khóa dựa vào mặc định đó; bật cho mọi nơi gọi là quyết định của chủ.
+- **`plan propose --reuse-existing`:** không dùng lại plan đang chờ duyệt mà lint từ chối. Plan đã được duyệt ở đúng bản đó vẫn vào lại như cũ.
+- **Nhận chữ kỹ thuật:** dấu `/` giữa lời thường (`10 km/h`, `mg/kg`, `có/không`) không còn bị bắt. Thêm đường dẫn tuyệt đối, home và Windows tương đối, URL, đuôi file, tên errno, hằng và hash viết hoa. Giới hạn: đường dẫn hai đoạn toàn chữ (`src/app`) chưa bắt được.
+- **Ô tìm kiếm trên trang theo dõi** tìm cả trong phần cho chủ, tức tiêu đề và mô tả của thẻ.
+- **Ngoài phạm vi:** `criterion_no_fail_clause` vẫn chỉ là ghi chú của lint (có từ trước dev11).
+
 ## v2.5.0.dev11 (08/11/2026) — gộp dòng Sol6.4 vào dòng UI dev10; khép 4 lỗi dùng thật — LOCAL, chưa tag/push/phát hành
 
 - **Gộp:** `claude/sol6-close-s5` (`9df359a`, beta giám sát Sol6.4, đã chứa `claude/review-cycle2` `9933bbf`) vào `main` (`f1205bc`). Xung đột duy nhất: `docs/proposal-coverage.md`. Code sau gộp trùng `9df359a`.
