@@ -1,0 +1,18 @@
+{
+ "id": "U1-20261109-DEV13-FAILIF-1",
+ "file": "tests/test_v2_reviewer.py",
+ "old_sha256": "fb39156e1551d6a658325706715f12f56a00e2e3ed640f56b148082a9a7b7297",
+ "new_sha256": "b96379b01f2b48ab517f660505559013388d88b7aeb88c3ff2b561b9102bccf6",
+ "reason": "2.5.0.dev13, review K1 (Kiro 09/11 on b0d3bdb, was F3): a reviewer criterion without a \"fail if\" clause is now refused by approve on every path, as plan lint already refused it. This file builds reviewer criteria without that clause for plans it approves. Edit: the criterion question(s) get \" fail if ...\" appended; nothing else changes: no assertion removed or loosened, no skip. Counterexample: the old file on the new code fails at approve with criterion_no_fail_clause.",
+ "authorized_by": "Chủ sở hữu, 09/11/2026, qua phiên điều phối \"Plan digest và báo trạng thái\", trả lời câu \"Chốt hướng: chữ mơ hồ chỉ cảnh báo, sửa nhanh rồi chạy gate?\": \"Sửa tiếp hết\"; phiên điều phối chuyển: \"U1 của chủ đã có cho 'Sửa tiếp hết' ở phạm vi các finding này. Soạn script ghi U1 cho chủ chạy, gom MỘT script cho mọi file khóa phải sửa.\" Bản ghi do chủ chạy script tạo ra.",
+ "applied_by": "claude (phiên onecrew-2.5-dev11, Opus 5.5), nhánh onecrew-2.5-dev11, commit 6111648",
+ "evidence": {
+  "base": "b0d3bdb23cc1aca086302bd968246418769fadd5",
+  "commit": "6111648",
+  "diff": "git diff b0d3bdb 6111648 -- tests/test_v2_reviewer.py",
+  "red": "D:/OneCrewRuns/v25/dev12/probe-f3 (rule on, old files: errors at approve with criterion_no_fail_clause)",
+  "green": "D:/OneCrewRuns/v25/dev12/g2/summary.txt (edited files, rule on: all OK)"
+ },
+ "note": "sha256 of the LF form (the committed blob), as kit-guard pins it",
+ "at": "2026-11-09"
+}
