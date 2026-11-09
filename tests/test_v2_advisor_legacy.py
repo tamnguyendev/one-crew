@@ -20,8 +20,8 @@ class LegacyExemptionTests(Fixture):
         self.assertEqual(plans.approve(self.ledger, 'P1', 'owner', 'said yes', choose='A')['status'], 'approved')
 
     def test_the_same_contracts_are_refused_once_the_rules_file_exists(self):
+        self.propose(value=size_m())                 # dev12: recorded before the rules (the library refuses it after: no owner part)
         advisor.init_rules(self.ledger)
-        self.propose(value=size_m())
         with self.assertRaises(LedgerError) as caught: plans.approve(self.ledger, 'P1', 'owner', 'said yes', choose='A')
         self.assertEqual(reasons(caught.exception), ['origin_missing', 'item_without_source', 'advice_missing', 'owner_view_missing'])   # dev12: the owner part too
 

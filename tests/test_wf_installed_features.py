@@ -126,7 +126,7 @@ with tempfile.TemporaryDirectory() as temp:
         contract['scope']['owned'] = ['a.txt']
         contract['milestones'][0]['verifier'] = {'type':'reviewer','config':{
             'provider':'claude','model':'fixture-model','max_minutes':1,
-            'criteria':[{'id':'R1','question':'Does a.txt preserve both rows?'}]}}
+            'criteria':[{'id':'R1','question':'Does a.txt preserve both rows? fail if a row is lost.'}]}}
         self.check_body('''
 import json, tempfile, subprocess, io, contextlib
 from pathlib import Path

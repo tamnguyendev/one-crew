@@ -21,7 +21,7 @@ from tests.test_v2_l1 import milestone
 from tests.test_v2_reviewer import reviewer_milestone, answer, row
 from tests.test_wf_candidate_handoff import CandidateFixture
 
-CRITERIA = [{'id': 'R1', 'question': 'Does a.txt hold the candidate line (cite file:line)?'}]
+CRITERIA = [{'id': 'R1', 'question': 'Does a.txt hold the candidate line (cite file:line)? fail if it does not.'}]
 
 
 class CandidateReviewerFixture(CandidateFixture):

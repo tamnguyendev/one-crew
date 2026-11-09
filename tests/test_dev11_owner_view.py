@@ -96,6 +96,17 @@ class CommandRefusals(Fixture):
             code = cli.main(['--project', str(self.root), '--state-root', str(self.ledger.state_root), *argv])
         return code, out.getvalue()
 
+    def before_rules(self, name, value):
+        """dev12: a plan recorded before the owner-rules file existed (since dev12 the library refuses one without the owner part after)."""
+        from onecrew.v2 import plan as plans
+        rules = Path(self.ledger.state_root) / 'plans' / 'owner-rules.md'
+        text = rules.read_text(encoding='utf-8') if rules.exists() else None
+        if text is not None: rules.unlink()
+        try:
+            return plans.propose(self.ledger, name, value, 'claude-opus-5-5')
+        finally:
+            if text is not None: rules.write_text(text, encoding='utf-8')
+
     def file(self, value, name='c.json'):
         path = self.root.parent / name; path.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8'); return str(path)
 
@@ -121,7 +132,7 @@ class CommandRefusals(Fixture):
 
     def test_approve_command_refuses_a_plan_whose_owner_part_lint_refuses(self):
         from onecrew.v2 import plan as plans
-        plans.propose(self.ledger, 'OLD', self.contract(none=True), 'claude-opus-5-5')          # recorded without the part (library, as before)
+        self.before_rules('OLD', self.contract(none=True))                                   # recorded without the part, before the rules
         rc, text = self.cli('plan', 'approve', 'OLD', '--by', 'owner', '--reference', 'fixture')
         self.assertNotEqual(rc, 0, text)
         error = json.loads(text)['error']
@@ -133,7 +144,7 @@ class CommandRefusals(Fixture):
 
     def test_owner_approve_human_says_in_plain_words_why_it_did_not_approve(self):
         from onecrew.v2 import plan as plans
-        plans.propose(self.ledger, 'OLD', self.contract(none=True), 'claude-opus-5-5')
+        self.before_rules('OLD', self.contract(none=True))                                   # recorded without the part, before the rules
         rc, text = self.cli('owner', 'approve', 'OLD', '--reference', 'fixture', '--human')
         self.assertNotEqual(rc, 0, text)
         self.assertIn('Chưa duyệt: phần viết cho người theo dõi', text)

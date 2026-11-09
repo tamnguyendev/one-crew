@@ -17,8 +17,8 @@ from test_v2_l1 import Fixture, plan_json
 
 REAL_CLI = Path(r'C:\Users\NUC\.local\bin\claude.exe')
 SENTINEL = 'ZXQ-AUTHOR-REPORT-SENTINEL-7731'
-CRITERIA = [{'id': 'R1', 'question': 'Does the diff of a.txt add the line "two"?'},
-            {'id': 'R2', 'question': 'Does the diff touch any file other than a.txt?'}]
+CRITERIA = [{'id': 'R1', 'question': 'Does the diff of a.txt add the line "two"? fail if it does not.'},
+            {'id': 'R2', 'question': 'Does the diff touch any file other than a.txt? fail if it does.'}]
 FAKE = '''import json, sys
 from pathlib import Path
 here = Path(__file__).parent

@@ -174,7 +174,7 @@ class BoundReceiptTests(Fixture):
     def test_reviewer_receipt_binds_effective_environment_with_fake_provider_only(self):
         value = plan_json()
         value['milestones'][0]['verifier'] = {'type': 'reviewer', 'config': {'provider': 'claude',
-            'model': 'claude-haiku-5-5', 'criteria': [{'id': 'R1', 'question': 'Does a.txt add the required line?'}]}}
+            'model': 'claude-haiku-5-5', 'criteria': [{'id': 'R1', 'question': 'Does a.txt add the required line? fail if it does not.'}]}}
         plan.propose(self.ledger, 'P1', value, 'codex', workflow=True, capabilities=list(namespaces.CAPABILITIES))
         plan.approve(self.ledger, 'P1', 'owner', 'temporary fixture')
         (self.root / 'a.txt').write_text('one\ntwo\n')

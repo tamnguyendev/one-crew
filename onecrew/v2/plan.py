@@ -335,10 +335,23 @@ def refuse_form(ledger, raw, author, verb='Propose', fix=None):
     author/criteria notes stay lint's."""
     from . import lint
     reasons = [r for r in lint.lint(lint.ReadOnlyLedger(ledger.project, ledger.state_root), raw, author)
-               if r[0] in lint.FORM_CODES or r[0] == 'argv_control_char' or r[0] in lint.OWNER_CODES]     # dev11: and the owner part
+               if r[0] in lint.FORM_CODES or r[0] in ('argv_control_char', 'criterion_no_fail_clause') or r[0] in lint.OWNER_CODES]   # dev11/12
     if reasons:
         raise LedgerError(f'{verb} refused: plan lint reports {len(reasons)} form reason{"s" if len(reasons) != 1 else ""} that approve would refuse; '
                           f'nothing was written. {fix[0].upper() + fix[1:] if fix else "Fix them and " + verb.lower() + " again"}:\n' + '\n'.join(f' - [{code}] {text}' for code, text in reasons))
+
+
+AMEND_FIX = 'the existing plan was not reused; plan amend writes a new revision with the fix (the four sentences of the owner part), then approve it'
+
+
+def refuse_owner_part(ledger, contract, verb='Propose', fix=None):
+    """dev12 (review K3): every caller, the library included, is refused a revision whose owner part lint refuses, before anything is written
+    (the propose and amend commands run the whole refuse_form instead)."""
+    from . import lint
+    reasons = lint.owner_view(ledger, contract)
+    if reasons:
+        raise LedgerError(f'{verb} refused: the owner part is not ready ({len(reasons)} reason{"s" if len(reasons) != 1 else ""}); nothing was written. '
+                          f'{fix[0].upper() + fix[1:] if fix else "Fix it and " + verb.lower() + " again"}:' + ''.join(f'\n - [{c}] {t}' for c, t in reasons))
 
 
 def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_existing=False, check_form=False):
@@ -360,18 +373,15 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_
                     raise LedgerError('Existing plan has a different contract; read it and use plan amend if authorized.')
                 if {k: state[k] for k in ('workflow_version', 'capabilities') if k in state} != metadata:
                     raise LedgerError('Existing plan has different workflow capabilities; reuse cannot upgrade its grant.')
-                approved = state['approved']
-                reused = state['selector'], bool(approved and approved['revision'] == state['latest'] and approved['sha'] == state['revisions'][state['latest']]['sha'])
+                reused = state['selector']
             else:
                 reused = None
         if reused:
-            # dev12 (review F4): the command does not hand back as reused a plan waiting for approval that lint refuses today (one recorded
-            # before dev11, or by the library); it says why, and the fix is a new revision. A plan the owner already approved at this revision
-            # is re-entered as before: the owner judged it, and a running workflow is not stopped by a rule added after. The library default
-            # stays unchanged, as for a new plan below.
-            if check_form and not reused[1]:
-                refuse_form(ledger, raw, author, verb='Reuse', fix='the existing plan was not reused; write the fix with plan amend')
-            return _show(ledger, reused[0])
+            # dev12 (reviews F4, K2; owner "Sửa tiếp hết"): a plan is reused only if it meets the rules of today, approved or not: the command
+            # by lint's form rules, every caller by the owner part. The refusal names the way out: plan amend, then approve the new revision.
+            if check_form: refuse_form(ledger, raw, author, verb='Reuse', fix=AMEND_FIX)
+            else: refuse_owner_part(ledger, contract, verb='Reuse', fix=AMEND_FIX)
+            return _show(ledger, reused)
     selector = namespaces.NAMESPACED + name
     from . import solution_link
     solution_link.prepare(ledger, selector, contract)
@@ -380,6 +390,7 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_
     # write; after re-entry (judged above, dev12) and after the more specific refusals above. The library default is
     # unchanged: approve stays the gate for every other caller, and for a plan recorded before dev11 or changed by plan amend.
     if check_form: refuse_form(ledger, raw, author)
+    else: refuse_owner_part(ledger, contract)           # dev12 (review K3): the library too
     if contracts.revision_path(ledger, selector, 1).exists(): raise LedgerError(f'Plan {name} already exists; change it with plan amend.')
     sha = content_hash(contract)                # what write_revision records as content_sha
 
@@ -404,6 +415,7 @@ def amend(ledger, name, raw, reason, author, events=None, keep_content_author=Fa
     text_field(reason, 'reason', 200); text_field(author, 'author', 100); refuse_owner_author(author)
     contract = contracts.validate(raw)
     if check_form: refuse_form(ledger, raw, author, verb='Amend')        # dev11: the plan amend command, as plan propose
+    else: refuse_owner_part(ledger, contract, verb='Amend')              # dev12 (review K3): the library too
     with ledger.transaction(write=True) as conn:
         state = anchor_events(ledger, conn, name)
         if state['status'] in ('accepted', 'closed'): raise LedgerError(f'Plan {name} is {state["status"]}; it cannot be amended.')
@@ -490,6 +502,13 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
     if approved and approved['revision'] == revision and approved['sha'] == sha:   # a repeat is a no-op, but the choice is made once
         if choose is not None and choose != approved.get('chosen'):
             raise LedgerError(f'The choice was made once ({approved.get("chosen")}); changing it needs plan amend (a change request).')
+        # dev12 (review K2; owner "Sửa tiếp hết"): a repeat meets the contract rules of today (the owner part, a criterion's "fail if"), so a plan
+        # approved before them is never confirmed as approved again; the approval it has stays recorded, and plan amend is the way out.
+        today = step0.contract_rules(ledger, contract)
+        if today:
+            raise LedgerError(f'Approve refused: revision {revision} was approved before the rules of today and does not meet them '
+                              f'({len(today)} reason{"s" if len(today) != 1 else ""}); the approval it has stays recorded. Write the fix with plan amend '
+                              '(the four sentences of the owner part), then approve the new revision:' +''.join(f'\n - [{c}] {t}' for c, t in today))
         return _show(ledger, name)
     _refuse_hard_links(ledger)
     from . import root_writer
@@ -508,6 +527,9 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
             raise LedgerError('The plan changed while step 0 was being checked; run approve again.')
         if state['status'] == 'closed': raise LedgerError('The root was closed while step 0 was being checked.')
         root_writer.check_approval(ledger, conn, state, contract)     # a writer that went live meanwhile; nothing is recorded
+        late = [r for r in step0.contract_rules(ledger, contract) if r not in verdict['reasons']]
+        if late:            # dev12 (review K4): owner rules created while step 0 ran: judged again here, in the write that would record
+            verdict = dict(verdict, ok=False, reasons=verdict['reasons'] + late)
         if verdict['results']: step0.record_run(ledger, conn, state['task_id'], name, revision, sha, verdict, 'approve')
         if verdict['ok']:
             solution_link.validate_root(ledger, conn, state, contract, sha, revision)

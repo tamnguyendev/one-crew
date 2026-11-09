@@ -17,8 +17,8 @@ from onecrew.v2 import contract as contracts, findings, plan as plans, review_po
 from tests.test_v2_l1 import Fixture, plan_json
 
 
-CRITERIA = [{'id': 'R1', 'question': 'Does a.txt contain the required line?'},
-            {'id': 'R2', 'question': 'Does a.txt preserve its first line?'}]
+CRITERIA = [{'id': 'R1', 'question': 'Does a.txt contain the required line? fail if it does not.'},
+            {'id': 'R2', 'question': 'Does a.txt preserve its first line? fail if it does not.'}]
 
 
 def contract():

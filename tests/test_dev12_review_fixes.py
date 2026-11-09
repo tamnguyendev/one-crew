@@ -18,7 +18,7 @@ from tests.test_v2_l1 import Fixture, plan_json
 
 class Base(Fixture):
     """The owner-rules state root and helpers of the dev11 command tests, without running those tests again here."""
-    contract, cli, file = CommandRefusals.contract, CommandRefusals.cli, CommandRefusals.file
+    contract, cli, file, before_rules = CommandRefusals.contract, CommandRefusals.cli, CommandRefusals.file, CommandRefusals.before_rules
 
     def setUp(self):
         super().setUp()
@@ -32,7 +32,7 @@ del CommandRefusals
 class RevisionZero(Base):
     def test_plan_approve_revision_zero_is_refused_and_approves_nothing(self):
         from onecrew.v2 import plan as plans
-        plans.propose(self.ledger, 'OLD', self.contract(none=True), 'claude-opus-5-5')
+        self.before_rules('OLD', self.contract(none=True))
         for argv in (('plan', 'approve', 'OLD', '--by', 'owner', '--reference', 'fixture', '--revision', '0'),
                      ('owner', 'approve', 'OLD', '--reference', 'fixture', '--revision', '0')):
             with self.subTest(argv=argv[:2]):
@@ -55,7 +55,7 @@ class LibraryApprove(Base):
     revision at that sha, so an amendment written meanwhile is never approved unchecked."""
     def test_library_approve_refuses_a_plan_whose_owner_part_lint_refuses(self):
         from onecrew.v2 import plan as plans
-        plans.propose(self.ledger, 'OLD', self.contract(none=True), 'claude-opus-5-5')
+        self.before_rules('OLD', self.contract(none=True))
         with self.assertRaises(LedgerError) as caught:
             plans.approve(self.ledger, 'OLD', 'owner', 'fixture')
         self.assertIn('[owner_view_missing]', str(caught.exception)); self.assertIn('plan amend', str(caught.exception))
@@ -65,7 +65,7 @@ class LibraryApprove(Base):
         from onecrew.v2 import plan as plans
         value = self.contract(none=True); value['options'] = None
         value['understanding']['confidence'] = 'low'
-        plans.propose(self.ledger, 'TWO', value, 'claude-opus-5-5')
+        self.before_rules('TWO', value)
         with self.assertRaises(LedgerError) as caught:
             plans.approve(self.ledger, 'TWO', 'owner', 'fixture')
         self.assertIn('[confidence_low]', str(caught.exception)); self.assertIn('[owner_view_missing]', str(caught.exception))
@@ -75,8 +75,10 @@ class LibraryApprove(Base):
         plans.propose(self.ledger, 'P', self.contract(), 'claude-opus-5-5')
         evaluate = step0.evaluate
 
-        def amend_meanwhile(*a, **k):
-            plans.amend(self.ledger, 'P', self.contract(none=True), 'meanwhile', 'claude-opus-5-5')
+        def amend_meanwhile(*a, **k):          # dev12b: an amendment the library writes (owner part fine) that approve refuses (no "fail if")
+            value = self.contract(); value['milestones'] = [{'id': 'M1', 'title': 'Review', 'covers': ['O1'], 'verifier': {'type': 'reviewer', 'config': {
+                'provider': 'claude', 'model': 'claude-haiku-5-5', 'criteria': [{'id': 'R1', 'question': 'Does the diff update a.txt?'}], 'max_minutes': 5}}}]
+            plans.amend(self.ledger, 'P', value, 'meanwhile', 'claude-opus-5-5')
             return evaluate(*a, **k)
         step0.evaluate = amend_meanwhile
         try:
@@ -87,29 +89,17 @@ class LibraryApprove(Base):
         self.assertEqual(plans.show(self.ledger, 'P')['status'], 'proposed')
         with self.assertRaises(LedgerError) as caught:
             plans.approve(self.ledger, 'P', 'owner', 'fixture')
-        self.assertIn('[owner_view_missing]', str(caught.exception))
+        self.assertIn('[criterion_no_fail_clause]', str(caught.exception))
 
 
 class ReuseExisting(Base):
     def test_reuse_existing_refuses_an_identical_plan_lint_now_refuses(self):
         from onecrew.v2 import plan as plans
         old = self.contract(none=True)
-        plans.propose(self.ledger, 'OLD', old, 'claude-opus-5-5')
+        self.before_rules('OLD', old)
         rc, text = self.cli('plan', 'propose', 'OLD', '--file', self.file(old), '--author', 'claude-opus-5-5', '--reuse-existing')
         self.assertNotEqual(rc, 0, text)
         self.assertIn('[owner_view_missing]', json.loads(text)['error'])
-
-    def test_reuse_existing_still_reenters_a_plan_the_owner_approved_before_the_rule(self):
-        from onecrew.v2 import plan as plans
-        old = self.contract(none=True)
-        rules = Path(self.ledger.state_root) / 'plans' / 'owner-rules.md'
-        text = rules.read_text(encoding='utf-8'); rules.unlink()
-        plans.propose(self.ledger, 'RUN', old, 'claude-opus-5-5')
-        plans.approve(self.ledger, 'RUN', 'owner', 'fixture')                  # approved before the owner-rules file existed
-        rules.write_text(text, encoding='utf-8')
-        rc, out = self.cli('plan', 'propose', 'RUN', '--file', self.file(old), '--author', 'claude-opus-5-5', '--reuse-existing')
-        self.assertEqual(rc, 0, out)
-        self.assertEqual(plans.show(self.ledger, 'RUN')['status'], 'approved')
 
     def test_reuse_existing_still_returns_an_identical_plan_lint_accepts(self):
         good = self.contract()

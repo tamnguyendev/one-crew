@@ -29,7 +29,7 @@ def review_contract():
     return plan_json(milestones=[{'id': 'M1', 'title': 'Review the file', 'covers': ['O1'],
                                 'verifier': {'type': 'reviewer', 'config': {
                                     'provider': 'claude', 'model': 'claude-haiku-5-5', 'max_minutes': 1,
-                                    'criteria': [{'id': 'R1', 'question': 'Does the a.txt diff preserve the document?'}]}}}])
+                                    'criteria': [{'id': 'R1', 'question': 'Does the a.txt diff preserve the document? fail if it does not.'}]}}}])
 
 
 class RetentionIntegrationTests(Fixture):
