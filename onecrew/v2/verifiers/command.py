@@ -828,7 +828,10 @@ def _checkout(directory, tree, destination):
     # F1: read-tree + checkout-index, not `git archive`: export-ignore / export-subst in .gitattributes would change the tree.
     env = {'GIT_INDEX_FILE': str(Path(destination) / 'checkout.index')}
     _git(top, 'read-tree', tree, env=env)
-    _git(top, 'checkout-index', '-a', '-f', '--prefix=' + root.as_posix() + '/', env=env)
+    # Issue #4 (dev14): the line endings of the checkout never follow this machine's git config (core.autocrlf, core.eol), which is not part of
+    # the artifact's identity; the bytes depend only on the tree and its .gitattributes, both hashed. Times of change are those of the checkout.
+    _git(top, '-c', 'core.autocrlf=false', '-c', 'core.eol=lf', '-c', 'core.safecrlf=false',
+         'checkout-index', '-a', '-f', '--prefix=' + root.as_posix() + '/', env=env)
     relative = Path(directory).resolve().relative_to(top)
     return root / relative
 

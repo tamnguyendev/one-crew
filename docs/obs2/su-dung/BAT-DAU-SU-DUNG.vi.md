@@ -219,6 +219,10 @@ Mong đợi: `DAT: da dung dung phien da ghim …; worker/task khong bi anh huon
 | `mo-trang-obs1.ps1`: "file ghim … nằm trong …" | đặt `$Ghim` ngoài venv, ngoài sổ, ngoài gói |
 | Không mở được trang sau 30 phút bỏ trống | server đã tự thoát: chạy lại lệnh mở |
 
+**Bộ kiểm lệnh chạy trên một bản chép của artifact, không chạy trên thư mục đang làm** (từ 2.5.0.dev14):
+- **Byte của bản chép** khớp với nội dung git lưu. Kiểu xuống dòng không theo `core.autocrlf` hay `core.eol` của máy; `.gitattributes` của repo vẫn được áp, vì nó là một phần của artifact.
+- **Giờ sửa tệp không được giữ:** mọi tệp trong bản chép mang giờ lúc chép. Bộ kiểm đừng dựa vào giờ sửa tệp, ví dụ so "tệp A mới hơn tệp B". Phép so đó luôn cho cùng một kết quả trên bản chép, nên không chứng minh được gì.
+
 ## 9. Gửi góp ý
 
 Gửi kèm:
