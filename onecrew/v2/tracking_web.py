@@ -919,7 +919,7 @@ function tasks(){var out=[];(last&&last.projects||[]).forEach(function(p){p.task
 function visible(){var cur=$('#proj').value,kind=$('#kind').value,q=($('#q').value||'').toLowerCase();
   return workOrder(tasks().filter(function(t){if(cur&&t.project!==cur)return false;
     if(kind==='need'&&!(t.needs_user||[]).length)return false;if(kind&&kind!=='need'&&t.status.kind!==kind)return false;
-    if(q&&((t.plan||'')+' '+(t.goal||'')+' '+(t.title||'')+' '+(t.current_step||'')).toLowerCase().indexOf(q)<0)return false;return true}),$('#sort').value)}
+    if(q&&workSearch(t).indexOf(q)<0)return false;return true}),$('#sort').value)}
 function row(t){var sel=sameSel(selected,{plan:t.selector,project:t.project_id}),lastv=!sel&&sameSel(lastViewed,{plan:t.selector,project:t.project_id});
   return '<li class="task'+(lastv?' last':'')+'" role="option" tabindex="0" aria-selected="'+sel+'" data-plan="'+esc(t.selector)+'" data-project="'+esc(t.project_id)+'" data-k="task:'+esc(t.project_id)+':'+esc(t.selector)+'">'
    +'<div class="r1">'+(workNoOwner(t)?'<span class="name">'+esc(t.plan)+'</span>':'')+'<span class="ttl" title="'+esc(workNoOwner(t)?'':'chi tiết kỹ thuật: plan '+t.plan)+'">'+esc(workTitle(t))+'</span>'+(workNoOwner(t)?'<span class="small mut"> · '+workNoOwner(t)+'</span>':'')+workBadge(t)+((t.needs_user||[]).length?'<span class="needb">'+t.needs_user.length+' quyết định cần bạn</span>':'')+'</div>'

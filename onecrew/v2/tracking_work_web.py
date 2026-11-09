@@ -69,6 +69,8 @@ function ownerView(t){var o=t&&t.owner_view;return o&&o.present&&o.request?o:nul
 function workTitle(t){var o=ownerView(t);return o?o.request:(t.goal||t.title||t.plan||'Công việc chưa có tên')}
 function ownerJoin(a){return (a||[]).map(function(x,i){return x+(i<a.length-1&&!/[.!?…:;]$/.test(x)?';':'')}).join(' ')}
 function workDesc(t){var o=ownerView(t),s=o?ownerJoin(o.user_sees):'';return s?'Xong bạn thấy: '+s:''}
+function workSearch(t){var o=ownerView(t)||{};   // dev12 (review F7): the words the card shows are searchable, with the technical ones as before
+  return [t.plan,t.goal,t.title,t.current_step,o.request,(o.user_sees||[]).join(' '),(o.acceptance_steps||[]).join(' '),o.not_doing].filter(Boolean).join(' ').toLowerCase()}
 function workWaiting(t){var n=(t.needs_user||[]).filter(function(x){return x.owner_ask})[0];return n?'Đang chờ bạn: '+n.owner_ask:''}
 function workNoOwner(t){return ownerView(t)?'':'chưa có mô tả cho chủ'}
 function workTech(d){return '<details data-k="owner-tech" class="work-meta"><summary>chi tiết kỹ thuật</summary><p>Plan '+esc(d.plan)+(d.id?' · mã task '+esc(d.id):'')+'</p>'+(d.goal?'<p>Mục tiêu kỹ thuật: '+esc(d.goal)+'</p>':'')+'</details>'}
