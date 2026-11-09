@@ -345,13 +345,22 @@ AMEND_FIX = 'the existing plan was not reused; plan amend writes a new revision 
 
 
 def refuse_owner_part(ledger, contract, verb='Propose', fix=None):
-    """dev12 (review K3): every caller, the library included, is refused a revision whose owner part lint refuses, before anything is written
-    (the propose and amend commands run the whole refuse_form instead)."""
-    from . import lint
-    reasons = lint.owner_view(ledger, contract)
+    """dev12 (review K3), dev14 (review L2, L3): every caller, the library included, is refused a revision that breaks a contract rule approve
+    applies (step0.contract_rules: the owner part and a reviewer criterion's "fail if"), before anything is written; propose --reuse-existing the
+    same. The propose and amend commands run the whole refuse_form instead."""
+    from . import step0
+    reasons = step0.contract_rules(ledger, contract)
     if reasons:
-        raise LedgerError(f'{verb} refused: the owner part is not ready ({len(reasons)} reason{"s" if len(reasons) != 1 else ""}); nothing was written. '
+        raise LedgerError(f'{verb} refused: the contract breaks {len(reasons)} rule{"s" if len(reasons) != 1 else ""} approve applies; nothing was written. '
                           f'{fix[0].upper() + fix[1:] if fix else "Fix it and " + verb.lower() + " again"}:' + ''.join(f'\n - [{c}] {t}' for c, t in reasons))
+
+
+def with_warnings(shown, contract):
+    """dev14 (owner "Đồng ý"): the result of propose / amend / approve carries the owner-part warnings (words that may be technical); never a refusal."""
+    from . import lint
+    warnings = lint.owner_view_warnings(contract)
+    if warnings and isinstance(shown, dict): shown = dict(shown, warnings=[list(w) for w in warnings])
+    return shown
 
 
 def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_existing=False, check_form=False):
@@ -378,7 +387,8 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_
                 reused = None
         if reused:
             # dev12 (reviews F4, K2; owner "Sửa tiếp hết"): a plan is reused only if it meets the rules of today, approved or not: the command
-            # by lint's form rules, every caller by the owner part. The refusal names the way out: plan amend, then approve the new revision.
+            # by lint's form rules, every caller by the contract rules approve applies (owner part, "fail if": dev14 L2). The refusal names the
+            # way out: plan amend, then approve the new revision.
             if check_form: refuse_form(ledger, raw, author, verb='Reuse', fix=AMEND_FIX)
             else: refuse_owner_part(ledger, contract, verb='Reuse', fix=AMEND_FIX)
             return _show(ledger, reused)
@@ -387,10 +397,10 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_
     solution_link.prepare(ledger, selector, contract)
     contracts.require_unknown_scope(contract)   # W31a: the write-time rule of a plan-ns revision, checked before anything is written
     # dev11: with check_form (the `plan propose` command), what lint reports as a form refusal and approve would refuse stops here, before any
-    # write; after re-entry (judged above, dev12) and after the more specific refusals above. The library default is
-    # unchanged: approve stays the gate for every other caller, and for a plan recorded before dev11 or changed by plan amend.
+    # write; after re-entry (judged above, dev12) and after the more specific refusals above. Every other caller is refused the contract rules
+    # approve applies (the owner part, "fail if": dev12 K3, dev14 L3); the rest of lint's form rules stay the command's and approve's.
     if check_form: refuse_form(ledger, raw, author)
-    else: refuse_owner_part(ledger, contract)           # dev12 (review K3): the library too
+    else: refuse_owner_part(ledger, contract)
     if contracts.revision_path(ledger, selector, 1).exists(): raise LedgerError(f'Plan {name} already exists; change it with plan amend.')
     sha = content_hash(contract)                # what write_revision records as content_sha
 
@@ -404,7 +414,7 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_
             raise LedgerError(f'Plan {name}: the written revision does not hash to the proposed contract.')
 
     _anchor(ledger, name, contract['title'], then=first_revision)
-    return _show(ledger, selector)
+    return with_warnings(_show(ledger, selector), contract)
 
 
 def amend(ledger, name, raw, reason, author, events=None, keep_content_author=False, check_form=False):
@@ -415,7 +425,7 @@ def amend(ledger, name, raw, reason, author, events=None, keep_content_author=Fa
     text_field(reason, 'reason', 200); text_field(author, 'author', 100); refuse_owner_author(author)
     contract = contracts.validate(raw)
     if check_form: refuse_form(ledger, raw, author, verb='Amend')        # dev11: the plan amend command, as plan propose
-    else: refuse_owner_part(ledger, contract, verb='Amend')              # dev12 (review K3): the library too
+    else: refuse_owner_part(ledger, contract, verb='Amend')              # dev12 K3, dev14 L3: the library too (the contract rules of approve)
     with ledger.transaction(write=True) as conn:
         state = anchor_events(ledger, conn, name)
         if state['status'] in ('accepted', 'closed'): raise LedgerError(f'Plan {name} is {state["status"]}; it cannot be amended.')
@@ -436,7 +446,7 @@ def amend(ledger, name, raw, reason, author, events=None, keep_content_author=Fa
         for kind, payload in (events(revision) if events else ()): emit(ledger, conn, state['task_id'], kind, payload)
         solution_link.record(ledger, conn, state['task_id'], state['selector'], revision, sha, contract)
     from . import active_plan; active_plan.export(ledger, name)  # L2: one line (hooks read the exported file, not the ledger)
-    return _show(ledger, name)
+    return with_warnings(_show(ledger, name), contract)
 
 
 def _base_tracked(ledger):
@@ -546,7 +556,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
             step0.record_closed(ledger, conn, state['task_id'], name, revision, sha, verdict, choose)
     if not verdict['ok']: raise LedgerError(step0.refusal_text(verdict))   # after the commit, so the precondition run stays recorded
     from . import active_plan; active_plan.export(ledger, name)  # L2: one line (hooks read the exported file, not the ledger)
-    return _show(ledger, name)
+    return with_warnings(_show(ledger, name), contract)
 
 
 def _supersede_holds(ledger, conn, state, revision):

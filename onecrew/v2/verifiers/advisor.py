@@ -57,8 +57,18 @@ def init_rules(ledger, lang=None):
     lang = lang or ('en' if os.environ.get('ONECREW_LANG', '').strip().lower() == 'en' else 'vi')
     data = rules_template(lang)
     target.parent.mkdir(parents=True, exist_ok=True)
-    with target.open('xb') as stream:                               # 'x': never replaces a file that appeared meanwhile
-        stream.write(data)
+
+    def write():
+        with target.open('xb') as stream:                           # 'x': never replaces a file that appeared meanwhile
+            stream.write(data)
+    if Path(ledger.path).exists():
+        # dev14 (review L4): the file appears under the ledger's write lock, so it cannot appear between approve's last check of the contract
+        # rules (inside its write transaction) and the approval it records: init waits for that transaction, or approve sees the file.
+        with ledger.transaction(write=True):
+            if target.exists(): return {'created': False, 'path': str(target), 'note': 'already there; not overwritten'}
+            write()
+    else:
+        write()                                                     # no ledger yet: nothing can be approving
     return {'created': True, 'path': str(target)}
 
 
