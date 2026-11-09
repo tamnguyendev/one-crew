@@ -86,14 +86,60 @@ def classify_nodes(old_nodes, new_nodes, output_ids):
     return _finish(changes)
 
 
+# Issue #9 (09/11, owner "Đưa vào"): an allow-list, not a deny-list. Every change of a milestone, of its verifier or of the verifier's configuration
+# is a change of acceptance (the owner approves it), except what is listed here as harmless: a milestone title (how it is shown), a review
+# criterion added or reworded (more verification or the same). A verifier key nobody listed, a dropped count or pattern, an added exemption,
+# another auth: acceptance. Comparing whole values errs on the safe side (a reordered list is reported too).
+MILESTONE_COMPARED = frozenset({'id', 'covers', 'verifier', 'mode', 'max_repairs'})
+MILESTONE_HARMLESS = frozenset({'title'})
+CONFIG_SPECIAL = frozenset({'criteria'})
+CONFIG_DEFAULTS = {'cwd': '.'}
+
+
+def _milestone_changes(mid, m, n):
+    changes = []
+    if sorted(m.get('covers', [])) != sorted(n.get('covers', [])) or (m.get('verifier') or {}).get('type') != (n.get('verifier') or {}).get('type')             or m.get('mode', 'once') != n.get('mode', 'once') or m.get('max_repairs') != n.get('max_repairs'):
+        changes.append({'path': f'milestones.{mid}', 'kind': 'obligation', 'acceptance': True, 'why': 'covers, verifier type, mode or max_repairs changed'})
+    for key in sorted((set(m) | set(n)) - MILESTONE_COMPARED):
+        if m.get(key) == n.get(key): continue
+        if key in MILESTONE_HARMLESS:
+            changes.append({'path': f'milestones.{mid}.{key}', 'kind': 'presentation', 'acceptance': False, 'why': f'the milestone {key} changed (how it is shown)'})
+        else:
+            changes.append({'path': f'milestones.{mid}.{key}', 'kind': 'obligation', 'acceptance': True, 'why': f'the milestone field {key} changed'})
+    ov, nv = m.get('verifier') or {}, n.get('verifier') or {}
+    for key in sorted((set(ov) | set(nv)) - {'type', 'config'}):
+        if ov.get(key) != nv.get(key):
+            changes.append({'path': f'milestones.{mid}.verifier.{key}', 'kind': 'obligation', 'acceptance': True, 'why': f'the verifier field {key} changed'})
+    oc, nc = ov.get('config') or {}, nv.get('config') or {}
+    for key in sorted((set(oc) | set(nc)) - CONFIG_SPECIAL):
+        before, after = oc.get(key, CONFIG_DEFAULTS.get(key)), nc.get(key, CONFIG_DEFAULTS.get(key))
+        if before == after: continue
+        numeric = all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in (before, after))
+        changes.append({'path': f'milestones.{mid}.{key}', 'kind': 'threshold' if numeric or key == 'max_minutes' else 'obligation', 'acceptance': True,
+                        'why': f'the approved verifier setting {key} changed' + ('' if key in oc and key in nc else ' (added)' if key in nc else ' (removed)')})
+    old_cr = {c['id']: c for c in oc.get('criteria') or []}
+    new_cr = {c['id']: c for c in nc.get('criteria') or []}
+    for cid, c in old_cr.items():
+        if cid not in new_cr:
+            changes.append({'path': f'milestones.{mid}.criteria.{cid}', 'kind': 'removed_check', 'acceptance': True, 'why': 'a review criterion was dropped'})
+            continue
+        item = _text_change(f'milestones.{mid}.criteria.{cid}', c.get('question', ''), new_cr[cid].get('question', ''), what='review criterion')
+        if item: changes.append(item)
+        if {k: v for k, v in c.items() if k != 'question'} != {k: v for k, v in new_cr[cid].items() if k != 'question'}:
+            changes.append({'path': f'milestones.{mid}.criteria.{cid}', 'kind': 'obligation', 'acceptance': True, 'why': 'a review criterion setting changed'})
+    for cid in sorted(set(new_cr) - set(old_cr)):
+        changes.append({'path': f'milestones.{mid}.criteria.{cid}', 'kind': 'added_check', 'acceptance': False, 'why': 'a review criterion was added'})
+    return changes
+
+
 KNOWN_CONTRACT_FIELDS = {'schema_version', 'title', 'size', 'understanding', 'preconditions', 'output', 'scope', 'non_goals', 'items', 'milestones',
                          'budget', 'attention', 'stop', 'profile_version', 'origin', 'decisions', 'presentation', 'authority', 'review_policy',
                          'solution_ref', 'advisor', 'name'}
 
 
 def classify_contract(before, after):
-    """Contract revision before/after (plan amend): outputs (text by position), milestones (covers, verifier, mode, max_repairs, criteria, argv),
-    scope.owned narrowing, budget/stop; unknown fields that changed are a change (g)."""
+    """Contract revision before/after (plan amend): outputs (text by position), milestones (every field and every verifier setting: issue #9),
+    the scope (owned narrowed or widened, any other key), budget/stop; unknown fields that changed are a change (g)."""
     changes = []
     old_out, new_out = list(before.get('output') or []), list(after.get('output') or [])
     for index, text in enumerate(old_out, start=1):
@@ -110,35 +156,18 @@ def classify_contract(before, after):
         n = new_m.get(mid)
         if n is None:
             changes.append({'path': f'milestones.{mid}', 'kind': 'removed_check', 'acceptance': True, 'why': 'a milestone was dropped'}); continue
-        if sorted(m.get('covers', [])) != sorted(n.get('covers', [])) or m.get('verifier', {}).get('type') != n.get('verifier', {}).get('type') \
-                or m.get('mode', 'once') != n.get('mode', 'once') or m.get('max_repairs') != n.get('max_repairs'):
-            changes.append({'path': f'milestones.{mid}', 'kind': 'obligation', 'acceptance': True, 'why': 'covers, verifier type, mode or max_repairs changed'})
-        oc, nc = m.get('verifier', {}).get('config') or {}, n.get('verifier', {}).get('config') or {}
-        if oc.get('argv') != nc.get('argv') and 'argv' in oc:
-            changes.append({'path': f'milestones.{mid}.argv', 'kind': 'obligation', 'acceptance': True, 'why': 'the approved command changed'})
-        if (oc.get('cwd') or '.') != (nc.get('cwd') or '.') and ('argv' in oc or 'argv' in nc):
-            changes.append({'path': f'milestones.{mid}.cwd', 'kind': 'obligation', 'acceptance': True, 'why': 'the directory the approved command runs in changed'})
-        for key in ('provider', 'model'):
-            if oc.get(key) != nc.get(key) and (key in oc or key in nc):
-                changes.append({'path': f'milestones.{mid}.{key}', 'kind': 'obligation', 'acceptance': True, 'why': f'the approved reviewer {key} changed'})
-        old_cr = {c['id']: c.get('question', '') for c in oc.get('criteria') or []}
-        new_cr = {c['id']: c.get('question', '') for c in nc.get('criteria') or []}
-        for cid, q in old_cr.items():
-            if cid not in new_cr:
-                changes.append({'path': f'milestones.{mid}.criteria.{cid}', 'kind': 'removed_check', 'acceptance': True, 'why': 'a review criterion was dropped'})
-            else:
-                item = _text_change(f'milestones.{mid}.criteria.{cid}', q, new_cr[cid], what='review criterion')
-                if item: changes.append(item)
-        for cid in sorted(set(new_cr) - set(old_cr)):
-            changes.append({'path': f'milestones.{mid}.criteria.{cid}', 'kind': 'added_check', 'acceptance': False, 'why': 'a review criterion was added'})
-        for key in ('max_minutes',):
-            if key in oc and oc.get(key) != nc.get(key):
-                changes.append({'path': f'milestones.{mid}.{key}', 'kind': 'threshold', 'acceptance': True, 'why': 'a verifier limit changed'})
+        changes += _milestone_changes(mid, m, n)
     for mid in sorted(set(new_m) - set(old_m)):
         changes.append({'path': f'milestones.{mid}', 'kind': 'added_check', 'acceptance': False, 'why': 'a milestone was added'})
-    old_scope, new_scope = set((before.get('scope') or {}).get('owned') or []), set((after.get('scope') or {}).get('owned') or [])
+    old_scope_all, new_scope_all = before.get('scope') or {}, after.get('scope') or {}
+    old_scope, new_scope = set(old_scope_all.get('owned') or []), set(new_scope_all.get('owned') or [])
     if old_scope - new_scope:
         changes.append({'path': 'scope.owned', 'kind': 'narrowed', 'acceptance': True, 'why': 'owned scope narrowed: ' + ', '.join(sorted(old_scope - new_scope))})
+    if new_scope - old_scope:          # issue #9: a wider write permission is a change the owner approves, never "added checks"
+        changes.append({'path': 'scope.owned', 'kind': 'widened', 'acceptance': True, 'why': 'owned scope widened: ' + ', '.join(sorted(new_scope - old_scope))})
+    for key in sorted((set(old_scope_all) | set(new_scope_all)) - {'owned'}):
+        if old_scope_all.get(key) != new_scope_all.get(key):
+            changes.append({'path': f'scope.{key}', 'kind': 'obligation', 'acceptance': True, 'why': f'scope.{key} changed'})
     for field in ('budget', 'stop', 'attention'):
         if before.get(field) != after.get(field) and (field in before or field in after):
             changes.append({'path': field, 'kind': 'threshold', 'acceptance': True, 'why': f'{field} changed (a settled constraint)'})
