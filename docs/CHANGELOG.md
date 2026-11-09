@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## v2.5.0.dev15 (09/11/2026) — review lại dev14 `3662b47` (Kiro, FAIL) — LOCAL, chưa tag/push/phát hành
+
+Mỗi mục có test đỏ trên `3662b47` (`tests/test_dev15_review_fixes.py`).
+- **Issue #9, tiêu chí reviewer:** chỉ đổi khoảng trắng mới là "routine". Đổi bất kỳ ký tự nào khác (dấu câu, chữ hoa thường, chữ trong ngoặc như `"safe-mode"` thành `"safe mode"`), đổi thứ tự tiêu chí, hay một mã tiêu chí lặp lại đều là thay đổi nghiệm thu, cần chủ duyệt. Tiêu chí được thêm vẫn là "routine".
+- **Issue #2, các chỗ còn sót:** đọc `ONECREW_SNAPSHOT_MINUTES` sai; verifier dữ liệu/tài liệu trước khi gọi adapter (hạn chót, ràng buộc bằng chứng, chuẩn bị); reviewer trước khi gọi model (kiểm thư mục, môi trường, ràng buộc bằng chứng, thư mục tạm). Tất cả nay mang dấu `verifier_started=False`.
+- **Issue #4, nguồn attributes ngoài cây:** bản chép chạy với một thư mục git rỗng của riêng nó (đối tượng vẫn của repo), `core.attributesFile` trỏ vào tệp rỗng, tắt attributes hệ thống. `.git/info/attributes`, `core.attributesFile` của repo hay của người dùng không còn đổi byte. `.gitattributes` trong cây vẫn áp.
+- **Lời thường:** `docs/` (thư mục có `/` cuối), cờ ngắn `-v`, tên file có đuôi bất kỳ (`report.pdf`) nay là cảnh báo, không chặn.
+- **Cảnh báo hiện lại** khi `--reuse-existing` và khi duyệt lặp.
+
 ## v2.5.0.dev14 (09/11/2026) — review lại dev13 `698e118` (Kiro, FAIL); chủ: "Đồng ý" lọc hai mức — LOCAL, chưa tag/push/phát hành
 
 Mỗi mục có test đỏ trên `698e118` (`tests/test_dev13_review_fixes.py`).
