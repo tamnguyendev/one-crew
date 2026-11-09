@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v2.5.0.dev19 (10/11/2026) — review lại dev18 `ad6b59e` (Kiro, FAIL) — LOCAL, chưa tag/push/phát hành
+
+3 test đỏ trên `ad6b59e` (`tests/test_dev19_review_fixes.py`).
+- **Issue #4:**
+  - ràng buộc bằng chứng và định danh yêu cầu của bộ kiểm candidate (`CandidateChecker`), cùng định danh yêu cầu của milestone (`review_dispatch`), nay mang `checkout_policy`: receipt candidate theo cách chép cũ không được dùng lại;
+  - `materialized_tree` khởi tạo repo theo đúng định dạng đối tượng của dự án (SHA-256 cũng chạy được).
+- **Issue #2:** reviewer có ngân sách tìm Claude CLI trước khi ghi "đã khởi chạy"; máy không có CLI thì chốt "không bắt đầu", không tính lượt.
+
 ## v2.5.0.dev18 (10/11/2026) — review lại dev17 `b77966e` (Kiro, FAIL) — LOCAL, chưa tag/push/phát hành
 
 5 test đỏ trên `b77966e` (`tests/test_dev18_review_fixes.py`).
