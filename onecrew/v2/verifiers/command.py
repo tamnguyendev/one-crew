@@ -821,6 +821,24 @@ def text_hidden_paths(directory, first, second, paths):
     return found
 
 
+EMPTY_TREE = {'sha1': '4b825dc642cb6eb9a060e54bf8d69288fbee4904',            # git knows the empty tree without storing it
+              'sha256': '6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321'}
+ATTR_SOURCE_GIT = (2, 40)
+
+
+def git_version(top):
+    found = re.search(r'(\d+)\.(\d+)', _git(top, 'version'))
+    return (int(found.group(1)), int(found.group(2))) if found else (0, 0)
+
+
+def _require_attr_source(top):
+    """The exact-bytes checkout needs --attr-source (git 2.40). An older git is refused with what to do; it never checks out with the attributes."""
+    have = git_version(top)
+    if have < ATTR_SOURCE_GIT:
+        raise LedgerError(f'git {have[0]}.{have[1]} is too old for the verifier checkout: it needs git {ATTR_SOURCE_GIT[0]}.{ATTR_SOURCE_GIT[1]} or '
+                          'later (--attr-source) to give each file the exact bytes locked in git. Update git, then run the verdict again.')
+
+
 def _bare_git_dir(top, destination):
     """An empty git folder in `destination` for the checkout: no info/attributes, no config but the object format of the repository at `top`."""
     own = destination / 'checkout.git'
@@ -829,6 +847,8 @@ def _bare_git_dir(top, destination):
     (own / 'no-attributes').write_bytes(b'')
     (own / 'no-config').write_bytes(b'')
     form = _git(top, 'rev-parse', '--show-object-format').strip() or 'sha1'
+    if form not in EMPTY_TREE: raise LedgerError(f'The repository uses the object format {form!r}, which this checkout does not know.')
+    (own / 'object-format').write_text(form, encoding='ascii')
     (own / 'config').write_text('[core]\n\trepositoryformatversion = 1\n\tbare = false\n[extensions]\n\tobjectformat = ' + form + '\n', encoding='ascii')
     return own
 
@@ -849,12 +869,18 @@ def _checkout(directory, tree, destination):
     # system attributes off. What is left is the tree's own .gitattributes, read from the index.
     # Review of dev15: nor the global or system git config, where filter.<name>.smudge (Git LFS, say) lives: the bytes are the tree's blobs, as git
     # stores them. The two settings that config usually carried and a checkout needs are set here, the same on every machine.
+    # Owner 09/11 ("Đồng ý": the check runs on exactly the content locked in git, the same on every machine): nor the tree's own .gitattributes.
+    # Attributes are read from the empty tree (--attr-source, git 2.40 or later; an older git is refused, never a quiet fall back), so no eol,
+    # filter, ident or working-tree-encoding applies: each file holds its blob's bytes. A symbolic link is a plain file holding its target, on
+    # every system (core.symlinks=false), so no check follows a link out of the checkout and every machine sees the same files.
+    _require_attr_source(top)
     own = _bare_git_dir(top, Path(destination))
     env = dict(env, GIT_DIR=str(own), GIT_OBJECT_DIRECTORY=str(_objects_of(top)), GIT_ATTR_NOSYSTEM='1', GIT_CONFIG_NOSYSTEM='1',
                GIT_CONFIG_GLOBAL=str(own / 'no-config'))
-    fixed = ('-c', 'core.longpaths=true', '-c', 'core.symlinks=false') if os.name == 'nt' else ()
-    _git(top, '-c', 'core.autocrlf=false', '-c', 'core.eol=lf', '-c', 'core.safecrlf=false', '-c', 'core.attributesFile=' + (own / 'no-attributes').as_posix(),
-         *fixed, 'checkout-index', '-a', '-f', '--prefix=' + root.as_posix() + '/', env=env)
+    fixed = ('-c', 'core.longpaths=true') if os.name == 'nt' else ()
+    _git(top, '--attr-source=' + EMPTY_TREE[(own / 'object-format').read_text(encoding='ascii').strip()],
+         '-c', 'core.autocrlf=false', '-c', 'core.eol=lf', '-c', 'core.safecrlf=false', '-c', 'core.attributesFile=' + (own / 'no-attributes').as_posix(),
+         '-c', 'core.symlinks=false', *fixed, 'checkout-index', '-a', '-f', '--prefix=' + root.as_posix() + '/', env=env)
     relative = Path(directory).resolve().relative_to(top)
     return root / relative
 

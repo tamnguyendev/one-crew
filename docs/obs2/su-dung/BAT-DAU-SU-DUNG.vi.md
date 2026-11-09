@@ -220,7 +220,13 @@ Mong đợi: `DAT: da dung dung phien da ghim …; worker/task khong bi anh huon
 | Không mở được trang sau 30 phút bỏ trống | server đã tự thoát: chạy lại lệnh mở |
 
 **Bộ kiểm lệnh chạy trên một bản chép của artifact, không chạy trên thư mục đang làm** (từ 2.5.0.dev14):
-- **Byte của bản chép** khớp với nội dung git lưu. Kiểu xuống dòng không theo `core.autocrlf` hay `core.eol` của máy; `.gitattributes` của repo vẫn được áp, vì nó là một phần của artifact.
+- **Byte của bản chép đúng bằng nội dung git lưu** (từ 2.5.0.dev17, chủ duyệt 09/11), giống hệt trên mọi máy.
+  - Không áp gì lên byte: không theo cấu hình git của máy (`core.autocrlf`, `core.eol`, filter), không theo `.gitattributes`, kể cả `.gitattributes` trong repo. Vì vậy không có đổi kiểu xuống dòng (`eol`, `text`), không có `filter` (kể cả Git LFS: tệp chỉ chứa con trỏ), không có `ident`, không có `working-tree-encoding`.
+  - **Hệ quả:** tệp cần CRLF lúc chạy, như tệp `.bat`, sẽ thấy LF nếu git lưu LF. Muốn CRLF thì commit CRLF thẳng vào git.
+- **Symlink là tệp thường** chứa đường dẫn đích, trên mọi hệ điều hành.
+  - Bộ kiểm không đi theo link ra ngoài bản chép, và mọi máy thấy cùng một tệp.
+  - **Hệ quả:** repo cần symlink thật lúc kiểm phải bỏ symlink khỏi artifact.
+- **Cần git 2.40 trở lên.** Bản cũ hơn bị từ chối với lời báo rõ ("Update git"), không lặng lẽ chép theo cách cũ. Lỗi này không giữ run: nâng git rồi chạy lại.
 - **Giờ sửa tệp không được giữ:** mọi tệp trong bản chép mang giờ lúc chép. Bộ kiểm đừng dựa vào giờ sửa tệp, ví dụ so "tệp A mới hơn tệp B". Phép so đó luôn cho cùng một kết quả trên bản chép, nên không chứng minh được gì.
 
 ## 9. Gửi góp ý
