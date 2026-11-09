@@ -92,34 +92,33 @@ def candidate_tree(ledger, manifest):
 def materialized_tree(ledger, tree, temp):
     """Check the sealed tree out into `temp`, make it a repository and prove the files are the tree; returns the checkout root."""
     checkout = command._checkout(ledger.project, tree, temp)
-    command._git(checkout, 'init', '-q')
+    # Review of dev17 (#4): the checkout holds the blobs' exact bytes; every git that reads these files back runs under the same isolation (no
+    # attribute, no filter, no machine config, symbolic links as plain files), so `add -u` cannot re-encode or re-filter them.
+    exact, isolated = command.exact_bytes(Path(temp) / 'exact-git', command.object_format(ledger.project))
+    command._git(checkout, 'init', '-q', env=isolated)
     # The original first-approval trees must be real objects in this
     # disposable review repository. Git writes stay in its own object DB.
     objects = Path(command._git(ledger.project, 'rev-parse', '--git-path', 'objects'))
     if not objects.is_absolute(): objects = command.toplevel(ledger.project) / objects
     # bytes, not text mode: on Windows write_text would end the line with CR LF and git would look for "objects\r"
     (checkout / '.git' / 'objects' / 'info' / 'alternates').write_bytes((str(objects.resolve()).replace('\\', '/') + '\n').encode('utf-8'))
-    source_git = GitCandidate(ledger, Snapshots(ledger.state_root))
-    for key in ('core.autocrlf', 'core.eol'):
-        value = source_git.git('config', '--get', key, allow_failure=True)
-        if value: command._git(checkout, 'config', key, value.decode().strip())
     # Not `add -A` of a fresh repository: that drops the executable bit on Windows, honours ignore files (the project's and the machine's global
     # one) for files the tree tracks, and records a gitlink that checkout-index cannot materialize as deleted. The index starts as the sealed tree;
     # only the content of the files that really exist in the checkout is refreshed, so a changed file still changes the tree.
-    quiet = ('-c', 'core.filemode=false', '-c', 'core.excludesFile=' + os.devnull)
-    command._git(checkout, *quiet, 'read-tree', tree)
+    quiet = (*exact, '-c', 'core.filemode=false', '-c', 'core.excludesFile=' + os.devnull)
+    command._git(checkout, *quiet, 'read-tree', tree, env=isolated)
     present = []
-    for row in command._git(checkout, *quiet, 'ls-files', '-s', '-z').split('\0'):
+    for row in command._git(checkout, *quiet, 'ls-files', '-s', '-z', env=isolated).split('\0'):
         meta, _, path = row.partition('\t')
         if not path or meta.startswith('160000'): continue
         if not os.path.lexists(checkout / path): raise LedgerError('Materialized candidate differs from the sealed Git tree.')
         present.append(path)
     if present:
-        command._git(checkout, *quiet, 'add', '-u', '--force', '--pathspec-from-file=-', '--pathspec-file-nul', input='\0'.join(present).encode('utf-8'))
+        command._git(checkout, *quiet, 'add', '-u', '--force', '--pathspec-from-file=-', '--pathspec-file-nul', env=isolated, input='\0'.join(present).encode('utf-8'))
     # R10: a file the sealed tree does not contain is a difference too. `add -u` never sees untracked files, so list them with no ignore rules at all.
-    extra = [row for row in command._git(checkout, *quiet, 'ls-files', '-o', '-z').split('\0') if row]
+    extra = [row for row in command._git(checkout, *quiet, 'ls-files', '-o', '-z', env=isolated).split('\0') if row]
     if extra: raise LedgerError('Materialized candidate differs from the sealed Git tree.')
-    actual = command._git(checkout, *quiet, 'write-tree')
+    actual = command._git(checkout, *quiet, 'write-tree', env=isolated)
     if actual != tree: raise LedgerError('Materialized candidate differs from the sealed Git tree.')
     return checkout
 

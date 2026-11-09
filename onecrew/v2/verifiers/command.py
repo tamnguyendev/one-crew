@@ -839,15 +839,33 @@ def _require_attr_source(top):
                           'later (--attr-source) to give each file the exact bytes locked in git. Update git, then run the verdict again.')
 
 
+CHECKOUT_POLICY = 'exact-blob-bytes/1'   # in the evidence binding: a receipt made under another checkout policy is stale (review of dev17)
+
+
+def object_format(top):
+    form = _git(top, 'rev-parse', '--show-object-format').strip() or 'sha1'
+    if form not in EMPTY_TREE: raise LedgerError(f'The repository uses the object format {form!r}, which this checkout does not know.')
+    return form
+
+
+def exact_bytes(folder, form):
+    """(git arguments, GIT_* environment) under which git reads no attribute and no machine config: the files are the blobs' bytes, a symbolic
+    link is a plain file. `folder` gets the two empty files these point at. Used by the verifier checkout and by every git that later reads
+    those files back (the candidate materialization), so both see the same bytes."""
+    folder = Path(folder); folder.mkdir(parents=True, exist_ok=True)
+    (folder / 'no-attributes').write_bytes(b''); (folder / 'no-config').write_bytes(b'')
+    args = ('--attr-source=' + EMPTY_TREE[form], '-c', 'core.autocrlf=false', '-c', 'core.eol=lf', '-c', 'core.safecrlf=false',
+            '-c', 'core.attributesFile=' + (folder / 'no-attributes').as_posix(), '-c', 'core.symlinks=false',
+            *(('-c', 'core.longpaths=true') if os.name == 'nt' else ()))
+    return args, {'GIT_ATTR_NOSYSTEM': '1', 'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': str(folder / 'no-config')}
+
+
 def _bare_git_dir(top, destination):
     """An empty git folder in `destination` for the checkout: no info/attributes, no config but the object format of the repository at `top`."""
     own = destination / 'checkout.git'
     for folder in ('objects', 'refs', 'info'): (own / folder).mkdir(parents=True)
     (own / 'HEAD').write_text('ref: refs/heads/checkout\n', encoding='ascii')
-    (own / 'no-attributes').write_bytes(b'')
-    (own / 'no-config').write_bytes(b'')
-    form = _git(top, 'rev-parse', '--show-object-format').strip() or 'sha1'
-    if form not in EMPTY_TREE: raise LedgerError(f'The repository uses the object format {form!r}, which this checkout does not know.')
+    form = object_format(top)
     (own / 'object-format').write_text(form, encoding='ascii')
     (own / 'config').write_text('[core]\n\trepositoryformatversion = 1\n\tbare = false\n[extensions]\n\tobjectformat = ' + form + '\n', encoding='ascii')
     return own
@@ -875,12 +893,9 @@ def _checkout(directory, tree, destination):
     # every system (core.symlinks=false), so no check follows a link out of the checkout and every machine sees the same files.
     _require_attr_source(top)
     own = _bare_git_dir(top, Path(destination))
-    env = dict(env, GIT_DIR=str(own), GIT_OBJECT_DIRECTORY=str(_objects_of(top)), GIT_ATTR_NOSYSTEM='1', GIT_CONFIG_NOSYSTEM='1',
-               GIT_CONFIG_GLOBAL=str(own / 'no-config'))
-    fixed = ('-c', 'core.longpaths=true') if os.name == 'nt' else ()
-    _git(top, '--attr-source=' + EMPTY_TREE[(own / 'object-format').read_text(encoding='ascii').strip()],
-         '-c', 'core.autocrlf=false', '-c', 'core.eol=lf', '-c', 'core.safecrlf=false', '-c', 'core.attributesFile=' + (own / 'no-attributes').as_posix(),
-         '-c', 'core.symlinks=false', *fixed, 'checkout-index', '-a', '-f', '--prefix=' + root.as_posix() + '/', env=env)
+    args, isolated = exact_bytes(own, (own / 'object-format').read_text(encoding='ascii').strip())
+    env = dict(env, GIT_DIR=str(own), GIT_OBJECT_DIRECTORY=str(_objects_of(top)), **isolated)
+    _git(top, *args, 'checkout-index', '-a', '-f', '--prefix=' + root.as_posix() + '/', env=env)
     relative = Path(directory).resolve().relative_to(top)
     return root / relative
 

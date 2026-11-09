@@ -434,12 +434,15 @@ def amend(ledger, name, raw, reason, author, events=None, keep_content_author=Fa
         revision = latest + 1
         from . import solution_link, acceptance_diff
         solution_link.validate_revision(ledger, conn, state['selector'], contract)
-        previous_contract = load(ledger, state, latest)[0]
+        # review of dev17 (P1): the card tells the owner what approving changes, so the base is the last APPROVED revision, not the one just
+        # before (rev 2 unapproved inserts M0, rev 3 only retitles: rev 3 is still a change of acceptance from rev 1). No approval yet: the latest.
+        base = state['approved']['revision'] if state.get('approved') else latest
+        previous_contract = load(ledger, state, base)[0]
         diff = acceptance_diff.classify_contract(previous_contract, contract)        # W05/T21: recorded with the amendment; the owner still approves it
         sha = contracts.write_revision(ledger, state['selector'], revision, contract)
         emit(ledger, conn, state['task_id'], 'plan.amended', {'plan': state['name'], 'revision': revision, 'from_revision': latest, 'sha': sha,
                                                                'parent_sha': state['revisions'][latest]['sha'], 'reason': reason,
-                                                               'acceptance_diff': {'classification': diff['classification'], 'summary': diff['summary'],
+                                                               'acceptance_diff': {'classification': diff['classification'], 'summary': diff['summary'], 'compared_with': base,
                                                                                    'changes': [{k: c[k] for k in ('path', 'kind', 'acceptance')} for c in diff['changes'][:20]]},
                                                                'author': author, 'title': contract['title'],
                                                                'content_author': (state['revisions'][latest].get('content_author') or state['revisions'][latest].get('author')) if keep_content_author else author})

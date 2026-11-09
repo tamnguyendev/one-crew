@@ -21,6 +21,7 @@ class ProviderCall:
     def __call__(self, prompt, config, env, scratch, limit):
         from .verifiers import reviewer
         from .verifiers import command
+        from . import providers
         ledger = self.ledger
         with command.before_verifier():                # review of dev15 (#2): a refused admission never called the model; the run is not held
             with ledger.transaction() as conn:
@@ -48,17 +49,26 @@ class ProviderCall:
                                       {'stage': 'verifier', 'verifier_signature': signature, 'verifier_root': root['task_id'], 'verifier_context': self.context_key,
                                        **({'advisory': True} if self.label else {})},
                                       on_reserved=reserve)
-        self.attempts.append(attempt['id'])
-        started = time.monotonic()
+        calling = False                                # True from the statement that calls the model: from then on it may have run
         try:
             with command.before_verifier():
+                self.attempts.append(attempt['id'])    # review of dev17 (P3): inside the cleanup, so no failure leaves the reservation behind
+                started = time.monotonic()
                 # Root admission and launch both recheck the original deadline; here before the launch is recorded, so an elapsed deadline
                 # settles the attempt as not started (no call charged) instead of leaving its outcome unknown.
                 budget = control.status(task['id'])['budget']
                 left = (dt.datetime.fromisoformat(budget['deadline']) - dt.datetime.fromisoformat(utcnow())).total_seconds()
                 if left <= 0: raise LedgerError('Verifier deadline elapsed before provider dispatch.')
+                if config.get('provider', 'claude') == 'claude' and self.call is None:
+                    # review of dev17 (P2): auth api without a key runs no process; settled as not started, so no call is charged
+                    refused = reviewer.provider_env(env, config.get('auth', 'subscription'))[1]
+                    if refused:
+                        control.finish(attempt['id'], attempt['generation'], {'reason': providers.CREDENTIAL_MISSING, 'provider_invocations': 0},
+                                       not_started=True)
+                        return '', {}, refused, False, b''
                 control.launched(attempt['id'], attempt['generation'],
                                  {'kind': 'verifier-controller', 'controller_pid': os.getpid(), 'provider': config['provider']})
+            calling = True
             result = (self.call or reviewer.call)(prompt, config, env, scratch, min(seconds, left) / 60)    # from here on the model may have run
             answer, usage, error, timed_out, raw = result
             store = Snapshots(ledger.state_root)
@@ -72,6 +82,14 @@ class ProviderCall:
             status = control.attempt(attempt['id'])['status']
             if getattr(error, 'verifier_started', None) is False and status == 'reserved':
                 control.finish(attempt['id'], attempt['generation'], {'reason': 'not started: ' + type(error).__name__}, not_started=True)
+            elif not calling and status == 'running':
+                # Launched but the model statement was never reached (Ctrl+C right after the launch was recorded): certainly not called, so
+                # settled, never left unknown. Control charges a launched attempt and never refunds it; the one call stays counted.
+                if getattr(error, 'verifier_started', None) is None:
+                    try: error.verifier_started = False
+                    except (AttributeError, TypeError): pass
+                control.finish(attempt['id'], attempt['generation'], {'reason': 'launched, model not called: ' + type(error).__name__,
+                                                                      'provider_invocations': 0})
             elif status != 'settled':
                 control.unknown(attempt['id'], 'Verifier result unconfirmed: ' + type(error).__name__)
             raise

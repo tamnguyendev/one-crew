@@ -112,7 +112,11 @@ def for_receipt(ledger, context, milestone, artifact, env=None):
     observed = environment(env)
     value = bind(artifact=artifact, revision=context['revision'], acceptance=covered,
                  inputs=input_identities(ledger, Path(ledger.project) / target['repo'], artifact, target['paths']),
-                 configuration={'verifier': milestone['verifier'], 'milestone_title': milestone['title']}, environment=observed, checks=checks)
+                 configuration={'verifier': milestone['verifier'], 'milestone_title': milestone['title'],
+                                # review of dev17 (#4): the bytes a checking verifier ran on depend on the checkout policy (dev17: exact blob
+                                # bytes); a receipt made under another policy is stale ("checker configuration changed") and runs again
+                                **({} if kind == 'reviewer' else {'checkout_policy': command.CHECKOUT_POLICY})},
+                 environment=observed, checks=checks)
     value['input_paths'] = list(target['paths'])
     value['source'] = target['repo']
     value['environment_observed'] = observed
