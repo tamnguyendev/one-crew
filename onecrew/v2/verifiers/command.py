@@ -827,6 +827,7 @@ def _bare_git_dir(top, destination):
     for folder in ('objects', 'refs', 'info'): (own / folder).mkdir(parents=True)
     (own / 'HEAD').write_text('ref: refs/heads/checkout\n', encoding='ascii')
     (own / 'no-attributes').write_bytes(b'')
+    (own / 'no-config').write_bytes(b'')
     form = _git(top, 'rev-parse', '--show-object-format').strip() or 'sha1'
     (own / 'config').write_text('[core]\n\trepositoryformatversion = 1\n\tbare = false\n[extensions]\n\tobjectformat = ' + form + '\n', encoding='ascii')
     return own
@@ -846,10 +847,14 @@ def _checkout(directory, tree, destination):
     # Review of dev14: nor the attributes kept outside the tree. checkout-index runs against an empty git folder of our own (so the repository's
     # info/attributes and its own config are not read; the objects are the repository's), with core.attributesFile pointed at an empty file and the
     # system attributes off. What is left is the tree's own .gitattributes, read from the index.
+    # Review of dev15: nor the global or system git config, where filter.<name>.smudge (Git LFS, say) lives: the bytes are the tree's blobs, as git
+    # stores them. The two settings that config usually carried and a checkout needs are set here, the same on every machine.
     own = _bare_git_dir(top, Path(destination))
-    env = dict(env, GIT_DIR=str(own), GIT_OBJECT_DIRECTORY=str(_objects_of(top)), GIT_ATTR_NOSYSTEM='1')
+    env = dict(env, GIT_DIR=str(own), GIT_OBJECT_DIRECTORY=str(_objects_of(top)), GIT_ATTR_NOSYSTEM='1', GIT_CONFIG_NOSYSTEM='1',
+               GIT_CONFIG_GLOBAL=str(own / 'no-config'))
+    fixed = ('-c', 'core.longpaths=true', '-c', 'core.symlinks=false') if os.name == 'nt' else ()
     _git(top, '-c', 'core.autocrlf=false', '-c', 'core.eol=lf', '-c', 'core.safecrlf=false', '-c', 'core.attributesFile=' + (own / 'no-attributes').as_posix(),
-         'checkout-index', '-a', '-f', '--prefix=' + root.as_posix() + '/', env=env)
+         *fixed, 'checkout-index', '-a', '-f', '--prefix=' + root.as_posix() + '/', env=env)
     relative = Path(directory).resolve().relative_to(top)
     return root / relative
 
@@ -915,11 +920,12 @@ def before_verifier():
     of unknown outcome only when that is not known)."""
     try:
         yield
-    except Exception as failed:                        # issue #2 (dev14): any failure in here, not only SnapshotFailed: a git checkout that
-        if getattr(failed, 'verifier_started', None) is None:      # fails, an OSError, a LedgerError from the environment, a bad value
-            try:
+    except BaseException as failed:                    # issue #2 (dev14): any failure in here, not only SnapshotFailed: a git checkout that
+        if getattr(failed, 'verifier_started', None) is None:      # fails, an OSError, a LedgerError from the environment, a bad value;
+            try:                                       # review of dev15: Ctrl+C too (KeyboardInterrupt), which stays what it is
                 failed.verifier_started = False
             except (AttributeError, TypeError):
+                if not isinstance(failed, Exception): raise
                 raise NotStarted(f'{type(failed).__name__}: {failed}'[:500]) from failed
         raise
 

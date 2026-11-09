@@ -180,6 +180,10 @@ def classify_contract(before, after):
         changes += _milestone_changes(mid, m, n)
     for mid in sorted(set(new_m) - set(old_m)):
         changes.append({'path': f'milestones.{mid}', 'kind': 'added_check', 'acceptance': False, 'why': 'a milestone was added'})
+    # review of dev15 (P1): milestones run in the order of the list (verdict.run refuses one whose earlier ones have not passed), so a new order is
+    # a change the owner approves: a reviewer moved before the command that makes its evidence, say.
+    if [m for m in old_m if m in new_m] != [m for m in new_m if m in old_m]:
+        changes.append({'path': 'milestones', 'kind': 'obligation', 'acceptance': True, 'why': 'the milestones were reordered (they run in this order)'})
     old_scope_all, new_scope_all = before.get('scope') or {}, after.get('scope') or {}
     old_scope, new_scope = set(old_scope_all.get('owned') or []), set(new_scope_all.get('owned') or [])
     if old_scope - new_scope:

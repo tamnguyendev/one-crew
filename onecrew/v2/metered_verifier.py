@@ -20,13 +20,15 @@ class ProviderCall:
 
     def __call__(self, prompt, config, env, scratch, limit):
         from .verifiers import reviewer
+        from .verifiers import command
         ledger = self.ledger
-        with ledger.transaction() as conn:
-            root, contract, sha = ip.context(ledger, conn, self.selector, 'root-budget')
-            remaining = ip.ceilings(ledger, conn, root)
-        seconds = min(float(limit) * 60, remaining['remaining_seconds'])
-        if seconds < 1 or remaining['remaining_calls'] < 1:
-            raise LedgerError('The shared root budget/deadline cannot admit another verifier provider call.')
+        with command.before_verifier():                # review of dev15 (#2): a refused admission never called the model; the run is not held
+            with ledger.transaction() as conn:
+                root, contract, sha = ip.context(ledger, conn, self.selector, 'root-budget')
+                remaining = ip.ceilings(ledger, conn, root)
+            seconds = min(float(limit) * 60, remaining['remaining_seconds'])
+            if seconds < 1 or remaining['remaining_calls'] < 1:
+                raise LedgerError('The shared root budget/deadline cannot admit another verifier provider call.')
         signature = content_hash({'root': root['task_id'], 'contract': sha, 'context': self.context_key,
                                   'prompt': prompt, 'provider': config['provider'], 'model': config['model']})
         migrate(ledger); control = Control(ledger)
