@@ -1,9 +1,9 @@
 # Verifier khai `inputs`: hotfix cho repo lớn
 
-Bản `2.5.0.dev10+sol6.4.mep4`, bản thử. Chưa phát hành, chưa nghiệm thu.
+Bản `2.5.0.dev10+sol6.4.mep7`, bản thử. Chưa phát hành, chưa nghiệm thu.
 - mep2 = mep1 cộng ba điểm ở mục «Thêm từ mep2».
 - mep3 = mep2 cộng hai điểm ở mục «Thêm từ mep3».
-- mep4 = mep3 cộng mục «Thêm từ mep4».
+- mep4 = mep3 cộng mục «Thêm từ mep4»; mep5 cộng mục «Thêm từ mep5»; mep7 cộng mục «Thêm từ mep7» (mep6 chỉ đổi trang theo dõi).
 
 ## Vấn đề
 
@@ -112,6 +112,27 @@ Vì vậy, nghiệm thu bằng sha của receipt M3 bị từ chối với lý d
 - Một input của bất kỳ mốc nào đổi thì `owner accept` vẫn từ chối mốc đó.
 - Tệp ngoài mọi input đổi thì cây hợp không đổi.
 - Cây hợp vẫn ghi object vào `.git`, nhưng chỉ cho các input.
+
+## Thêm từ mep7: alias Python của Windows, lời từ chối chỉ đường, checkout
+
+**Alias thực thi của Windows** (`%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe`, issue #2):
+- Trước mep7, `verdict run` ném `OSError [Errno 22]` khi đọc byte của alias để lấy dấu vân tay chương trình. Run bị giữ «unknown outcome» và phải `verdict release-run` bằng tay.
+- Từ mep7, OneCrew đọc đích của alias từ reparse data và băm exe đích.
+  - `input_scope.tool.path` là exe đích.
+  - `input_scope.tool.alias` là đường alias.
+- Chương trình không đọc được thì không còn ném lỗi. Receipt ghi `sha256: null` cùng `unreadable`, và pass của mốc đó không được mang sang bản sau.
+- **Mọi lỗi xảy ra trước khi gọi bộ kiểm giờ là kết quả đã biết** (`phase: before_dispatch`): chạy lại được ngay, không cần `release-run`.
+
+**Dùng đường alias, đừng dùng đường đích có số phiên bản** (issue #3):
+- Đường đích nằm trong thư mục cài đặt của Store, dạng `…\WindowsApps\<gói Python, có số phiên bản>\python3.13.exe`, và mất khi Store cập nhật. Ghi nó vào hợp đồng thì mỗi lần cập nhật phải amend và duyệt lại.
+- Ghi đường alias thì hợp đồng không đổi. Khi Store cập nhật, dấu vân tay đổi, pass cũ báo «the program the command starts changed», và chỉ cần chạy lại mốc.
+
+**Lời từ chối «spells the live tree» cho một input** giờ chỉ thêm sang `inputs_unscanned`, kèm mẫu (issue #5). Bỏ tệp khỏi `inputs` thì checkout thiếu tệp; bỏ hẳn `inputs` thì OneCrew quét cả cây.
+
+**Checkout không giống cây làm việc ở mtime và EOL** (issue #4; mep7 chỉ ghi lại, chưa đổi hành vi):
+- **mtime:** mọi tệp trong checkout có mtime bằng lúc chép. Điều kiện «tệp mới hơn X» luôn đúng trong checkout, nên không phải bằng chứng.
+- **EOL:** tệp chưa commit đi qua `update-index` rồi `checkout-index`, theo `.gitattributes` và `core.autocrlf`. Một tệp LF trên đĩa có thể thành CRLF trong checkout, nên sha256 của byte thô lệch.
+- **Bộ kiểm nên:** lấy thời điểm từ nội dung (ví dụ timestamp trong XML junit), và so sha trên nội dung đã chuẩn hoá EOL hoặc trên blob git (`git hash-object`), không trên byte thô.
 
 ## Giới hạn phải biết
 

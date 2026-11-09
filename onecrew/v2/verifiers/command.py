@@ -548,18 +548,73 @@ def check_live_tree_named(directory, argv, workspace_root, unscanned=()):
             if found:
                 name = path.relative_to(root).as_posix()
                 raise InputRefused(f'The declared input {name!r} spells the live tree by an absolute path ({top}). The command could read or write the real files beside the '
-                                   'checkout, which the snapshot of the inputs does not see. Use a path relative to the working folder, or remove the inputs to check the whole tree. '
-                                   'The verifier was not called.')
+                                   'checkout, which the snapshot of the inputs does not see. Use a path relative to the working folder, or, when the command only reads '
+                                   f'that text and never follows it, name it in the verifier\'s `inputs_unscanned` (e.g. "inputs_unscanned": [{json.dumps(name, ensure_ascii=False)}]): it stays an input, '
+                                   'is not scanned, the owner approves the exemption with the contract and the receipt lists it; the command line is never exempt. '
+                                   'Removing it from `inputs` leaves it out of the checkout. The verifier was not called.')
     if unscanned: scanned.update(unscanned=skipped, unscanned_paths=list(unscanned))
     return scanned
 
 
+APPEXECLINK = 0x8000001B                               # IO_REPARSE_TAG_APPEXECLINK: a Windows app execution alias (…\WindowsApps\python.exe)
+
+
+def parse_app_alias(data):
+    """The program an app execution alias starts, from its reparse data (REPARSE_DATA_BUFFER, tag APPEXECLINK, version 3): the third of the
+    NUL-terminated UTF-16 strings (package id, app id, program, app type). None when the data is not that."""
+    if len(data) < 12: return None
+    tag, length = int.from_bytes(data[0:4], 'little'), int.from_bytes(data[4:6], 'little')
+    body = data[8:8 + length]
+    if tag != APPEXECLINK or len(body) < 4 or int.from_bytes(body[0:4], 'little') != 3: return None
+    strings = body[4:].decode('utf-16-le', 'replace').split('\0')
+    program = strings[2] if len(strings) > 2 else ''
+    return program if program and os.path.isabs(program) else None
+
+
+def app_alias_target(path):
+    """Windows: the program an app execution alias at `path` starts, or None when `path` is not one or its target cannot be read. The alias itself
+    has no readable bytes (reading it raises EINVAL), so the program is read from the alias's reparse data."""
+    if os.name != 'nt': return None
+    try:
+        if getattr(os.lstat(path), 'st_reparse_tag', 0) != APPEXECLINK: return None
+    except OSError:
+        return None
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    kernel.DeviceIoControl.restype = wintypes.BOOL
+    kernel.DeviceIoControl.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD,
+                                       ctypes.POINTER(wintypes.DWORD), wintypes.LPVOID]
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    # FILE_READ_ATTRIBUTES, share read|write|delete, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS: the alias, not what it starts
+    handle = kernel.CreateFileW(str(path), 0x80, 0x7, None, 3, 0x00200000 | 0x02000000, None)
+    if handle is None or handle == ctypes.c_void_p(-1).value: return None
+    try:
+        buffer, size = ctypes.create_string_buffer(16 * 1024), wintypes.DWORD()
+        if not kernel.DeviceIoControl(handle, 0x000900A8, None, 0, buffer, len(buffer), ctypes.byref(size), None): return None    # FSCTL_GET_REPARSE_POINT
+        return parse_app_alias(buffer.raw[:size.value])
+    finally:
+        kernel.CloseHandle(handle)
+
+
 def tool_identity(word, env):
-    """The program the command starts, by its bytes. A program inside the inputs is in the tree already. This fingerprints that one file: what it loads must be declared."""
+    """The program the command starts, by its bytes. A program inside the inputs is in the tree already. This fingerprints that one file: what it loads must be declared.
+    A Windows app execution alias is fingerprinted by the program it starts (`alias` keeps the word's file). A program whose bytes cannot be read is recorded
+    with `sha256: None` and the reason, never raised: this runs before the verifier, and `tool_changed` then never lets a pass carry over."""
     if not os.path.isabs(word) and ('/' in word or '\\' in word): return {'word': word, 'in_inputs': True}
     found = word if os.path.isabs(word) else shutil.which(word, path=(env or {}).get('PATH'))
     if not found or not Path(found).is_file(): return {'word': word, 'path': None, 'sha256': None}
-    return {'word': word, 'path': str(Path(found).resolve()), 'sha256': hashlib.sha256(Path(found).read_bytes()).hexdigest()}
+    target = app_alias_target(found)
+    program = Path(target) if target else Path(found).resolve()
+    identity = {'word': word, 'path': str(program)}
+    if target: identity['alias'] = os.path.abspath(found)
+    try:
+        identity['sha256'] = hashlib.sha256(program.read_bytes()).hexdigest()
+    except OSError as error:
+        identity.update(sha256=None, unreadable=f'{type(error).__name__}: {error}'[:200])
+    return identity
 
 
 def tool_changed(tool):
@@ -1265,8 +1320,11 @@ def before_verifier():
     of unknown outcome only when that is not known)."""
     try:
         yield
-    except SnapshotFailed as failed:
-        failed.verifier_started = False
+    except Exception as failed:                        # any error in here, not only a snapshot's: the Popen of the verifier is after this block (#2)
+        try:
+            failed.verifier_started = False
+        except AttributeError:
+            pass
         raise
 
 
