@@ -1,5 +1,5 @@
 """2.5.0.dev17 — sixth independent review (Kiro CLI, 09/11; BAO-CAO-REVIEW-dev16.md, verdict FAIL) on 5d7c289. Red on 5d7c289: 3 of the 4 tests
-here; the fourth (a milestone added after every approved one stays routine) is a control. ExactBlobBytes (owner 09/11, "Đồng ý"): 3 of 3 red.
+here; the fourth (a milestone added after every approved one stays routine) is a control. ExactBlobBytes (owner 09/11, "Đồng ý"): 2 of 3 red on 293db4a on Windows; the symlink test is red there only on Linux and macOS (Windows already had core.symlinks=false).
 
 P1 (#9)  a new milestone inserted before an approved one ([M1] -> [M0, M1]) was routine, though M1 now waits for M0.
 P2 (#2)  the metered reviewer's steps after admission and before the model call (task, reservation, the deadline check) did not say the
