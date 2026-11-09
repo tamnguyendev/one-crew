@@ -178,8 +178,15 @@ def classify_contract(before, after):
         if n is None:
             changes.append({'path': f'milestones.{mid}', 'kind': 'removed_check', 'acceptance': True, 'why': 'a milestone was dropped'}); continue
         changes += _milestone_changes(mid, m, n)
-    for mid in sorted(set(new_m) - set(old_m)):
-        changes.append({'path': f'milestones.{mid}', 'kind': 'added_check', 'acceptance': False, 'why': 'a milestone was added'})
+    # review of dev16 (P1): a new milestone is only an added check after every old one; placed before one, it becomes that milestone's prerequisite
+    last_old = max((i for i, m in enumerate(new_m) if m in old_m), default=-1)
+    for index, mid in enumerate(new_m):
+        if mid in old_m: continue
+        if index < last_old:
+            changes.append({'path': f'milestones.{mid}', 'kind': 'obligation', 'acceptance': True,
+                            'why': 'a milestone was inserted before an approved one (that one now waits for it)'})
+        else:
+            changes.append({'path': f'milestones.{mid}', 'kind': 'added_check', 'acceptance': False, 'why': 'a milestone was added after the approved ones'})
     # review of dev15 (P1): milestones run in the order of the list (verdict.run refuses one whose earlier ones have not passed), so a new order is
     # a change the owner approves: a reviewer moved before the command that makes its evidence, say.
     if [m for m in old_m if m in new_m] != [m for m in new_m if m in old_m]:
