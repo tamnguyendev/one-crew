@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## v2.5.0.dev16 (09/11/2026) — review lại dev15 `cecd9c5` (Kiro, FAIL) — LOCAL, chưa tag/push/phát hành
+
+4 test đỏ trên `cecd9c5` (`tests/test_dev16_review_fixes.py`).
+- **Issue #9:** đổi thứ tự milestone là thay đổi nghiệm thu (milestone chạy theo thứ tự danh sách).
+- **Issue #2:** ngân sách chung của root từ chối reviewer trước khi gọi model nay ghi `verifier_started=False`. Ctrl+C trước khi gọi bộ kiểm cũng được đánh dấu, và vẫn là một lần ngắt.
+- **Issue #4:** bản chép không đọc cấu hình git toàn cục hay hệ thống, nên `filter.<tên>.smudge` (như Git LFS) không đổi byte. Trên Windows, `core.longpaths=true` và `core.symlinks=false` được đặt cố định.
+
 ## v2.5.0.dev15 (09/11/2026) — review lại dev14 `3662b47` (Kiro, FAIL) — LOCAL, chưa tag/push/phát hành
 
 Mỗi mục có test đỏ trên `3662b47` (`tests/test_dev15_review_fixes.py`).
