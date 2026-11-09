@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v2.5.0.dev20 (10/11/2026) — review lại dev19 `45ccc76` (Kiro, FAIL) — LOCAL, chưa tag/push/phát hành
+
+Test đỏ trên `45ccc76`: `tests/test_dev20_review_fixes.py`.
+- **Issue #4, chặn ở một chỗ chung** (phiên điều phối: "đừng vá từng đường nữa"):
+  - mọi receipt bộ kiểm ghi ra đều mang `checkout_policy`: lệnh, reviewer, dữ liệu/tài liệu/vận hành, receipt của node;
+  - một quy tắc duy nhất, `command.policy_current`, được áp ở mọi chỗ dùng lại hay publish: `proof_mismatch` (candidate `_reuse`, `_reused_row`, `verdict._reuse_candidate_pass`), `_reuse` trên receipt node, `publish_issued`, `receipt_assessment`;
+  - reviewer không còn được miễn: định danh yêu cầu và ràng buộc bằng chứng của mọi loại verifier mang `checkout_policy`.
+- **Issue #2:**
+  - Claude CLI và credential được quyết một lần (`reviewer.prepare`), lời gọi chạy đúng cái đã tìm;
+  - reviewer cũ (không có ngân sách root) chuẩn bị trong `before_verifier`, nên thiếu CLI là chưa chạy, run không bị giữ.
+
 ## v2.5.0.dev19 (10/11/2026) — review lại dev18 `ad6b59e` (Kiro, FAIL) — LOCAL, chưa tag/push/phát hành
 
 3 test đỏ trên `ad6b59e` (`tests/test_dev19_review_fixes.py`).
