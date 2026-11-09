@@ -37,5 +37,5 @@ class CheckoutBytes(Fixture):
         self.assertEqual(data, self.blob(tree, 'b.txt'))
 
     def test_the_guide_says_times_of_change_are_not_kept(self):
-        guide = (Path(command.__file__).resolve().parents[3] / 'docs' / 'obs2' / 'su-dung' / 'BAT-DAU-SU-DUNG.vi.md').read_text(encoding='utf-8')
+        guide = (Path(__file__).resolve().parents[1] / 'docs' / 'obs2' / 'su-dung' / 'BAT-DAU-SU-DUNG.vi.md').read_text(encoding='utf-8')
         self.assertIn('giờ sửa tệp', guide); self.assertIn('core.autocrlf', guide)

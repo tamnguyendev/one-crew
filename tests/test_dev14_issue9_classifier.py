@@ -70,11 +70,12 @@ class HarmlessStaysRoutine(unittest.TestCase):
         result = ad.classify_contract(before, after)
         self.assertEqual(result['classification'], 'routine', result)
 
-    def test_a_criterion_added_or_reworded(self):
+    def test_a_criterion_added_or_changed_only_in_white_space(self):
         more = dict(REVIEWER, criteria=REVIEWER['criteria'] + [{'id': 'R2', 'question': 'Is b.txt untouched? fail if it changed.'}])
         self.routine(contract(m('reviewer', REVIEWER)), contract(m('reviewer', more)))
-        reworded = dict(REVIEWER, criteria=[{'id': 'R1', 'question': 'Does a.txt hold the line?  Fail if it does not.'}])
-        self.routine(contract(m('reviewer', REVIEWER)), contract(m('reviewer', reworded)))
+        # dev15 (review of dev14, P1): only white space is harmless; "Fail" for "fail" is a change the owner approves (test_dev15_review_fixes)
+        spaced = dict(REVIEWER, criteria=[{'id': 'R1', 'question': 'Does a.txt hold the line?  fail if it does not.'}])
+        self.routine(contract(m('reviewer', REVIEWER)), contract(m('reviewer', spaced)))
 
     def test_a_milestone_added_and_a_milestone_title(self):
         self.routine(contract(m('command', COMMAND)), contract(m('command', COMMAND), dict(m('data', DATA), id='M2')))
