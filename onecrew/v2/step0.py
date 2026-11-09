@@ -326,6 +326,8 @@ def evaluate(ledger, name, revision, sha, contract, closed, choose=None, run=Tru
             if bad: reasons.append(('option_evidence_invalid', bad))
     reasons += check_target(ledger, contract)
     reasons += check_provenance(ledger, contract, sha, advice)
+    from . import lint      # dev12 (review F1; owner 09/11 "bật hết"): the owner part is a step 0 reason, so approve refuses it on every path
+    reasons += [(code, text + ' Viết lại bằng plan amend rồi duyệt bản mới.') for code, text in lint.owner_view(ledger, contract)]
     if proposal_check and proposal_check.get('result') != 'ok':      # W47: a proposal check recorded for this revision that did not pass
         reasons.append(('proposal_refused', f'the proposal check of this revision says {proposal_check.get("result")}: ' + '; '.join(
             r['code'] for r in proposal_check.get('reasons', []))[:200] + ' (plan proposal check).'))

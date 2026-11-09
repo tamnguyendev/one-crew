@@ -341,19 +341,6 @@ def refuse_form(ledger, raw, author, verb='Propose', fix=None):
                           f'nothing was written. {fix[0].upper() + fix[1:] if fix else "Fix them and " + verb.lower() + " again"}:\n' + '\n'.join(f' - [{code}] {text}' for code, text in reasons))
 
 
-def refuse_owner_view(ledger, contract, revision):
-    """dev11, dev12 (review F1): approve(check_owner_view=True), what the plan approve command passes (owner approve runs it), refuses the
-    revision it approves when lint would refuse its owner part, so the command and lint agree. It judges the contract approve itself read, and
-    approve records only if that revision is still the latest, so an amendment written meanwhile is never approved unchecked. A plan recorded
-    without the part, under a state root with the owner-rules file, needs plan amend first."""
-    from . import lint
-    reasons = lint.owner_view(ledger, contract)
-    if reasons:
-        raise LedgerError(f'Approve refused: the part of revision {revision} written for whoever follows the work is not ready '
-                          f'({len(reasons)} reason{"s" if len(reasons) != 1 else ""}); write it with plan amend, then approve the new revision:\n'
-                          + '\n'.join(f' - [{code}] {text}' for code, text in reasons))
-
-
 def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_existing=False, check_form=False):
     valid_plan_name(name)                       # W12a: reject ':', path chars, drive form, absolute — before any write
     key_field(name); key_field(ANCHOR + name)
@@ -481,7 +468,7 @@ def _refuse_hard_links(ledger):
         pass                                                # not a Git repository, or no commit yet: there is no base tree to make
 
 
-def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, estimate=None, check_owner_view=False):
+def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, estimate=None):
     """Owner only, and only when step 0 is done (step0.evaluate): every reason it is not is returned in one refusal. The
     owner's `choose` is recorded here and nowhere else."""
     from . import step0
@@ -504,10 +491,6 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
         if choose is not None and choose != approved.get('chosen'):
             raise LedgerError(f'The choice was made once ({approved.get("chosen")}); changing it needs plan amend (a change request).')
         return _show(ledger, name)
-    # dev12 (review F1): inside approve, on the contract approve read; the write below records only that revision at that sha, so an amendment
-    # written meanwhile is never approved unchecked. Off by default: the approve-gate tests pinned by kit-guard call the library with contracts
-    # that have no owner part under the owner-rules file, so making it the library default is the owner's call (handover: dev12 decision).
-    if check_owner_view: refuse_owner_view(ledger, contract, revision)
     _refuse_hard_links(ledger)
     from . import root_writer
     with ledger.transaction() as conn:                       # T26 E4: refused before step 0 runs (repeated at the write below)
@@ -515,6 +498,8 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
     should = {i['id'] for i in contract['items'] if i['tier'] == 'should'}
     ticked = sorted(set(tick))
     if set(ticked) - should: raise LedgerError('Only should items can be ticked: ' + ','.join(sorted(set(ticked) - should)))
+    # dev12 (review F1): step 0 judges the owner part too (lint.owner_view), on this contract, for every caller; the write below records only
+    # this revision at this sha, so an amendment written while step 0 runs is never approved unchecked.
     verdict = step0.evaluate(ledger, name, revision, sha, contract, closed, choose, author=written_by, advice=advice, proposal_check=proposal_check)
     base_artifact, base_tracked = _base_artifact(ledger), _base_tracked(ledger)
     with ledger.transaction(write=True) as conn:

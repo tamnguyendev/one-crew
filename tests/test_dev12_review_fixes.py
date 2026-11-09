@@ -16,11 +16,17 @@ from tests.test_dev11_owner_view import PLAIN, CommandRefusals, owner_reasons
 from tests.test_v2_l1 import Fixture, plan_json
 
 
-class Base(CommandRefusals):
-    pass
+class Base(Fixture):
+    """The owner-rules state root and helpers of the dev11 command tests, without running those tests again here."""
+    contract, cli, file = CommandRefusals.contract, CommandRefusals.cli, CommandRefusals.file
+
+    def setUp(self):
+        super().setUp()
+        path = Path(self.ledger.state_root) / 'plans' / 'owner-rules.md'
+        path.parent.mkdir(parents=True, exist_ok=True); path.write_text('# rules\n', encoding='utf-8')
 
 
-del CommandRefusals          # the dev11 tests run in their own module, not again here
+del CommandRefusals
 
 
 class RevisionZero(Base):
@@ -44,17 +50,25 @@ class RevisionZero(Base):
 
 
 class LibraryApprove(Base):
-    """F1: the check runs inside approve() on the contract approve read (check_owner_view=True, what the plan approve command passes), so an
-    amendment written between the check and the record is never approved. The library default stays off: the approve-gate tests pinned by
-    kit-guard (test_v2_advisor, test_wf_program_transition) approve contracts without the owner part under the owner-rules file; turning it on
-    for every caller is the owner's decision (handover, dev12)."""
-    def test_approve_with_the_check_refuses_a_plan_whose_owner_part_lint_refuses(self):
+    """F1: the owner part is one of the reasons step 0 gives (step0.evaluate), so approve() refuses it on every path, the library included
+    (owner 09/11: "Mở khóa test, bật hết"), in one refusal with the other reasons, on the contract approve read; the write records only that
+    revision at that sha, so an amendment written meanwhile is never approved unchecked."""
+    def test_library_approve_refuses_a_plan_whose_owner_part_lint_refuses(self):
         from onecrew.v2 import plan as plans
         plans.propose(self.ledger, 'OLD', self.contract(none=True), 'claude-opus-5-5')
         with self.assertRaises(LedgerError) as caught:
-            plans.approve(self.ledger, 'OLD', 'owner', 'fixture', check_owner_view=True)
-        self.assertIn('[owner_view_missing]', str(caught.exception))
+            plans.approve(self.ledger, 'OLD', 'owner', 'fixture')
+        self.assertIn('[owner_view_missing]', str(caught.exception)); self.assertIn('plan amend', str(caught.exception))
         self.assertEqual(plans.show(self.ledger, 'OLD')['status'], 'proposed')
+
+    def test_the_owner_part_is_one_refusal_with_the_other_step0_reasons(self):
+        from onecrew.v2 import plan as plans
+        value = self.contract(none=True); value['options'] = None
+        value['understanding']['confidence'] = 'low'
+        plans.propose(self.ledger, 'TWO', value, 'claude-opus-5-5')
+        with self.assertRaises(LedgerError) as caught:
+            plans.approve(self.ledger, 'TWO', 'owner', 'fixture')
+        self.assertIn('[confidence_low]', str(caught.exception)); self.assertIn('[owner_view_missing]', str(caught.exception))
 
     def test_an_amendment_without_the_owner_part_written_during_approval_is_not_approved(self):
         from onecrew.v2 import plan as plans, step0
@@ -67,18 +81,13 @@ class LibraryApprove(Base):
         step0.evaluate = amend_meanwhile
         try:
             with self.assertRaises(LedgerError):
-                plans.approve(self.ledger, 'P', 'owner', 'fixture', check_owner_view=True)
+                plans.approve(self.ledger, 'P', 'owner', 'fixture')
         finally:
             step0.evaluate = evaluate
         self.assertEqual(plans.show(self.ledger, 'P')['status'], 'proposed')
-        rc, text = self.cli('plan', 'approve', 'P', '--by', 'owner', '--reference', 'fixture')
-        self.assertNotEqual(rc, 0, text)
-        self.assertIn('[owner_view_missing]', json.loads(text)['error'])
-
-    def test_the_library_default_is_unchanged_until_the_owner_decides(self):
-        from onecrew.v2 import plan as plans
-        plans.propose(self.ledger, 'LIB', self.contract(none=True), 'claude-opus-5-5')
-        self.assertEqual(plans.approve(self.ledger, 'LIB', 'owner', 'fixture')['status'], 'approved')
+        with self.assertRaises(LedgerError) as caught:
+            plans.approve(self.ledger, 'P', 'owner', 'fixture')
+        self.assertIn('[owner_view_missing]', str(caught.exception))
 
 
 class ReuseExisting(Base):

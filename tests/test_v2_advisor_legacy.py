@@ -23,7 +23,7 @@ class LegacyExemptionTests(Fixture):
         advisor.init_rules(self.ledger)
         self.propose(value=size_m())
         with self.assertRaises(LedgerError) as caught: plans.approve(self.ledger, 'P1', 'owner', 'said yes', choose='A')
-        self.assertEqual(reasons(caught.exception), ['origin_missing', 'item_without_source', 'advice_missing'])
+        self.assertEqual(reasons(caught.exception), ['origin_missing', 'item_without_source', 'advice_missing', 'owner_view_missing'])   # dev12: the owner part too
 
     def test_one_new_field_makes_a_contract_strict_without_the_rules_file(self):
         self.propose(value=plan_json(origin=dict(ORIGIN)))

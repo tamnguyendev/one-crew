@@ -20,9 +20,13 @@ DECISION = {'id': 'D1', 'choice': 'Plain text file', 'alternative': 'JSON file',
 AUTHOR = 'claude-fable-5-1'
 
 
+OWNER_PART = {'request': 'Thêm tệp mẫu và chứng minh nó dùng được.', 'user_sees': ['Tệp mẫu có trong dự án.'],
+              'acceptance_steps': ['Mở tệp mẫu và đọc nội dung.'], 'not_doing': 'Không sửa phần nào khác.'}   # dev12 (U1): approve needs it once the owner rules exist
+
+
 def sourced(value, source='origin', **extra):
-    """`value` with an origin and every item pointing at `source` (plus any extra fields)."""
-    value = dict(value, origin=dict(ORIGIN), **extra)
+    """`value` with an origin, the owner part and every item pointing at `source` (plus any extra fields)."""
+    value = dict(value, origin=dict(ORIGIN), **{'presentation': dict(OWNER_PART), **extra})
     value['items'] = [dict(i, source=source) for i in value['items']]
     return value
 
@@ -175,7 +179,7 @@ class ApproveGateTests(Fixture):
         self.assertEqual(plans.approve(self.ledger, 'P1', 'owner', 'said yes')['status'], 'approved')      # no rules file: the old contract still goes through
         self.propose('P2', plan_json()); self.rules()
         with self.assertRaises(LedgerError) as caught: plans.approve(self.ledger, 'P2', 'owner', 'said yes')
-        self.assertEqual(reasons(caught.exception), ['origin_missing', 'item_without_source'])
+        self.assertEqual(reasons(caught.exception), ['origin_missing', 'item_without_source', 'owner_view_missing'])      # dev12: and the owner part
 
     def test_every_reason_is_reported_together(self):
         value = plan_json(decisions=[DECISION]); value['items'][0]['source'] = 'D9'

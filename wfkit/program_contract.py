@@ -55,6 +55,12 @@ def build(*, kitguard_script, kitguard_sha256, python=None, max_calls=1800, time
             'items': items, 'milestones': milestones, 'budget': {'max_calls': max_calls, 'time': time_minutes},
             'attention': {'questions': 1}, 'profile_version': None,
             'origin': {'by': str(origin['by']), 'at': str(origin['at']), 'quote': str(origin['quote'])[:500]},
+            # dev12: the owner part (plain words, what the tracking page shows); approve refuses a contract without it once the owner-rules exist
+            'presentation': {'request': 'Xây quy trình làm việc chung trên nền giám sát đang có, qua bốn chặng kiểm và một lần nghiệm thu cuối.',
+                             'user_sees': ['Bốn chặng kiểm lần lượt đạt trên trang theo dõi.', 'Một lần nghiệm thu cuối do bạn quyết định.'],
+                             'acceptance_steps': ['Mở trang theo dõi và thấy cả bốn chặng kiểm đều đạt.',
+                                                  'Đọc bản review toàn chương trình rồi nghiệm thu một lần.'],
+                             'not_doing': 'Không đẩy mã lên kho chung, không đổi bộ giám sát đang dùng, không chuyển sổ thật.'},
             'decisions': [
                 {'id': 'D1', 'choice': 'A8: root mới lưu theo project (plans/<project_id>/<tên>, anchor plan-ns:)',
                  'alternative': 'Giữ một không gian tên chung cho mọi project', 'cost': 'Không: chọn trong cùng lần duyệt chương trình'},

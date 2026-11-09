@@ -138,8 +138,7 @@ def _dispatch(ledger, args):
         if args.command == 'propose': return plans.propose(ledger, args.name, read_json(args.file), args.author, workflow=args.workflow, capabilities=args.capability, reuse_existing=args.reuse_existing, check_form=True)
         if args.command == 'show': return plans.show(ledger, args.name, args.revision)
         if args.command == 'approve': return plans.approve(ledger, args.name, args.by, args.reference, args.revision, args.tick, args.choose,
-                                                         estimate=read_json(args.estimate_file) if args.estimate_file else None,
-                                                         check_owner_view=True)      # dev12: the owner part, in approve
+                                                         estimate=read_json(args.estimate_file) if args.estimate_file else None)
         if args.command == 'precheck': return step0.precheck(ledger, args.name)
         if args.command == 'review-decision':
             from . import review_policy
