@@ -94,8 +94,9 @@ def materialized_tree(ledger, tree, temp):
     checkout = command._checkout(ledger.project, tree, temp)
     # Review of dev17 (#4): the checkout holds the blobs' exact bytes; every git that reads these files back runs under the same isolation (no
     # attribute, no filter, no machine config, symbolic links as plain files), so `add -u` cannot re-encode or re-filter them.
-    exact, isolated = command.exact_bytes(Path(temp) / 'exact-git', command.object_format(ledger.project))
-    command._git(checkout, 'init', '-q', env=isolated)
+    form = command.object_format(ledger.project)
+    exact, isolated = command.exact_bytes(Path(temp) / 'exact-git', form)
+    command._git(checkout, 'init', '-q', '--object-format=' + form, env=isolated)      # review of dev18: a SHA-256 project too
     # The original first-approval trees must be real objects in this
     # disposable review repository. Git writes stay in its own object DB.
     objects = Path(command._git(ledger.project, 'rev-parse', '--git-path', 'objects'))
@@ -574,7 +575,7 @@ class CandidateChecker:
         return {'method': 'reviewer' if pins else 'command' if 'command' in kinds else 'adapter',
                 'implementation': 'onecrew.common_verification.CandidateChecker/' + OUT_RULE,
                 'provider': ','.join(sorted({pin[0] for pin in pins})) or None, 'model': ','.join(pin[1] for pin in pins) or None,
-                'configuration': {'contract_sha': sha, 'output_rule': OUT_RULE, 'milestones': [
+                'configuration': {'contract_sha': sha, 'output_rule': OUT_RULE, 'checkout_policy': command.CHECKOUT_POLICY, 'milestones': [
                     {'id': row['id'], 'type': row['verifier']['type'], 'config': row['verifier']['config']} for row in selected]},
                 'environment': verification_evidence.environment(self._environment(keep=True)),
                 'provenance': {'source': 'approved-contract', 'contract_sha': sha, 'port': type(self).__name__}}
@@ -723,7 +724,9 @@ class CandidateChecker:
         binding = verification_evidence.bind(artifact=artifact, revision=view['contract_revision'],
             acceptance={key: acceptance[key] for key in item['acceptance']}, inputs=inputs,
             configuration={'contract_sha': sha, 'milestones': selected, 'internal_revision': view['internal_revision'],
-                           'execution_cap_seconds': item['execution_cap_seconds'], 'producers': actual_producers},
+                           'execution_cap_seconds': item['execution_cap_seconds'], 'producers': actual_producers,
+                           # review of dev18 (#4): every candidate check runs on materialized_tree; a receipt of another checkout is stale
+                           'checkout_policy': command.CHECKOUT_POLICY},
             environment=observed_env, checks=[check['id'] for check in item['checks']])
         reused = _reuse(ledger, view, item, artifact, previous_receipt, tree, binding, sha, milestones)
         if reused is not None:

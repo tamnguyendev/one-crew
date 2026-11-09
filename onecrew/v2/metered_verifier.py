@@ -61,15 +61,18 @@ class ProviderCall:
                 if left <= 0: raise LedgerError('Verifier deadline elapsed before provider dispatch.')
                 if config.get('provider', 'claude') == 'claude' and self.call is None:
                     # review of dev17 (P2): auth api without a key runs no process; settled as not started, so no call is charged
-                    refused = reviewer.provider_env(env, config.get('auth', 'subscription'))[1]
+                    cli_env, refused = reviewer.provider_env(env, config.get('auth', 'subscription'))
                     if refused:
                         control.finish(attempt['id'], attempt['generation'], {'reason': providers.CREDENTIAL_MISSING, 'provider_invocations': 0},
                                        not_started=True)
                         return '', {}, refused, False, b''
+                    reviewer.cli_argv(cli_env)         # review of dev18 (P2): no Claude CLI raises here, before the launch: settled as not started
                 control.launched(attempt['id'], attempt['generation'],
                                  {'kind': 'verifier-controller', 'controller_pid': os.getpid(), 'provider': config['provider']})
+            # From here on the model may have run. Between `calling = True` and the call itself there remain a few bytecodes; an interrupt landing
+            # exactly there leaves the attempt unknown (the safe side: never "not started" for a call that may have happened). Review of dev18 P3.
             calling = True
-            result = (self.call or reviewer.call)(prompt, config, env, scratch, min(seconds, left) / 60)    # from here on the model may have run
+            result = (self.call or reviewer.call)(prompt, config, env, scratch, min(seconds, left) / 60)
             answer, usage, error, timed_out, raw = result
             store = Snapshots(ledger.state_root)
             receipt = store.blob(canonical({'kind': 'metered-verifier-result', 'attempt': attempt['id'],

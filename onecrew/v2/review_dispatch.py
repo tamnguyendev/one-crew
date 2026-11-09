@@ -136,7 +136,9 @@ def _milestone_execution(ledger, milestone, sha, env=None):
     return {'method': method, 'implementation': 'onecrew.v2.verifiers.' + (kind if kind in ('command', 'reviewer') else 'port:' + kind),
             'provider': config.get('provider', 'claude') if kind == 'reviewer' else None,
             'model': config.get('model') if kind == 'reviewer' else None,
-            'configuration': {k: v for k, v in config.items() if k != 'max_minutes'},
+            # review of dev18 (#4): a check that runs on a checkout says which checkout policy, so a pass of another one is a different request
+            'configuration': dict({k: v for k, v in config.items() if k != 'max_minutes'},
+                                  **({} if kind == 'reviewer' else {'checkout_policy': command.CHECKOUT_POLICY})),
             'environment': verification_evidence.environment(env),
             'provenance': {'source': 'approved-contract', 'plan_sha': sha, 'milestone': milestone['id']}}
 
@@ -166,7 +168,7 @@ def _milestone_request(ledger, task_id, name, revision, sha, contract, milestone
         authority=contract.get('authority', {}), budget=contract['budget'],
         inputs={'artifact': candidate, 'revision': revision,
                 'acceptance': {'milestone': milestone['id'], 'covers': {key: acceptance.get(key) for key in milestone.get('covers', [])}},
-                'inputs': {'milestone': milestone['id']}, 'configuration': {'plan_sha': sha, 'verifier': execution['configuration'], 'type': milestone['verifier']['type']},
+                'inputs': {'milestone': milestone['id']}, 'configuration': {'plan_sha': sha, 'verifier': execution['configuration'], 'type': milestone['verifier']['type']},   # carries checkout_policy
                 'environment': verification_evidence.environment(env), 'checks': [row['id'] for row in criteria]},
         execution=execution)
 
