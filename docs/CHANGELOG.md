@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## v2.5.0.dev21 (10/11/2026) — review lại dev20 `c0d62b3` (Kiro, FAIL): phần không cần chủ quyết — LOCAL, chưa tag/push/phát hành
+
+Test đỏ trên `c0d62b3`: `tests/test_dev21_review_fixes.py`.
+- **Issue #4:** mọi tệp và thư mục trong bản chép mang một giờ sửa cố định (01/01/2000 00:00 UTC). Chính sách chép lên `exact-blob-bytes/2`, nên receipt của chính sách trước thành stale. Hướng dẫn ghi rõ.
+- **Issue #2:** reviewer Codex và Kiro tìm CLI trước khi ghi "đã khởi chạy", như Claude; thiếu CLI là chưa chạy, không tính lượt, ở cả đường có ngân sách root lẫn đường cũ.
+- **Test qua caller thật:** quy tắc chính sách được kiểm qua bộ kiểm candidate (`prior_pass` rồi `_reused_row`).
+
 ## v2.5.0.dev20 (10/11/2026) — review lại dev19 `45ccc76` (Kiro, FAIL) — LOCAL, chưa tag/push/phát hành
 
 Test đỏ trên `45ccc76`: `tests/test_dev20_review_fixes.py`.
