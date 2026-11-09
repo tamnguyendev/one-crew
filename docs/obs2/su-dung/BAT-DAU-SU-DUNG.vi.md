@@ -227,7 +227,7 @@ Mong đợi: `DAT: da dung dung phien da ghim …; worker/task khong bi anh huon
   - Bộ kiểm không đi theo link ra ngoài bản chép, và mọi máy thấy cùng một tệp.
   - **Hệ quả:** repo cần symlink thật lúc kiểm phải bỏ symlink khỏi artifact.
 - **Cần git 2.40 trở lên.** Bản cũ hơn bị từ chối với lời báo rõ ("Update git"), không lặng lẽ chép theo cách cũ. Lỗi này không giữ run: nâng git rồi chạy lại.
-- **Giờ sửa tệp không được giữ:** mọi tệp trong bản chép mang giờ lúc chép. Bộ kiểm đừng dựa vào giờ sửa tệp, ví dụ so "tệp A mới hơn tệp B". Phép so đó luôn cho cùng một kết quả trên bản chép, nên không chứng minh được gì.
+- **Giờ sửa tệp là một giá trị cố định** (từ 2.5.0.dev21): mọi tệp và thư mục trong bản chép mang giờ 01/01/2000 00:00 UTC, ở mọi lần chạy, trên mọi máy. Git không lưu giờ sửa tệp, nên giờ thật của dự án không có trong artifact. Bộ kiểm đừng dựa vào giờ sửa tệp, ví dụ so "tệp A mới hơn tệp B". Phép so đó luôn cho cùng một kết quả, nên không chứng minh được gì; hãy so nội dung hoặc mã băm.
 
 ## 9. Gửi góp ý
 

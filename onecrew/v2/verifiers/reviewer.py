@@ -275,6 +275,9 @@ def provider_env(env, auth):
 def prepare(env, config):
     """(provider environment, argv, refusal) of a Claude CLI call, decided ONCE before anything is launched or charged (review of dev19): the
     credential (provider_env) and the CLI itself (cli_argv, which raises when there is none). `call(..., prepared=)` then runs exactly this."""
+    provider = config.get('provider', 'claude')
+    if provider != 'claude':                       # review of dev20: codex and kiro too; no CLI raises here, before any launch or charge
+        return env, providers.cli_prefix(provider, env), None
     cli_env, refused = provider_env(env, config.get('auth', 'subscription'))
     if refused: return None, None, refused
     argv = [*cli_argv(cli_env), '-p', '--output-format', 'json', '--model', config['model'], '--tools', '', '--no-session-persistence',
@@ -287,7 +290,8 @@ def call(prompt, config, env, scratch, limit, prepared=None):
     directory (so no project hook or CLAUDE.md is loaded). Returns (answer_text, usage, error, timed_out, raw_stdout). Claude is `claude -p` as ever,
     with the credential `auth` names (2.3 hotfix: subscription, the default, or api; provider_env); codex and kiro are built in providers.py.
     A usage limit is an error that starts `quota_exhausted:`; no other provider and no other credential is tried."""
-    if config.get('provider', 'claude') != 'claude': return providers.call(config['provider'], prompt, config['model'], env, scratch, limit)
+    if config.get('provider', 'claude') != 'claude':
+        return providers.call(config['provider'], prompt, config['model'], env, scratch, limit, prefix=prepared[1] if prepared is not None else None)
     env, argv, refused = prepared if prepared is not None else prepare(env, config)     # review of dev19: found once, by the caller when it can
     if refused: return '', {}, refused, False, b''
     out, err, code, timed_out, os_error = providers.run_process(argv, prompt, scratch, env, limit)
@@ -369,7 +373,7 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
             try:
                 calls = 1
                 call_begin = time.monotonic()
-                if call_port is None and config.get('provider', 'claude') == 'claude' and getattr(call, 'takes_prepared', False) is True:
+                if call_port is None and getattr(call, 'takes_prepared', False) is True:
                     # review of dev19 (legacy, no root budget): the credential and the CLI are found before the model call, once; no CLI says
                     # the reviewer did not start, so the run is not held
                     with command.before_verifier():

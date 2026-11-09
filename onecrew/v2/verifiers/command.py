@@ -839,7 +839,19 @@ def _require_attr_source(top):
                           'later (--attr-source) to give each file the exact bytes locked in git. Update git, then run the verdict again.')
 
 
-CHECKOUT_POLICY = 'exact-blob-bytes/1'   # in the evidence binding: a receipt made under another checkout policy is stale (review of dev17)
+CHECKOUT_POLICY = 'exact-blob-bytes/2'   # in the evidence binding: a receipt made under another checkout policy is stale (review of dev17)
+                                         # /2 (review of dev20): every file and folder of the checkout has the same fixed time of change
+CHECKOUT_MTIME = 946684800               # 2000-01-01T00:00:00Z: a git tree has no times, so none of its files is newer than another
+
+
+def _fixed_times(root):
+    """Every file and folder under `root` gets CHECKOUT_MTIME, so a check that compares times of change sees the same answer on every run."""
+    budget = _active.get()
+    for folder, names, files in os.walk(root, topdown=False):
+        for name in files + names:
+            if budget is not None: budget.tick('fixed times')
+            os.utime(os.path.join(folder, name), (CHECKOUT_MTIME, CHECKOUT_MTIME))      # no link to follow: links are plain files
+    os.utime(root, (CHECKOUT_MTIME, CHECKOUT_MTIME))
 
 
 def policy_current(body):
@@ -903,6 +915,7 @@ def _checkout(directory, tree, destination):
     args, isolated = exact_bytes(own, (own / 'object-format').read_text(encoding='ascii').strip())
     env = dict(env, GIT_DIR=str(own), GIT_OBJECT_DIRECTORY=str(_objects_of(top)), **isolated)
     _git(top, *args, 'checkout-index', '-a', '-f', '--prefix=' + root.as_posix() + '/', env=env)
+    _fixed_times(root)                                 # review of dev20: the times of change come from the policy, not from when it ran
     relative = Path(directory).resolve().relative_to(top)
     return root / relative
 

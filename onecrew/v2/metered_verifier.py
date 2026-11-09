@@ -60,7 +60,7 @@ class ProviderCall:
                 left = (dt.datetime.fromisoformat(budget['deadline']) - dt.datetime.fromisoformat(utcnow())).total_seconds()
                 if left <= 0: raise LedgerError('Verifier deadline elapsed before provider dispatch.')
                 prepared = None
-                if config.get('provider', 'claude') == 'claude' and self.call is None and getattr(reviewer.call, 'takes_prepared', False) is True:
+                if self.call is None and getattr(reviewer.call, 'takes_prepared', False) is True:      # every provider (codex, kiro: review of dev20)
                     # reviews of dev17-dev19: the credential and the CLI are decided once, here, before the launch; the call below runs exactly
                     # what was found. No key or no CLI: settled as not started, so no call is charged and the run is not held
                     prepared = reviewer.prepare(env, config)

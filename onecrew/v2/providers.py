@@ -238,12 +238,14 @@ def parse_kiro(text):
     return ''.join(chunks).strip(), usage, None
 
 
-def call(provider, prompt, model, env, scratch, limit):
-    """One read-only call of a codex or kiro CLI: (answer, usage, error, timed_out, raw_stdout), the shape reviewer.call returns."""
-    try:
-        prefix = cli_prefix(provider, env)
-    except LedgerError as problem:
-        return '', {}, str(problem)[:300], False, b''
+def call(provider, prompt, model, env, scratch, limit, prefix=None):
+    """One read-only call of a codex or kiro CLI: (answer, usage, error, timed_out, raw_stdout), the shape reviewer.call returns. `prefix`: the CLI
+    the caller already found (reviewer.prepare, before anything is launched or charged: review of dev20); found here only when not given."""
+    if prefix is None:
+        try:
+            prefix = cli_prefix(provider, env)
+        except LedgerError as problem:
+            return '', {}, str(problem)[:300], False, b''
     argv, stdin_text = build_argv(provider, prefix, model, prompt)
     out, err, code, timed_out, os_error = run_process(argv, stdin_text, scratch, env, limit)
     if os_error: return '', {}, os_error, False, b''
