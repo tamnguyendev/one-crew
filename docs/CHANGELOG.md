@@ -13,6 +13,12 @@ Mỗi mục có test đỏ trên `698e118` (`tests/test_dev13_review_fixes.py`).
   - **Câu y tế qua sạch:** mã ICD (`F32.1`, `I10`, `J18.9`, `T39`), liều (`5 mg/kg/ngày`, `1 mg/kg/24 giờ`), `vitamin D3/B12`, `phòng B12`, `SpO2 95%`, `120/80 mmHg`.
 - **Thư viện `propose`/`amend`/`--reuse-existing`** từ chối mọi quy tắc trên chữ của hợp đồng mà approve áp, gồm cả "fail if".
 - **`plan rules init` ghi owner-rules dưới khóa ghi của ledger,** nên file không thể xuất hiện giữa lần kiểm cuối của approve và lúc ghi duyệt.
+- **Issue #9 (từ MEP; chủ: "Đưa vào"):** bộ phân loại của `plan amend` chuyển sang danh sách cho phép.
+  - Mọi thay đổi của milestone, của verifier và cấu hình verifier, của phạm vi (`owned` hẹp lại hay nới rộng, khóa khác của `scope`) là thay đổi nghiệm thu, cần chủ duyệt.
+  - Chỉ còn "routine": tiêu chí review được thêm hay chỉ đổi chữ, milestone được thêm, tiêu đề milestone.
+  - Trước đây, verifier dữ liệu hay tài liệu bỏ đếm dòng hoặc mẫu, một khóa miễn kiểm mới, `auth` khác của reviewer, hay `owned` nới ra cả repo đều hiện là "chỉ đổi chữ".
+- **Issue #2, phần áp cho 2.5:** mọi lỗi xảy ra trước khi gọi bộ kiểm (checkout git hỏng, `OSError`, `LedgerError` của môi trường, thiếu thư mục làm việc, không tạo được thư mục tạm, hạn chót) đều mang dấu `verifier_started=False`, ở verifier lệnh và verifier dữ liệu/tài liệu. Run vì thế không bị giữ "unknown outcome" và không cần `release-run`.
+- **Issue #4:** bản chép mà bộ kiểm lệnh chạy trên đó không còn đổi kiểu xuống dòng theo `core.autocrlf`/`core.eol` của máy; byte khớp nội dung git lưu, `.gitattributes` vẫn được áp. Hướng dẫn ghi rõ giờ sửa tệp không được giữ.
 
 ## v2.5.0.dev13 (09/11/2026) — review lại dev12 `b0d3bdb` (Kiro, FAIL); chủ: "Sửa tiếp hết" — LOCAL, chưa tag/push/phát hành
 
