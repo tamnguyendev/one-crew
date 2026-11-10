@@ -1143,7 +1143,10 @@ def checkout_candidate(runtime, task_id, state, contract, tree):
     # -u records the stat data of the written files, so later diff-files examines only the candidate's own files.
     git(target, *exact, 'checkout-index', '-a', '-f', '-u', git_dir=vgit, work_tree=target, timeout=600, env=isolated)
     vcommand._fixed_times(target)
-    git(target, *exact, 'update-index', '-q', '--refresh', git_dir=vgit, work_tree=target, timeout=600, env=isolated, allow_failure=True)
+    # review of dev22 (P2): fail closed: the refresh must succeed and the checkout must read clean before any verifier runs in it
+    git(target, *exact, 'update-index', '-q', '--refresh', git_dir=vgit, work_tree=target, timeout=600, env=isolated)
+    dirty = git(target, *exact, 'status', '--porcelain', '--untracked-files=all', git_dir=vgit, work_tree=target, timeout=600, env=isolated)
+    if dirty: raise LedgerError('The verification checkout does not read clean in git status; nothing is verified: ' + dirty.decode('utf-8', 'replace')[:300])
     if contained:
         from .contain import own
         for path in (vgit, target / '.git'): own(path)  # Git's ownership check (safe.directory) reads these

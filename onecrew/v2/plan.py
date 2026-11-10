@@ -422,6 +422,8 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_
         # written last, so a refused event write leaves no file either.
         if derive(ledger, conn, selector)['latest']: raise LedgerError(f'Plan {name} already exists; change it with plan amend.')
         emit(ledger, conn, task_id, 'plan.proposed', {'plan': name, 'revision': 1, 'sha': sha, 'author': author, 'content_author': author, 'title': contract['title'], **metadata})
+        from . import policy_epoch
+        policy_epoch.ensure(ledger, task_id, conn)                   # review of dev22 (P2): propose is the plan's first write
         solution_link.record(ledger, conn, task_id, selector, 1, sha, contract)
         if contracts.write_revision(ledger, selector, 1, contract) != sha:
             raise LedgerError(f'Plan {name}: the written revision does not hash to the proposed contract.')

@@ -92,7 +92,10 @@ def state(ledger, selector, conn=None):
                 if keeps_history or policy_epoch.fresh(event['seq'], epoch): record.update(phase='complete', state='verified')
                 else: record.update(needs_recheck=True, recheck_note=policy_epoch.NOTE)   # stays produced: eligible, accept_node, handoff wait
         elif event['kind'] == 'node.accepted':
-            record['state'] = 'accepted'
+            # review of dev22 (P1): an internal acceptance made before the policy epoch of a root that is not accepted does not count: the
+            # node needs a new check (it stays produced, so engine.verify takes it), and is accepted again after it
+            if keeps_history or policy_epoch.fresh(event['seq'], epoch): record['state'] = 'accepted'
+            else: record.update(needs_recheck=True, recheck_note=policy_epoch.NOTE)
         elif event['kind'] == 'node.held':
             record.update(phase='held', reason=payload['reason'], classification=payload.get('classification'))
             record.update({k: payload[k] for k in ('trigger', 'cleanup', 'process_receipt', 'recovery_action', 'exit_code', 'stderr', 'cause') if k in payload})
@@ -360,6 +363,7 @@ def _inputs_changed(ledger, selector, nid, inputs):
 
 def publish_retained(ledger, selector, *, node=None):
     """A resolved fact can release a settled result without another model call."""
+    mark_epoch(ledger, selector)                       # review of dev22 (P2): every first write of this OneCrew marks the epoch
     with ledger.transaction(write=True) as conn:
         root, _, _ = ip.context(ledger, conn, selector, 'sequential-engine')
         view = state(ledger, root['selector'], conn)
@@ -410,6 +414,7 @@ def adopt_managed(ledger, selector, *, node=None):
         root, _, _ = ip.context(ledger, conn, selector, 'sequential-engine')
         rows = [r for r in managed_executor.adoptable(ledger, conn, root['task_id']) if node is None or r['node'] == node]
     if not rows: return None
+    mark_epoch(ledger, selector)                       # review of dev22 (P2): before the adoption writes
     adapter = managed_executor.ManagedExecutor(ledger, initialize=False)
     for row in rows:
         if 'pause_requested' in row['phases'] and 'paused' not in row['phases']:
@@ -1411,6 +1416,7 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
 
 def run_batch(ledger,selector,executor,*,slots=1,control=None,checker=None):
     """Run the existing scheduler's bounded batch through the same step port."""
+    mark_epoch(ledger, selector)                       # review of dev22 (P2): before the reconcile below writes
     swept=[row for row in reconcile_orphans(ledger,selector,executor,control=control) if row.get('state')]   # 2.3-B: cleanup before takeover
     adopted=[]
     for _ in range(201):                        # W37b: candidates saved before a lost controller are adopted first (bounded: one per node)
@@ -1450,6 +1456,7 @@ def run_batch(ledger,selector,executor,*,slots=1,control=None,checker=None):
 
 def release_paused(ledger,selector,nid,executor):
     """Adopt the same safe-point candidate after its original inputs are clear."""
+    mark_epoch(ledger, selector)                       # review of dev22 (P2)
     with ledger.transaction(write=True) as conn:
         root,_,sha=ip.context(ledger,conn,selector,'sequential-engine')
         view=state(ledger,root['selector'],conn)
@@ -1908,9 +1915,14 @@ def handoff_evidence(ledger, selector):
     """
     if not verification_ready(ledger, selector): return None
     view = state(ledger, selector)
+    from . import policy_epoch
     with ledger.transaction() as conn:
-        row = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='workflow.handoff' ORDER BY seq DESC LIMIT 1", (view['root'],)).fetchone()
+        row = conn.execute("SELECT seq,payload FROM events WHERE task_id=? AND kind='workflow.handoff' ORDER BY seq DESC LIMIT 1", (view['root'],)).fetchone()
+        epoch = policy_epoch.seq(conn, view['root'])
     if row is None: return None
+    # review of dev22 (P1): a handoff made before the policy epoch of a root that is not accepted is not evidence any more; root_ready refuses
+    # it and the handoff runs again (never returned as idempotent)
+    if view['root_status'] not in ('accepted', 'closed') and not policy_epoch.fresh(row['seq'], epoch): return None
     try:
         proof = json.loads(Snapshots(ledger.state_root).read_blob(json.loads(row['payload'])['receipt']))
         integration = next(node for node in view['definition']['nodes'] if node['integration'])

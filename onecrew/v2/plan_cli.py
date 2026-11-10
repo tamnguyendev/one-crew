@@ -227,7 +227,9 @@ def main(argv=None):
     else:
         ledger = Ledger(args.project, args.state_root)
     try:
-        if not (read_survey or read_retention or (args.group == 'plan' and args.command in ('report', 'digest', 'present')) or (args.group == 'verdict' and args.command in ('diff', 'artifact'))):      # sync_refusals writes the ledger; these never do
+        read_only = (read_survey or read_retention or (args.group == 'plan' and args.command in ('show', 'report', 'digest', 'present'))
+                     or (args.group == 'verdict' and args.command in ('diff', 'artifact')))     # review of dev22 (P2): show too (verdict status records lost runs: it writes)
+        if not read_only:      # sync_refusals writes the ledger; these never do
             from .gate import sync_refusals
             sync_refusals(ledger)
         result = _dispatch(ledger, args)

@@ -698,6 +698,10 @@ def _record_issued(ledger, name, revision, milestone_id, run):
         body = json.loads(Snapshots(ledger.state_root).read_blob(blob))
     except Exception as error:                                           # noqa: BLE001
         raise LedgerError(f'The issued receipt {blob[:12]} of run {run.get("run_id")} cannot be read; nothing is run again until it is settled: {error}') from error
+    if not command.policy_current(body):                # review of dev22 (P2): a receipt of another checkout policy is never recorded
+        _emit_reconciled(ledger, name, run, 'completed_stale', 'the receipt was made under another checkout policy; run the verdict again')
+        _unmark(ledger, run['run_id'])
+        return None
     marker = _marker(ledger, run['run_id'], 'receipt') or {}
     integrity = marker.get('integrity')
     if integrity is None and run.get('kind') == 'command':
@@ -719,6 +723,10 @@ def _complete_from_marker(ledger, name, revision, milestone_id, run, marker):
         Snapshots(ledger.state_root).read_blob(blob)
     except Exception:                                               # noqa: BLE001 — the blob did not survive: the outcome is known (finished), not reusable
         _emit_reconciled(ledger, name, run, 'completed_receipt_lost', 'X finished but its receipt blob is missing; a new run may start')
+        _unmark(ledger, run['run_id'])
+        return None
+    if not command.policy_current(receipt):             # review of dev22 (P2): never issued nor recorded under another checkout policy
+        _emit_reconciled(ledger, name, run, 'completed_stale', 'X finished under another checkout policy; its receipt is not issued')
         _unmark(ledger, run['run_id'])
         return None
     with ledger.transaction(write=True) as conn:
