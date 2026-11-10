@@ -1,0 +1,1502 @@
+{
+ "ghi_chu": "Số đo lab cách ly 07/11/2026. Không chứa nội dung tệp MEP. <lab> = thư mục lab trên máy MEP.",
+ "luot": [
+  {
+   "luot": "a_cu_mep1",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep1",
+   "plan": "lab-m1-cu",
+   "moc": "M1",
+   "bat_dau": "2026-11-07T21:11:41.204+07:00",
+   "tong_s": 131.46,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17267,
+    "size": 739519
+   },
+   "git_objects_sau": {
+    "count": 17267,
+    "size": 739519
+   },
+   "temp_sau_bytes": 65104148,
+   "state": "passed",
+   "result": "pass",
+   "receipt": "106e36511c82b190668ce5ade3b5544a4e0308b81d987e50ecb0d8d1100080b5",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 0.11,
+    "snapshot": {
+     "after_seconds": 66.11,
+     "before_seconds": 19.53,
+     "checkout_bytes": 1932340184,
+     "checkout_files": 11246,
+     "checkout_seconds": 26.07,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": null
+   }
+  },
+  {
+   "luot": "b1_inputs_mep1",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep1",
+   "plan": "lab-m1-inputs",
+   "moc": "M1",
+   "bat_dau": "2026-11-07T21:22:44.153+07:00",
+   "tong_s": 2.49,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17267,
+    "size": 739519
+   },
+   "git_objects_sau": {
+    "count": 17281,
+    "size": 739521
+   },
+   "temp_sau_bytes": 0,
+   "state": "passed",
+   "result": "pass",
+   "receipt": "68c2de423071a016d83ce119b65693cc42be10fc1e154123a557f7512323fbe6",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 0.09,
+    "snapshot": {
+     "after_seconds": 0.31,
+     "before_seconds": 0.41,
+     "checkout_bytes": 5321604,
+     "checkout_files": 27,
+     "checkout_seconds": 0.2,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 27,
+     "bytes": 5321604,
+     "live_tree_scan": null
+    }
+   }
+  },
+  {
+   "luot": "c1_inputs_mep2",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep2",
+   "plan": "lab-m1-inputs",
+   "moc": "M1",
+   "bat_dau": "2026-11-07T21:23:13.813+07:00",
+   "tong_s": 0.63,
+   "ma_thoat": 2,
+   "git_objects_truoc": {
+    "count": 17281,
+    "size": 739521
+   },
+   "git_objects_sau": {
+    "count": 17281,
+    "size": 739521
+   },
+   "temp_sau_bytes": 0,
+   "tu_choi": {
+    "type": "LedgerError",
+    "error": "Milestone M1 already passed on revision 1 for this artifact."
+   }
+  },
+  {
+   "luot": "c2_inputs_mep2",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep2",
+   "plan": "lab-m1-inputs",
+   "moc": "M1",
+   "bat_dau": "2026-11-07T21:23:37.667+07:00",
+   "tong_s": 4.26,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17281,
+    "size": 739521
+   },
+   "git_objects_sau": {
+    "count": 17284,
+    "size": 740056
+   },
+   "temp_sau_bytes": 0,
+   "state": "passed",
+   "result": "pass",
+   "receipt": "d8f0e093820d38a7a7213f9c28707e36f953022237cc39130b78a099f951ec70",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 0.05,
+    "snapshot": {
+     "after_seconds": 0.3,
+     "before_seconds": 0.36,
+     "checkout_bytes": 5321605,
+     "checkout_files": 27,
+     "checkout_seconds": 0.19,
+     "contained": true,
+     "left_running": 1,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 27,
+     "bytes": 5321605,
+     "live_tree_scan": {
+      "files": 27,
+      "not_text": 0
+     }
+    }
+   }
+  },
+  {
+   "luot": "c3_inputs_mep2_sau_doi_kich_ban",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep2",
+   "plan": "lab-m1-inputs",
+   "moc": "M1",
+   "bat_dau": "2026-11-07T21:30:00.774+07:00",
+   "tong_s": 4.13,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17284,
+    "size": 740056
+   },
+   "git_objects_sau": {
+    "count": 17289,
+    "size": 740059
+   },
+   "temp_sau_bytes": 0,
+   "state": "passed",
+   "result": "pass",
+   "receipt": "b5737555983e7301346d913fef9407ad23aec505f2ba57cf55c1b7bf9d4b0206",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 0.06,
+    "snapshot": {
+     "after_seconds": 0.31,
+     "before_seconds": 0.39,
+     "checkout_bytes": 5321626,
+     "checkout_files": 27,
+     "checkout_seconds": 0.21,
+     "contained": true,
+     "left_running": 1,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 27,
+     "bytes": 5321626,
+     "live_tree_scan": {
+      "files": 27,
+      "not_text": 0
+     }
+    }
+   }
+  },
+  {
+   "luot": "e_M2_mep2",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep2",
+   "plan": "lab-m1-inputs",
+   "moc": "M2",
+   "bat_dau": "2026-11-07T21:30:13.941+07:00",
+   "tong_s": 1.32,
+   "ma_thoat": 2,
+   "git_objects_truoc": {
+    "count": 17289,
+    "size": 740059
+   },
+   "git_objects_sau": {
+    "count": 17291,
+    "size": 740059
+   },
+   "temp_sau_bytes": 0,
+   "tu_choi": {
+    "type": "InputRefused",
+    "error": "The declared input 'kiem_lab/doc_tuyet_doi.py' spells the live tree by an absolute path (<lab>\\lab\\repo). The command could read or write the real files beside the checkout, which the snapshot of the inputs does not see. Use a path relative to the working folder, or remove the inputs to check the whole tree. The verifier was not called."
+   }
+  },
+  {
+   "luot": "e_M3_mep2",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep2",
+   "plan": "lab-m1-inputs",
+   "moc": "M3",
+   "bat_dau": "2026-11-07T21:30:17.054+07:00",
+   "tong_s": 0.53,
+   "ma_thoat": 2,
+   "git_objects_truoc": {
+    "count": 17291,
+    "size": 740059
+   },
+   "git_objects_sau": {
+    "count": 17291,
+    "size": 740059
+   },
+   "temp_sau_bytes": 0,
+   "tu_choi": {
+    "type": "LedgerError",
+    "error": "Milestone M2 has not passed yet; milestones go in order."
+   }
+  },
+  {
+   "luot": "e_M4_mep2",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep2",
+   "plan": "lab-m1-inputs",
+   "moc": "M4",
+   "bat_dau": "2026-11-07T21:30:19.316+07:00",
+   "tong_s": 0.52,
+   "ma_thoat": 2,
+   "git_objects_truoc": {
+    "count": 17291,
+    "size": 740059
+   },
+   "git_objects_sau": {
+    "count": 17291,
+    "size": 740059
+   },
+   "temp_sau_bytes": 0,
+   "tu_choi": {
+    "type": "LedgerError",
+    "error": "Milestone M2 has not passed yet; milestones go in order."
+   }
+  },
+  {
+   "luot": "e_M2_mep1",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep1",
+   "plan": "lab-m1-inputs",
+   "moc": "M2",
+   "bat_dau": "2026-11-07T21:30:36.809+07:00",
+   "tong_s": 3.41,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17291,
+    "size": 740059
+   },
+   "git_objects_sau": {
+    "count": 17291,
+    "size": 740059
+   },
+   "temp_sau_bytes": 0,
+   "state": "passed",
+   "result": "pass",
+   "receipt": "086fc35f08d3ffc106f12d2a540109e3e60e6ec8774682b98eb19e2fc3a59115",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 0.06,
+    "snapshot": {
+     "after_seconds": 0.27,
+     "before_seconds": 0.31,
+     "checkout_bytes": 373,
+     "checkout_files": 2,
+     "checkout_seconds": 0.16,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 2,
+     "bytes": 373,
+     "live_tree_scan": null
+    }
+   }
+  },
+  {
+   "luot": "e_M3_mep2_b",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep2",
+   "plan": "lab-m1-inputs",
+   "moc": "M3",
+   "bat_dau": "2026-11-07T21:30:48.972+07:00",
+   "tong_s": 1.63,
+   "ma_thoat": 2,
+   "git_objects_truoc": {
+    "count": 17291,
+    "size": 740059
+   },
+   "git_objects_sau": {
+    "count": 17293,
+    "size": 740059
+   },
+   "temp_sau_bytes": 0,
+   "tu_choi": {
+    "type": "InputRefused",
+    "error": "The declared input 'kiem_lab/ghi_tuyet_doi.py' spells the live tree by an absolute path (<lab>\\lab\\repo). The command could read or write the real files beside the checkout, which the snapshot of the inputs does not see. Use a path relative to the working folder, or remove the inputs to check the whole tree. The verifier was not called."
+   }
+  },
+  {
+   "luot": "e_M3_mep1_b",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep1",
+   "plan": "lab-m1-inputs",
+   "moc": "M3",
+   "bat_dau": "2026-11-07T21:30:52.395+07:00",
+   "tong_s": 4.58,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17293,
+    "size": 740059
+   },
+   "git_objects_sau": {
+    "count": 17293,
+    "size": 740059
+   },
+   "temp_sau_bytes": 0,
+   "state": "passed",
+   "result": "pass",
+   "receipt": "529c1ba1da85272b71d7b0ba9ac927f3928a3b2a3f645d5e6f5df745c1c57a49",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 0.05,
+    "snapshot": {
+     "after_seconds": 0.27,
+     "before_seconds": 0.3,
+     "checkout_bytes": 384,
+     "checkout_files": 2,
+     "checkout_seconds": 0.16,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 2,
+     "bytes": 384,
+     "live_tree_scan": null
+    }
+   }
+  },
+  {
+   "luot": "e_M4_mep1",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep1",
+   "plan": "lab-m1-inputs",
+   "moc": "M4",
+   "bat_dau": "2026-11-07T21:31:02.687+07:00",
+   "tong_s": 1.63,
+   "ma_thoat": 2,
+   "git_objects_truoc": {
+    "count": 17293,
+    "size": 740059
+   },
+   "git_objects_sau": {
+    "count": 17294,
+    "size": 740059
+   },
+   "temp_sau_bytes": 0,
+   "tu_choi": {
+    "type": "InputRefused",
+    "error": "Declared input not found, or everything in it is ignored by Git: kiem_lab/khong_co.txt. The verifier was not called: it would check nothing there."
+   }
+  },
+  {
+   "luot": "e_M4_mep2_b",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep2",
+   "plan": "lab-m1-inputs",
+   "moc": "M4",
+   "bat_dau": "2026-11-07T21:31:09.784+07:00",
+   "tong_s": 1.69,
+   "ma_thoat": 2,
+   "git_objects_truoc": {
+    "count": 17294,
+    "size": 740059
+   },
+   "git_objects_sau": {
+    "count": 17294,
+    "size": 740059
+   },
+   "temp_sau_bytes": 0,
+   "tu_choi": {
+    "type": "InputRefused",
+    "error": "Declared input not found, or everything in it is ignored by Git: kiem_lab/khong_co.txt. The verifier was not called: it would check nothing there."
+   }
+  },
+  {
+   "luot": "e_M4_mep2_co_tep",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep2",
+   "plan": "lab-m1-inputs",
+   "moc": "M4",
+   "bat_dau": "2026-11-07T21:31:24.600+07:00",
+   "tong_s": 5.94,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17294,
+    "size": 740059
+   },
+   "git_objects_sau": {
+    "count": 17297,
+    "size": 740059
+   },
+   "temp_sau_bytes": 0,
+   "state": "passed",
+   "result": "pass",
+   "receipt": "6089726da7d738d9fe5190225249eb810531d1cd55e6be67c8496ab2f46bcb0e",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 0.05,
+    "snapshot": {
+     "after_seconds": 0.28,
+     "before_seconds": 0.31,
+     "checkout_bytes": 222,
+     "checkout_files": 4,
+     "checkout_seconds": 0.16,
+     "contained": true,
+     "left_running": 1,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 4,
+     "bytes": 222,
+     "live_tree_scan": {
+      "files": 4,
+      "not_text": 0
+     }
+    }
+   }
+  },
+  {
+   "luot": "g_M5_mep2",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep2",
+   "plan": "lab-m1-inputs",
+   "moc": "M5",
+   "bat_dau": "2026-11-07T21:31:32.496+07:00",
+   "tong_s": 32.98,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17297,
+    "size": 740059
+   },
+   "git_objects_sau": {
+    "count": 17302,
+    "size": 740060
+   },
+   "temp_sau_bytes": 0,
+   "state": "failed",
+   "result": "inconclusive",
+   "receipt": "a81d40a1167a815fad463fcae4d31595484404285c70b732e12bed39e8b64ebb",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 25.06,
+    "snapshot": {
+     "after_seconds": 0.3,
+     "before_seconds": 0.35,
+     "checkout_bytes": 295,
+     "checkout_files": 3,
+     "checkout_seconds": 0.15,
+     "contained": true,
+     "left_running": 1,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": false,
+    "input_scope": {
+     "files": 3,
+     "bytes": 295,
+     "live_tree_scan": {
+      "files": 3,
+      "not_text": 0
+     }
+    }
+   }
+  },
+  {
+   "luot": "g_M5_mep1",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep1",
+   "plan": "lab-m1-inputs",
+   "moc": "M5",
+   "bat_dau": "2026-11-07T21:32:07.397+07:00",
+   "tong_s": 32.74,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17302,
+    "size": 740060
+   },
+   "git_objects_sau": {
+    "count": 17305,
+    "size": 740060
+   },
+   "temp_sau_bytes": 0,
+   "state": "failed",
+   "result": "inconclusive",
+   "receipt": "fb7cf5005f9d1213b22aed78e970dc99ceebe95fc7eaa80207e5ae240fc79712",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 25.08,
+    "snapshot": {
+     "after_seconds": 0.29,
+     "before_seconds": 0.32,
+     "checkout_bytes": 314,
+     "checkout_files": 3,
+     "checkout_seconds": 0.16,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": false,
+    "input_scope": {
+     "files": 3,
+     "bytes": 314,
+     "live_tree_scan": null
+    }
+   }
+  },
+  {
+   "luot": "h_timeout_mep1",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep1",
+   "plan": "lab-tien-trinh",
+   "moc": "M1",
+   "bat_dau": "2026-11-07T21:33:01.764+07:00",
+   "tong_s": 61.81,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17305,
+    "size": 740060
+   },
+   "git_objects_sau": {
+    "count": 17307,
+    "size": 740060
+   },
+   "temp_sau_bytes": 0,
+   "state": "failed",
+   "result": "inconclusive",
+   "receipt": "04889a4d7320c5161cfa82da5497a152f3009c6d8ae9fa724b288712a59a3807",
+   "receipt_do": {
+    "exit_code": null,
+    "timed_out": true,
+    "verifier_s": 60.29,
+    "snapshot": {
+     "after_seconds": 0.28,
+     "before_seconds": 0.37,
+     "checkout_bytes": 394,
+     "checkout_files": 3,
+     "checkout_seconds": 0.17,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 3,
+     "bytes": 394,
+     "live_tree_scan": null
+    }
+   }
+  },
+  {
+   "luot": "h_timeout_mep2",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep2",
+   "plan": "lab-tien-trinh",
+   "moc": "M1",
+   "bat_dau": "2026-11-07T21:34:07.924+07:00",
+   "tong_s": 61.84,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17307,
+    "size": 740060
+   },
+   "git_objects_sau": {
+    "count": 17307,
+    "size": 740060
+   },
+   "temp_sau_bytes": 0,
+   "state": "failed",
+   "result": "inconclusive",
+   "receipt": "be8aa86ce9ee193fa3129d50a3b047a43df9346ce4b888c8e97429560d5af7a7",
+   "receipt_do": {
+    "exit_code": null,
+    "timed_out": true,
+    "verifier_s": 60.3,
+    "snapshot": {
+     "after_seconds": 0.28,
+     "before_seconds": 0.43,
+     "checkout_bytes": 394,
+     "checkout_files": 3,
+     "checkout_seconds": 0.17,
+     "contained": true,
+     "left_running": 3,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 3,
+     "bytes": 394,
+     "live_tree_scan": {
+      "files": 3,
+      "not_text": 0
+     }
+    }
+   }
+  },
+  {
+   "luot": "k_giet_mep1",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep1",
+   "plan": "lab-tien-trinh",
+   "moc": "M1",
+   "bat_dau": "2026-11-07T21:35:20.247+07:00",
+   "tong_s": 3.46,
+   "ma_thoat": 1,
+   "git_objects_truoc": {
+    "count": 17307,
+    "size": 740060
+   },
+   "git_objects_sau": {
+    "count": 17307,
+    "size": 740060
+   },
+   "temp_sau_bytes": 798,
+   "stdout_khong_doc_duoc": true
+  },
+  {
+   "luot": "k_giet_mep1_chay_lai",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep1",
+   "plan": "lab-tien-trinh",
+   "moc": "M1",
+   "bat_dau": "2026-11-07T21:35:42.920+07:00",
+   "tong_s": 0.32,
+   "ma_thoat": 2,
+   "git_objects_truoc": {
+    "count": 17307,
+    "size": 740060
+   },
+   "git_objects_sau": {
+    "count": 17307,
+    "size": 740060
+   },
+   "temp_sau_bytes": 0,
+   "tu_choi": {
+    "type": "LedgerError",
+    "error": "Milestone M1 has a run of unknown outcome (run b9664b354e54, revision 1, dispatched 2026-11-07T14:35:20.652131+00:00, process lost: process_gone). It is held and not run again by itself: check what the verifier did, then `onecrew verdict release-run --plan lab-tien-trinh --run b9664b354e54 --reason ...`."
+   }
+  },
+  {
+   "luot": "k_giet_mep2",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep2",
+   "plan": "lab-tien-trinh",
+   "moc": "M1",
+   "bat_dau": "2026-11-07T21:35:58.469+07:00",
+   "tong_s": 3.28,
+   "ma_thoat": 1,
+   "git_objects_truoc": {
+    "count": 17307,
+    "size": 740060
+   },
+   "git_objects_sau": {
+    "count": 17307,
+    "size": 740060
+   },
+   "temp_sau_bytes": 798,
+   "stdout_khong_doc_duoc": true
+  },
+  {
+   "luot": "k_giet_mep2_chay_lai",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep2",
+   "plan": "lab-tien-trinh",
+   "moc": "M1",
+   "bat_dau": "2026-11-07T21:36:13.727+07:00",
+   "tong_s": 0.34,
+   "ma_thoat": 2,
+   "git_objects_truoc": {
+    "count": 17307,
+    "size": 740060
+   },
+   "git_objects_sau": {
+    "count": 17307,
+    "size": 740060
+   },
+   "temp_sau_bytes": 0,
+   "tu_choi": {
+    "type": "LedgerError",
+    "error": "Milestone M1 has a run of unknown outcome (run 6c9fe17c35e6, revision 1, dispatched 2026-11-07T14:35:58.847724+00:00, process lost: process_gone). It is held and not run again by itself: check what the verifier did, then `onecrew verdict release-run --plan lab-tien-trinh --run 6c9fe17c35e6 --reason ...`."
+   }
+  },
+  {
+   "luot": "z1_inputs_mep3",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-m1-inputs",
+   "moc": "M1",
+   "bat_dau": "2026-11-07T21:37:46.353+07:00",
+   "tong_s": 7.78,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17307,
+    "size": 740060
+   },
+   "git_objects_sau": {
+    "count": 17310,
+    "size": 740596
+   },
+   "temp_sau_bytes": 0,
+   "state": "passed",
+   "result": "pass",
+   "receipt": "d57618ab6e7dc62d9e3d3e18266961fd392ca598cbc4cf84ab5e1bed2419cf53",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 0.09,
+    "snapshot": {
+     "after_seconds": 0.33,
+     "before_seconds": 0.38,
+     "checkout_bytes": 5321627,
+     "checkout_files": 27,
+     "checkout_seconds": 0.19,
+     "contained": true,
+     "left_running": 0,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 27,
+     "bytes": 5321627,
+     "live_tree_scan": {
+      "files": 27,
+      "not_text": 0
+     }
+    }
+   }
+  },
+  {
+   "luot": "z2_cu_mep3",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-m1-cu",
+   "moc": "M1",
+   "bat_dau": "2026-11-07T21:38:23.945+07:00",
+   "tong_s": 256.68,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17310,
+    "size": 740596
+   },
+   "git_objects_sau": {
+    "count": 17318,
+    "size": 740599
+   },
+   "temp_sau_bytes": 0,
+   "state": "passed",
+   "result": "pass",
+   "receipt": "94c3a714fd4be927a06404c7726257cfefaaa7eb06eaea3d553b72f37ae9544e",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 0.11,
+    "snapshot": {
+     "after_seconds": 173.18,
+     "before_seconds": 17.65,
+     "checkout_bytes": 1932340321,
+     "checkout_files": 11249,
+     "checkout_seconds": 26.28,
+     "contained": true,
+     "left_running": 0,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": null
+   }
+  },
+  {
+   "luot": "z3_cu_lap_mep1",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep1",
+   "plan": "lab-m1-cu",
+   "moc": "M1",
+   "bat_dau": "2026-11-07T21:44:07.003+07:00",
+   "tong_s": 145.69,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17318,
+    "size": 740599
+   },
+   "git_objects_sau": {
+    "count": 17321,
+    "size": 740600
+   },
+   "temp_sau_bytes": 67538811,
+   "state": "passed",
+   "result": "pass",
+   "receipt": "cc8d2ed44900f23aab5fc7038ebb2770c2e62010027eb8a7b688f27d07c9878f",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 0.11,
+    "snapshot": {
+     "after_seconds": 57.56,
+     "before_seconds": 20.05,
+     "checkout_bytes": 1932340330,
+     "checkout_files": 11249,
+     "checkout_seconds": 26.0,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": null
+   }
+  },
+  {
+   "luot": "z3_cu_lap_mep3",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-m1-cu",
+   "moc": "M1",
+   "bat_dau": "2026-11-07T21:47:54.145+07:00",
+   "tong_s": 140.75,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17321,
+    "size": 740600
+   },
+   "git_objects_sau": {
+    "count": 17324,
+    "size": 740601
+   },
+   "temp_sau_bytes": 0,
+   "state": "passed",
+   "result": "pass",
+   "receipt": "d6fc13ab791ba6a688d40367d92aeca1d6a7f2114bb4fc89932f9686e7879bb6",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 0.14,
+    "snapshot": {
+     "after_seconds": 56.34,
+     "before_seconds": 19.89,
+     "checkout_bytes": 1932340339,
+     "checkout_files": 11249,
+     "checkout_seconds": 25.6,
+     "contained": true,
+     "left_running": 0,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": null
+   }
+  },
+  {
+   "luot": "z4_timeout_mep3",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-tien-trinh",
+   "moc": "M1",
+   "bat_dau": "2026-11-07T21:51:45.081+07:00",
+   "tong_s": 61.83,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17324,
+    "size": 740601
+   },
+   "git_objects_sau": {
+    "count": 17324,
+    "size": 740601
+   },
+   "temp_sau_bytes": 0,
+   "state": "stopped",
+   "result": "inconclusive",
+   "receipt": "78256b23d5093411a8f0a7ce2e9868fe76cb9837de0360fa1ad40b3fe27815b5",
+   "receipt_do": {
+    "exit_code": null,
+    "timed_out": true,
+    "verifier_s": 60.29,
+    "snapshot": {
+     "after_seconds": 0.27,
+     "before_seconds": 0.35,
+     "checkout_bytes": 394,
+     "checkout_files": 3,
+     "checkout_seconds": 0.18,
+     "contained": true,
+     "left_running": 3,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 3,
+     "bytes": 394,
+     "live_tree_scan": {
+      "files": 3,
+      "not_text": 0
+     }
+    }
+   }
+  },
+  {
+   "luot": "E_m1_lan1",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-e2e-mep3",
+   "moc": "M1",
+   "bat_dau": "2026-11-08T00:04:23.470+07:00",
+   "tong_s": 4.64,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17326,
+    "size": 740601
+   },
+   "git_objects_sau": {
+    "count": 17326,
+    "size": 740601
+   },
+   "temp_sau_bytes": 0,
+   "state": "passed",
+   "result": "pass",
+   "receipt": "6796273a1414615eb592184508f596ce84fce17dfa92fe90f29ec0aef828fd83",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 0.08,
+    "snapshot": {
+     "after_seconds": 0.31,
+     "before_seconds": 0.37,
+     "checkout_bytes": 5321627,
+     "checkout_files": 27,
+     "checkout_seconds": 0.22,
+     "contained": true,
+     "left_running": 0,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 27,
+     "bytes": 5321627,
+     "live_tree_scan": {
+      "files": 27,
+      "not_text": 0
+     }
+    }
+   }
+  },
+  {
+   "luot": "E_m1_lan2_sau_doi_input",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-e2e-mep3",
+   "moc": "M1",
+   "bat_dau": "2026-11-08T00:09:05.210+07:00",
+   "tong_s": 4.22,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17326,
+    "size": 740601
+   },
+   "git_objects_sau": {
+    "count": 17329,
+    "size": 741137
+   },
+   "temp_sau_bytes": 0,
+   "state": "passed",
+   "result": "pass",
+   "receipt": "5c6de862c6bd3a22295ea290d4200e125d77189c3f47f17d27ef72d19c414212",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 0.09,
+    "snapshot": {
+     "after_seconds": 0.3,
+     "before_seconds": 0.37,
+     "checkout_bytes": 5321628,
+     "checkout_files": 27,
+     "checkout_seconds": 0.2,
+     "contained": true,
+     "left_running": 0,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 27,
+     "bytes": 5321628,
+     "live_tree_scan": {
+      "files": 27,
+      "not_text": 0
+     }
+    }
+   }
+  },
+  {
+   "luot": "E_m1_lan3_sau_doi_kich_ban",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-e2e-mep3",
+   "moc": "M1",
+   "bat_dau": "2026-11-08T00:09:12.071+07:00",
+   "tong_s": 4.13,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17329,
+    "size": 741137
+   },
+   "git_objects_sau": {
+    "count": 17334,
+    "size": 741139
+   },
+   "temp_sau_bytes": 0,
+   "state": "passed",
+   "result": "pass",
+   "receipt": "8e7b1ddc19f4d3df878b48d4cf7c18307698cde074adcca43479fc8c29719fe0",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 0.08,
+    "snapshot": {
+     "after_seconds": 0.3,
+     "before_seconds": 0.36,
+     "checkout_bytes": 5321640,
+     "checkout_files": 27,
+     "checkout_seconds": 0.2,
+     "contained": true,
+     "left_running": 0,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 27,
+     "bytes": 5321640,
+     "live_tree_scan": {
+      "files": 27,
+      "not_text": 0
+     }
+    }
+   }
+  },
+  {
+   "luot": "E_m2_tu_choi",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-e2e-mep3",
+   "moc": "M2",
+   "bat_dau": "2026-11-08T00:09:24.603+07:00",
+   "tong_s": 1.55,
+   "ma_thoat": 2,
+   "git_objects_truoc": {
+    "count": 17334,
+    "size": 741139
+   },
+   "git_objects_sau": {
+    "count": 17338,
+    "size": 741140
+   },
+   "temp_sau_bytes": 0,
+   "tu_choi": {
+    "type": "InputRefused",
+    "error": "The declared input 'kiem_lab/e2e/doc.py' spells the live tree by an absolute path (<lab>\\lab\\repo). The command could read or write the real files beside the checkout, which the snapshot of the inputs does not see. Use a path relative to the working folder, or remove the inputs to check the whole tree. The verifier was not called."
+   }
+  },
+  {
+   "luot": "E_m2_sau_sua_tuong_doi",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-e2e-mep3",
+   "moc": "M2",
+   "bat_dau": "2026-11-08T00:09:28.347+07:00",
+   "tong_s": 3.59,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17338,
+    "size": 741140
+   },
+   "git_objects_sau": {
+    "count": 17342,
+    "size": 741140
+   },
+   "temp_sau_bytes": 0,
+   "state": "passed",
+   "result": "pass",
+   "receipt": "e11ba83a1aed83d13984f51a1c839cb6c90ad65b3f17dc76a91102ec07c1a96a",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 0.07,
+    "snapshot": {
+     "after_seconds": 0.29,
+     "before_seconds": 0.34,
+     "checkout_bytes": 200,
+     "checkout_files": 3,
+     "checkout_seconds": 0.16,
+     "contained": true,
+     "left_running": 0,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 3,
+     "bytes": 200,
+     "live_tree_scan": {
+      "files": 3,
+      "not_text": 0
+     }
+    }
+   }
+  },
+  {
+   "luot": "E_m3_tu_choi",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-e2e-mep3",
+   "moc": "M3",
+   "bat_dau": "2026-11-08T00:09:34.138+07:00",
+   "tong_s": 1.7,
+   "ma_thoat": 2,
+   "git_objects_truoc": {
+    "count": 17342,
+    "size": 741140
+   },
+   "git_objects_sau": {
+    "count": 17346,
+    "size": 741140
+   },
+   "temp_sau_bytes": 0,
+   "tu_choi": {
+    "type": "InputRefused",
+    "error": "The declared input 'kiem_lab/e2e/ghi.py' spells the live tree by an absolute path (<lab>\\lab\\repo). The command could read or write the real files beside the checkout, which the snapshot of the inputs does not see. Use a path relative to the working folder, or remove the inputs to check the whole tree. The verifier was not called."
+   }
+  },
+  {
+   "luot": "E_m3_sau_sua_tuong_doi",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-e2e-mep3",
+   "moc": "M3",
+   "bat_dau": "2026-11-08T00:09:37.962+07:00",
+   "tong_s": 5.25,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17346,
+    "size": 741140
+   },
+   "git_objects_sau": {
+    "count": 17350,
+    "size": 741141
+   },
+   "temp_sau_bytes": 0,
+   "state": "failed",
+   "result": "fail",
+   "receipt": "80c0a703567957d8a25ab8c63b3f8606944aa07e55916ead13bf3562ddb6bc38",
+   "receipt_do": {
+    "exit_code": 1,
+    "timed_out": false,
+    "verifier_s": 0.08,
+    "snapshot": {
+     "after_seconds": 0.28,
+     "before_seconds": 0.33,
+     "checkout_bytes": 183,
+     "checkout_files": 2,
+     "checkout_seconds": 0.16,
+     "contained": true,
+     "left_running": 0,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 2,
+     "bytes": 183,
+     "live_tree_scan": {
+      "files": 2,
+      "not_text": 0
+     }
+    }
+   }
+  },
+  {
+   "luot": "E_m3_sau_sua_tuong_doi_b",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-e2e-mep3",
+   "moc": "M3",
+   "bat_dau": "2026-11-08T00:09:52.734+07:00",
+   "tong_s": 4.83,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17350,
+    "size": 741141
+   },
+   "git_objects_sau": {
+    "count": 17354,
+    "size": 741141
+   },
+   "temp_sau_bytes": 0,
+   "state": "passed",
+   "result": "pass",
+   "receipt": "42e0eeaddedbc8366c93038fed4ac9cd9db805180fc00278e87b0f73385dca5a",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 0.08,
+    "snapshot": {
+     "after_seconds": 0.29,
+     "before_seconds": 0.31,
+     "checkout_bytes": 219,
+     "checkout_files": 2,
+     "checkout_seconds": 0.16,
+     "contained": true,
+     "left_running": 0,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 2,
+     "bytes": 219,
+     "live_tree_scan": {
+      "files": 2,
+      "not_text": 0
+     }
+    }
+   }
+  },
+  {
+   "luot": "E_m4_tu_choi",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-e2e-mep3",
+   "moc": "M4",
+   "bat_dau": "2026-11-08T00:09:59.811+07:00",
+   "tong_s": 1.74,
+   "ma_thoat": 2,
+   "git_objects_truoc": {
+    "count": 17354,
+    "size": 741141
+   },
+   "git_objects_sau": {
+    "count": 17355,
+    "size": 741141
+   },
+   "temp_sau_bytes": 0,
+   "tu_choi": {
+    "type": "InputRefused",
+    "error": "Declared input not found, or everything in it is ignored by Git: kiem_lab/e2e/thieu.txt. The verifier was not called: it would check nothing there."
+   }
+  },
+  {
+   "luot": "E_m4_sau_tao_tep",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-e2e-mep3",
+   "moc": "M4",
+   "bat_dau": "2026-11-08T00:10:03.486+07:00",
+   "tong_s": 6.18,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17355,
+    "size": 741141
+   },
+   "git_objects_sau": {
+    "count": 17359,
+    "size": 741141
+   },
+   "temp_sau_bytes": 0,
+   "state": "passed",
+   "result": "pass",
+   "receipt": "8b713e0dd6ef5085b4ede8c839c94706800dc602a22350102262ad9b3f615b32",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 0.07,
+    "snapshot": {
+     "after_seconds": 0.3,
+     "before_seconds": 0.33,
+     "checkout_bytes": 145,
+     "checkout_files": 4,
+     "checkout_seconds": 0.17,
+     "contained": true,
+     "left_running": 0,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 4,
+     "bytes": 145,
+     "live_tree_scan": {
+      "files": 4,
+      "not_text": 0
+     }
+    }
+   }
+  },
+  {
+   "luot": "E_m5_het_gio",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-e2e-mep3",
+   "moc": "M5",
+   "bat_dau": "2026-11-08T00:10:28.939+07:00",
+   "tong_s": 68.21,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17359,
+    "size": 741141
+   },
+   "git_objects_sau": {
+    "count": 17365,
+    "size": 741142
+   },
+   "temp_sau_bytes": 0,
+   "state": "failed",
+   "result": "inconclusive",
+   "receipt": "f50801eaa10a916fc52ba8f18afbc47006a00e29da7d95b5862aed4a750fd4fc",
+   "receipt_do": {
+    "exit_code": null,
+    "timed_out": true,
+    "verifier_s": 60.28,
+    "snapshot": {
+     "after_seconds": 0.29,
+     "before_seconds": 0.39,
+     "checkout_bytes": 686,
+     "checkout_files": 4,
+     "checkout_seconds": 0.17,
+     "contained": true,
+     "left_running": 3,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 4,
+     "bytes": 686,
+     "live_tree_scan": {
+      "files": 4,
+      "not_text": 0
+     }
+    }
+   }
+  },
+  {
+   "luot": "E_m5_giet_cung",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-e2e-mep3",
+   "moc": "M5",
+   "bat_dau": "2026-11-08T00:11:46.759+07:00",
+   "tong_s": 67.85,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17365,
+    "size": 741142
+   },
+   "git_objects_sau": {
+    "count": 17365,
+    "size": 741142
+   },
+   "temp_sau_bytes": 0,
+   "state": "failed",
+   "result": "inconclusive",
+   "receipt": "e0cd5efa2ca4a07311fad0e4375909fef26009dd5d040f9a95b7f413cd7d5004",
+   "receipt_do": {
+    "exit_code": null,
+    "timed_out": true,
+    "verifier_s": 60.29,
+    "snapshot": {
+     "after_seconds": 0.27,
+     "before_seconds": 0.3,
+     "checkout_bytes": 686,
+     "checkout_files": 4,
+     "checkout_seconds": 0.15,
+     "contained": true,
+     "left_running": 3,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 4,
+     "bytes": 686,
+     "live_tree_scan": {
+      "files": 4,
+      "not_text": 0
+     }
+    }
+   }
+  },
+  {
+   "luot": "E_m5_giet_cung_b",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-e2e-mep3",
+   "moc": "M5",
+   "bat_dau": "2026-11-08T00:13:18.353+07:00",
+   "tong_s": 3.41,
+   "ma_thoat": 1,
+   "git_objects_truoc": {
+    "count": 17365,
+    "size": 741142
+   },
+   "git_objects_sau": {
+    "count": 17369,
+    "size": 741142
+   },
+   "temp_sau_bytes": 1240,
+   "stdout_khong_doc_duoc": true
+  },
+  {
+   "luot": "E_m5_chay_lai_sau_giet",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-e2e-mep3",
+   "moc": "M5",
+   "bat_dau": "2026-11-08T00:14:02.796+07:00",
+   "tong_s": 1.6,
+   "ma_thoat": 2,
+   "git_objects_truoc": {
+    "count": 17369,
+    "size": 741142
+   },
+   "git_objects_sau": {
+    "count": 17369,
+    "size": 741142
+   },
+   "temp_sau_bytes": 0,
+   "tu_choi": {
+    "type": "LedgerError",
+    "error": "Milestone M5 has a run of unknown outcome (run 603c1241b2af, revision 1, dispatched 2026-11-07T17:13:20.032380+00:00, process lost: process_gone). It is held and not run again by itself: check what the verifier did, then `onecrew verdict release-run --plan lab-e2e-mep3 --run 603c1241b2af --reason ...`."
+   }
+  },
+  {
+   "luot": "E_m5_giet_cung_c",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-e2e-mep3",
+   "moc": "M5",
+   "bat_dau": "2026-11-08T00:14:22.028+07:00",
+   "tong_s": 3.44,
+   "ma_thoat": 1,
+   "git_objects_truoc": {
+    "count": 17369,
+    "size": 741142
+   },
+   "git_objects_sau": {
+    "count": 17373,
+    "size": 741142
+   },
+   "temp_sau_bytes": 1242,
+   "stdout_khong_doc_duoc": true
+  },
+  {
+   "luot": "E_m5_chay_lai_sau_giet_c",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-e2e-mep3",
+   "moc": "M5",
+   "bat_dau": "2026-11-08T00:14:37.386+07:00",
+   "tong_s": 1.6,
+   "ma_thoat": 2,
+   "git_objects_truoc": {
+    "count": 17373,
+    "size": 741142
+   },
+   "git_objects_sau": {
+    "count": 17373,
+    "size": 741142
+   },
+   "temp_sau_bytes": 0,
+   "tu_choi": {
+    "type": "LedgerError",
+    "error": "Milestone M5 has a run of unknown outcome (run b3fd21b21b78, revision 1, dispatched 2026-11-07T17:14:23.716421+00:00, process lost: process_gone). It is held and not run again by itself: check what the verifier did, then `onecrew verdict release-run --plan lab-e2e-mep3 --run b3fd21b21b78 --reason ...`."
+   }
+  },
+  {
+   "luot": "E_m5_con_roi_thoat",
+   "runtime": "onecrew 2.5.0.dev10+sol6.4.mep3",
+   "plan": "lab-e2e-mep3",
+   "moc": "M5",
+   "bat_dau": "2026-11-08T00:15:40.806+07:00",
+   "tong_s": 7.62,
+   "ma_thoat": 0,
+   "git_objects_truoc": {
+    "count": 17381,
+    "size": 741143
+   },
+   "git_objects_sau": {
+    "count": 17385,
+    "size": 741143
+   },
+   "temp_sau_bytes": 0,
+   "state": "passed",
+   "result": "pass",
+   "receipt": "5c2a575d37826274c62bcdde582140d851bf714e39bf58dee18a17d8947eff7e",
+   "receipt_do": {
+    "exit_code": 0,
+    "timed_out": false,
+    "verifier_s": 0.58,
+    "snapshot": {
+     "after_seconds": 0.28,
+     "before_seconds": 0.33,
+     "checkout_bytes": 695,
+     "checkout_files": 4,
+     "checkout_seconds": 0.17,
+     "contained": true,
+     "left_running": 2,
+     "limit_seconds": 3600
+    },
+    "artifact_sha_bang_nhau": true,
+    "input_scope": {
+     "files": 4,
+     "bytes": 695,
+     "live_tree_scan": {
+      "files": 4,
+      "not_text": 0
+     }
+    }
+   }
+  }
+ ]
+}

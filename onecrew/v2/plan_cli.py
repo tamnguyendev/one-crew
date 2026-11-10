@@ -43,7 +43,7 @@ def _parser():
     p.add_argument('--revision', type=int, help='Expected current revision; checked inside the acceptance write transaction.')
     p = plan.add_parser('amend', help='A new revision (needs a new approval); the old one is kept.')
     p.add_argument('name'); p.add_argument('--file', required=True, type=Path)
-    p.add_argument('--reason', required=True, help='At most 200 characters.'); p.add_argument('--author', required=True)
+    p.add_argument('--reason', required=True, help='At most 200 characters (Unicode characters, not UTF-8 bytes).'); p.add_argument('--author', required=True)
     p = plan.add_parser('precheck', help='Run the preconditions and the target check (0 AI calls) without approving.'); p.add_argument('name')
     p = plan.add_parser('review-decision', help='Evaluate approved review depth by rules; never completes a milestone or calls a model.')
     p.add_argument('name'); p.add_argument('--node', required=True); p.add_argument('--artifact-sha', required=True)

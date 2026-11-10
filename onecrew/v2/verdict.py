@@ -345,11 +345,28 @@ def diff(ledger, name, milestone_id):
 
 
 def artifact(ledger, name):
-    """The artifact sha of the project now (what a verdict run now would observe, and what `owner accept --artifact-sha` takes)."""
+    """The artifact sha of the project now (what a verdict run now would observe, and what `owner accept --artifact-sha` takes).
+    mep5: when every milestone of the latest revision is a command with declared inputs, a receipt's artifact_sha holds only its own milestone's inputs and
+    accept judges every milestone inside ONE tree; the answer is then the tree of the union of the inputs (the same scoped_tree a run makes), never the
+    whole working tree (tens of GB on a large repository). Any other milestone: the whole tree, as before."""
     with ledger.transaction() as conn:
-        plans.anchor_events(ledger, conn, name)
+        state = plans.anchor_events(ledger, conn, name)
+        union = inputs_union(ledger, state)
+    if union:
+        return {'artifact_sha': command.scoped_tree(ledger.project, union), 'scope': 'inputs', 'inputs': union}
     with command.snapshot_limits():
         return {'artifact_sha': artifacts.identity(ledger.project)}
+
+
+def inputs_union(ledger, state):
+    """The sorted union of the declared inputs when every milestone of the latest revision is a command verifier that declares them, the project is a Git
+    repository and the plan is not a workflow root (those judge the whole artifact); else None."""
+    if not artifacts.is_git(ledger.project): return None
+    if namespaces.has_capability(state, 'sequential-engine') or state.get('workflow_version'): return None
+    contract, _ = plans.load(ledger, state, state['latest'])
+    milestones = contract['milestones']
+    if not milestones or any(m['verifier']['type'] != 'command' or not contracts.verifier_inputs(m) for m in milestones): return None
+    return sorted({i for m in milestones for i in contracts.verifier_inputs(m)})
 
 
 def run(ledger, name, milestone_id, directory=None):
@@ -383,6 +400,8 @@ def run(ledger, name, milestone_id, directory=None):
     if milestone is None: raise LedgerError('Unknown milestone ' + milestone_id + '.')
     kind, config = milestone['verifier']['type'], milestone['verifier']['config']
     if kind not in KINDS and not port.known(kind): raise LedgerError('Milestone ' + milestone_id + ' has no executable verifier.')
+    unsupported = plans._inputs_unsupported(state, contract)
+    if unsupported: raise LedgerError(unsupported)
     directory = _directory(ledger, milestone, directory)
     level = reviewer.check_independence(written, config) if kind == 'reviewer' else None
     minutes = config.get('max_minutes') or config['authority']['max_minutes']
@@ -406,15 +425,22 @@ def run(ledger, name, milestone_id, directory=None):
     phase = 'before_dispatch'                                         # W37a: where an exception was raised, kept in the abandonment
     try:
         reused = _reuse_candidate_pass(ledger, state, revision, sha, contract, milestone, directory, check, level, bounded.get('deadline'))
-        if reused is None:
+
+        def dispatching():
+            # mep7 hole (a), 2.5.0.dev24: for a command the run is marked dispatched, and the phase turns "verifier", only right before its Popen;
+            # whatever fails before that (directory, scratch, checkout, scope) is a run that never dispatched
+            nonlocal phase
             _mark(ledger, run_id, 'dispatched', {'plan': name, 'revision': revision, 'milestone': milestone_id, 'kind': kind, 'at': utcnow()})
             phase = 'verifier'
+
+        if reused is None and kind != 'command':
+            dispatching()
         if reused is not None:
             blob, receipt = reused
             if kind == 'command' and integrity_applies(state):
                 integrity = _test_integrity(ledger, directory, approved, receipt)
         elif kind == 'command':
-            blob, receipt = command.run(ledger, state['name'], revision, sha, milestone, directory, **evidence_context, **bounded)
+            blob, receipt = command.run(ledger, state['name'], revision, sha, milestone, directory, **evidence_context, **bounded, on_dispatch=dispatching)
             phase = 'after_verifier'
             if integrity_applies(state):                                               # W11b/T25 [E4]: schema-2 roots keep the old rule
                 integrity = _test_integrity(ledger, directory, approved, receipt)      # W05/T19: a weakened test suite cannot make the milestone pass

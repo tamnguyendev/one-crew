@@ -135,6 +135,42 @@ def covers(ledger, verdict_artifact, current, kind, neutral):
     return 'neutral' if paths and all(contracts.neutral_match(p, neutral) for p in paths) else None
 
 
+def _covers_inputs(ledger, milestone, candidate, artifact):
+    """A command milestone with declared inputs: does its pass still speak for those inputs? (how, reasons). Only they, the .gitattributes above them and the program it started count;
+    a change elsewhere in the tree does not. `artifact` given: judged inside that tree. Else on the working files, storing nothing in the project."""
+    from .verifiers import command
+    from ..snapshots import Snapshots
+    inputs = contracts.verifier_inputs(milestone)
+    try:
+        body = json.loads(Snapshots(ledger.state_root).read_blob(candidate['receipt']))
+        scope = body.get('input_scope')
+    except (LedgerError, OSError, ValueError, AttributeError):
+        return None, ['the receipt cannot be read']
+    if not command.policy_current(body):               # 2.5.0.dev24: the one checkout-policy rule of every sink, inputs receipts too
+        return None, ['the receipt was made under another checkout policy']
+    if not isinstance(scope, dict) or scope.get('paths') != inputs:
+        return None, ['the receipt was not made on these inputs']
+    try:
+        if artifact is not None:
+            current = command.scoped_of_tree(ledger.project, artifact, inputs)
+        else:
+            with command.leaves_no_objects():
+                current = command.scoped_tree(ledger.project, inputs)
+    except (LedgerError, OSError, subprocess.SubprocessError) as error:
+        return None, ['the inputs cannot be read: ' + str(error)[:200]]
+    if current != candidate['artifact_sha']: return None, ['a declared input changed']
+    if command.tool_changed(scope.get('tool'), command.verifier_env(ledger.project)): return None, ['the program the command starts changed: ' + str(scope['tool'].get('path'))]
+    return 'same', []
+
+
+def _inputs_unsupported(state, contract):
+    """Declared inputs need a plain root. A workflow root judges the whole artifact (handoff, test integrity): refused, not quietly reduced."""
+    if not any(contracts.verifier_inputs(m) for m in contract['milestones']): return None
+    if namespaces.has_capability(state, 'sequential-engine') or state.get('workflow_version'):
+        return 'Declared verifier inputs are not supported on a workflow root: its handoff and test integrity judge the whole artifact.'
+    return None
+
+
 def _inherited(ledger, state, revision, milestone, contract):
     """The latest verdict of this milestone on an EARLIER revision when it is a pass, the milestone is the same in that revision (_signature: title,
     verifier, covers and the text of every output it covers) and the independence rule still holds for THIS revision, else None. It is a way of
@@ -194,7 +230,19 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=
                 extra.update(stale=True, needs_recheck=True, recheck_note=policy_epoch.NOTE, stale_reasons=[policy_epoch.REASON], checks_to_rerun=[m['id']])
         if ledger is not None or artifact is not None:
             candidate = mine[-1] if passed else (_inherited(ledger, state, revision, m, contract) if not mine and carries else None)
-            if candidate is not None and now() is not None:
+            if candidate is not None and contracts.verifier_inputs(m):
+                if ledger is not None and getattr(ledger, 'project', None):      # no project to look at (a reader of the ledger alone): as any verdict there, not judged
+                    how, why = _covers_inputs(ledger, m, candidate, artifact)
+                    if how is None:
+                        if passed: passed = False
+                        extra.update(stale=True, stale_reasons=why, checks_to_rerun=[m['id']])
+                    else:
+                        if not passed: passed, verdict = True, candidate
+                        if candidate['revision'] != revision: extra['carried_from'] = candidate['revision']
+                elif artifact is not None:
+                    if passed: passed = False
+                    extra.update(stale=True, stale_reasons=['no project to judge the inputs in'])
+            elif candidate is not None and now() is not None:
                 from .verifiers import artifact as identities
                 if m['verifier']['type'] == 'owner-manual' and ledger is not None and not identities.is_git(ledger.project):
                     how = 'same'        # without Git the owner's artifact is an opaque document hash; a snapshot identity cannot contradict it
@@ -469,13 +517,13 @@ def amend(ledger, name, raw, reason, author, events=None, keep_content_author=Fa
     return with_warnings(_show(ledger, name), contract)
 
 
-def _base_tracked(ledger):
+def _base_tracked(ledger, walk=True):
     """The tree of the tracked files as the owner approves (HEAD + changes to tracked files, never an untracked file): where a reviewer's diff
     starts, so no untracked content can be on the base side of it. None outside a Git repository."""
     from .verifiers import command
     try:
         with command.snapshot_limits():
-            command.refuse_hard_links(ledger.project)      # its content may be a kept file's: never hashed into a pinned base (review D-R04)
+            if walk: command.refuse_hard_links(ledger.project)      # its content may be a kept file's: never hashed into a pinned base (review D-R04). Without the walk, tracked_tree still judges each file it reads
             return command.tracked_tree(ledger.project)
     except command.HardLinked:
         raise
@@ -524,6 +572,8 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
         if revision != state['latest']: raise LedgerError(f'Only the latest revision ({state["latest"]}) can be approved.')
         contract, sha = load(ledger, state, revision)
         approved, closed = state['approved'], step0.closed_events(conn, state['task_id'])
+        unsupported = _inputs_unsupported(state, contract)
+        if unsupported: raise LedgerError(unsupported)
         from . import solution_link
         solution_link.validate_root(ledger, conn, state, contract, sha, revision)
         written_by = state['revisions'][revision].get('content_author') or state['revisions'][revision].get('author')
@@ -540,7 +590,9 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
                               f'({len(today)} reason{"s" if len(today) != 1 else ""}); the approval it has stays recorded. Write the fix with plan amend '
                               '(the four sentences of the owner part), then approve the new revision:' +''.join(f'\n - [{c}] {t}' for c, t in today))
         return with_warnings(_show(ledger, name), contract)       # review of dev14 (P3): a repeat shows the warnings too
-    _refuse_hard_links(ledger)
+    # every milestone declares its inputs: nothing reads the whole tree, so the whole tree is neither walked nor stored in the project here (MEP hotfix)
+    inputs_only = contracts.all_inputs_declared(contract)
+    if not inputs_only: _refuse_hard_links(ledger)
     from . import root_writer
     with ledger.transaction() as conn:                       # T26 E4: refused before step 0 runs (repeated at the write below)
         root_writer.check_approval(ledger, conn, state, contract)
@@ -550,7 +602,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
     # dev12 (review F1): step 0 judges the owner part too (lint.owner_view), on this contract, for every caller; the write below records only
     # this revision at this sha, so an amendment written while step 0 runs is never approved unchecked.
     verdict = step0.evaluate(ledger, name, revision, sha, contract, closed, choose, author=written_by, advice=advice, proposal_check=proposal_check)
-    base_artifact, base_tracked = _base_artifact(ledger), _base_tracked(ledger)
+    base_artifact, base_tracked = (None if inputs_only else _base_artifact(ledger)), _base_tracked(ledger, walk=not inputs_only)
     with ledger.transaction(write=True) as conn:
         state = anchor_events(ledger, conn, name)
         if state['latest'] != revision or state['revisions'][revision]['sha'] != sha:
@@ -656,7 +708,10 @@ def accept(ledger, name, by, reference, artifact_sha, *, expected_revision=None)
             if elsewhere:
                 raise LedgerError(f'Cannot accept artifact {artifact_sha}: every milestone must have passed on exactly that artifact; '
                                    + '; '.join(f'{v["id"]}: ' + ', '.join(v.get('stale_reasons') or ['artifact changed']) for v in elsewhere)
-                                   + '. Inspect plan show and re-run only the named stale milestones in their execution environment.')
+                                   + '. Inspect plan show and re-run only the named stale milestones in their execution environment.'
+                                   + (f' The milestones declare inputs: a receipt\'s artifact_sha holds only its own milestone\'s inputs; take the sha from '
+                                      f'`verdict artifact --plan {name}` (one tree holding every milestone\'s inputs).'
+                                      if any(contracts.verifier_inputs(m) for m in contract['milestones']) else ''))
             if namespaces.has_capability(state, 'finding-register'):
                 from .findings import list_findings
                 open_findings = list_findings(ledger, name, task_id=state['task_id'], open_only=True)

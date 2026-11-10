@@ -1,0 +1,48 @@
+{
+ "thay_verifier_sau_s": 0.5,
+ "verifier": [
+  {
+   "pid": 26256,
+   "ppid": 17628,
+   "vai": "cha"
+  },
+  {
+   "pid": 24120,
+   "ppid": 26256,
+   "vai": "con"
+  }
+ ],
+ "onecrew": [
+  {
+   "pid": 13984,
+   "ppid": 12456,
+   "ten": "python.exe"
+  },
+  {
+   "pid": 20044,
+   "ppid": 13984,
+   "ten": "python.exe"
+  },
+  {
+   "pid": 19788,
+   "ppid": 20044,
+   "ten": "onecrew.exe"
+  },
+  {
+   "pid": 22360,
+   "ppid": 19788,
+   "ten": "python.exe"
+  },
+  {
+   "pid": 17628,
+   "ppid": 22360,
+   "ten": "python.exe"
+  }
+ ],
+ "giet": 17628,
+ "taskkill": "SUCCESS: The process with PID 17628 has been terminated.",
+ "sau_10s": {
+  "verifier_con_song": [],
+  "onecrew_con_song": []
+ }
+}

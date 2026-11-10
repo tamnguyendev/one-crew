@@ -1,0 +1,48 @@
+{
+ "thay_verifier_sau_s": 0.4,
+ "verifier": [
+  {
+   "pid": 20932,
+   "ppid": 26656,
+   "vai": "cha"
+  },
+  {
+   "pid": 20004,
+   "ppid": 20932,
+   "vai": "con"
+  }
+ ],
+ "onecrew": [
+  {
+   "pid": 27136,
+   "ppid": 27396,
+   "ten": "python.exe"
+  },
+  {
+   "pid": 19788,
+   "ppid": 27136,
+   "ten": "python.exe"
+  },
+  {
+   "pid": 6416,
+   "ppid": 19788,
+   "ten": "onecrew.exe"
+  },
+  {
+   "pid": 16740,
+   "ppid": 6416,
+   "ten": "python.exe"
+  },
+  {
+   "pid": 26656,
+   "ppid": 16740,
+   "ten": "python.exe"
+  }
+ ],
+ "giet": 26656,
+ "taskkill": "SUCCESS: The process with PID 26656 has been terminated.",
+ "sau_10s": {
+  "verifier_con_song": [],
+  "onecrew_con_song": []
+ }
+}

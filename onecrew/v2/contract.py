@@ -5,6 +5,7 @@ written by the commands in plan.py, so editing or forging a file cannot approve 
 must match the file).
 """
 import json
+import os
 import re
 from pathlib import Path
 
@@ -57,6 +58,60 @@ def _int(value, name, low, high):
     return value
 
 
+def _inputs(value, cwd, name):
+    """What the command reads, as declared in the contract the owner approves: files or folders, relative to the top of the repository. Everything else of the working
+    tree is out of its snapshot and of its checkout. No patterns: a pattern could match nothing and quietly shrink what is checked."""
+    if not isinstance(value, list) or not value or len(value) > 200:
+        raise LedgerError(name + '.inputs: a list of 1 to 200 paths.')
+    out = []
+    for item in value:
+        path = scoped_path(item)
+        if path.split('/')[0] == '.onecrew': raise LedgerError(name + '.inputs: OneCrew\'s own files are not an input.')
+        if path in out: raise LedgerError(name + '.inputs: ' + path + ' is listed twice.')
+        out.append(path)
+    if cwd not in (None, '', '.') and not any(cwd == p or cwd.startswith(p + '/') for p in out):
+        raise LedgerError(name + '.cwd: with inputs, the working folder must be one of the inputs or inside one.')
+    return out
+
+
+def _unscanned(value, inputs, argv, cwd, name):
+    """Declared inputs whose text the verifier does not scan for an absolute path into the live tree (mep4). For a file the command only checks for, or reads as prose,
+    never as paths to follow: a document that mentions where the repository lives would otherwise refuse the run. The owner names each one in the contract they
+    approve; the receipt lists them. A program or argument the command line names is always scanned: exempting it would exempt what the command runs."""
+    if not inputs: raise LedgerError(name + '.inputs_unscanned: only with inputs.')
+    if not isinstance(value, list) or not value or len(value) > 200:
+        raise LedgerError(name + '.inputs_unscanned: a list of 1 to 200 paths.')
+    named = set()
+    for word in argv:
+        for piece in {word, word.split('=', 1)[-1]}:
+            if not piece or piece.startswith('-') or os.path.isabs(piece): continue
+            text = piece.replace('\\', '/')
+            while text.startswith('./'): text = text[2:]
+            named.add(text if cwd in (None, '', '.') else cwd.rstrip('/') + '/' + text)
+    out = []
+    for item in value:
+        path = scoped_path(item)
+        if path in out: raise LedgerError(name + '.inputs_unscanned: ' + path + ' is listed twice.')
+        if not any(path == i or path.startswith(i + '/') for i in inputs):
+            raise LedgerError(name + '.inputs_unscanned: ' + path + ' is not one of the inputs or inside one.')
+        if any(n == path or n.startswith(path + '/') for n in named):
+            raise LedgerError(name + '.inputs_unscanned: ' + path + ' is named by the command line; what the command runs or is given is always scanned.')
+        out.append(path)
+    return out
+
+
+def verifier_inputs(milestone):
+    """The declared inputs of a command milestone, or None: no declaration means the whole working tree, as always."""
+    verifier = milestone.get('verifier') or {}
+    return ((verifier.get('config') or {}).get('inputs') or None) if verifier.get('type') == 'command' else None
+
+
+def all_inputs_declared(contract):
+    """Every milestone is a command with declared inputs: then nothing in this contract needs the identity of the whole working tree before acceptance."""
+    milestones = contract.get('milestones') or []
+    return bool(milestones) and all(verifier_inputs(m) for m in milestones)
+
+
 def _verifier(value, name):
     from .verifiers import port
     available = VERIFIERS + port.names()
@@ -66,14 +121,17 @@ def _verifier(value, name):
     if value['type'] not in VERIFIERS:
         return {'type': value['type'], 'config': port.normalize(value['type'], config, name)}
     if value['type'] == 'command':
-        if not isinstance(config, dict) or set(config) - {'argv', 'cwd', 'max_minutes'}:
-            raise LedgerError(name + ': command verifier takes argv, cwd and max_minutes.')
+        if not isinstance(config, dict) or set(config) - {'argv', 'cwd', 'max_minutes', 'inputs', 'inputs_unscanned'}:
+            raise LedgerError(name + ': command verifier takes argv, cwd, max_minutes, inputs and inputs_unscanned.')
         from ..work_contract import argv_value
         argv = argv_value(config.get('argv'), name + '.argv')
         cwd = config.get('cwd')
         if cwd is not None: text_field(cwd, name + '.cwd', 500)
         minutes = _int(config.get('max_minutes', 15), name + '.max_minutes', 1, COMMAND_MAX_MINUTES)
-        return {'type': 'command', 'config': {'argv': argv, 'cwd': cwd, 'max_minutes': minutes}}
+        inputs = _inputs(config['inputs'], cwd, name) if 'inputs' in config else None
+        unscanned = _unscanned(config['inputs_unscanned'], inputs, argv, cwd, name) if 'inputs_unscanned' in config else None
+        return {'type': 'command', 'config': {'argv': argv, 'cwd': cwd, 'max_minutes': minutes, **({'inputs': inputs} if inputs else {}),
+                                              **({'inputs_unscanned': unscanned} if unscanned else {})}}
     if value['type'] == 'reviewer': return {'type': 'reviewer', 'config': _reviewer(config, name)}
     if config: raise LedgerError(name + ': owner-manual takes no config.')
     return {'type': 'owner-manual', 'config': {}}
