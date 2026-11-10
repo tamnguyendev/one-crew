@@ -3,8 +3,8 @@
 What must hold together after the merge:
 - a receipt of declared inputs is judged by the one checkout-policy rule too (an inputs receipt of another policy is not carried);
 - #9: changing a milestone's inputs or inputs_unscanned is a change of acceptance;
-- mep7 hole (a): a failure before the Popen (scratch directory, sweep) says the verifier did not start, the run is not marked dispatched and
-  runs again without release-run;
+- mep7 hole (a): a failure before the Popen (scratch directory, sweep) says the verifier did not start, the run is closed as never
+  dispatched and runs again without release-run (an error out of the call without that mark stays held: test_wf_r03a_run_started);
 - mep7 hole (b): tool_changed looks the program up again: a bare word that PATH now resolves to another program, or an app alias that now starts
   another program, is a change.
 """

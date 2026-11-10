@@ -15,7 +15,7 @@
   - đổi `inputs` hay `inputs_unscanned` là thay đổi nghiệm thu (#9);
   - lỗi trước khi lệnh chạy được đánh dấu "chưa chạy".
 - **Vá hai lỗ của mep7:**
-  - (a) với bộ kiểm lệnh, run chỉ được đánh dấu đã khởi chạy (marker `dispatched`, phase `verifier`) qua callback ngay trước `Popen`; dọn và tạo thư mục tạm, kiểm thư mục, scope, hạn chót đều nằm trong `before_verifier`;
+  - (a) với bộ kiểm lệnh, dọn và tạo thư mục tạm, kiểm thư mục, scope, hạn chót đều nằm trong `before_verifier`: lỗi ở đó mang dấu "chưa khởi chạy", run được đóng là chưa dispatch và chạy lại được không cần release-run. Marker `dispatched` vẫn ghi trước khi gọi bộ kiểm (như T08a): lỗi không mang dấu đó là kết quả không rõ và bị giữ;
   - (b) `tool_changed` tìm lại tên trần trên PATH và đọc lại đích của alias.
 - **Hướng dẫn** `docs/mep-hotfix/HUONG-DAN-inputs.vi.md` có mục «Trên 2.5»: dấu vân tay chỉ phủ một tệp exe.
 

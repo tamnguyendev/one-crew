@@ -1434,7 +1434,7 @@ class NotStarted(LedgerError):
     verifier_started = False
 
 
-def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context=None, *, effective_environment=None, deadline=None, on_dispatch=None):
+def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context=None, *, effective_environment=None, deadline=None):
     """Execute the milestone's command; returns (receipt_blob, receipt)."""
     with before_verifier():                            # issue #2 (dev14): the directory check and the scratch directory too; MEP inputs as well
         argv, limit = milestone['verifier']['config']['argv'], milestone['verifier']['config']['max_minutes']
@@ -1462,12 +1462,12 @@ def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context
             _own_scratch(scratch)
         try:
             return _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context,
-                        effective_environment=effective_environment, deadline=deadline, timing=timing, on_dispatch=on_dispatch)
+                        effective_environment=effective_environment, deadline=deadline, timing=timing)
         finally:
             _remove_scratch(scratch)
 
 
-def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context=None, *, effective_environment=None, deadline=None, timing=None, on_dispatch=None):
+def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context=None, *, effective_environment=None, deadline=None, timing=None):
     timing = dict(timing or {})
     begin = time.monotonic()
     with before_verifier():                            # up to the Popen below the verifier has not been called, whatever fails here
@@ -1500,7 +1500,6 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
                 raise failed
             limit = min(limit, left / 60)
         job = _Job()                                   # Windows: the command and its children end with this process, even on a hard kill
-    if on_dispatch is not None: on_dispatch()          # mep7 hole (a), 2.5.0.dev24: the caller's run turns "verifier" only here, right before the Popen
     try:
         process = subprocess.Popen(argv, cwd=str(workspace), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, creationflags=(0x08000000 | job.flags()) if os.name == 'nt' else 0)

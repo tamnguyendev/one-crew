@@ -426,21 +426,18 @@ def run(ledger, name, milestone_id, directory=None):
     try:
         reused = _reuse_candidate_pass(ledger, state, revision, sha, contract, milestone, directory, check, level, bounded.get('deadline'))
 
-        def dispatching():
-            # mep7 hole (a), 2.5.0.dev24: for a command the run is marked dispatched, and the phase turns "verifier", only right before its Popen;
-            # whatever fails before that (directory, scratch, checkout, scope) is a run that never dispatched
-            nonlocal phase
+        if reused is None:
+            # T08a (directive 25/10): the marker is written BEFORE the verifier call, so an error out of the call is an unknown outcome and held.
+            # mep7 hole (a), 2.5.0.dev24: what fails before the command's Popen (directory, scratch, checkout, scope, deadline) runs inside
+            # command.before_verifier, which marks the error verifier_started=False; the run is then closed as never dispatched (below), not held.
             _mark(ledger, run_id, 'dispatched', {'plan': name, 'revision': revision, 'milestone': milestone_id, 'kind': kind, 'at': utcnow()})
             phase = 'verifier'
-
-        if reused is None and kind != 'command':
-            dispatching()
         if reused is not None:
             blob, receipt = reused
             if kind == 'command' and integrity_applies(state):
                 integrity = _test_integrity(ledger, directory, approved, receipt)
         elif kind == 'command':
-            blob, receipt = command.run(ledger, state['name'], revision, sha, milestone, directory, **evidence_context, **bounded, on_dispatch=dispatching)
+            blob, receipt = command.run(ledger, state['name'], revision, sha, milestone, directory, **evidence_context, **bounded)
             phase = 'after_verifier'
             if integrity_applies(state):                                               # W11b/T25 [E4]: schema-2 roots keep the old rule
                 integrity = _test_integrity(ledger, directory, approved, receipt)      # W05/T19: a weakened test suite cannot make the milestone pass
