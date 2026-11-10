@@ -20,6 +20,28 @@ import tests.wf_oldversion as ov
 
 REPO = str(Path(__file__).resolve().parents[1])
 PRE_W23A = '54b802c'
+# 2.5.0.dev22 (owner 10/11, A-lite): the pass the pre-W23a code made on plan 'ok' (approved, not accepted) predates this OneCrew's
+# checkout-policy epoch, so exactly these lines of its report change: the old "passed" lines become "needs a new check" lines. The old
+# report is mapped through them, block by block, and must then equal the new report line for line; every other line stays as it was.
+EPOCH = 'the evidence predates the checkout policy this OneCrew runs (policy epoch): run the verdict'
+EPOCH_LINES = (
+    (('Vì sao: mọi mốc đạt', 'Còn gì: không còn gì', 'Bạn cần làm: nghiệm thu'),
+     ('Vì sao: mốc M1 cũ: ' + EPOCH, '    again', 'Còn gì: output chưa đạt: O1', 'Bạn cần làm: không gì')),
+    (('  O1 ĐẠT [M1=pass] «The sample exists»',), ('  O1 CHƯA [M1=cũ] «The sample exists»',)),
+    (('  M1 pass · by command · 6ca2b08 · sửa 0/1 · «Milestone M1»',),
+     ('  M1 cũ (' + EPOCH + ' again) ·', '      by command · 6ca2b08 · sửa 0/1 · «Milestone M1»')),
+)
+
+
+def epoch_mapped(old_text):
+    """The old report of 'ok' with exactly the EPOCH_LINES blocks replaced; a block that is not there is left (and the comparison fails)."""
+    lines = old_text.splitlines()
+    for before, after in EPOCH_LINES:
+        for at in range(len(lines) - len(before) + 1):
+            if tuple(lines[at:at + len(before)]) == before:
+                lines[at:at + len(before)] = list(after)
+                break
+    return '\n'.join(lines)
 
 
 class ReportUnchangedByW23aTests(unittest.TestCase):
@@ -61,12 +83,15 @@ class ReportUnchangedByW23aTests(unittest.TestCase):
         for name in ('ok', 'amd', 'acc'):
             before, after = self.old.run(self.proj, self.state, 'plan', 'report', name), self.new_report(name)
             if before[0] != 0 or after[0] != 0: bad.append(f'{name}: exit {before[0]} / {after[0]}')
-            elif before[1] != after[1]: bad.append(f'{name}: plan report differs from the pre-W23a code')
+            elif (epoch_mapped(before[1]) if name == 'ok' else before[1]) != after[1]: bad.append(f'{name}: plan report differs from the pre-W23a code')
         return bad
 
     def test_e6_plan_report_is_the_same_before_and_after_w23a(self):
         self.assertEqual(self.differences(), [])
         self.assertIn('1. Output đạt tới đâu', self.new_report('ok')[1])         # and it is still the full page
+        old, new = self.old.run(self.proj, self.state, 'plan', 'report', 'ok')[1].splitlines(), self.new_report('ok')[1].splitlines()
+        self.assertIn('  M1 pass · by command · 6ca2b08 · sửa 0/1 · «Milestone M1»', old)          # dev22: the old code says passed,
+        self.assertIn('  M1 cũ (' + EPOCH + ' again) ·', new)                                     # this OneCrew says it needs a new check
         self.assertNotIn('5. Bằng chứng còn thiếu', self.new_report('amd')[1])     # not the present page
 
     def test_e6_counter_a_report_that_grew_the_present_page_is_caught(self):

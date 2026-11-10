@@ -1,0 +1,17 @@
+{
+ "id": "U1-20261110-DEV23-EPOCH-2",
+ "file": "tests/test_wf_r7_t42.py",
+ "old_sha256": "f3d6c368dceed0a26e31a106d852e03b6cf9885416ae984d4a4993b0293d0800",
+ "new_sha256": "9926e003a56361811c7e5beff74e8b0b92ecda01f9a47a8c8bce49e7ddb369ac",
+ "reason": "2.5.0.dev22/23 policy epoch (owner A-lite, 10/11): release gate on 5cb199e found R01/check.r7_t42 red because plan 'ok' (approved, not accepted, a pass made by the pre-W23a code) now reports its milestone as needing a new check. Edit: 'ok' is still compared line for line with the old report, after mapping exactly the three blocks the epoch rule changes (measured from the real diff); 'amd' and 'acc' are compared unchanged; two new assertions name the old passed line and the new needs-a-new-check line; the counterexample still expects 3 differences. No assertion removed, nothing skipped.",
+ "authorized_by": "Chủ sở hữu, 10/11/2026, qua phiên điều phối \"Plan digest và báo trạng thái\", trả lời \"Đồng ý cả 3\" (mục 1: bằng chứng cũ của hợp đồng đang mở thành cần kiểm lại theo mốc chính sách). Bản ghi do chủ chạy script tạo ra.",
+ "applied_by": "claude (phiên onecrew-2.5-dev11, Opus 5.5), nhánh onecrew-2.5-dev11, chưa commit trên 5cb199e",
+ "evidence": {
+  "base": "5cb199e",
+  "diff": "git diff 5cb199e -- tests/test_wf_r7_t42.py",
+  "red": "D:/OneCrewRuns/wf-gates/gate-dev11-20261110-5cb199e/gate/runs/R01-check.r7_t42.log",
+  "green": "edited file on 5cb199e code: 2/2 tests pass"
+ },
+ "note": "sha256 of the LF form (the committed blob), as kit-guard pins it; old_sha256 equals the R05 pin in wfkit/development-manifest.json",
+ "at": "2026-11-10"
+}
