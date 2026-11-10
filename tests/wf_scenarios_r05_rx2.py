@@ -907,6 +907,10 @@ def advice_contract(provider, model):
     value['items'] = [dict(i, source='origin') for i in value['items']]
     value['decisions'] = [DECISION]
     value['advisor'] = {'provider': provider, 'model': model}
+    # 2.5.0.dev12 on: with owner-rules present (plan rules init above) a contract needs the owner part, in plain words
+    value['presentation'] = {'request': 'Thêm tệp mẫu và chứng minh nó dùng được.', 'user_sees': ['Tệp mẫu có trong dự án.'],
+                             'acceptance_steps': ['Mở tệp mẫu và đọc nội dung.', 'Bộ kiểm tự động báo đạt.'],
+                             'not_doing': 'Không sửa tệp nào khác.'}
     return value
 cli('plan', 'rules', 'init')
 reply(json.dumps({'answers': [{'id': 'Q' + str(n), 'verdict': 'ok', 'note': 'fine'} for n in (1, 2, 3)]}))
