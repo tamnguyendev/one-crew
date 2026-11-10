@@ -328,11 +328,18 @@ def _acceptance(reader, conn, state, contract, engine_view, level):
         if not views or missing:
             result['reason'] = 'Chờ bộ thực thi kiểm mốc ' + ', '.join(missing) + '; chưa đến bước nghiệm thu.'
             return result
-        artifacts = {(v.get('last_verdict') or {}).get('artifact_sha') for v in views}
-        if len(artifacts) != 1 or not next(iter(artifacts)):
-            result['reason'] = 'Chờ bộ thực thi kiểm các mốc trên cùng bản bàn giao.'
-            return result
-        artifact = next(iter(artifacts))
+        from . import verdict
+        union = verdict.inputs_union(reader, state) if getattr(reader, 'project', None) else None
+        if union:                                   # review of dev24d (P2): milestones of different inputs are accepted on the union tree, as `verdict artifact`
+            from .verifiers import command
+            with command.leaves_no_objects():
+                artifact = command.scoped_tree(reader.project, union)
+        else:
+            artifacts = {(v.get('last_verdict') or {}).get('artifact_sha') for v in views}
+            if len(artifacts) != 1 or not next(iter(artifacts)):
+                result['reason'] = 'Chờ bộ thực thi kiểm các mốc trên cùng bản bàn giao.'
+                return result
+            artifact = next(iter(artifacts))
         if not isinstance(artifact, str) or not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', artifact):
             result['reason'] = 'Chưa xác minh định danh bản bàn giao để nghiệm thu.'
             return result
@@ -342,7 +349,9 @@ def _acceptance(reader, conn, state, contract, engine_view, level):
             if not proof or proof.get('delivered_artifact') != artifact:
                 result['reason'] = 'Chờ bộ thực thi hoàn tất kiểm tích hợp và bằng chứng bàn giao; chưa đến bước nghiệm thu.'
                 return result
-        views = plans.milestone_views(contract, state, state['latest'], reader, artifact=artifact, conn=conn, recorded_environment=True)
+        # with a union the inputs are judged on the working files (the tree of their union, which the owner command makes again; not written here)
+        views = plans.milestone_views(contract, state, state['latest'], reader, artifact=None if union else artifact, conn=conn, recorded_environment=True)
+        result['views'] = views                     # review of dev24d (P3): the milestone rows show this live view, not the ledger-only one
         if any(v['state'] != 'passed' or v.get('stale') for v in views):
             result['reason'] = 'Chờ bộ thực thi kiểm lại bằng chứng các mốc của bản bàn giao.'
             return result
@@ -986,6 +995,8 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     # revision). A milestone-only root never writes node.started. Started is not progress toward acceptance: acceptance keeps its own rule.
     has_started = first_started is not None or bool(attempts) or bool(state.get('verdicts')) or bool(runs)
     acceptance = _acceptance(rd, conn, state, contract, engine_view, level)
+    live = acceptance.pop('views', None)
+    if live is not None and not engine_root: views = live
     guidance = acceptance.get('next_action')
     if engine_view is not None and guidance is None:
         from . import engine

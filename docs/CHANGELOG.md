@@ -36,6 +36,15 @@
   - `env_inputs` dùng được không cần `inputs`; hai tên cùng một chỗ bị từ chối ở `propose`/`amend`; trong repo hay ngoài repo được xét theo repository chứa project, giống nhau ở `propose` và lúc chạy;
   - P2 liên kết lồng bên trong `env_inputs` và P3 tranh chấp giữa lúc băm và lúc chạy ghi vào `LOI-DA-BIET.vi.md`.
   - Test đỏ trên `84ef359`: `tests/test_dev24_p1c_review.py`.
+- **Review toàn bộ trên `945afdc` (Kiro, 3 P1 + 3 P2 + 1 P3), chủ 11/11: "Sửa cả lỗi cũ":**
+  - P1: quy tắc chương trình áp cả cho bằng chứng workflow **đã ghi**: `engine.state` (nên node phụ thuộc, nghiệm thu node, `verification_ready`, handoff lặp lại và `root_ready`) và `handoff_evidence` cùng gọi `common_verification.recorded_program_reasons`; node đã kiểm mà chương trình, gói Python hay `env_inputs` đổi thành "cần kiểm lại". `incidents` cũng xét proof theo quy tắc này; môi trường tra cứu chỉ dựng khi chương trình là tên trần;
+  - P1: đường có `.`/`..` (dòng lệnh và nội dung input) được chuẩn hóa trước các bước chặn cây làm việc thật, kể cả đường chưa có;
+  - P1: `inputs_unscanned` so tên đã chuẩn hóa (`./`, `..`, hoa/thường trên Windows); lúc chạy, tệp dòng lệnh gọi tới luôn được quét;
+  - P2: chương trình tương đối có thư mục mà bản chép không có bị từ chối trước khi lệnh chạy;
+  - P2: trang theo dõi trình nghiệm thu plan có các mốc khai `inputs` khác nhau, trên cây hợp các input như `verdict artifact`;
+  - P2: dấu vân tay tệp được nhớ theo (đường, kích thước, giờ sửa ns, mã tệp): một lượt cập nhật trang theo dõi đo được khoảng 0,2 giây thay vì 2,9 giây;
+  - P3: các dòng mốc trên trang theo dõi dùng đúng view sống mà thẻ nghiệm thu đã tính.
+  - Test đỏ trên `945afdc`: `tests/test_dev24_p1d_review.py`.
 - **Hướng dẫn** `docs/mep-hotfix/HUONG-DAN-inputs.vi.md` có mục «Trên 2.5»: mọi mốc lệnh ghi chương trình, cách tìm và chạy chương trình, gói Python, `env_inputs`, giới hạn, hệ quả khi nâng, phần còn chưa phủ. `NANG-RUNTIME.vi.md` mục C0 ghi hệ quả khi nâng.
 
 ## v2.5.0.dev23 (10/11/2026) — review dev21+dev22 `b015155` (Kiro, có P1) — LOCAL, chưa tag/push/phát hành

@@ -452,16 +452,16 @@ def check_argv_scope(directory, argv, inputs):
         for piece in {word, word.split('=', 1)[-1]}:
             if not piece or piece.startswith('-') or len(piece) > 500 or any(c in piece for c in '\r\n\t*?"<>|'): continue
             try:
-                path = Path(piece) if os.path.isabs(piece) else here / piece
-                if os.path.isabs(piece) and not path.resolve().is_relative_to(top): continue    # a program or file outside the repository is not the tree's business
-                if not path.exists(): continue
-                full = path.resolve()
+                # review of dev24d (P1): `.`/`..` and a path that does not exist yet are normalised first (the longest existing parent resolved)
+                full = real_path(piece if os.path.isabs(piece) else here / piece)
+                if os.path.isabs(piece) and not _within(os.path.normcase(str(full)), os.path.normcase(str(top))): continue    # outside the repository
+                if not os.path.isabs(piece) and not full.exists(): continue      # a relative name made later lands in the checkout, not the live tree
             except (OSError, ValueError, RuntimeError):
                 continue
-            if not full.is_relative_to(top):
+            if not _within(os.path.normcase(str(full)), os.path.normcase(str(top))):
                 raise InputRefused(f'The command names {piece!r}, which is outside the repository. The verifier was not called.')
             name = full.relative_to(top).as_posix()
-            if os.path.isabs(piece): raise InputRefused(f'The command names {piece!r} by an absolute path into the live tree: it would read past the checkout. Use a path relative to the working folder. The verifier was not called.')
+            if os.path.isabs(piece): raise InputRefused(f'The command names the live tree by an absolute path ({piece!r}): it would read or write past the checkout. Use a path relative to the working folder. The verifier was not called.')
             if name == '.' or not _inside(name, inputs):
                 raise InputRefused(f'The command names {piece!r}, which is not among the declared inputs ({", ".join(inputs)}). Declare it, or remove the inputs to check the whole tree. The verifier was not called.')
 
@@ -503,21 +503,96 @@ def live_tree_pattern(top):
 SCAN_CHUNK = 1 << 20
 
 
-def _names_live_tree(path, pattern):
-    """Does this file's text spell the live tree? (True, False, or None for content that is not text: NUL bytes without a UTF-16 mark.)"""
+def fold(name):
+    """A repository-relative name as the file system compares it: `.`/`..` removed, `/` separators, case folded on Windows."""
+    import posixpath
+    text = posixpath.normpath(str(name).replace('\\', '/'))
+    return text.lower() if os.name == 'nt' else text
+
+
+def real_path(path):
+    """review of dev24d (P1): a path as the system finds it, also when it does not exist yet: absolute, `.`/`..` removed, the longest existing parent
+    resolved (links, junctions, 8.3 names) and the rest appended."""
+    path = Path(os.path.abspath(path))
+    rest = []
+    while not path.exists() and path.parent != path:
+        rest.insert(0, path.name)
+        path = path.parent
+    return Path(path.resolve(), *rest)
+
+
+DOTTED = re.compile(rb'[\\/]\.{1,2}(?=[\\/]|$)')
+CANDIDATE = re.compile(rb'(?:[A-Za-z]:|/mnt/[A-Za-z](?=[\\/])|/cygdrive/[A-Za-z](?=[\\/])|/[A-Za-z](?=[\\/])|(?<![A-Za-z0-9_.\-~$:])(?=[\\/]))[^\r\n"\'<>|*?\0`]*')
+
+
+def _drive_form(text):
+    """/mnt/c/a, /cygdrive/c/a and /c/a (a POSIX shell's way to write C:\\a) as C:/a."""
+    match = re.match(r'^(?:/mnt|/cygdrive)?/([A-Za-z])(?=[\\/])(.*)$', text)
+    return (match.group(1) + ':' + match.group(2)) if (match and os.name == 'nt') else text
+
+
+def _dotted_live(data, top):
+    """review of dev24d (P1): does this text spell the live tree with `.` or `..` in the path (D:\\work\\.\\repo, /home/a/x/../repo)? The literal
+    pattern does not see those spellings; every absolute path written with a dot segment is normalised and compared by path components."""
+    if not DOTTED.search(data): return False
+    outer = os.path.normcase(os.path.normpath(str(top)))
+    for line in data.splitlines():
+        if not DOTTED.search(line): continue
+        for found in CANDIDATE.finditer(line):
+            text = found.group(0).decode('utf-8', 'replace').rstrip(' .,;:)]}')
+            if not DOTTED.search(found.group(0)): continue
+            text = _drive_form(text)
+            if not os.path.isabs(text): continue
+            seen = os.path.normcase(os.path.normpath(text))
+            if _within(seen, outer) or (seen.startswith(outer) and not re.match(r'[A-Za-z0-9_.\-~$]', seen[len(outer):len(outer) + 1] or ' ')):
+                return True
+    return False
+
+
+def _named_by_argv(argv, directory, top):
+    """review of dev24d (P1): the repository-relative names the command line names (any spelling: `./`, `.`, `..`, case on Windows), folded."""
+    here, named = Path(directory).resolve(), set()
+    for word in argv:
+        for piece in {word, word.split('=', 1)[-1]}:
+            if not piece or piece.startswith('-') or len(piece) > 500: continue
+            try:
+                full = real_path(piece if os.path.isabs(piece) else here / piece)
+            except (OSError, ValueError, RuntimeError):
+                continue
+            outer = os.path.normcase(str(Path(top).resolve()))
+            seen = os.path.normcase(str(full))
+            if _within(seen, outer) and seen != outer: named.add(fold(os.path.relpath(seen, outer)))
+    return named
+
+
+def _relative_program(workspace, word, env):
+    """review of dev24d (P2): a relative program with a folder exists in the working folder of the check (on Windows with a PATHEXT ending too)."""
+    base = Path(workspace) / word
+    if base.is_file(): return True
+    if os.name == 'nt':
+        endings = [e for e in ((env or {}).get('PATHEXT') or os.environ.get('PATHEXT') or '.COM;.EXE;.BAT;.CMD').split(os.pathsep) if e]
+        return any(Path(str(base) + e).is_file() for e in endings)
+    return False
+
+
+def _names_live_tree(path, pattern, top=None):
+    """Does this file's text spell the live tree? (True, False, or None for content that is not text: NUL bytes without a UTF-16 mark.)
+    Review of dev24d (P1): a spelling with `.`/`..` segments too (_dotted_live)."""
+    def spells(data):
+        return bool(pattern.search(data)) or (top is not None and _dotted_live(data, top))
     with open(path, 'rb') as handle:
         head = handle.read(8000)
         if head.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
             handle.seek(0)
             text = handle.read().decode('utf-16', 'replace').encode('utf-8', 'replace')
-            return bool(pattern.search(text))
+            return spells(text)
         if b'\0' in head: return None
         handle.seek(0)
         tail, keep = b'', 4096
         while True:
             block = handle.read(SCAN_CHUNK)
             if not block: return False
-            if pattern.search(tail + block): return True
+            if spells(tail + block): return True
             tail = (tail + block)[-keep:]
 
 
@@ -530,8 +605,10 @@ def check_live_tree_named(directory, argv, workspace_root, unscanned=()):
     top = toplevel(directory)
     pattern = live_tree_pattern(top)
     for word in argv:
-        if isinstance(word, str) and pattern.search(word.encode('utf-8', 'surrogateescape')):
+        if isinstance(word, str) and (pattern.search(word.encode('utf-8', 'surrogateescape')) or _dotted_live(word.encode('utf-8', 'surrogateescape'), top)):
             raise InputRefused(f'The command names the live tree by an absolute path ({word!r}): it would read or write past the checkout of the declared inputs. The verifier was not called.')
+    named = _named_by_argv(argv, directory, top)
+    unscanned = tuple(u for u in unscanned if not any(n == fold(u) or n.startswith(fold(u) + '/') for n in named))
     scanned = {'files': 0, 'not_text': 0}
     skipped = 0
     root = Path(workspace_root)
@@ -539,10 +616,10 @@ def check_live_tree_named(directory, argv, workspace_root, unscanned=()):
         for item in files:
             path = Path(folder) / item
             if path.is_symlink(): continue
-            if unscanned and _inside(path.relative_to(root).as_posix(), unscanned):
+            if unscanned and _inside(fold(path.relative_to(root).as_posix()), [fold(u) for u in unscanned]):
                 skipped += 1
                 continue
-            found = _names_live_tree(path, pattern)
+            found = _names_live_tree(path, pattern, top)
             if found is None:
                 scanned['not_text'] += 1
                 continue
@@ -659,7 +736,7 @@ def tool_identity(word, env, found=None):
     identity = {'word': word, 'invoked': os.path.abspath(found), 'path': str(program)}
     if alias: identity['alias'] = os.path.abspath(found)
     try:
-        identity['sha256'] = hashlib.sha256(program.read_bytes()).hexdigest()
+        identity['sha256'] = _cached_digest(program)[1]
     except OSError as error:
         identity.update(sha256=None, unreadable=f'{type(error).__name__}: {error}'[:200])
     try:
@@ -685,6 +762,41 @@ class _ReadCap:
             raise InputRefused(f'{self.what} is too large to fingerprint: more than {ENV_FILES_MAX} entries or {ENV_BYTES_MAX // (1024 * 1024)} MB. '
                                'Declare a smaller folder. The verifier was not called.')
         _tick('fingerprinting ' + self.what)
+
+
+_DIGESTS, DIGESTS_MAX = {}, 50000
+
+
+def _stat_key(path):
+    st = os.stat(path)
+    return (os.path.normcase(os.path.abspath(path)), st.st_size, st.st_mtime_ns, getattr(st, 'st_ino', 0)), st.st_size
+
+
+def _cached_digest(path, cap=None):
+    """review of dev24d (P2): (size, sha256) of a file, remembered by its path, size, time of change (ns) and file id, so a view polled again does
+    not read unchanged bytes again. A file rewritten with the same size and the same time of change to the nanosecond is taken as unchanged.
+    `cap`: refuse a larger file (InputRefused) before reading it."""
+    key, size = _stat_key(path)
+    if cap is not None and size > cap:
+        raise InputRefused(f'{path} is larger than {cap // (1024 * 1024)} MB: it cannot be fingerprinted. The verifier was not called.')
+    if key not in _DIGESTS:
+        digest, read = hashlib.sha256(), 0
+        with open(path, 'rb') as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b''):
+                read += len(block)
+                if cap is not None and read > cap:
+                    raise InputRefused(f'{path} is larger than {cap // (1024 * 1024)} MB: it cannot be fingerprinted. The verifier was not called.')
+                digest.update(block)
+        if len(_DIGESTS) >= DIGESTS_MAX: _DIGESTS.clear()
+        _DIGESTS[key] = (read, digest.hexdigest())
+    return _DIGESTS[key]
+
+
+def _meta(path, budget):
+    """The sha256 of one metadata file (RECORD, .pth, pyvenv.cfg), at most META_FILE_MAX, counted in the budget."""
+    size, sha = _cached_digest(path, META_FILE_MAX)
+    budget.add(size)
+    return sha
 
 
 def _read_capped(path, budget):
@@ -751,17 +863,17 @@ def python_environment(invoked, target=None):
     budget = _ReadCap('the Python environment of ' + str(invoked))
     folders, cfg = _site_packages(invoked, target, budget)
     digest, count = hashlib.sha256(), 0
-    if cfg is not None: digest.update(b'cfg:' + _read_capped(cfg, budget))
+    if cfg is not None: digest.update(b'cfg:' + _meta(cfg, budget).encode('ascii'))
     for folder in folders:
         digest.update(b'site:' + str(folder.resolve()).encode('utf-8', 'surrogateescape'))
         for entry in _entries(folder, budget):
             if entry.name.endswith('.dist-info') or entry.name.endswith('.egg-info'):
                 record = entry / 'RECORD'
-                data = _read_capped(record, budget) if record.is_file() else b''
-                digest.update(b'dist:' + entry.name.encode('utf-8', 'surrogateescape') + b':' + hashlib.sha256(data).hexdigest().encode('ascii'))
+                sha = _meta(record, budget) if record.is_file() else hashlib.sha256(b'').hexdigest()
+                digest.update(b'dist:' + entry.name.encode('utf-8', 'surrogateescape') + b':' + sha.encode('ascii'))
                 count += 1
             elif entry.suffix == '.pth' and entry.is_file():
-                digest.update(b'pth:' + entry.name.encode('utf-8', 'surrogateescape') + b':' + _read_capped(entry, budget))
+                digest.update(b'pth:' + entry.name.encode('utf-8', 'surrogateescape') + b':' + _meta(entry, budget).encode('ascii'))
     return {'site_packages': [str(f) for f in folders], 'distributions': count, 'sha256': digest.hexdigest()}
 
 
@@ -837,11 +949,7 @@ def _walk(root, budget):
 
 
 def _file_sha(path):
-    digest = hashlib.sha256()
-    with open(path, 'rb') as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b''):
-            digest.update(block)
-    return digest.hexdigest()
+    return _cached_digest(path)[1]
 
 
 def env_inputs_identity(paths, repo=None):
@@ -895,7 +1003,7 @@ def tool_changed(tool, env=None):
         program, alias = _target(invoked)
         if os.path.normcase(str(program)) != os.path.normcase(tool['path']): return True
         if bool(alias) != bool(tool.get('alias')): return True
-        if hashlib.sha256(program.read_bytes()).hexdigest() != tool.get('sha256'): return True
+        if _cached_digest(program)[1] != tool.get('sha256'): return True
         now = python_environment(invoked, program)
     except (OSError, LedgerError):                     # unreadable, or over a cap (dev24b): never a carried pass
         return True
@@ -914,7 +1022,10 @@ def program_reasons(body, project, declared=None, env_from=None):
         if body.get('checkout_policy') == CHECKOUT_POLICY: return ['the receipt does not name the program it ran: run the milestone again']
         return []                                      # a receipt of another policy: judged by the policy rule and the policy epoch
     reasons = []
-    if tool_changed(program, verifier_env(Path(env_from or body.get('cwd') or project))):
+    # review of dev24d: the lookup environment is made once per receipt, and only for a bare word (an absolute program needs none)
+    env = verifier_env(Path(env_from or body.get('cwd') or project)) if is_bare_word(program.get('word')) else {}
+    if declared is None: declared = list(body.get('env_inputs') or {})          # what the run declared, as it recorded it
+    if tool_changed(program, env):
         reasons.append('the program the command starts, or its Python packages, changed: ' + str(program.get('invoked') or program.get('word')))
     if declared:
         try:
@@ -1777,6 +1888,8 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
                                  'folder). Name it by its absolute path. The verifier was not called.')
         if os.path.isabs(argv[0]) and not (os.path.isfile(argv[0]) or app_alias_target(argv[0])):
             raise ProgramMissing(f'The program {argv[0]} does not exist. The verifier was not called.')
+        if not os.path.isabs(argv[0]) and not is_bare_word(argv[0]) and not _relative_program(workspace, argv[0], env):     # review of dev24d (P2)
+            raise ProgramMissing(f'The program {argv[0]} is not in the working folder of the check. The verifier was not called.')
         program = tool_identity(argv[0], env, found)
         declared = milestone['verifier']['config'].get('env_inputs')
         outside = env_inputs_identity(declared, directory) if declared else None

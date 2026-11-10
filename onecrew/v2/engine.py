@@ -39,6 +39,18 @@ def mark_epoch(ledger, selector):
         return policy_epoch.ensure(ledger, root['task_id'], conn)
 
 
+PROGRAM_NOTE = ('cần kiểm lại: chương trình kiểm, gói Python của nó hay env_inputs đã đổi từ lần kiểm này; chạy lại engine verify')
+
+
+def _program_reasons(ledger, store, receipt):
+    """review of dev24d (P1-1): the program rule on a node verification receipt (common_verification.recorded_program_reasons)."""
+    from ..common_verification import recorded_program_reasons
+    try:
+        return recorded_program_reasons(ledger, json.loads(store.read_blob(receipt)))
+    except (LedgerError, OSError, ValueError, TypeError):
+        return ['the verification receipt cannot be read']
+
+
 def state(ledger, selector, conn=None):
     if conn is None:
         with ledger.transaction() as connection:
@@ -87,14 +99,18 @@ def state(ledger, selector, conn=None):
         elif event['kind'] == 'node.verification':
             record['verification_receipt'] = payload['receipt']
             record['verification_result'] = payload['result']
-            record.pop('needs_recheck', None)
+            record.pop('needs_recheck', None); record.pop('recheck_reasons', None)
             if payload['result'] == 'pass':
-                if keeps_history or policy_epoch.fresh(event['seq'], epoch): record.update(phase='complete', state='verified')
+                if keeps_history or policy_epoch.fresh(event['seq'], epoch):
+                    why = [] if keeps_history else _program_reasons(ledger, store, payload['receipt'])     # review of dev24d (P1-1)
+                    if why: record.update(needs_recheck=True, recheck_note=PROGRAM_NOTE, recheck_reasons=why)
+                    else: record.update(phase='complete', state='verified')
                 else: record.update(needs_recheck=True, recheck_note=policy_epoch.NOTE)   # stays produced: eligible, accept_node, handoff wait
         elif event['kind'] == 'node.accepted':
             # review of dev22 (P1): an internal acceptance made before the policy epoch of a root that is not accepted does not count: the
             # node needs a new check (it stays produced, so engine.verify takes it), and is accepted again after it
-            if keeps_history or policy_epoch.fresh(event['seq'], epoch): record['state'] = 'accepted'
+            if keeps_history or policy_epoch.fresh(event['seq'], epoch):
+                if not record.get('recheck_reasons'): record['state'] = 'accepted'      # review of dev24d (P1-1): not on a verification whose program changed
             else: record.update(needs_recheck=True, recheck_note=policy_epoch.NOTE)
         elif event['kind'] == 'node.held':
             record.update(phase='held', reason=payload['reason'], classification=payload.get('classification'))
@@ -1934,6 +1950,8 @@ def handoff_evidence(ledger, selector):
             return None
         from ..common_handoff import receipt_valid
         if not receipt_valid(ledger,proof,record): return None
+        from ..common_verification import recorded_program_reasons
+        if view['root_status'] not in ('accepted', 'closed') and recorded_program_reasons(ledger, proof): return None     # review of dev24d (P1-1)
         return proof
     except (OSError, ValueError, KeyError, StopIteration):
         return None

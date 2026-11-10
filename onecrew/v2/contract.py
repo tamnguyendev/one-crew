@@ -81,20 +81,21 @@ def _unscanned(value, inputs, argv, cwd, name):
     if not inputs: raise LedgerError(name + '.inputs_unscanned: only with inputs.')
     if not isinstance(value, list) or not value or len(value) > 200:
         raise LedgerError(name + '.inputs_unscanned: a list of 1 to 200 paths.')
+    import posixpath
+    fold = lambda text: (lambda t: t.lower() if os.name == 'nt' else t)(posixpath.normpath(text.replace('\\', '/')))   # review of dev24d (P1)
     named = set()
     for word in argv:
         for piece in {word, word.split('=', 1)[-1]}:
             if not piece or piece.startswith('-') or os.path.isabs(piece): continue
             text = piece.replace('\\', '/')
-            while text.startswith('./'): text = text[2:]
-            named.add(text if cwd in (None, '', '.') else cwd.rstrip('/') + '/' + text)
+            named.add(fold(text if cwd in (None, '', '.') else cwd.rstrip('/') + '/' + text))
     out = []
     for item in value:
         path = scoped_path(item)
         if path in out: raise LedgerError(name + '.inputs_unscanned: ' + path + ' is listed twice.')
         if not any(path == i or path.startswith(i + '/') for i in inputs):
             raise LedgerError(name + '.inputs_unscanned: ' + path + ' is not one of the inputs or inside one.')
-        if any(n == path or n.startswith(path + '/') for n in named):
+        if any(n == fold(path) or n.startswith(fold(path) + '/') for n in named):
             raise LedgerError(name + '.inputs_unscanned: ' + path + ' is named by the command line; what the command runs or is given is always scanned.')
         out.append(path)
     return out

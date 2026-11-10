@@ -101,11 +101,14 @@ class ToolLookedUpAgain(Fixture):
 class LookedUpWithTheRunsEnvironment(mep.Inputs):
     def test_the_program_is_looked_up_with_the_environment_of_the_folder_it_ran_in(self):
         # review of dev24 (P2): the run made its environment from its cwd; the check of a receipt uses the same folder, not the project root
-        self.plan(argv=[mep.PY, '-c', "import pathlib; print(pathlib.Path('cfg.txt').read_text())"], cwd='tool')
-        self.run_m1()
-        self.assertEqual(self.view()['state'], 'passed', self.view())
-        seen = []
+        # review of dev24d: a lookup environment is made only for a bare program word (an absolute one needs none), so the program is `python`
         real = command.verifier_env
-        with patch.object(command, 'verifier_env', side_effect=lambda d: seen.append(Path(d).resolve()) or real(d)):
+        here = lambda d: dict(real(d), PATH=str(Path(mep.PY).parent) + os.pathsep + real(d)['PATH'])
+        seen = []
+        with patch.object(command, 'verifier_env', side_effect=here):
+            self.plan(argv=['python', '-c', "import pathlib; print(pathlib.Path('cfg.txt').read_text())"], cwd='tool')
+            self.run_m1()
+            self.assertEqual(self.view()['state'], 'passed', self.view())
+        with patch.object(command, 'verifier_env', side_effect=lambda d: seen.append(Path(d).resolve()) or here(d)):
             self.view()
         self.assertIn((self.root / 'tool').resolve(), seen, seen)
