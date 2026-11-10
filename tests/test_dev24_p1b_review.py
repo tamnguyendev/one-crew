@@ -126,7 +126,7 @@ class OnePlaceNamedTwice(Fixture):
 class Caps(Fixture):
     def folder(self, count):
         root = Path(self.temp.name) / f'nhieu-{count}'; root.mkdir()
-        for i in range(count): (root / f'{i // 1000}').mkdir(exist_ok=True); (root / f'{i // 1000}' / f'f{i}').write_bytes(b'')
+        for i in range(count): (root / f'f{i}').write_bytes(b'')          # one folder: `count` entries (review of dev24c: folders count too)
         return root
 
     def test_20000_files_are_fingerprinted_and_20001_are_refused(self):

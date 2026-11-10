@@ -504,7 +504,7 @@ def _reuse_candidate_pass(ledger, state, revision, sha, contract, milestone, dir
             candidate = json.loads(store.read_blob(row['evidence']))
             if candidate.get(PROOF_FIELD[family]) == prior['proof']: wrapper = candidate
         if wrapper is None: return None
-        if proof_mismatch(wrapper, proof, milestone, sha, revision, tree) or expected_of(family, proof) != 'pass': return None
+        if proof_mismatch(wrapper, proof, milestone, sha, revision, tree, project=ledger.project) or expected_of(family, proof) != 'pass': return None
         if namespaces.parse(proof.get('plan', ''))[0] != state['name']: return None
         if kind == 'reviewer':
             rank = {'cross_vendor': 2, 'same_vendor_other_model': 1, 'unknown_author_vendor': 0}

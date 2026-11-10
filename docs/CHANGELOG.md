@@ -25,7 +25,18 @@
   - P2: giới hạn 20 000 tệp / 512 MB đếm ngay lúc duyệt, áp cả cho môi trường Python; một `RECORD`/`.pth`/`pyvenv.cfg` tối đa 16 MB;
   - P3 (OneCrew bị tắt cứng giữa lúc đánh dấu và lúc chạy lệnh) ghi vào `LOI-DA-BIET.vi.md`.
   - Test đỏ trên `8172655`: `tests/test_dev24_p1b_review.py`.
-- **Hướng dẫn** `docs/mep-hotfix/HUONG-DAN-inputs.vi.md` có mục «Trên 2.5»: dấu vân tay chương trình và môi trường, `env_inputs`, `.venv` trong repo không được dùng, giới hạn, phần còn chưa phủ.
+- **Review vòng 3 trên `84ef359` (Kiro, 3 P1 + 8 P2 + 1 P3), chủ 11/11: "Sửa cả lỗi cũ":**
+  - **mọi receipt của bộ kiểm lệnh** (có hay không có `inputs`) ghi chương trình đã chạy (`program`: đường khởi động, tệp thật sự chạy, sha256, gói Python) và `env_inputs` khi có khai; `plan show`, nghiệm thu và việc dùng lại bằng chứng (`proof_mismatch`) đều kiểm lại chúng bằng một quy tắc (`command.program_reasons`). Bộ kiểm bằng mô hình không thuộc quy tắc này;
+  - cách chép lên `exact-blob-bytes/3`: pass làm trước bản này trên plan chưa nghiệm thu phải chạy lại một lần (mốc chính sách); plan đã nghiệm thu giữ nguyên;
+  - liên kết: gói Python tìm từ đường khởi động (venv POSIX có `bin/python` là symlink); lúc kiểm lại, đường khởi động được giải lại, nên symlink tệp hay thư mục nay trỏ chỗ khác là "đổi";
+  - chương trình không có thật (tên trần hay đường tuyệt đối) bị từ chối trước khi lệnh chạy, với mọi mốc;
+  - PATH của bộ kiểm bỏ các thư mục trong repository chứa project (theo thành phần đường, không theo `cwd` của mốc, không theo tiền tố chữ);
+  - tiến trình khởi động từ tệp tìm được (`executable=`) nhưng vẫn thấy `argv[0]` như hợp đồng viết; tên trần không bao giờ tìm trong thư mục hiện tại của OneCrew;
+  - giới hạn đếm cả thư mục; việc dò site-packages cũng bị giới hạn; thêm/bớt thư mục con trong `env_inputs` là "đổi";
+  - `env_inputs` dùng được không cần `inputs`; hai tên cùng một chỗ bị từ chối ở `propose`/`amend`; trong repo hay ngoài repo được xét theo repository chứa project, giống nhau ở `propose` và lúc chạy;
+  - P2 liên kết lồng bên trong `env_inputs` và P3 tranh chấp giữa lúc băm và lúc chạy ghi vào `LOI-DA-BIET.vi.md`.
+  - Test đỏ trên `84ef359`: `tests/test_dev24_p1c_review.py`.
+- **Hướng dẫn** `docs/mep-hotfix/HUONG-DAN-inputs.vi.md` có mục «Trên 2.5»: mọi mốc lệnh ghi chương trình, cách tìm và chạy chương trình, gói Python, `env_inputs`, giới hạn, hệ quả khi nâng, phần còn chưa phủ. `NANG-RUNTIME.vi.md` mục C0 ghi hệ quả khi nâng.
 
 ## v2.5.0.dev23 (10/11/2026) — review dev21+dev22 `b015155` (Kiro, có P1) — LOCAL, chưa tag/push/phát hành
 

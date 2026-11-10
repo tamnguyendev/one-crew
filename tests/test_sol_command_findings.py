@@ -31,7 +31,12 @@ class CommandFindingTests(Fixture):
         self.assertEqual(plan.accept(self.ledger, 'P1', 'owner', 'fixture', artifact)['status'], 'accepted')
 
     def test_infrastructure_error_is_inconclusive_and_opens_no_product_finding(self):
+        # review of dev24c (2.5.0.dev24): a program that is not there is refused before the verifier ("not started", nothing recorded); before,
+        # Popen failed and the verdict was inconclusive. Either way no product finding is opened.
+        from onecrew.ledger import LedgerError
         self.start([str(self.root / 'missing-executable.exe')])
-        shown = verdict.run(self.ledger, 'P1', 'M1')
-        self.assertEqual(shown['milestones'][0]['last_verdict']['result'], 'inconclusive')
+        with self.assertRaises(LedgerError) as caught:
+            verdict.run(self.ledger, 'P1', 'M1')
+        self.assertIs(getattr(caught.exception, 'verifier_started', None), False)
+        self.assertEqual(plan.show(self.ledger, 'P1')['milestones'][0]['runs'], 0)
         self.assertEqual(findings.list_findings(self.ledger, 'P1'), [])

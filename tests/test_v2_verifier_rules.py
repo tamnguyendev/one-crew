@@ -75,10 +75,14 @@ class RealRuns(Fixture):
         result, receipt = self.run_one([PY, '-c', 'print("ok")', 'x\x07'])
         self.assertEqual((result, receipt['suspicious']), ('inconclusive', 'suspicious: control_char_argv'))
 
-    def test_a_missing_executable_is_inconclusive(self):
-        result, receipt = self.run_one(['onecrew-no-such-program-11a'])
-        self.assertEqual((result, receipt['suspicious']), ('inconclusive', 'suspicious: executable_not_found'))
-        self.assertTrue(receipt['error'].startswith('FileNotFoundError'))
+    def test_a_missing_executable_is_refused_before_the_verifier(self):
+        # review of dev24c (2.5.0.dev24): a program that is not there is refused before the verifier ("not started", the run is not held), with
+        # or without inputs; before, Popen failed and the receipt was inconclusive (executable_not_found, still the rule for exit codes 9009/127)
+        from onecrew.ledger import LedgerError
+        with self.assertRaises(LedgerError) as caught:
+            self.run_one(['onecrew-no-such-program-11a'])
+        self.assertIs(getattr(caught.exception, 'verifier_started', None), False)
+        self.assertIn('absolute path', str(caught.exception))
 
     def test_a_genuine_pass_keeps_its_verdict_and_names_no_rule(self):
         result, receipt = self.run_one(OK)

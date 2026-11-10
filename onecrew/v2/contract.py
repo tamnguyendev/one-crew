@@ -102,9 +102,9 @@ def _unscanned(value, inputs, argv, cwd, name):
 
 def _env_inputs(value, inputs, name):
     """2.5.0.dev24 (review of dev24, P1): absolute paths OUTSIDE the repository whose content the check depends on (a plugin, a tool folder,
-    a configuration). Their bytes are fingerprinted with the receipt, and a pass is not carried once they change. Only with inputs."""
+    a configuration). Their bytes are fingerprinted with the receipt, and a pass is not carried once they change. Review of dev24c: any command
+    verifier, with or without inputs (every command receipt names its program)."""
     from pathlib import PurePath, PureWindowsPath
-    if not inputs: raise LedgerError(name + '.env_inputs: only with inputs.')
     if not isinstance(value, list) or not 1 <= len(value) <= 20:
         raise LedgerError(name + '.env_inputs: a list of 1 to 20 absolute paths outside the repository.')
     out = []

@@ -136,7 +136,7 @@ def covers(ledger, verdict_artifact, current, kind, neutral):
     return 'neutral' if paths and all(contracts.neutral_match(p, neutral) for p in paths) else None
 
 
-def _covers_inputs(ledger, milestone, candidate, artifact):
+def _covers_inputs(ledger, milestone, candidate, artifact, keep_history=False):
     """A command milestone with declared inputs: does its pass still speak for those inputs? (how, reasons). Only they, the .gitattributes above them and the program it started count;
     a change elsewhere in the tree does not. `artifact` given: judged inside that tree. Else on the working files, storing nothing in the project."""
     from .verifiers import command
@@ -160,25 +160,37 @@ def _covers_inputs(ledger, milestone, candidate, artifact):
     except (LedgerError, OSError, subprocess.SubprocessError) as error:
         return None, ['the inputs cannot be read: ' + str(error)[:200]]
     if current != candidate['artifact_sha']: return None, ['a declared input changed']
-    declared = milestone['verifier']['config'].get('env_inputs')
-    if declared:                                       # 2.5.0.dev24 (P1): owner-declared paths outside the repository
-        try:
-            now = command.env_inputs_identity(declared, ledger.project)     # dev24b: missing, unreadable, inside the repository or too large: not carried
-        except (LedgerError, OSError) as error:
-            return None, ['env_inputs: ' + str(error)[:300]]
-        if now != scope.get('env_inputs'): return None, ['a declared input outside the repository changed (env_inputs)']
-    # review of dev24 (P2): the program is looked up with the environment of the run itself, made from the folder it ran in (its cwd)
-    if command.tool_changed(scope.get('tool'), command.verifier_env(Path(body.get('cwd') or ledger.project))): return None, ['the program the command starts changed: ' + str(scope['tool'].get('path'))]
-    return 'same', []
+    if keep_history: return 'same', []                 # an accepted plan keeps its history (the program is judged on plans on their way)
+    # review of dev24c (P1): the one program rule (program, Python packages, env_inputs) of every command receipt; the environment is made the way
+    # the run made it, from the folder it ran in (its cwd)
+    why = command.program_reasons(body, ledger.project, milestone['verifier']['config'].get('env_inputs'))
+    if not why and 'program' not in body:              # an inputs receipt of this policy always names it
+        why = ['the receipt does not name the program it ran: run the milestone again']
+    return (None, why) if why else ('same', [])
 
 
 def _env_inputs_outside(ledger, contract):
-    """review of dev24b (P2): env_inputs are outside the repository, judged after resolving (`..`, case on Windows, junctions)."""
+    """review of dev24b/c (P2): env_inputs are outside the project's repository and name different places, judged after resolving (`..`, case on
+    Windows, links, junctions), as the run judges them."""
     from .verifiers import command
     for m in contract['milestones']:
         declared = ((m.get('verifier') or {}).get('config') or {}).get('env_inputs')
-        inside = command.env_inputs_inside(declared, ledger.project) if declared else None
+        if not declared: continue
+        inside = command.env_inputs_inside(declared, ledger.project)
         if inside: raise LedgerError(f"{m['id']}.env_inputs: {inside} is inside the repository (or holds it); a file of the repository goes in inputs.")
+        twice = command.env_inputs_twice(declared)
+        if twice: raise LedgerError(f"{m['id']}.env_inputs: {twice} is the same place as another env_input.")
+
+
+def _program_reasons(ledger, milestone, candidate):
+    """review of dev24c (P1): command.program_reasons on the receipt of a pass; a receipt that cannot be read is not current."""
+    from .verifiers import command
+    from ..snapshots import Snapshots
+    try:
+        body = json.loads(Snapshots(ledger.state_root).read_blob(candidate['receipt']))
+    except (LedgerError, OSError, ValueError, TypeError, KeyError):
+        return ['the receipt cannot be read']
+    return command.program_reasons(body, ledger.project, milestone['verifier']['config'].get('env_inputs'))
 
 
 def _inputs_unsupported(state, contract):
@@ -250,7 +262,7 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=
             candidate = mine[-1] if passed else (_inherited(ledger, state, revision, m, contract) if not mine and carries else None)
             if candidate is not None and contracts.verifier_inputs(m):
                 if ledger is not None and getattr(ledger, 'project', None):      # no project to look at (a reader of the ledger alone): as any verdict there, not judged
-                    how, why = _covers_inputs(ledger, m, candidate, artifact)
+                    how, why = _covers_inputs(ledger, m, candidate, artifact, keep_history=state.get('status') in ('accepted', 'closed'))
                     if how is None:
                         if passed: passed = False
                         extra.update(stale=True, stale_reasons=why, checks_to_rerun=[m['id']])
@@ -276,6 +288,12 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=
                     binding = verification_evidence.receipt_assessment(ledger, contract, m, revision,
                         candidate['receipt'], now(), task_id=state['task_id'], conn=conn,
                         require_bound=namespaces.has_capability(state, 'sequential-engine'), recorded_environment=recorded_environment)
+                    if (how is not None and m['verifier']['type'] == 'command' and state.get('status') not in ('accepted', 'closed')
+                            and getattr(ledger, 'project', None)):
+                        why = _program_reasons(ledger, m, candidate)          # review of dev24c (P1): every command pass, with or without inputs
+                        if why:
+                            how = None
+                            extra.update(stale=True, stale_reasons=why, checks_to_rerun=[m['id']])
                     if binding is not None and not extra.get('needs_recheck'):
                         if binding.get('environment_changed'):
                             extra.update(execution_environment_changed=True,

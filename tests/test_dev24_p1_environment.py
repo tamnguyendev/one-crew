@@ -68,7 +68,9 @@ class EnvInputsInTheContract(Fixture):
         def contract(**config):
             m = milestone(); m['verifier']['config'].update(config)
             return plan_json(milestones=[m])
-        for bad in ({'env_inputs': ['C:/x']}, {'inputs': ['a.txt'], 'env_inputs': ['relative/path']}, {'inputs': ['a.txt'], 'env_inputs': []}):
+        # review of dev24c: env_inputs may be declared without inputs too (every command receipt names its program)
+        self.assertEqual(contracts.validate(contract(env_inputs=['C:/x']))['milestones'][0]['verifier']['config']['env_inputs'], ['C:/x'])
+        for bad in ({'inputs': ['a.txt'], 'env_inputs': ['relative/path']}, {'inputs': ['a.txt'], 'env_inputs': []}):
             with self.subTest(bad=bad), self.assertRaises(LedgerError):
                 contracts.validate(contract(**bad))
         good = contracts.validate(contract(inputs=['a.txt'], env_inputs=['C:/tools/rules.txt']))

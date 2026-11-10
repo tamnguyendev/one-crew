@@ -341,7 +341,7 @@ def expected_of(kind, proof):
     return port.expected_result(proof)
 
 
-def proof_mismatch(wrapper, proof, milestone, plan_sha, revision, tree):
+def proof_mismatch(wrapper, proof, milestone, plan_sha, revision, tree, project=None):
     """Why a retained (wrapper, proof) pair is NOT the approved milestone's own check on this candidate tree under this
     contract; None when it is. Shared by handoff reuse and native learning so a receipt of another command, a no-op, a
     relabelled family, another contract/revision or a cap above the approved one can never stand in for the real check."""
@@ -364,6 +364,9 @@ def proof_mismatch(wrapper, proof, milestone, plan_sha, revision, tree):
         return 'effective time cap is not within the approved cap'
     if kind == 'candidate-command-check':
         if proof.get('argv') != config['argv']: return 'proof ran another command than the approved argv'
+        if project is not None:                        # review of dev24c (P1): a proof REUSED is judged by the program rule, in the project's environment
+            why = command.program_reasons(proof, project, config.get('env_inputs'), env_from=project)
+            if why: return why[0]
     else:
         recorded = proof.get('config')
         if not isinstance(recorded, dict): return 'proof records no verifier config'
@@ -420,7 +423,7 @@ def _reuse(ledger, view, item, artifact, previous_receipt, tree, binding, plan_s
             if milestone is None:
                 return None
             proof = json.loads(store.read_blob(wrapper[field]))
-            if proof_mismatch(wrapper, proof, milestone, plan_sha, view['contract_revision'], tree) is not None:
+            if proof_mismatch(wrapper, proof, milestone, plan_sha, view['contract_revision'], tree, project=ledger.project) is not None:
                 return None
             if expected_of(kind, proof) != 'pass':
                 return None
@@ -659,7 +662,7 @@ class CandidateChecker:
             wrapper = {'kind': family, 'node': nid, 'snapshot': artifact, 'tree': tree, 'milestone': milestone['id'],
                        PROOF_FIELD[family]: proof_ref, 'evidence_binding': binding, 'effective_max_minutes': cap,
                        'reused_from_run': prior['run_id'], 'reused_from_door': prior['door']}
-            if proof_mismatch(wrapper, proof, milestone, plan_sha, revision, tree) is not None or expected_of(family, proof) != 'pass': return None
+            if proof_mismatch(wrapper, proof, milestone, plan_sha, revision, tree, project=self.ledger.project) is not None or expected_of(family, proof) != 'pass': return None
             if kind == 'reviewer':
                 rank = {'cross_vendor': 2, 'same_vendor_other_model': 1, 'unknown_author_vendor': 0}
                 if rank.get((proof.get('independence') or {}).get('level'), -1) < rank[independence[milestone['id']]['level']]: return None

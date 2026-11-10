@@ -4,22 +4,33 @@
 
 ## Trên 2.5 (từ 2.5.0.dev24)
 - **Bản chép là đúng byte git lưu** (quyết định của chủ, 09/11): không áp kiểu xuống dòng, filter hay `.gitattributes`. Symlink là tệp thường. Giờ sửa tệp cố định 01/01/2000. Cần git 2.40 trở lên. Mục «Checkout không giống cây làm việc» bên dưới vì vậy **đã đổi**: EOL không còn lệch, mtime không còn theo lúc chép.
-- **Dấu vân tay chương trình:** đúng tệp mà lệnh khởi động (`argv[0]`), hoặc exe mà alias Windows trỏ tới. Thứ gì trong repo thì phải khai vào `inputs`.
-- **Tên trần như `python` được tìm MỘT lần trên PATH của bộ kiểm, rồi chạy đúng đường tuyệt đối đó** (review dev24b, P1-a). Receipt băm đúng tệp đã chạy.
-  - PATH của bộ kiểm là PATH của máy, **bỏ** mọi thư mục nằm trong project hay trong thư mục tạm. Vì vậy **một `.venv` nằm trong repo không được dùng**, kể cả khi shell đã kích hoạt nó. Muốn dùng venv: ghi đường tuyệt đối tới python của venv trong `argv`, hoặc để venv ngoài repo.
-  - Không tìm thấy trên PATH đó thì lượt kiểm có `inputs` bị từ chối trước khi lệnh chạy ("chưa chạy", không giữ run), với lời nhắn ghi đường tuyệt đối. Mốc không có `inputs` thì như trước: receipt "không kết luận được" (`executable_not_found`), và chương trình không được tìm theo PATH của tiến trình OneCrew.
-- **Dấu vân tay môi trường** (review dev24, P1; chủ 10/11: "Sửa ngay"):
-  - **Python:** khi chương trình là trình thông dịch Python (tên tệp bắt đầu bằng `python`), OneCrew đọc thêm từ đĩa, không chạy gì: mọi `*.dist-info` / `*.egg-info` trong site-packages (tên kèm phiên bản và sha256 của `RECORD`), mọi tệp `.pth`, và `pyvenv.cfg`. Venv có `include-system-site-packages = true` thì site-packages của bản cài gốc cũng tính. Cài thêm, gỡ hay nâng một gói là "đổi": pass cũ không được dùng, chạy lại mốc.
-  - **Chương trình khác, hoặc tệp ngoài repo:** khai trong hợp đồng `"env_inputs": ["C:/tools/plugin", "C:/tools/rules.txt"]`, là đường tuyệt đối ngoài repo (tệp hay thư mục). Chỉ dùng cùng `inputs`, từ 1 đến 20 đường. Byte của chúng được băm vào receipt. Đổi, thêm hay mất một tệp trong đó là "đổi". Đổi `env_inputs` là thay đổi nghiệm thu, như `inputs`.
-  - **`env_inputs` phải ở ngoài repo** sau khi giải đường thật (`..`, hoa/thường trên Windows, junction, symlink): đường nằm trong repo, hay thư mục chứa cả repo, bị từ chối lúc `plan propose`/`plan amend` và lúc chạy. Tệp của repo thì khai vào `inputs`. Hai tên cùng trỏ một chỗ cũng bị từ chối.
-  - **`env_inputs` thiếu hay không đọc được:** lượt kiểm bị từ chối trước khi lệnh chạy ("chưa chạy", không giữ run). Lúc `plan show` hay nghiệm thu, đường thiếu làm pass "cần kiểm lại", nghiệm thu bị chặn.
-  - **Giới hạn băm, đếm ngay trong lúc duyệt:** tối đa 20 000 tệp và 512 MB cho cả `env_inputs`; cũng 20 000 mục và 512 MB cho môi trường Python của chương trình; một `RECORD`, `.pth` hay `pyvenv.cfg` tối đa 16 MB. Liên kết tới thư mục (symlink, junction) bên trong một thư mục `env_inputs` không được đi vào. Quá giới hạn thì lượt kiểm bị từ chối trước khi lệnh chạy, và lúc `plan show`/nghiệm thu pass không được mang sang.
-  - **Receipt cũ** (làm trước bản này, chưa có dấu vân tay môi trường), hay môi trường không đọc được lúc chụp, thì **không** được mang sang: chạy lại mốc một lần.
-  - **Còn chưa phủ:** DLL hay thư viện chương trình tự nạp từ chỗ khác ngoài site-packages và ngoài `env_inputs` (ví dụ thư mục hệ thống, PATH); site-packages riêng từng người dùng của Python cài từ Microsoft Store (gọi qua alias); trình thông dịch không mang tên `python*` (ví dụ `py.exe`). Cần thì khai các thư mục đó vào `env_inputs`. Xem thêm `docs/obs2/su-dung/LOI-DA-BIET.vi.md`.
-- **Kiểm lại chương trình:** pass cũ chỉ được mang sang khi lệnh **vẫn** khởi động đúng chương trình đó.
-  - Tên trần (ví dụ `python`) được tìm lại trên PATH.
-  - Alias Windows được đọc lại xem đang trỏ đi đâu.
-  - Store cập nhật mà thư mục bản cũ còn trên đĩa, hay PATH nay ra chương trình khác, thì pass cũ không được dùng: chạy lại mốc.
+- **Mọi mốc kiểm bằng lệnh đều ghi chương trình nó đã chạy**, có hay không có `inputs` (review dev24c; chủ 11/11: "Sửa cả lỗi cũ"). Pass cũ chỉ được dùng tiếp (`plan show`, nghiệm thu, dùng lại bằng chứng của node hay handoff) khi chương trình, gói Python và `env_inputs` của nó **vẫn y như lúc chạy**. Bộ kiểm bằng mô hình (reviewer) **không** thuộc quy tắc này.
+- **Chương trình được ghi hai đường:**
+  - đường dùng để khởi động (`invoked`), giữ nguyên, không giải liên kết;
+  - tệp thật sự chạy (`path`): giải hết symlink tệp và thư mục, junction, hay alias Windows. Kèm sha256 của tệp đó.
+  - Lúc kiểm lại, OneCrew tìm lại đường khởi động (tên trần thì tìm trên PATH, đường tuyệt đối thì giữ nguyên), giải lại liên kết, rồi so cả hai đường và byte. Một liên kết nay trỏ sang bản khác (ví dụ `python` → `python-3.12` trong khi `python-3.11` vẫn còn) là "đổi".
+- **Tên trần như `python`:**
+  - được tìm MỘT lần trên PATH của bộ kiểm, chỉ trên PATH đó, không bao giờ trong thư mục hiện tại của OneCrew;
+  - tiến trình được khởi động từ đúng tệp tìm thấy, nhưng vẫn thấy `argv[0]` như hợp đồng viết (ví dụ `python`). Riêng tệp `.bat`/`.cmd` trên Windows được khởi động bằng đường tuyệt đối của nó.
+  - PATH của bộ kiểm là PATH của máy, **bỏ** mọi thư mục nằm trong repository chứa project (so theo từng thành phần đường, không theo tiền tố chữ: `C:\repo-tools` vẫn giữ khi repo là `C:\repo`) và trong thư mục tạm. Vì vậy **một `.venv` nằm trong repo không được dùng**, kể cả khi shell đã kích hoạt nó, và kể cả khi mốc chạy trong một thư mục con. Muốn dùng venv: ghi đường tuyệt đối tới python của venv trong `argv`, hoặc để venv ngoài repo.
+- **Chương trình không có thật** (tên trần không có trên PATH đó, hay đường tuyệt đối đã mất) thì lượt kiểm bị từ chối trước khi lệnh chạy ("chưa chạy", không giữ run, không tính là một lần kiểm), với mọi mốc. Trước đây mốc không có `inputs` nhận một receipt "không kết luận được".
+- **Gói Python** (review dev24, P1; chủ 10/11: "Sửa ngay"):
+  - Khi chương trình là trình thông dịch Python (tên đường khởi động hay tên tệp chạy bắt đầu bằng `python`), OneCrew đọc thêm từ đĩa, không chạy gì: mọi `*.dist-info` / `*.egg-info` trong site-packages (tên kèm phiên bản và sha256 của `RECORD`), mọi tệp `.pth`, và `pyvenv.cfg`.
+  - Site-packages được tìm **như Python tìm:** có `pyvenv.cfg` cạnh đường khởi động thì đó là venv, dùng site-packages của venv, kể cả khi `bin/python` của venv là symlink tới Python hệ thống (venv trên Linux/macOS). Không có thì tìm theo tệp thật sự chạy. Venv có `include-system-site-packages = true` thì site-packages của bản cài gốc cũng tính.
+  - Cài thêm, gỡ hay nâng một gói là "đổi": pass cũ không được dùng, chạy lại mốc.
+- **`env_inputs`:** tệp hay thư mục ngoài repo mà lệnh dựa vào (plugin, thư mục công cụ, cấu hình).
+  - Khai trong hợp đồng, ví dụ `"env_inputs": ["C:/tools/plugin", "C:/tools/rules.txt"]`: từ 1 đến 20 đường tuyệt đối. Từ vòng này dùng được **cả khi không có `inputs`**.
+  - Byte của chúng được băm vào receipt. Đổi, thêm, mất một tệp, hay thêm hoặc bớt một thư mục con là "đổi". Đổi `env_inputs` là thay đổi nghiệm thu, như `inputs`.
+  - **Phải ở ngoài repository chứa project** sau khi giải đường thật (`..`, hoa/thường trên Windows, junction, symlink). Đường nằm trong repo, hay thư mục chứa cả repo, bị từ chối lúc `plan propose`/`plan amend` và lúc chạy, theo cùng một cách. Tệp của repo thì khai vào `inputs`. Hai tên cùng trỏ một chỗ cũng bị từ chối, cả lúc `propose`/`amend`.
+  - **Thiếu hay không đọc được:** lượt kiểm bị từ chối trước khi lệnh chạy ("chưa chạy", không giữ run). Lúc `plan show` hay nghiệm thu, đường thiếu làm pass "cần kiểm lại", nghiệm thu bị chặn.
+  - **Liên kết bên trong một thư mục `env_inputs`** (symlink, junction): OneCrew ghi nó trỏ đi đâu, nhưng không đọc thứ nó trỏ tới. Xem `LOI-DA-BIET.vi.md`.
+- **Giới hạn băm, đếm ngay trong lúc duyệt** (mỗi tệp, mỗi thư mục, mỗi liên kết là một mục):
+  - tối đa 20 000 mục và 512 MB cho cả `env_inputs`;
+  - cũng 20 000 mục và 512 MB cho môi trường Python của chương trình, kể cả các thư mục `lib/python3*` được dò;
+  - một `RECORD`, `.pth` hay `pyvenv.cfg` tối đa 16 MB.
+  - Quá giới hạn thì lượt kiểm bị từ chối trước khi lệnh chạy; lúc `plan show`/nghiệm thu thì pass không được mang sang.
+- **Receipt không ghi chương trình,** hay ghi môi trường không đọc được, không được mang sang. Cách chép đổi sang `exact-blob-bytes/3`, nên mọi pass làm trước bản này, trên plan **chưa nghiệm thu**, phải chạy lại một lần (mốc chính sách, `NANG-RUNTIME.vi.md` mục C0). Plan đã nghiệm thu giữ nguyên.
+- **Còn chưa phủ:** DLL hay thư viện chương trình tự nạp từ chỗ khác ngoài site-packages và ngoài `env_inputs` (ví dụ thư mục hệ thống, PATH); site-packages riêng từng người dùng của Python cài từ Microsoft Store (gọi qua alias); trình thông dịch không mang tên `python*` (ví dụ `py.exe`). Cần thì khai các thư mục đó vào `env_inputs`. Xem thêm `docs/obs2/su-dung/LOI-DA-BIET.vi.md`.
 - **Đổi `inputs` hay `inputs_unscanned` là thay đổi nghiệm thu:** `plan amend` cần chủ duyệt lại.
 - **Mốc chính sách:** receipt `inputs` làm trước khi đổi cách chép là "cần kiểm lại", như mọi receipt khác. Xem `docs/obs2/su-dung/NANG-RUNTIME.vi.md`, mục C0.
 - **Lỗi trước khi lệnh chạy** (thư mục làm việc, dọn hay tạo thư mục tạm, checkout, scope, hạn chót) đều là "chưa chạy": run không bị giữ, chạy lại được ngay, không cần `verdict release-run`.
