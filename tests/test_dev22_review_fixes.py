@@ -96,7 +96,7 @@ class WorkModeExactBytes(work.Fixture):
         job = self.open('exact', edit=True, commands=True)
         runtime, task, state, contract = job
         check = ("import subprocess,sys; b=open('data.txt','rb').read(); "
-                 "s=subprocess.run(['git','status','--porcelain'],capture_output=True).stdout; print(repr(b), repr(s)); "
-                 "sys.exit(0 if b==b'x\\ny\\n' and s==b'' else 1)")
+                 "r=subprocess.run(['git','status','--porcelain'],capture_output=True); print(repr(b), r.returncode, repr(r.stdout)); "
+                 "sys.exit(0 if b==b'x\\ny\\n' and r.returncode==0 and r.stdout==b'' else 1)")      # dev23: the status must succeed too
         result = wt.verify(runtime, task, state, contract, {'verification': [{'argv': [PY, '-c', check]}]}, lambda: None)
         self.assertEqual(result['findings'], [], result['findings'])
