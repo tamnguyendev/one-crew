@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## v2.5.0.dev23 (10/11/2026) — review dev21+dev22 `b015155` (Kiro, có P1) — LOCAL, chưa tag/push/phát hành
+
+Test đỏ trên `b015155`: `tests/test_dev23_review_fixes.py`.
+- **P1:** nghiệm thu nội bộ một node (`node.accepted`) trước mốc chính sách, ở plan chưa nghiệm thu, không còn tính. Node đó "cần kiểm lại", ở trạng thái `produced`, nên `engine verify` kiểm lại được.
+- **P1:** handoff có trước mốc không còn là bằng chứng. `root_ready` từ chối nó, và handoff chạy lại thay vì trả kết quả cũ.
+- **P2:**
+  - mốc được ghi cả ở `plan propose` và các đường hồi phục (`publish_retained`, `adopt_managed`, `release_paused`, đầu `run_batch`);
+  - `plan show` qua CLI không còn ghi sổ;
+  - bản chép của work mode dừng hẳn khi `git update-index --refresh` hay `git status` lỗi hoặc báo bẩn;
+  - reconcile verdict top-level không ghi receipt của chính sách chép khác.
+- **Lỗi đã biết** (chủ quyết không sửa trong 2.5, ghi ở `docs/obs2/su-dung/LOI-DA-BIET.vi.md`):
+  - receipt legacy không có sự kiện cấp phát thì được tính theo seq lúc ghi nhận; chỉ xảy ra khi hai runtime cùng ghi một sổ;
+  - observation của investigation không khóa chính sách chép (không cấp quyền).
+
 ## v2.5.0.dev22 (10/11/2026) — trả lời review dev20 theo quyết định của chủ ("Đồng ý cả 3", 10/11) — LOCAL, chưa tag/push/phát hành
 
 Test đỏ trên `9d23ed4`: `tests/test_dev22_review_fixes.py`.

@@ -21,6 +21,8 @@ Trong lượt phát hành:
   - `plan show` và trang theo dõi ghi **"cần kiểm lại"** thay cho "đạt".
   - `plan accept` từ chối, kèm lý do.
   - Phần việc phụ thuộc không được bắt đầu; node không được nghiệm thu; không handoff.
+  - Một node đã **nghiệm thu nội bộ** trước mốc cũng phải kiểm lại (`engine verify`), rồi nghiệm thu lại (từ 2.5.0.dev23).
+  - Một **handoff** đã làm trước mốc không còn tính: sau khi kiểm lại các node, chạy handoff lại (từ 2.5.0.dev23).
 - **Plan đã nghiệm thu giữ nguyên lịch sử.**
 - **Vì vậy:** tốt nhất chỉ nâng khi repo không còn plan mở. Nếu còn, sau khi nâng phải **chạy lại verdict** cho từng mốc (và `engine verify` cho từng phần việc đã kiểm), rồi mới nghiệm thu.
 - Mỗi lần cách chép đổi (giá trị `checkout_policy` mới), một mốc mới được ghi, và quy tắc trên áp lại.
