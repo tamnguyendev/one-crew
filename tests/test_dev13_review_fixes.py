@@ -23,7 +23,7 @@ MEDICAL = ('Bệnh nhân ở phòng B12 tầng 3.', 'Chọn phương án A/B/C.'
            'Bổ sung vitamin D3/B12.', 'Bổ sung vitamin D3 và B12.', 'Uống paracetamol 500 mg mỗi 8 giờ.', 'Liều 5 mg/kg/ngày.',
            'Tiêm enoxaparin 1 mg/kg/24 giờ.', 'Chẩn đoán ICD-10: F32.1; theo dõi I10.', 'Viêm phổi J18.9 đã ổn.', 'Câu Q1/Q2 trên phiếu.',
            'Huyết áp 120/80 mmHg.', 'Kết quả HbA1c 6,5%.', 'Đường huyết 7 mmol/l.', 'Truyền 20 ml/h trong 24/7.', 'In trên khổ A4.',
-           'Mã ICD-10 T39 cho ngộ độc.', 'Bệnh viện ĐHYD dùng bản PDF.', 'Chọn online/offline.', 'Giường A12 khoa nội, nhóm máu O.')
+           'Mã ICD-10 T39 cho ngộ độc.', 'Bệnh viện ABC dùng bản PDF.', 'Chọn online/offline.', 'Giường A12 khoa nội, nhóm máu O.')
 CERTAIN = (('Sửa C:\\Users\\NUC\\a.txt.', 'C:\\Users\\NUC\\a.txt'), ('Mở \\\\server\\share.', '\\\\server\\share'), ('Không đọc /etc/passwd.', '/etc/passwd'),
            ('Đọc ./scripts trước.', './scripts'), ('Đọc ../docs trước.', '../docs'), ('Đọc ~/.claude trước.', '~/.claude'),
            ('Mở HTTPS://x.com/a.', 'HTTPS://x.com/a'), ('Sửa main.go.', 'main.go'), ('Sửa docs/a.md.', 'docs/a.md'), ('Chạy với --human.', '--human'),

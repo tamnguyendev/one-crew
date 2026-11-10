@@ -133,7 +133,7 @@ class PlainWords(Fixture):
                 self.assertIn(word, said)
 
     def test_plain_vietnamese_upper_case_and_abbreviations_stay_plain(self):
-        for text in ('Bệnh viện ĐHYD dùng trang này.', 'Trang theo dõi cho chủ dự án.', 'Bản PDF in ra giống trên màn hình.',
+        for text in ('Bệnh viện ABC dùng trang này.', 'Trang theo dõi cho chủ dự án.', 'Bản PDF in ra giống trên màn hình.',
                      'Không đổi giao diện e-mail hay số điện thoại.', 'Ngày 08/11 hiện trên trang.', 'HIS lưu phiếu như cũ.',
                      'Dùng được trên Windows và Android.', 'Đạt khi cả ba bước đều xong.'):
             with self.subTest(text=text):
