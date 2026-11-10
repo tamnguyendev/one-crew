@@ -95,3 +95,16 @@ class ToolLookedUpAgain(Fixture):
             self.assertFalse(command.tool_changed(tool))
         with patch.object(command, 'app_alias_target', return_value=str(Path(self.temp.name) / 'v2' / first.name)):
             self.assertTrue(command.tool_changed(tool))                       # the old folder is still on disk; the alias starts v2
+
+
+class LookedUpWithTheRunsEnvironment(mep.Inputs):
+    def test_the_program_is_looked_up_with_the_environment_of_the_folder_it_ran_in(self):
+        # review of dev24 (P2): the run made its environment from its cwd; the check of a receipt uses the same folder, not the project root
+        self.plan(argv=[mep.PY, '-c', "import pathlib; print(pathlib.Path('cfg.txt').read_text())"], cwd='tool')
+        self.run_m1()
+        self.assertEqual(self.view()['state'], 'passed', self.view())
+        seen = []
+        real = command.verifier_env
+        with patch.object(command, 'verifier_env', side_effect=lambda d: seen.append(Path(d).resolve()) or real(d)):
+            self.view()
+        self.assertIn((self.root / 'tool').resolve(), seen, seen)

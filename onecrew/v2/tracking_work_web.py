@@ -73,11 +73,11 @@ function workTitle(t){var o=ownerView(t);return o?o.request:(t.headline||t.goal|
 function ownerJoin(a){return (a||[]).map(function(x,i){return x+(i<a.length-1&&!/[.!?…:;]$/.test(x)?';':'')}).join(' ')}
 function workDesc(t){var o=ownerView(t),s=o?ownerJoin(o.user_sees):'';return s?'Xong bạn thấy: '+s:''}
 function workSearch(t){var o=ownerView(t)||{};   // dev12 (review F7): the words the card shows are searchable, with the technical ones as before
-  return [t.plan,t.goal,t.title,t.current_step,o.request,(o.user_sees||[]).join(' '),(o.acceptance_steps||[]).join(' '),o.not_doing].filter(Boolean).join(' ').toLowerCase()}
+  return [t.plan,t.headline,t.goal,t.title,t.current_step,o.request,(o.user_sees||[]).join(' '),(o.acceptance_steps||[]).join(' '),o.not_doing].filter(Boolean).join(' ').toLowerCase()}
 function workWaiting(t){var n=(t.needs_user||[]).filter(function(x){return x.owner_ask})[0];return n?'Đang chờ bạn: '+n.owner_ask:''}
 function workNoOwner(t){return ownerView(t)?'':'chưa có mô tả cho chủ'}
 function workTech(d){return '<details data-k="owner-tech" class="work-meta"><summary>chi tiết kỹ thuật</summary><p>Plan '+esc(d.plan)+(d.id?' · mã task '+esc(d.id):'')+'</p>'+(d.goal?'<p>Mục tiêu kỹ thuật: '+esc(d.goal)+'</p>':'')+'</details>'}
-function workOwnerSection(d){var o=ownerView(d);if(!o)return '<p class="small mut owner-missing">Chưa có mô tả cho chủ: thẻ hiện mục tiêu kỹ thuật do AI viết.</p>'+(d.goal&&!d.work?'<p style="margin:6px 0">'+esc(d.goal)+'</p>':'');
+function workOwnerSection(d){var o=ownerView(d);if(!o)return '<p class="small mut owner-missing">Chưa có mô tả cho chủ: thẻ hiện tiêu đề của hợp đồng, nếu không có thì mục tiêu kỹ thuật do AI viết.</p>'+(d.goal&&!d.work?'<p style="margin:6px 0">'+esc(d.goal)+'</p>':'');
   var card=function(label,v){var items=Array.isArray(v)?v:[v];return '<div class="work-card"><div class="eyebrow">'+esc(label)+'</div><div class="answer">'+(items.filter(Boolean).length?items.filter(Boolean).map(function(x){return '<div>'+esc(x)+'</div>'}).join(''):'chưa có dữ liệu')+'</div></div>'};
   return '<div class="work-grid owner-view">'+card('Việc này làm gì',o.request)+card('Xong bạn thấy gì',o.user_sees)+card('Làm sao biết đạt',o.acceptance_steps)+card('Không làm gì',o.not_doing)+'</div>'+workTech(d)}
 function nextMilestone(t){var m=(t.milestones||[]).find(function(m){return m.state!=='passed'});return m?m.id+(m.title?' — '+m.title:''):''}   // mep6: shown on the card and in the detail

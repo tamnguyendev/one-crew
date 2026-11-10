@@ -199,6 +199,15 @@ class TrackingPage(Fixture):
         self.assertEqual(legacy[1], '')
         self.assertEqual(legacy[2], 'chưa có mô tả cho chủ')
 
+    def test_a_legacy_card_is_found_by_the_title_it_shows_and_says_where_that_title_comes_from(self):
+        # review of dev24 (P2, P3): the contract title a card without the owner part shows is in the search index, and the note names it
+        old = dict(self.item('OLD'), headline='Sửa tài liệu giới hạn khóa', goal='restated goal', title='kỹ thuật')
+        out = self.js('[workTitle(%s), workSearch(%s)]' % ((json.dumps(old),) * 2))
+        self.assertEqual(out[0], 'Sửa tài liệu giới hạn khóa'); self.assertIn('giới hạn khóa', out[1])
+        from onecrew.v2 import tracking
+        note = self.js('workOwnerSection(%s)' % json.dumps(tracking.detail(self.ledger.state_root, 'OLD')))
+        self.assertIn('tiêu đề của hợp đồng', note)
+
     def test_detail_shows_the_four_parts_and_keeps_the_technical_goal_plan_and_task_in_technical_details(self):
         from onecrew.v2 import tracking
         d = tracking.detail(self.ledger.state_root, 'NEW')

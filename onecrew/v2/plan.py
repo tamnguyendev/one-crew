@@ -6,6 +6,7 @@ OneCrew has no model here. It compares what the owner agreed (the revision) with
 import json
 import os
 import subprocess
+from pathlib import Path
 
 from ..ledger import LedgerError, canonical, content_hash, key_field, text_field, utcnow
 from . import contract as contracts, namespaces
@@ -159,7 +160,8 @@ def _covers_inputs(ledger, milestone, candidate, artifact):
     except (LedgerError, OSError, subprocess.SubprocessError) as error:
         return None, ['the inputs cannot be read: ' + str(error)[:200]]
     if current != candidate['artifact_sha']: return None, ['a declared input changed']
-    if command.tool_changed(scope.get('tool'), command.verifier_env(ledger.project)): return None, ['the program the command starts changed: ' + str(scope['tool'].get('path'))]
+    # review of dev24 (P2): the program is looked up with the environment of the run itself, made from the folder it ran in (its cwd)
+    if command.tool_changed(scope.get('tool'), command.verifier_env(Path(body.get('cwd') or ledger.project))): return None, ['the program the command starts changed: ' + str(scope['tool'].get('path'))]
     return 'same', []
 
 
