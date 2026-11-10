@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## v2.5.0.dev24 (10/11/2026) — gộp dòng verifier MEP (mep2…mep7) vào 2.5; chủ: "Gộp MEP rồi gửi" — LOCAL, chưa tag/push/phát hành
+
+- **Gộp** `claude/mep-field-fixes-0911` (`4836971`, chứa `claude/hotfix-verifier-inputs`):
+  - `verifier.config.inputs` (bộ kiểm lệnh chỉ chép và chụp những gì nó khai);
+  - `inputs_unscanned`;
+  - dấu vân tay chương trình (`input_scope.tool`, gồm alias Windows);
+  - job object trên Windows;
+  - `verdict artifact` trả hợp các input;
+  - trang theo dõi hiện "Mốc tiếp theo".
+- **Mọi quyết định của 2.5 được giữ:** đúng byte git lưu, symlink là tệp thường, git 2.40, giờ sửa cố định, `checkout_policy` và mốc chính sách, `before_verifier` bắt `BaseException`, reviewer chuẩn bị trước khi ghi "đã khởi chạy", thẻ phần cho chủ.
+- **Khớp nhau:**
+  - receipt `inputs` cũng qua quy tắc chính sách chép;
+  - đổi `inputs` hay `inputs_unscanned` là thay đổi nghiệm thu (#9);
+  - lỗi trước khi lệnh chạy được đánh dấu "chưa chạy".
+- **Vá hai lỗ của mep7:**
+  - (a) với bộ kiểm lệnh, run chỉ được đánh dấu đã khởi chạy (marker `dispatched`, phase `verifier`) qua callback ngay trước `Popen`; dọn và tạo thư mục tạm, kiểm thư mục, scope, hạn chót đều nằm trong `before_verifier`;
+  - (b) `tool_changed` tìm lại tên trần trên PATH và đọc lại đích của alias.
+- **Hướng dẫn** `docs/mep-hotfix/HUONG-DAN-inputs.vi.md` có mục «Trên 2.5»: dấu vân tay chỉ phủ một tệp exe.
+
 ## v2.5.0.dev23 (10/11/2026) — review dev21+dev22 `b015155` (Kiro, có P1) — LOCAL, chưa tag/push/phát hành
 
 Test đỏ trên `b015155`: `tests/test_dev23_review_fixes.py`.

@@ -1,6 +1,18 @@
 # Verifier khai `inputs`: hotfix cho repo lớn
 
-Bản `2.5.0.dev10+sol6.4.mep7`, bản thử. Chưa phát hành, chưa nghiệm thu.
+**Từ `2.5.0.dev24`, `inputs` có trong dòng 2.5** (gộp từ mep7). Bản thử, chưa nghiệm thu. Các mục «Thêm từ mep…» dưới đây là lịch sử của dòng hotfix. Mục «Trên 2.5» ngay sau đây là cái đang áp.
+
+## Trên 2.5 (từ 2.5.0.dev24)
+- **Bản chép là đúng byte git lưu** (quyết định của chủ, 09/11): không áp kiểu xuống dòng, filter hay `.gitattributes`. Symlink là tệp thường. Giờ sửa tệp cố định 01/01/2000. Cần git 2.40 trở lên. Mục «Checkout không giống cây làm việc» bên dưới vì vậy **đã đổi**: EOL không còn lệch, mtime không còn theo lúc chép.
+- **Dấu vân tay chương trình chỉ phủ MỘT tệp exe:** đúng tệp mà lệnh khởi động (`argv[0]`), hoặc exe mà alias Windows trỏ tới. Thư viện, DLL, gói Python hay tệp cấu hình mà chương trình nạp **không** được băm. Thứ gì trong repo thì phải khai vào `inputs`; thứ gì ngoài repo thì không nằm trong bằng chứng.
+- **Kiểm lại chương trình:** pass cũ chỉ được mang sang khi lệnh **vẫn** khởi động đúng chương trình đó.
+  - Tên trần (ví dụ `python`) được tìm lại trên PATH.
+  - Alias Windows được đọc lại xem đang trỏ đi đâu.
+  - Store cập nhật mà thư mục bản cũ còn trên đĩa, hay PATH nay ra chương trình khác, thì pass cũ không được dùng: chạy lại mốc.
+- **Đổi `inputs` hay `inputs_unscanned` là thay đổi nghiệm thu:** `plan amend` cần chủ duyệt lại.
+- **Mốc chính sách:** receipt `inputs` làm trước khi đổi cách chép là "cần kiểm lại", như mọi receipt khác. Xem `docs/obs2/su-dung/NANG-RUNTIME.vi.md`, mục C0.
+- **Lỗi trước khi lệnh chạy** (thư mục làm việc, dọn hay tạo thư mục tạm, checkout, scope, hạn chót) đều là "chưa chạy": run không bị giữ, chạy lại được ngay, không cần `verdict release-run`.
+- **`inputs` không dùng trên plan workflow** (sequential-engine): handoff của nó xét cả artifact.
 - mep2 = mep1 cộng ba điểm ở mục «Thêm từ mep2».
 - mep3 = mep2 cộng hai điểm ở mục «Thêm từ mep3».
 - mep4 = mep3 cộng mục «Thêm từ mep4»; mep5 cộng mục «Thêm từ mep5»; mep7 cộng mục «Thêm từ mep7» (mep6 chỉ đổi trang theo dõi).
@@ -129,7 +141,7 @@ Vì vậy, nghiệm thu bằng sha của receipt M3 bị từ chối với lý d
 
 **Lời từ chối «spells the live tree» cho một input** giờ chỉ thêm sang `inputs_unscanned`, kèm mẫu (issue #5). Bỏ tệp khỏi `inputs` thì checkout thiếu tệp; bỏ hẳn `inputs` thì OneCrew quét cả cây.
 
-**Checkout không giống cây làm việc ở mtime và EOL** (issue #4; mep7 chỉ ghi lại, chưa đổi hành vi):
+**Checkout không giống cây làm việc ở mtime và EOL** (issue #4; mep7 chỉ ghi lại, chưa đổi hành vi; **trên 2.5 đã đổi**, xem mục «Trên 2.5»):
 - **mtime:** mọi tệp trong checkout có mtime bằng lúc chép. Điều kiện «tệp mới hơn X» luôn đúng trong checkout, nên không phải bằng chứng.
 - **EOL:** tệp chưa commit đi qua `update-index` rồi `checkout-index`, theo `.gitattributes` và `core.autocrlf`. Một tệp LF trên đĩa có thể thành CRLF trong checkout, nên sha256 của byte thô lệch.
 - **Bộ kiểm nên:** lấy thời điểm từ nội dung (ví dụ timestamp trong XML junit), và so sha trên nội dung đã chuẩn hoá EOL hoặc trên blob git (`git hash-object`), không trên byte thô.
@@ -141,7 +153,7 @@ Vì vậy, nghiệm thu bằng sha của receipt M3 bị từ chối với lý d
   - Vẫn không chặn được đường dẫn mà chương trình **tự dựng lúc chạy** từ nơi khác: biến môi trường, tệp ngoài repo (ví dụ sổ đăng ký hook liệt kê đường dẫn dự án), tên qua junction, hay chuỗi nằm trong tệp nhị phân. Lý do: verifier không chạy trong sandbox hệ điều hành.
 - **Lệnh ghi ra ngoài input trên cây thật:** đường cũ phát hiện qua chụp sau, đường `inputs` thì không. Ghi bằng đường dẫn viết sẵn bị từ chối như trên; ghi bằng đường dẫn dựng lúc chạy thì không. Chỉ dùng `inputs` cho lệnh chỉ đọc hoặc chỉ ghi trong thư mục làm việc của nó.
 - **Đường dẫn tuyệt đối ra ngoài repo** (ví dụ `<thư mục làm việc ngoài repo>`) không bị từ chối, và không nằm trong bằng chứng. Ở đường cũ cũng vậy. Bằng chứng không hết hiệu lực khi các tệp đó đổi.
-- **Chương trình:** chỉ băm đúng file được khởi động, không băm thư viện nó nạp. Thứ gì trong repo thì khai vào `inputs`.
+- **Chương trình:** dấu vân tay chỉ phủ **một tệp exe**, là file được khởi động; không băm thư viện nó nạp. Thứ gì trong repo thì khai vào `inputs`.
 - **Dữ liệu ngoài input đổi không làm bằng chứng cũ hết hiệu lực,** đó chính là mục đích. Chỉ dùng khi chắc lệnh không phụ thuộc phần đó.
 - **Nghiệm thu:** `--artifact-sha` phải là một cây chứa input của **mọi** mốc, đúng như lúc kiểm; `artifact_sha` của một receipt chỉ đủ khi plan có một mốc. Từ mep5, `verdict artifact` trả đúng cây đó khi mọi mốc khai `inputs`; plan trộn thì lệnh vẫn chụp toàn cây.
 - **Plan trộn** mốc có và không có `inputs`: mốc không khai vẫn chụp toàn cây, và lúc xem trạng thái vẫn phải đi cả cây.
