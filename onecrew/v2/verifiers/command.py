@@ -616,7 +616,75 @@ def tool_identity(word, env):
         identity['sha256'] = hashlib.sha256(program.read_bytes()).hexdigest()
     except OSError as error:
         identity.update(sha256=None, unreadable=f'{type(error).__name__}: {error}'[:200])
+    try:
+        identity['environment'] = python_environment(program)          # 2.5.0.dev24 (P1): what the interpreter loads, not only its exe
+    except OSError as error:
+        identity['environment'] = {'unreadable': f'{type(error).__name__}: {error}'[:200]}
     return identity
+
+
+ENV_FILES_MAX, ENV_BYTES_MAX = 20000, 512 * 1024 * 1024
+
+
+def _site_packages(program):
+    """The site-packages folders of a Python interpreter at `program`, found on disk only (no subprocess): a venv's Lib/site-packages (Windows) or
+    lib/pythonX.Y/site-packages, and the base installation's when pyvenv.cfg says include-system-site-packages = true."""
+    program = Path(program)
+    roots, found = [program.parent, program.parent.parent], []
+    cfg = next((r / 'pyvenv.cfg' for r in roots if (r / 'pyvenv.cfg').is_file()), None)
+    if cfg is not None:
+        lines = [l for l in cfg.read_text(encoding='utf-8', errors='replace').splitlines() if '=' in l]
+        pairs = {l.split('=', 1)[0].strip().lower(): l.split('=', 1)[1].strip() for l in lines}
+        if pairs.get('include-system-site-packages', '').lower() == 'true' and pairs.get('home'):
+            roots += [Path(pairs['home']), Path(pairs['home']).parent]
+    for root in roots:
+        for candidate in [root / 'Lib' / 'site-packages', *sorted(root.glob('lib/python3*/site-packages'))]:
+            if candidate.is_dir() and candidate.resolve() not in [f.resolve() for f in found]: found.append(candidate)
+    return found, cfg
+
+
+def python_environment(program):
+    """2.5.0.dev24 (review of dev24, P1): what a Python interpreter loads beyond its own exe, read from disk only: every installed distribution
+    (its dist-info folder name, which holds the version, and the sha256 of its RECORD), every .pth file and pyvenv.cfg. None when `program` is not a
+    Python interpreter."""
+    name = Path(program).name.lower()
+    if not name.startswith('python'): return None
+    folders, cfg = _site_packages(program)
+    digest, count = hashlib.sha256(), 0
+    if cfg is not None: digest.update(b'cfg:' + cfg.read_bytes())
+    for folder in folders:
+        digest.update(b'site:' + str(folder.resolve()).encode('utf-8', 'surrogateescape'))
+        for entry in sorted(folder.iterdir(), key=lambda p: p.name.lower()):
+            if entry.name.endswith('.dist-info') or entry.name.endswith('.egg-info'):
+                record = entry / 'RECORD'
+                data = record.read_bytes() if record.is_file() else b''
+                digest.update(b'dist:' + entry.name.encode('utf-8', 'surrogateescape') + b':' + hashlib.sha256(data).hexdigest().encode('ascii'))
+                count += 1
+            elif entry.suffix == '.pth' and entry.is_file():
+                digest.update(b'pth:' + entry.name.encode('utf-8', 'surrogateescape') + b':' + entry.read_bytes())
+    return {'site_packages': [str(f) for f in folders], 'distributions': count, 'sha256': digest.hexdigest()}
+
+
+def env_inputs_identity(paths):
+    """2.5.0.dev24 (review of dev24, P1): the bytes of the owner-declared paths outside the repository (a file, or every file under a folder), one
+    sha256 each. A missing path is recorded as missing; too much is refused before the verifier."""
+    out, files, total = {}, 0, 0
+    for path in paths or ():
+        target = Path(path)
+        if not target.exists():
+            out[path] = None
+            continue
+        digest = hashlib.sha256()
+        items = [target] if target.is_file() else sorted((p for p in target.rglob('*') if p.is_file()), key=lambda p: str(p).lower())
+        for item in items:
+            files += 1
+            total += item.stat().st_size
+            if files > ENV_FILES_MAX or total > ENV_BYTES_MAX:
+                raise InputRefused(f'env_inputs are too large to fingerprint (over {ENV_FILES_MAX} files or {ENV_BYTES_MAX // (1024 * 1024)} MB). The verifier was not called.')
+            digest.update(str(item.relative_to(target) if item != target else item.name).encode('utf-8', 'surrogateescape') + b':')
+            digest.update(hashlib.sha256(item.read_bytes()).hexdigest().encode('ascii'))
+        out[path] = digest.hexdigest()
+    return out
 
 
 def tool_changed(tool, env=None):
@@ -634,10 +702,14 @@ def tool_changed(tool, env=None):
     elif tool.get('alias'):
         now = app_alias_target(tool['alias'])
         if not now or os.path.normcase(now) != os.path.normcase(tool['path']): return True
+    if 'environment' not in tool: return True          # 2.5.0.dev24 (P1): a receipt made before the environment was fingerprinted is not carried
+    if isinstance(tool['environment'], dict) and 'unreadable' in tool['environment']: return True     # an environment never read proves nothing
     try:
-        return hashlib.sha256(Path(tool['path']).read_bytes()).hexdigest() != tool.get('sha256')
+        if hashlib.sha256(Path(tool['path']).read_bytes()).hexdigest() != tool.get('sha256'): return True
+        now = python_environment(tool['path'])
     except OSError:
         return True
+    return (now or {}).get('sha256') != (tool['environment'] or {}).get('sha256')
 
 
 def _tree_size(directory, tree):
@@ -1490,6 +1562,8 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
                 head = None
             scope = {'paths': list(inputs), 'effective': scope_paths(inputs), 'files': timing['checkout_files'], 'bytes': timing['checkout_bytes'], 'head': head, 'tool': tool_identity(argv[0], env),
                      'live_tree_scan': scanned}
+            if milestone['verifier']['config'].get('env_inputs'):     # 2.5.0.dev24 (P1): the owner-declared paths outside the repository
+                scope['env_inputs'] = env_inputs_identity(milestone['verifier']['config']['env_inputs'])
         started, error, timed_out, code, out, err = utcnow(), None, False, None, b'', b''
         begin = time.monotonic()
         if deadline is not None:                       # issue #2 (dev14): inside before_verifier too, up to the Popen

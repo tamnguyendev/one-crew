@@ -100,6 +100,22 @@ def _unscanned(value, inputs, argv, cwd, name):
     return out
 
 
+def _env_inputs(value, inputs, name):
+    """2.5.0.dev24 (review of dev24, P1): absolute paths OUTSIDE the repository whose content the check depends on (a plugin, a tool folder,
+    a configuration). Their bytes are fingerprinted with the receipt, and a pass is not carried once they change. Only with inputs."""
+    from pathlib import PurePath, PureWindowsPath
+    if not inputs: raise LedgerError(name + '.env_inputs: only with inputs.')
+    if not isinstance(value, list) or not 1 <= len(value) <= 20:
+        raise LedgerError(name + '.env_inputs: a list of 1 to 20 absolute paths outside the repository.')
+    out = []
+    for path in value:
+        if not isinstance(path, str) or not path.strip() or not (PurePath(path).is_absolute() or PureWindowsPath(path).is_absolute()):
+            raise LedgerError(name + '.env_inputs: ' + str(path)[:200] + ' is not an absolute path.')
+        if path in out: raise LedgerError(name + '.env_inputs: ' + path + ' is listed twice.')
+        out.append(path)
+    return out
+
+
 def verifier_inputs(milestone):
     """The declared inputs of a command milestone, or None: no declaration means the whole working tree, as always."""
     verifier = milestone.get('verifier') or {}
@@ -121,8 +137,8 @@ def _verifier(value, name):
     if value['type'] not in VERIFIERS:
         return {'type': value['type'], 'config': port.normalize(value['type'], config, name)}
     if value['type'] == 'command':
-        if not isinstance(config, dict) or set(config) - {'argv', 'cwd', 'max_minutes', 'inputs', 'inputs_unscanned'}:
-            raise LedgerError(name + ': command verifier takes argv, cwd, max_minutes, inputs and inputs_unscanned.')
+        if not isinstance(config, dict) or set(config) - {'argv', 'cwd', 'max_minutes', 'inputs', 'inputs_unscanned', 'env_inputs'}:
+            raise LedgerError(name + ': command verifier takes argv, cwd, max_minutes, inputs, inputs_unscanned and env_inputs.')
         from ..work_contract import argv_value
         argv = argv_value(config.get('argv'), name + '.argv')
         cwd = config.get('cwd')
@@ -130,8 +146,9 @@ def _verifier(value, name):
         minutes = _int(config.get('max_minutes', 15), name + '.max_minutes', 1, COMMAND_MAX_MINUTES)
         inputs = _inputs(config['inputs'], cwd, name) if 'inputs' in config else None
         unscanned = _unscanned(config['inputs_unscanned'], inputs, argv, cwd, name) if 'inputs_unscanned' in config else None
+        outside = _env_inputs(config['env_inputs'], inputs, name) if 'env_inputs' in config else None
         return {'type': 'command', 'config': {'argv': argv, 'cwd': cwd, 'max_minutes': minutes, **({'inputs': inputs} if inputs else {}),
-                                              **({'inputs_unscanned': unscanned} if unscanned else {})}}
+                                              **({'inputs_unscanned': unscanned} if unscanned else {}), **({'env_inputs': outside} if outside else {})}}
     if value['type'] == 'reviewer': return {'type': 'reviewer', 'config': _reviewer(config, name)}
     if config: raise LedgerError(name + ': owner-manual takes no config.')
     return {'type': 'owner-manual', 'config': {}}

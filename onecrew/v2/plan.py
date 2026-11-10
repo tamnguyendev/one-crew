@@ -160,6 +160,13 @@ def _covers_inputs(ledger, milestone, candidate, artifact):
     except (LedgerError, OSError, subprocess.SubprocessError) as error:
         return None, ['the inputs cannot be read: ' + str(error)[:200]]
     if current != candidate['artifact_sha']: return None, ['a declared input changed']
+    declared = milestone['verifier']['config'].get('env_inputs')
+    if declared:                                       # 2.5.0.dev24 (P1): owner-declared paths outside the repository
+        try:
+            now = command.env_inputs_identity(declared)
+        except (LedgerError, OSError) as error:
+            return None, ['the declared env_inputs cannot be read: ' + str(error)[:200]]
+        if now != scope.get('env_inputs'): return None, ['a declared input outside the repository changed (env_inputs)']
     # review of dev24 (P2): the program is looked up with the environment of the run itself, made from the folder it ran in (its cwd)
     if command.tool_changed(scope.get('tool'), command.verifier_env(Path(body.get('cwd') or ledger.project))): return None, ['the program the command starts changed: ' + str(scope['tool'].get('path'))]
     return 'same', []

@@ -17,7 +17,8 @@
 - **Vá hai lỗ của mep7:**
   - (a) với bộ kiểm lệnh, dọn và tạo thư mục tạm, kiểm thư mục, scope, hạn chót đều nằm trong `before_verifier`: lỗi ở đó mang dấu "chưa khởi chạy", run được đóng là chưa dispatch và chạy lại được không cần release-run. Marker `dispatched` vẫn ghi trước khi gọi bộ kiểm (như T08a): lỗi không mang dấu đó là kết quả không rõ và bị giữ;
   - (b) `tool_changed` tìm lại tên trần trên PATH và đọc lại đích của alias.
-- **Hướng dẫn** `docs/mep-hotfix/HUONG-DAN-inputs.vi.md` có mục «Trên 2.5»: dấu vân tay chỉ phủ một tệp exe.
+- **P1 review dev24 (Kiro), chủ 10/11: "Sửa ngay":** pass của `inputs` không còn được mang sang khi môi trường của chương trình đổi. Trình thông dịch Python được băm cùng các gói đã cài (dist-info/egg-info kèm `RECORD`, `.pth`, `pyvenv.cfg`); hợp đồng khai được `env_inputs` (1–20 đường tuyệt đối ngoài repo, tối đa 20 000 tệp / 512 MB), đổi nó là thay đổi nghiệm thu. Receipt chưa có dấu vân tay môi trường, hay môi trường không đọc được, không được mang sang. Test đỏ trên `e96e386`: `tests/test_dev24_p1_environment.py`.
+- **Hướng dẫn** `docs/mep-hotfix/HUONG-DAN-inputs.vi.md` có mục «Trên 2.5»: dấu vân tay chương trình và môi trường, `env_inputs`, phần còn chưa phủ.
 
 ## v2.5.0.dev23 (10/11/2026) — review dev21+dev22 `b015155` (Kiro, có P1) — LOCAL, chưa tag/push/phát hành
 

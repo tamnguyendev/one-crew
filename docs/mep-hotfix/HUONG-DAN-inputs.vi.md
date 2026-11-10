@@ -4,7 +4,13 @@
 
 ## Trên 2.5 (từ 2.5.0.dev24)
 - **Bản chép là đúng byte git lưu** (quyết định của chủ, 09/11): không áp kiểu xuống dòng, filter hay `.gitattributes`. Symlink là tệp thường. Giờ sửa tệp cố định 01/01/2000. Cần git 2.40 trở lên. Mục «Checkout không giống cây làm việc» bên dưới vì vậy **đã đổi**: EOL không còn lệch, mtime không còn theo lúc chép.
-- **Dấu vân tay chương trình chỉ phủ MỘT tệp exe:** đúng tệp mà lệnh khởi động (`argv[0]`), hoặc exe mà alias Windows trỏ tới. Thư viện, DLL, gói Python hay tệp cấu hình mà chương trình nạp **không** được băm. Thứ gì trong repo thì phải khai vào `inputs`; thứ gì ngoài repo thì không nằm trong bằng chứng.
+- **Dấu vân tay chương trình:** đúng tệp mà lệnh khởi động (`argv[0]`), hoặc exe mà alias Windows trỏ tới. Thứ gì trong repo thì phải khai vào `inputs`.
+- **Dấu vân tay môi trường** (review dev24, P1; chủ 10/11: "Sửa ngay"):
+  - **Python:** khi chương trình là trình thông dịch Python (tên tệp bắt đầu bằng `python`), OneCrew đọc thêm từ đĩa, không chạy gì: mọi `*.dist-info` / `*.egg-info` trong site-packages (tên kèm phiên bản và sha256 của `RECORD`), mọi tệp `.pth`, và `pyvenv.cfg`. Venv có `include-system-site-packages = true` thì site-packages của bản cài gốc cũng tính. Cài thêm, gỡ hay nâng một gói là "đổi": pass cũ không được dùng, chạy lại mốc.
+  - **Chương trình khác, hoặc tệp ngoài repo:** khai trong hợp đồng `"env_inputs": ["C:/tools/plugin", "C:/tools/rules.txt"]`, là đường tuyệt đối ngoài repo (tệp hay thư mục). Chỉ dùng cùng `inputs`, từ 1 đến 20 đường. Byte của chúng được băm vào receipt. Đổi, thêm hay mất một tệp trong đó là "đổi". Đổi `env_inputs` là thay đổi nghiệm thu, như `inputs`.
+  - **Giới hạn băm:** tối đa 20 000 tệp hoặc 512 MB cho cả `env_inputs`. Quá thì lượt kiểm bị từ chối trước khi lệnh chạy (không giữ run).
+  - **Receipt cũ** (làm trước bản này, chưa có dấu vân tay môi trường), hay môi trường không đọc được lúc chụp, thì **không** được mang sang: chạy lại mốc một lần.
+  - **Còn chưa phủ:** DLL hay thư viện chương trình tự nạp từ chỗ khác ngoài site-packages và ngoài `env_inputs` (ví dụ thư mục hệ thống, PATH); site-packages riêng từng người dùng của Python cài từ Microsoft Store (gọi qua alias). Cần thì khai các thư mục đó vào `env_inputs`.
 - **Kiểm lại chương trình:** pass cũ chỉ được mang sang khi lệnh **vẫn** khởi động đúng chương trình đó.
   - Tên trần (ví dụ `python`) được tìm lại trên PATH.
   - Alias Windows được đọc lại xem đang trỏ đi đâu.
@@ -152,8 +158,8 @@ Vì vậy, nghiệm thu bằng sha của receipt M3 bị từ chối với lý d
   - Từ mep2, đường dẫn tuyệt đối vào cây thật **viết sẵn** trong dòng lệnh hoặc trong tệp văn bản của inputs bị từ chối.
   - Vẫn không chặn được đường dẫn mà chương trình **tự dựng lúc chạy** từ nơi khác: biến môi trường, tệp ngoài repo (ví dụ sổ đăng ký hook liệt kê đường dẫn dự án), tên qua junction, hay chuỗi nằm trong tệp nhị phân. Lý do: verifier không chạy trong sandbox hệ điều hành.
 - **Lệnh ghi ra ngoài input trên cây thật:** đường cũ phát hiện qua chụp sau, đường `inputs` thì không. Ghi bằng đường dẫn viết sẵn bị từ chối như trên; ghi bằng đường dẫn dựng lúc chạy thì không. Chỉ dùng `inputs` cho lệnh chỉ đọc hoặc chỉ ghi trong thư mục làm việc của nó.
-- **Đường dẫn tuyệt đối ra ngoài repo** (ví dụ `<thư mục làm việc ngoài repo>`) không bị từ chối, và không nằm trong bằng chứng. Ở đường cũ cũng vậy. Bằng chứng không hết hiệu lực khi các tệp đó đổi.
-- **Chương trình:** dấu vân tay chỉ phủ **một tệp exe**, là file được khởi động; không băm thư viện nó nạp. Thứ gì trong repo thì khai vào `inputs`.
+- **Đường dẫn tuyệt đối ra ngoài repo** (ví dụ `<thư mục làm việc ngoài repo>`) không bị từ chối, và không nằm trong bằng chứng trừ khi khai vào `env_inputs` (từ 2.5.0.dev24). Ở đường cũ cũng vậy. Không khai thì bằng chứng không hết hiệu lực khi các tệp đó đổi.
+- **Chương trình:** dấu vân tay phủ tệp exe được khởi động, và với Python thì các gói đã cài (xem mục «Trên 2.5»). Thư viện nạp từ chỗ khác chỉ được phủ khi khai vào `env_inputs`. Thứ gì trong repo thì khai vào `inputs`.
 - **Dữ liệu ngoài input đổi không làm bằng chứng cũ hết hiệu lực,** đó chính là mục đích. Chỉ dùng khi chắc lệnh không phụ thuộc phần đó.
 - **Nghiệm thu:** `--artifact-sha` phải là một cây chứa input của **mọi** mốc, đúng như lúc kiểm; `artifact_sha` của một receipt chỉ đủ khi plan có một mốc. Từ mep5, `verdict artifact` trả đúng cây đó khi mọi mốc khai `inputs`; plan trộn thì lệnh vẫn chụp toàn cây.
 - **Plan trộn** mốc có và không có `inputs`: mốc không khai vẫn chụp toàn cây, và lúc xem trạng thái vẫn phải đi cả cây.

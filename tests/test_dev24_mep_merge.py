@@ -90,7 +90,7 @@ class ToolLookedUpAgain(Fixture):
     def test_an_alias_that_now_starts_another_program_is_a_change(self):
         first = self.program(Path(self.temp.name) / 'v1', b'v1')
         tool = {'word': str(Path(self.temp.name) / 'alias.exe'), 'path': str(first), 'alias': str(Path(self.temp.name) / 'alias.exe'),
-                'sha256': __import__('hashlib').sha256(b'v1').hexdigest()}
+                'sha256': __import__('hashlib').sha256(b'v1').hexdigest(), 'environment': None}      # not a Python interpreter (P1)
         with patch.object(command, 'app_alias_target', return_value=str(first)):
             self.assertFalse(command.tool_changed(tool))
         with patch.object(command, 'app_alias_target', return_value=str(Path(self.temp.name) / 'v2' / first.name)):
