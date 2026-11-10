@@ -358,7 +358,9 @@ class PlanPresentTests(Base):
         old = ov.OldVersion(Path(World.runs) / 'base-v2.1.0')
         shown = json.loads(old.run(self.old_proj, self.old_state, 'plan', 'show', 'oldp')[1])
         self.assertIn(f'Sha bản: {shown["sha"]}', lines)
-        self.assertTrue(any(l.strip().startswith('M1 passed') for l in lines))
+        # 2.5.0.dev22 (owner 10/11, A-lite): a pass the old binary made on a plan that is not accepted predates this OneCrew's checkout
+        # policy epoch, so it reads as "needs a new check", not passed
+        self.assertTrue(any(l.strip().startswith('M1 pending') for l in lines)); self.assertTrue(any('policy epoch' in l for l in lines))
 
     def test_e4_an_unreadable_contract_prints_no_data_instead_of_crashing(self):
         text = self.present('gone')

@@ -1,0 +1,17 @@
+{
+ "id": "U1-20261110-DEV22-EPOCH-1",
+ "file": "tests/test_wf_r01_report.py",
+ "old_sha256": "4b27077ce5d475ae85629f6477b09013124ea325e7ea11e41f123091ffdad7d2",
+ "new_sha256": "56b4cc5e9817d6250a734d01e1c353d256952048cd0ef57a486b1c811bf0d8b2",
+ "reason": "2.5.0.dev22, review dev20 P1 (Kiro 10/11 on c0d62b3): a pass made before this OneCrew's checkout policy epoch on a plan that is not accepted must read as needing a new check, not passed (owner A-lite). PlanPresentTests.test_e4_an_old_2_1_plan_is_presented asserted that an old 2.1 plan, approved and not accepted, shows 'M1 passed'. Edit: that one assertion becomes 'M1 pending' plus a line naming 'policy epoch', with two comment lines; no other assertion removed or loosened, no skip. Counterexample: the old file on the new code fails at exactly that line.",
+ "authorized_by": "Chủ sở hữu, 10/11/2026, qua phiên điều phối \"Plan digest và báo trạng thái\", trả lời \"Đồng ý cả 3\" cho: (1) bằng chứng cũ của hợp đồng đang mở thành cần kiểm lại theo mốc chính sách, (2) work mode lấy đúng byte, (3) điểm dừng review. Bản ghi do chủ chạy script tạo ra.",
+ "applied_by": "claude (phiên onecrew-2.5-dev11, Opus 5.5), nhánh onecrew-2.5-dev11, chưa commit trên 9d23ed4",
+ "evidence": {
+  "base": "9d23ed4",
+  "diff": "git diff 9d23ed4 -- tests/test_wf_r01_report.py",
+  "red": "old file on dev22 code fails at the 'M1 passed' assertion (D:/OneCrewRuns/v25/dev22)",
+  "green": "edited file on dev22 code passes (D:/OneCrewRuns/v25/dev22/focused2)"
+ },
+ "note": "sha256 of the LF form (the committed blob), as kit-guard pins it; old_sha256 is the committed file at 9d23ed4, which already differed from its R05 pin 32a289d4... before dev22 (a Sol6.4 change without U1, inherited): this record does not cover that earlier step",
+ "at": "2026-11-10"
+}
