@@ -18,7 +18,14 @@
   - (a) với bộ kiểm lệnh, dọn và tạo thư mục tạm, kiểm thư mục, scope, hạn chót đều nằm trong `before_verifier`: lỗi ở đó mang dấu "chưa khởi chạy", run được đóng là chưa dispatch và chạy lại được không cần release-run. Marker `dispatched` vẫn ghi trước khi gọi bộ kiểm (như T08a): lỗi không mang dấu đó là kết quả không rõ và bị giữ;
   - (b) `tool_changed` tìm lại tên trần trên PATH và đọc lại đích của alias.
 - **P1 review dev24 (Kiro), chủ 10/11: "Sửa ngay":** pass của `inputs` không còn được mang sang khi môi trường của chương trình đổi. Trình thông dịch Python được băm cùng các gói đã cài (dist-info/egg-info kèm `RECORD`, `.pth`, `pyvenv.cfg`); hợp đồng khai được `env_inputs` (1–20 đường tuyệt đối ngoài repo, tối đa 20 000 tệp / 512 MB), đổi nó là thay đổi nghiệm thu. Receipt chưa có dấu vân tay môi trường, hay môi trường không đọc được, không được mang sang. Test đỏ trên `e96e386`: `tests/test_dev24_p1_environment.py`.
-- **Hướng dẫn** `docs/mep-hotfix/HUONG-DAN-inputs.vi.md` có mục «Trên 2.5»: dấu vân tay chương trình và môi trường, `env_inputs`, phần còn chưa phủ.
+- **Review lại `8172655` (Kiro, 2 P1 + 2 P2), chủ 10/11: "Sửa ngay":**
+  - P1-a: tên trần như `python` được tìm một lần trên PATH của bộ kiểm và chạy bằng đúng đường tuyệt đối đó (Windows không tìm theo PATH của môi trường truyền cho tiến trình con); receipt băm đúng tệp đã chạy. Không tìm thấy: mốc có `inputs` bị từ chối trước khi lệnh chạy; mốc khác cho receipt `executable_not_found` như trước, không tìm theo PATH của OneCrew;
+  - P1-b: `env_inputs` thiếu hay không đọc được thì lượt kiểm bị từ chối trước khi lệnh chạy, và pass không được mang sang lúc `plan show`/nghiệm thu;
+  - P2: `env_inputs` nằm trong repo (sau khi giải `..`, hoa/thường, junction) hay chứa repo bị từ chối ở `plan propose`/`amend` và lúc chạy; hai tên cùng một chỗ bị từ chối;
+  - P2: giới hạn 20 000 tệp / 512 MB đếm ngay lúc duyệt, áp cả cho môi trường Python; một `RECORD`/`.pth`/`pyvenv.cfg` tối đa 16 MB;
+  - P3 (OneCrew bị tắt cứng giữa lúc đánh dấu và lúc chạy lệnh) ghi vào `LOI-DA-BIET.vi.md`.
+  - Test đỏ trên `8172655`: `tests/test_dev24_p1b_review.py`.
+- **Hướng dẫn** `docs/mep-hotfix/HUONG-DAN-inputs.vi.md` có mục «Trên 2.5»: dấu vân tay chương trình và môi trường, `env_inputs`, `.venv` trong repo không được dùng, giới hạn, phần còn chưa phủ.
 
 ## v2.5.0.dev23 (10/11/2026) — review dev21+dev22 `b015155` (Kiro, có P1) — LOCAL, chưa tag/push/phát hành
 

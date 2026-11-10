@@ -163,13 +163,22 @@ def _covers_inputs(ledger, milestone, candidate, artifact):
     declared = milestone['verifier']['config'].get('env_inputs')
     if declared:                                       # 2.5.0.dev24 (P1): owner-declared paths outside the repository
         try:
-            now = command.env_inputs_identity(declared)
+            now = command.env_inputs_identity(declared, ledger.project)     # dev24b: missing, unreadable, inside the repository or too large: not carried
         except (LedgerError, OSError) as error:
-            return None, ['the declared env_inputs cannot be read: ' + str(error)[:200]]
+            return None, ['env_inputs: ' + str(error)[:300]]
         if now != scope.get('env_inputs'): return None, ['a declared input outside the repository changed (env_inputs)']
     # review of dev24 (P2): the program is looked up with the environment of the run itself, made from the folder it ran in (its cwd)
     if command.tool_changed(scope.get('tool'), command.verifier_env(Path(body.get('cwd') or ledger.project))): return None, ['the program the command starts changed: ' + str(scope['tool'].get('path'))]
     return 'same', []
+
+
+def _env_inputs_outside(ledger, contract):
+    """review of dev24b (P2): env_inputs are outside the repository, judged after resolving (`..`, case on Windows, junctions)."""
+    from .verifiers import command
+    for m in contract['milestones']:
+        declared = ((m.get('verifier') or {}).get('config') or {}).get('env_inputs')
+        inside = command.env_inputs_inside(declared, ledger.project) if declared else None
+        if inside: raise LedgerError(f"{m['id']}.env_inputs: {inside} is inside the repository (or holds it); a file of the repository goes in inputs.")
 
 
 def _inputs_unsupported(state, contract):
@@ -439,6 +448,7 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_
     metadata = namespaces.workflow_metadata(workflow, capabilities)
     text_field(author, 'author', 100); refuse_owner_author(author)
     contract = contracts.validate(raw)
+    _env_inputs_outside(ledger, contract)                             # dev24b (P2): env_inputs outside the repository
     if reuse_existing:
         # Re-entry only: never amend, upgrade capabilities, approve or revive an
         # old plan. The execution gates still check its current grant/deadline.
@@ -496,6 +506,7 @@ def amend(ledger, name, raw, reason, author, events=None, keep_content_author=Fa
     changes that unknown (keep_content_author), which leaves the text with whoever wrote it before."""
     text_field(reason, 'reason', 200); text_field(author, 'author', 100); refuse_owner_author(author)
     contract = contracts.validate(raw)
+    _env_inputs_outside(ledger, contract)                             # dev24b (P2): env_inputs outside the repository
     if check_form: refuse_form(ledger, raw, author, verb='Amend')        # dev11: the plan amend command, as plan propose
     else: refuse_owner_part(ledger, contract, verb='Amend')              # dev12 K3, dev14 L3: the library too (the contract rules of approve)
     with ledger.transaction(write=True) as conn:

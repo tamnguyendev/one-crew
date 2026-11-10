@@ -111,7 +111,8 @@ def _env_inputs(value, inputs, name):
     for path in value:
         if not isinstance(path, str) or not path.strip() or not (PurePath(path).is_absolute() or PureWindowsPath(path).is_absolute()):
             raise LedgerError(name + '.env_inputs: ' + str(path)[:200] + ' is not an absolute path.')
-        if path in out: raise LedgerError(name + '.env_inputs: ' + path + ' is listed twice.')
+        key = os.path.normcase(os.path.normpath(path))            # dev24b (P2): one place named twice (case on Windows, `.`/`..`)
+        if key in [os.path.normcase(os.path.normpath(o)) for o in out]: raise LedgerError(name + '.env_inputs: ' + path + ' is listed twice.')
         out.append(path)
     return out
 

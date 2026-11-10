@@ -601,12 +601,28 @@ def app_alias_target(path):
         kernel.CloseHandle(handle)
 
 
-def tool_identity(word, env):
-    """The program the command starts, by its bytes. A program inside the inputs is in the tree already. This fingerprints that one file: what it loads must be declared.
+def is_bare_word(word):
+    """A program named without any folder (`python`, `git`): found on a PATH."""
+    return isinstance(word, str) and bool(word) and not os.path.isabs(word) and '/' not in word and '\\' not in word
+
+
+def program_path(word, env):
+    """review of dev24b (P1-a): the program a bare word names, looked up ONCE on the PATH of the verifier's own environment. Windows CreateProcess
+    does not search the PATH of the environment a child is given (it searches the parent's folder and the parent's PATH), so the command is started
+    by this absolute path, and the receipt fingerprints the same file. An absolute word is itself; a word with a folder is left to the command."""
+    if os.path.isabs(word): return word
+    if not is_bare_word(word): return None
+    return shutil.which(word, path=(env or {}).get('PATH'))
+
+
+def tool_identity(word, env, found=None):
+    """The program the command starts, by its bytes. A program inside the inputs is in the tree already. This fingerprints that one file and, for a
+    Python interpreter, its installed packages (P1); what else it loads must be declared in env_inputs.
     A Windows app execution alias is fingerprinted by the program it starts (`alias` keeps the word's file). A program whose bytes cannot be read is recorded
-    with `sha256: None` and the reason, never raised: this runs before the verifier, and `tool_changed` then never lets a pass carry over."""
+    with `sha256: None` and the reason, never raised: this runs before the verifier, and `tool_changed` then never lets a pass carry over.
+    `found`: the path the run starts (program_path), so the fingerprint is of exactly that file."""
     if not os.path.isabs(word) and ('/' in word or '\\' in word): return {'word': word, 'in_inputs': True}
-    found = word if os.path.isabs(word) else shutil.which(word, path=(env or {}).get('PATH'))
+    found = found or program_path(word, env)
     if not found or not Path(found).is_file(): return {'word': word, 'path': None, 'sha256': None}
     target = app_alias_target(found)
     program = Path(target) if target else Path(found).resolve()
@@ -623,7 +639,42 @@ def tool_identity(word, env):
     return identity
 
 
-ENV_FILES_MAX, ENV_BYTES_MAX = 20000, 512 * 1024 * 1024
+# review of dev24b (P2): hard caps on what a fingerprint reads, counted while walking (never after listing a whole tree)
+ENV_FILES_MAX, ENV_BYTES_MAX, META_FILE_MAX = 20000, 512 * 1024 * 1024, 16 * 1024 * 1024
+
+
+class _ReadCap:
+    """Files and bytes a fingerprint reads, counted as they are met. Over a cap: refused, before the verifier (InputRefused)."""
+    def __init__(self, what):
+        self.what, self.files, self.bytes = what, 0, 0
+
+    def add(self, size):
+        self.files += 1
+        self.bytes += size
+        if self.files > ENV_FILES_MAX or self.bytes > ENV_BYTES_MAX:
+            raise InputRefused(f'{self.what} is too large to fingerprint: more than {ENV_FILES_MAX} files or {ENV_BYTES_MAX // (1024 * 1024)} MB. '
+                               'Declare a smaller folder. The verifier was not called.')
+        _tick('fingerprinting ' + self.what)
+
+
+def _read_capped(path, budget):
+    """The bytes of one metadata file (RECORD, .pth, pyvenv.cfg), at most META_FILE_MAX."""
+    with open(path, 'rb') as handle:
+        data = handle.read(META_FILE_MAX + 1)
+    if len(data) > META_FILE_MAX:
+        raise InputRefused(f'{path} is larger than {META_FILE_MAX // (1024 * 1024)} MB: the Python environment cannot be fingerprinted. The verifier was not called.')
+    budget.add(len(data))
+    return data
+
+
+def _entries(folder, budget):
+    """The entries of one folder, each counted before anything is sorted."""
+    out = []
+    with os.scandir(folder) as found:
+        for entry in found:
+            budget.add(0)
+            out.append(Path(entry.path))
+    return sorted(out, key=lambda p: p.name.lower())
 
 
 def _site_packages(program):
@@ -633,7 +684,9 @@ def _site_packages(program):
     roots, found = [program.parent, program.parent.parent], []
     cfg = next((r / 'pyvenv.cfg' for r in roots if (r / 'pyvenv.cfg').is_file()), None)
     if cfg is not None:
-        lines = [l for l in cfg.read_text(encoding='utf-8', errors='replace').splitlines() if '=' in l]
+        with open(cfg, 'rb') as handle:                # at most the cap is read; python_environment refuses a larger one
+            text = handle.read(META_FILE_MAX + 1).decode('utf-8', 'replace')
+        lines = [l for l in text.splitlines() if '=' in l]
         pairs = {l.split('=', 1)[0].strip().lower(): l.split('=', 1)[1].strip() for l in lines}
         if pairs.get('include-system-site-packages', '').lower() == 'true' and pairs.get('home'):
             roots += [Path(pairs['home']), Path(pairs['home']).parent]
@@ -646,43 +699,98 @@ def _site_packages(program):
 def python_environment(program):
     """2.5.0.dev24 (review of dev24, P1): what a Python interpreter loads beyond its own exe, read from disk only: every installed distribution
     (its dist-info folder name, which holds the version, and the sha256 of its RECORD), every .pth file and pyvenv.cfg. None when `program` is not a
-    Python interpreter."""
+    Python interpreter. Review of dev24b (P2): under the same caps as env_inputs, counted while reading; one RECORD or .pth at most META_FILE_MAX."""
     name = Path(program).name.lower()
     if not name.startswith('python'): return None
     folders, cfg = _site_packages(program)
+    budget = _ReadCap('the Python environment of ' + str(program))
     digest, count = hashlib.sha256(), 0
-    if cfg is not None: digest.update(b'cfg:' + cfg.read_bytes())
+    if cfg is not None: digest.update(b'cfg:' + _read_capped(cfg, budget))
     for folder in folders:
         digest.update(b'site:' + str(folder.resolve()).encode('utf-8', 'surrogateescape'))
-        for entry in sorted(folder.iterdir(), key=lambda p: p.name.lower()):
+        for entry in _entries(folder, budget):
             if entry.name.endswith('.dist-info') or entry.name.endswith('.egg-info'):
                 record = entry / 'RECORD'
-                data = record.read_bytes() if record.is_file() else b''
+                data = _read_capped(record, budget) if record.is_file() else b''
                 digest.update(b'dist:' + entry.name.encode('utf-8', 'surrogateescape') + b':' + hashlib.sha256(data).hexdigest().encode('ascii'))
                 count += 1
             elif entry.suffix == '.pth' and entry.is_file():
-                digest.update(b'pth:' + entry.name.encode('utf-8', 'surrogateescape') + b':' + entry.read_bytes())
+                digest.update(b'pth:' + entry.name.encode('utf-8', 'surrogateescape') + b':' + _read_capped(entry, budget))
     return {'site_packages': [str(f) for f in folders], 'distributions': count, 'sha256': digest.hexdigest()}
 
 
-def env_inputs_identity(paths):
-    """2.5.0.dev24 (review of dev24, P1): the bytes of the owner-declared paths outside the repository (a file, or every file under a folder), one
-    sha256 each. A missing path is recorded as missing; too much is refused before the verifier."""
-    out, files, total = {}, 0, 0
+def _place(path):
+    """A path as the system finds it: resolved (links, junctions, `..`), case folded on Windows."""
+    return os.path.normcase(str(Path(path).resolve()))
+
+
+def _within(inner, outer):
+    return inner == outer or inner.startswith(outer.rstrip(os.sep) + os.sep)
+
+
+def env_inputs_inside(paths, repo):
+    """review of dev24b (P2): the first declared env_input that is the repository, inside it or holding it, after resolving (`..`, case, junction).
+    Such a file belongs in `inputs`: at accept it must be judged in the accepted tree, not on the live disk."""
+    top = _place(repo)
     for path in paths or ():
-        target = Path(path)
-        if not target.exists():
-            out[path] = None
-            continue
+        place = _place(path)
+        if _within(place, top) or _within(top, place): return path
+    return None
+
+
+def _walk(root, budget):
+    """Every file under `root`, counted as it is met (a link to a folder is not followed). (relative name, path) pairs."""
+    out, stack = [], [root]
+    while stack:
+        folder = stack.pop()
+        with os.scandir(folder) as found:
+            for entry in found:
+                if entry.is_dir(follow_symlinks=False) and not entry.is_symlink() and not getattr(entry, 'is_junction', lambda: False)():
+                    stack.append(entry.path)
+                elif entry.is_file():
+                    budget.add(entry.stat().st_size)
+                    out.append((os.path.relpath(entry.path, root).replace(os.sep, '/'), entry.path))
+    return out
+
+
+def _file_sha(path):
+    digest = hashlib.sha256()
+    with open(path, 'rb') as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b''):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def env_inputs_identity(paths, repo=None):
+    """2.5.0.dev24 (review of dev24, P1): the bytes of the owner-declared paths outside the repository (a file, or every file under a folder), one
+    sha256 each. Review of dev24b: a missing or unreadable path, a path inside the repository (or holding it), two names of one place, or more than
+    the caps is refused (InputRefused: before the verifier, and at show/accept the pass is not carried)."""
+    out, seen, budget = {}, {}, _ReadCap('env_inputs')
+    top = _place(repo) if repo is not None else None
+    for path in paths or ():
+        try:
+            real = Path(path).resolve(strict=True)
+        except OSError as error:
+            raise InputRefused(f'The declared env_input {path} is missing or cannot be read ({type(error).__name__}). The verifier was not called.')
+        place = os.path.normcase(str(real))
+        if place in seen: raise InputRefused(f'The declared env_inputs {seen[place]} and {path} are the same place. The verifier was not called.')
+        seen[place] = path
+        if top is not None and (_within(place, top) or _within(top, place)):
+            raise InputRefused(f'The declared env_input {path} is inside the repository (or holds it): declare it in inputs. The verifier was not called.')
         digest = hashlib.sha256()
-        items = [target] if target.is_file() else sorted((p for p in target.rglob('*') if p.is_file()), key=lambda p: str(p).lower())
-        for item in items:
-            files += 1
-            total += item.stat().st_size
-            if files > ENV_FILES_MAX or total > ENV_BYTES_MAX:
-                raise InputRefused(f'env_inputs are too large to fingerprint (over {ENV_FILES_MAX} files or {ENV_BYTES_MAX // (1024 * 1024)} MB). The verifier was not called.')
-            digest.update(str(item.relative_to(target) if item != target else item.name).encode('utf-8', 'surrogateescape') + b':')
-            digest.update(hashlib.sha256(item.read_bytes()).hexdigest().encode('ascii'))
+        try:
+            if real.is_file():
+                budget.add(real.stat().st_size)
+                items = [(real.name, str(real))]
+            elif real.is_dir():
+                items = sorted(_walk(str(real), budget), key=lambda item: item[0].lower())
+            else:
+                raise InputRefused(f'The declared env_input {path} is neither a file nor a folder. The verifier was not called.')
+            for rel, item in items:
+                _tick('fingerprinting env_inputs')
+                digest.update(rel.encode('utf-8', 'surrogateescape') + b':' + _file_sha(item).encode('ascii'))
+        except OSError as error:
+            raise InputRefused(f'The declared env_input {path} cannot be read ({type(error).__name__}: {error})'[:300] + '. The verifier was not called.')
         out[path] = digest.hexdigest()
     return out
 
@@ -693,7 +801,7 @@ def tool_changed(tool, env=None):
     disk) or a PATH that now finds another program is a change, never a carried pass."""
     if not isinstance(tool, dict) or not tool.get('path'): return False
     word = tool.get('word')
-    if isinstance(word, str) and word and not os.path.isabs(word) and '/' not in word and '\\' not in word:
+    if is_bare_word(word):
         found = shutil.which(word, path=(env if env is not None else os.environ).get('PATH'))
         if not found: return True
         if tool.get('alias') and os.path.normcase(os.path.abspath(found)) != os.path.normcase(tool['alias']): return True
@@ -707,7 +815,7 @@ def tool_changed(tool, env=None):
     try:
         if hashlib.sha256(Path(tool['path']).read_bytes()).hexdigest() != tool.get('sha256'): return True
         now = python_environment(tool['path'])
-    except OSError:
+    except (OSError, LedgerError):                     # unreadable, or over a cap (dev24b): never a carried pass
         return True
     return (now or {}).get('sha256') != (tool['environment'] or {}).get('sha256')
 
@@ -1552,6 +1660,13 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
         scanned = check_live_tree_named(directory, argv, Path(scratch) / 'src', milestone['verifier']['config'].get('inputs_unscanned') or ()) if inputs else None
         # S1: children are always UTF-8, so a Vietnamese path or message cannot turn a pass into an encoding failure.
         env = verifier_env(directory) if effective_environment is None else dict(effective_environment)
+        # review of dev24b (P1-a): a bare program is looked up once, on THIS environment's PATH, and started by that absolute path
+        found = program_path(argv[0], env) if is_bare_word(argv[0]) else None
+        missing = is_bare_word(argv[0]) and found is None
+        if missing and inputs:
+            raise InputRefused(f"The program {argv[0]!r} is not on the verifier's PATH (the PATH without folders inside the project or the temp folder). "
+                               'Name it by its absolute path. The verifier was not called.')
+        start = [found, *argv[1:]] if found else list(argv)
         from .. import verification_evidence
         binding = verification_evidence.for_receipt(ledger, evidence_context, milestone, before, env) if evidence_context else None
         scope = None
@@ -1560,10 +1675,10 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
                 head = _git(directory, 'rev-parse', '--verify', '-q', 'HEAD')
             except LedgerError:
                 head = None
-            scope = {'paths': list(inputs), 'effective': scope_paths(inputs), 'files': timing['checkout_files'], 'bytes': timing['checkout_bytes'], 'head': head, 'tool': tool_identity(argv[0], env),
+            scope = {'paths': list(inputs), 'effective': scope_paths(inputs), 'files': timing['checkout_files'], 'bytes': timing['checkout_bytes'], 'head': head, 'tool': tool_identity(argv[0], env, found),
                      'live_tree_scan': scanned}
             if milestone['verifier']['config'].get('env_inputs'):     # 2.5.0.dev24 (P1): the owner-declared paths outside the repository
-                scope['env_inputs'] = env_inputs_identity(milestone['verifier']['config']['env_inputs'])
+                scope['env_inputs'] = env_inputs_identity(milestone['verifier']['config']['env_inputs'], toplevel(directory))
         started, error, timed_out, code, out, err = utcnow(), None, False, None, b'', b''
         begin = time.monotonic()
         if deadline is not None:                       # issue #2 (dev14): inside before_verifier too, up to the Popen
@@ -1575,7 +1690,9 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
             limit = min(limit, left / 60)
         job = _Job()                                   # Windows: the command and its children end with this process, even on a hard kill
     try:
-        process = subprocess.Popen(argv, cwd=str(workspace), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        if missing:                                    # not on the verifier's PATH: never left to the parent's PATH (the receipt says not found)
+            raise FileNotFoundError(2, f"{argv[0]!r} is not on the verifier's PATH")
+        process = subprocess.Popen(start, cwd=str(workspace), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, creationflags=(0x08000000 | job.flags()) if os.name == 'nt' else 0)
         job.adopt(process)
         try:
