@@ -92,6 +92,9 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
     stopped = None
     with ledger.transaction(write=True) as conn:
         state = plans.anchor_events(ledger, conn, name)
+        if state['status'] not in ('accepted', 'closed'):  # dev22 (A-lite): epoch before the verdict it may record
+            from . import policy_epoch
+            policy_epoch.ensure(ledger, state['task_id'], conn)
         target = plans.resolve(ledger, state)
         if target is None:
             raise LedgerError(f'No verdict can be recorded: plan {name} is {state["status"]}' + (
@@ -354,6 +357,11 @@ def run(ledger, name, milestone_id, directory=None):
     announced in the ledger (verdict.receipt_issued) before it is recorded, and record() accepts no other receipt."""
     recovered_closure = _resume_closure(ledger, name, milestone_id)
     if recovered_closure is not None: return recovered_closure
+    with ledger.transaction(write=True) as conn:       # dev22 (A-lite): the first write under this checkout policy marks its epoch
+        state = plans.anchor_events(ledger, conn, name)
+        if state['status'] not in ('accepted', 'closed'):
+            from . import policy_epoch
+            policy_epoch.ensure(ledger, state['task_id'], conn)
     with ledger.transaction() as conn:
         state = plans.anchor_events(ledger, conn, name)
         target = plans.resolve(ledger, state)

@@ -62,6 +62,7 @@ def _observe_existing(ledger, control, record, tree, checked, fence):
 
 
 def handoff(ledger, selector, *, control=None):
+    engine.mark_epoch(ledger, selector)              # dev22 (A-lite): a handoff made before the epoch is not reused (its nodes are not verified)
     with ledger.transaction() as conn:
         root, _, _ = ip.context(ledger, conn, selector, 'sequential-engine')
         deadline = ip.ceilings(ledger, conn, root)['deadline']

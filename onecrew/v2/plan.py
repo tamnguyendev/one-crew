@@ -59,7 +59,9 @@ def derive(ledger, conn, name):
     if not row: return None
     state = {'name': namespaces.parse(row['request_key'])[0], 'selector': row['request_key'], 'anchor': row['request_key'],
              'task_id': row['id'], 'revisions': {}, 'latest': 0, 'approved': None, 'accepted': None, 'verdicts': [],
-             'stopped': {}, 'issued': set(), 'issued_seq': {}, 'exceeded': 0, 'advice': {}}
+             'stopped': {}, 'issued': set(), 'issued_seq': {}, 'issued_at': {}, 'policy_epoch': None, 'exceeded': 0, 'advice': {}}
+    from . import policy_epoch
+    state['policy_epoch'] = policy_epoch.seq(conn, row['id'])          # dev22 (A-lite): the plan's epoch for the running checkout policy
     marks = ','.join('?' * len(READ_KINDS))
     declared = False
     for event in conn.execute(f'SELECT seq,kind,payload,created_at FROM events WHERE task_id=? AND kind IN ({marks}) ORDER BY seq', (row['id'], *READ_KINDS)):
@@ -82,6 +84,7 @@ def derive(ledger, conn, name):
         elif kind == 'verdict.receipt_issued':
             state['issued'].add((p['revision'], p['milestone'], p['receipt']))
             state['issued_seq'][(p['revision'], p['milestone'])] = event['seq']      # the latest issuance, to tell a receipt that still waits for its verdict
+            state['issued_at'].setdefault(p['receipt'], event['seq'])                # dev22 (A-lite): when the evidence was made, for the policy epoch
         elif kind == 'verdict.recorded': state['verdicts'].append(dict(p, seq=event['seq']))
         elif kind == 'milestone.stopped': state['stopped'][p['revision']] = p
         elif kind == 'attention.exceeded': state['exceeded'] += 1
@@ -184,6 +187,11 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=
         passed = bool(mine) and mine[-1]['result'] == 'pass'
         stopped = revision in state['stopped'] and state['stopped'][revision]['milestone'] == m['id']
         verdict, extra = (mine[-1] if mine else None), {}
+        if passed and m['verifier']['type'] != 'owner-manual' and state.get('status') not in ('accepted', 'closed'):
+            from . import policy_epoch       # dev22 (A-lite, owner 10/11): every view, the cheap ones too; an accepted plan keeps its history
+            if not policy_epoch.fresh(state.get('issued_at', {}).get(mine[-1]['receipt'], mine[-1].get('seq')), state.get('policy_epoch')):
+                passed = False
+                extra.update(stale=True, needs_recheck=True, recheck_note=policy_epoch.NOTE, stale_reasons=[policy_epoch.REASON], checks_to_rerun=[m['id']])
         if ledger is not None or artifact is not None:
             candidate = mine[-1] if passed else (_inherited(ledger, state, revision, m, contract) if not mine and carries else None)
             if candidate is not None and now() is not None:
@@ -193,11 +201,16 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=
                 else:
                     how = covers(ledger, candidate['artifact_sha'], now(), m['verifier']['type'], neutral)
                 if ledger is not None and m['verifier']['type'] != 'owner-manual':
-                    from . import verification_evidence
+                    from . import policy_epoch, verification_evidence
+                    made = state.get('issued_at', {}).get(candidate['receipt'], candidate.get('seq'))
+                    if not policy_epoch.fresh(made, state.get('policy_epoch')):      # dev22 (A-lite, owner 10/11): before the epoch -> check again
+                        how = None
+                        extra.update(stale=True, needs_recheck=True, recheck_note=policy_epoch.NOTE, stale_reasons=[policy_epoch.REASON],
+                                     checks_to_rerun=[m['id']])
                     binding = verification_evidence.receipt_assessment(ledger, contract, m, revision,
                         candidate['receipt'], now(), task_id=state['task_id'], conn=conn,
                         require_bound=namespaces.has_capability(state, 'sequential-engine'), recorded_environment=recorded_environment)
-                    if binding is not None:
+                    if binding is not None and not extra.get('needs_recheck'):
                         if binding.get('environment_changed'):
                             extra.update(execution_environment_changed=True,
                                          environment_note='Verdict ghi trong môi trường khác: nghiệm thu vẫn dựa trên nó; một lần verdict run mới ở đây sẽ chạy lại verifier.')
@@ -429,6 +442,8 @@ def amend(ledger, name, raw, reason, author, events=None, keep_content_author=Fa
     with ledger.transaction(write=True) as conn:
         state = anchor_events(ledger, conn, name)
         if state['status'] in ('accepted', 'closed'): raise LedgerError(f'Plan {name} is {state["status"]}; it cannot be amended.')
+        from . import policy_epoch
+        policy_epoch.ensure(ledger, state['task_id'], conn)       # dev22 (A-lite): a write of this OneCrew marks the plan's policy epoch
         latest, sha_now = state['latest'], content_hash(contract)
         if state['revisions'][latest]['sha'] == sha_now: raise LedgerError('The amendment is identical to the current revision.')
         revision = latest + 1
@@ -538,6 +553,8 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
         state = anchor_events(ledger, conn, name)
         if state['latest'] != revision or state['revisions'][revision]['sha'] != sha:
             raise LedgerError('The plan changed while step 0 was being checked; run approve again.')
+        from . import policy_epoch
+        policy_epoch.ensure(ledger, state['task_id'], conn)       # dev22 (A-lite): a write of this OneCrew marks the plan's policy epoch
         if state['status'] == 'closed': raise LedgerError('The root was closed while step 0 was being checked.')
         root_writer.check_approval(ledger, conn, state, contract)     # a writer that went live meanwhile; nothing is recorded
         late = [r for r in step0.contract_rules(ledger, contract) if r not in verdict['reasons']]
@@ -601,6 +618,9 @@ def accept(ledger, name, by, reference, artifact_sha, *, expected_revision=None)
     artifact_sha = _as_tree(ledger, artifact_sha)
     with ledger.transaction(write=True) as conn:
         state = anchor_events(ledger, conn, name)
+        if state['status'] != 'accepted':                # dev22 (A-lite): the first write under this checkout policy marks its epoch
+            from . import policy_epoch
+            state['policy_epoch'] = policy_epoch.ensure(ledger, state['task_id'], conn)
         if expected_revision is not None and state['latest'] != expected_revision:
             raise LedgerError(f'Cannot accept: expected revision {expected_revision}, latest is {state["latest"]}. Read the current plan before accepting.')
         repeat = state['status'] == 'accepted' and state['accepted']['artifact_sha'] == artifact_sha

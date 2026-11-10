@@ -1118,16 +1118,32 @@ def checkout_candidate(runtime, task_id, state, contract, tree):
     git(root, 'init', '-q', '--separate-git-dir=' + str(vgit), str(target))
     (vgit / 'objects' / 'info').mkdir(parents=True, exist_ok=True)
     durable_write(vgit / 'objects' / 'info' / 'alternates', (str(gitdir(state) / 'objects').replace('\\', '/') + '\n').encode())
-    for key in ('core.autocrlf', 'core.eol', 'core.safecrlf', 'core.longpaths', 'core.hooksPath', 'user.name', 'user.email'):
+    # 2.5.0.dev22 (owner 10/11 "Đồng ý", B): the work-mode verification checkout holds exactly the bytes git stores, as the v2 verifier
+    # checkout does (verifiers.command.exact_bytes): no line-ending, filter, ident or encoding attribute, the tree's own .gitattributes
+    # included, no machine config, symbolic links as plain files, one fixed time of change; git older than 2.40 is refused. The machine's
+    # line-ending settings are no longer copied in. This repository's own config and info/attributes keep it that way for every later git
+    # here (a project test that runs `git status` sees no file as changed).
+    from .v2.verifiers import command as vcommand
+    vcommand._require_attr_source(target)
+    form = wgit(state, 'rev-parse', '--show-object-format').decode().strip() or 'sha1'
+    exact, isolated = vcommand.exact_bytes(root / 'vexact', form)
+    for key in ('core.longpaths', 'core.hooksPath', 'user.name', 'user.email'):
         value = wgit(state, 'config', '--get', key, allow_failure=True)
         if value: git(target, 'config', key, value.decode().strip(), git_dir=vgit)
+    for key, value in (('core.autocrlf', 'false'), ('core.eol', 'lf'), ('core.safecrlf', 'false'), ('core.symlinks', 'false'),
+                       ('core.attributesFile', (root / 'vexact' / 'no-attributes').as_posix())):
+        git(target, 'config', key, value, git_dir=vgit)
+    (vgit / 'info').mkdir(parents=True, exist_ok=True)
+    durable_write(vgit / 'info' / 'attributes', b'* -text !eol !filter -ident !working-tree-encoding\n')   # outranks the tree's own file
     head = wgit(state, 'rev-parse', 'HEAD').decode().strip()
     same = wgit(state, 'rev-parse', head + '^{tree}').decode().strip() == tree
     commit = head if same else wgit(state, 'commit-tree', tree, '-p', head, '-m', 'OneCrew verification candidate').decode().strip()
     git(target, 'update-ref', '--no-deref', 'HEAD', commit, git_dir=vgit)
-    git(target, 'read-tree', commit, git_dir=vgit, work_tree=target)
+    git(target, *exact, 'read-tree', commit, git_dir=vgit, work_tree=target, env=isolated)
     # -u records the stat data of the written files, so later diff-files examines only the candidate's own files.
-    git(target, 'checkout-index', '-a', '-f', '-u', git_dir=vgit, work_tree=target, timeout=600)
+    git(target, *exact, 'checkout-index', '-a', '-f', '-u', git_dir=vgit, work_tree=target, timeout=600, env=isolated)
+    vcommand._fixed_times(target)
+    git(target, *exact, 'update-index', '-q', '--refresh', git_dir=vgit, work_tree=target, timeout=600, env=isolated, allow_failure=True)
     if contained:
         from .contain import own
         for path in (vgit, target / '.git'): own(path)  # Git's ownership check (safe.directory) reads these

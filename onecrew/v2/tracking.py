@@ -1031,7 +1031,9 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
                          'coverage': ('root sequential-engine: node / thế hệ / attempt / quan sát tiến độ' if engine_root
                                       else 'root không có engine: chỉ mốc và verdict, không có attempt hay quan sát tiến độ'),
                          'errors': [e for e in (contract_error and 'hợp đồng: ' + contract_error, engine_error and 'engine: ' + engine_error) if e]},
-            'milestones': [{'id': v['id'], 'title': clean(v['title'], 120), 'state': v['state'], 'stale': bool(v.get('stale'))} for v in views],
+            'milestones': [{'id': v['id'], 'title': clean(v['title'], 120), 'state': v['state'], 'stale': bool(v.get('stale')),
+                            **({'needs_recheck': True, 'state_text': 'cần kiểm lại', 'note': v.get('recheck_note')} if v.get('needs_recheck') else {})}
+                           for v in views],
             'capabilities': list(state.get('capabilities') or ()),
             'read_only': True}
     if not full: return item

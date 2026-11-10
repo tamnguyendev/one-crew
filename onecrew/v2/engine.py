@@ -29,11 +29,24 @@ def _fresh(nodes):
     return records
 
 
+def mark_epoch(ledger, selector):
+    """dev22 (A-lite, owner 10/11): the first engine write under this checkout policy marks the root's policy epoch; a node verification
+    published before it does not make the node verified (it is checked again)."""
+    from . import policy_epoch
+    with ledger.transaction(write=True) as conn:
+        root = plans.anchor_events(ledger, conn, selector)
+        if root['status'] in ('accepted', 'closed'): return None
+        return policy_epoch.ensure(ledger, root['task_id'], conn)
+
+
 def state(ledger, selector, conn=None):
     if conn is None:
         with ledger.transaction() as connection:
             return state(ledger, selector, connection)
     root = plans.anchor_events(ledger, conn, selector)
+    from . import policy_epoch
+    epoch = policy_epoch.seq(conn, root['task_id'])
+    keeps_history = root['status'] in ('accepted', 'closed')       # an accepted root keeps its history
     marks = ','.join('?' for _ in KINDS)
     events = conn.execute(f'SELECT seq,kind,payload FROM events WHERE task_id=? AND kind IN ({marks}) ORDER BY seq', (root['task_id'], *KINDS)).fetchall()
     definition, records, internal_revision, contract_sha, contract_revision = None, {}, 0, None, None
@@ -74,7 +87,10 @@ def state(ledger, selector, conn=None):
         elif event['kind'] == 'node.verification':
             record['verification_receipt'] = payload['receipt']
             record['verification_result'] = payload['result']
-            if payload['result'] == 'pass': record.update(phase='complete', state='verified')
+            record.pop('needs_recheck', None)
+            if payload['result'] == 'pass':
+                if keeps_history or policy_epoch.fresh(event['seq'], epoch): record.update(phase='complete', state='verified')
+                else: record.update(needs_recheck=True, recheck_note=policy_epoch.NOTE)   # stays produced: eligible, accept_node, handoff wait
         elif event['kind'] == 'node.accepted':
             record['state'] = 'accepted'
         elif event['kind'] == 'node.held':
@@ -1375,6 +1391,7 @@ def _notify_held(ledger, selector):
 
 
 def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _swept=False, checker=None, _peer=None):
+    mark_epoch(ledger, selector)
     current = state(ledger, selector)
     if current['root_status'] == 'accepted':
         need = next_action(ledger, selector, view=current)
@@ -1484,6 +1501,7 @@ def verify(ledger, selector, nid, checker, *, door='engine.verify'):
     """The required check of a produced node, through one run per request (review_dispatch): the same request running elsewhere is observed
     (status pending, same run id), an unknown outcome is held (no replay), an issued result is completed from its receipt."""
     from . import review_dispatch
+    mark_epoch(ledger, selector)
     with ledger.transaction() as conn:
         root, contract, sha = ip.context(ledger, conn, selector, 'sequential-engine')
         view = state(ledger, root['selector'], conn)
@@ -1648,6 +1666,7 @@ def publish_issued(ledger, selector, run):
     """Reconcile: complete a node run from the receipt it issued; the checker is never called. Current facts equal to the run's request
     (execution aside: its configuration is stored only as fingerprints) publish; anything else closes the run stale, unpublished."""
     from . import review_dispatch
+    mark_epoch(ledger, selector)
     receipt, subject = run['issued']['receipt'], run['subject']
     nid = subject['node']
     try:
@@ -1678,6 +1697,7 @@ def publish_issued(ledger, selector, run):
 
 
 def accept_node(ledger, selector, nid):
+    mark_epoch(ledger, selector)
     with ledger.transaction() as conn:
         root, contract, sha = ip.context(ledger, conn, selector, 'sequential-engine')
         view = state(ledger, root['selector'], conn)

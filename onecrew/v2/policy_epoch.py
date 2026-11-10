@@ -1,17 +1,20 @@
 """The checkout-policy epoch of a plan (2.5.0.dev22, owner 10/11 "Đồng ý": A-lite).
 
-The first time this OneCrew WRITES to a plan (a verdict run or record, an engine verify, step, accept or handoff, plan accept), it records
-one `checkout.policy_epoch` event for the checkout policy it runs (verifiers.command.CHECKOUT_POLICY), on the plan's own task. A new policy
-value gets a new epoch. Evidence of a plan that is not accepted counts only when it was made AFTER that event (by seq):
+The first time this OneCrew WRITES to a plan (propose, amend, approve, a verdict run or record, an engine step, verify, accept or handoff,
+plan accept), it records the plan's epoch for the checkout policy it runs (verifiers.command.CHECKOUT_POLICY): the ledger's last event seq at
+that moment, in its own table `policy_epochs` (no event: the event stream every reader and test knows stays as it was; an older OneCrew never
+reads the table). A new policy value gets a new epoch. Evidence of a plan that is not accepted counts only when it was made AFTER the epoch:
   - a top-level verdict by the seq of its `verdict.receipt_issued` (a receipt issued before and recorded after the epoch is still before it);
   - a node verification by the seq of its `node.verification`.
 Read-only commands write nothing: before any write under this policy there is no epoch, and every earlier evidence reads as "needs a new
-check". An accepted plan keeps its history (its views come from the acceptance record). Owner-manual verdicts do not depend on a checkout and
-are not judged here.
+check". An accepted plan keeps its history. Owner-manual verdicts do not depend on a checkout and are not judged here.
 """
+import sqlite3
+
 from ..ledger import utcnow
 
-KIND = 'checkout.policy_epoch'
+TABLE = ('CREATE TABLE IF NOT EXISTS policy_epochs (task_id TEXT NOT NULL, policy TEXT NOT NULL, seq INTEGER NOT NULL, '
+         'created_at TEXT NOT NULL, PRIMARY KEY(task_id, policy))')
 
 
 def _policy():
@@ -20,21 +23,25 @@ def _policy():
 
 
 def seq(conn, task_id, policy=None):
-    """The seq of this plan's epoch for `policy` (default: the running one), or None when no write has happened under it."""
-    row = conn.execute("SELECT seq FROM events WHERE task_id=? AND kind=? AND json_extract(payload,'$.policy')=? ORDER BY seq LIMIT 1",
-                       (task_id, KIND, policy or _policy())).fetchone()
+    """This plan's epoch for `policy` (default: the running one), or None when no write has happened under it (or the ledger is older)."""
+    try:
+        row = conn.execute('SELECT seq FROM policy_epochs WHERE task_id=? AND policy=?', (task_id, policy or _policy())).fetchone()
+    except sqlite3.OperationalError:            # a ledger no write of this OneCrew has touched: no table yet
+        return None
     return row['seq'] if row else None
 
 
 def ensure(ledger, task_id, conn=None):
-    """The epoch of this plan for the running policy, written now if it is not there yet. Call it inside (or as) a write transaction, before
-    the write that may produce or use evidence."""
+    """The epoch of this plan for the running policy, recorded now if it is not there yet (the last event seq of the ledger). Call it inside
+    (or as) a write transaction, before the write that may produce or use evidence."""
     if conn is None:
         with ledger.transaction(write=True) as opened:
             return ensure(ledger, task_id, opened)
     found = seq(conn, task_id)
     if found is not None: return found
-    ledger._event(conn, task_id, KIND, {'policy': _policy(), 'at': utcnow()})
+    conn.execute(TABLE)
+    last = conn.execute('SELECT COALESCE(MAX(seq), 0) AS last FROM events').fetchone()['last']
+    conn.execute('INSERT OR IGNORE INTO policy_epochs(task_id, policy, seq, created_at) VALUES(?,?,?,?)', (task_id, _policy(), last, utcnow()))
     return seq(conn, task_id)
 
 
