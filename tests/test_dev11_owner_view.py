@@ -195,7 +195,7 @@ class TrackingPage(Fixture):
         self.assertEqual(out[2], 'Đang chờ bạn: Duyệt việc: ' + PLAIN['request'])
         self.assertEqual(out[3], '')
         legacy = self.js('[workTitle(%s), workDesc(%s), workNoOwner(%s)]' % ((json.dumps(old),) * 3))
-        self.assertEqual(legacy[0], old['goal'])                                         # as before
+        self.assertEqual(legacy[0], old.get('headline') or old['goal'])                  # 2.5.0.dev24 (mep6): the contract title, else the goal
         self.assertEqual(legacy[1], '')
         self.assertEqual(legacy[2], 'chưa có mô tả cho chủ')
 
