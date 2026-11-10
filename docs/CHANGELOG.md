@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v2.5.0.dev22 (10/11/2026) — trả lời review dev20 theo quyết định của chủ ("Đồng ý cả 3", 10/11) — LOCAL, chưa tag/push/phát hành
+
+Test đỏ trên `9d23ed4`: `tests/test_dev22_review_fixes.py`.
+- **A-lite, mốc chính sách:**
+  - lần ghi đầu tiên của runtime vào một plan ghi sự kiện `checkout.policy_epoch` cho chính sách chép hiện hành (lớp A; mỗi giá trị mới một mốc; lệnh chỉ đọc không ghi);
+  - với plan chưa nghiệm thu, bằng chứng có trước mốc không tính: verdict top-level theo seq của `verdict.receipt_issued`, kết quả node theo seq của `node.verification`;
+  - các chỗ chặn: `plan.accept`, `engine.accept_node`, handoff, `root_ready`, `eligible` (qua `engine.state`);
+  - `plan show` và trang theo dõi ghi "cần kiểm lại"; plan đã nghiệm thu giữ nguyên;
+  - runbook nâng cấp (`NANG-RUNTIME.vi.md` C0) ghi: còn plan mở thì phải chạy lại verdict.
+- **(B) Chế độ work:** `work_tools.checkout_candidate` dùng lõi exact-bytes (`command.exact_bytes`): không attributes, không filter, không cấu hình máy, symlink là tệp thường, giờ sửa cố định, từ chối git dưới 2.40. Cấu hình riêng và `info/attributes` của repo kiểm giữ cho `git status` sạch.
+
 ## v2.5.0.dev21 (10/11/2026) — review lại dev20 `c0d62b3` (Kiro, FAIL): phần không cần chủ quyết — LOCAL, chưa tag/push/phát hành
 
 Test đỏ trên `c0d62b3`: `tests/test_dev21_review_fixes.py`.

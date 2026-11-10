@@ -15,6 +15,16 @@ Trong lượt phát hành:
 - Venv hay sổ của repo dùng chung với repo khác mà bạn chưa kiểm hết các repo đó (mục C1).
 - Chỉ muốn xem UI: dùng mục A, không nâng.
 
+**Bằng chứng cũ của plan còn mở phải kiểm lại** (từ 2.5.0.dev22, chủ duyệt 10/11):
+- **Mốc chính sách.** Lần đầu runtime mới **ghi** vào một plan (chạy verdict, engine step/verify/accept/handoff, hay nghiệm thu), nó ghi một mốc `checkout.policy_epoch` cho cách chép artifact hiện hành. Lệnh chỉ đọc (`plan show`, `plan digest`, trang theo dõi) không ghi gì.
+- **Bằng chứng có trước mốc không còn tính**, với mọi plan **chưa nghiệm thu**: verdict của mốc kiểm, kết quả kiểm của từng phần việc (node), và handoff.
+  - `plan show` và trang theo dõi ghi **"cần kiểm lại"** thay cho "đạt".
+  - `plan accept` từ chối, kèm lý do.
+  - Phần việc phụ thuộc không được bắt đầu; node không được nghiệm thu; không handoff.
+- **Plan đã nghiệm thu giữ nguyên lịch sử.**
+- **Vì vậy:** tốt nhất chỉ nâng khi repo không còn plan mở. Nếu còn, sau khi nâng phải **chạy lại verdict** cho từng mốc (và `engine verify` cho từng phần việc đã kiểm), rồi mới nghiệm thu.
+- Mỗi lần cách chép đổi (giá trị `checkout_policy` mới), một mốc mới được ghi, và quy tắc trên áp lại.
+
 ## C1. Kiểm trước (chỉ đọc)
 
 Đặt các biến của mục A0 trong [Repo đang dùng OneCrew](REPO-DANG-DUNG-ONECREW.vi.md). Sau đó làm A1, A2 và A3: venv 2.5.0.dev10 riêng, hiện trạng `$Truoc`, bản sao sổ `$BanSao`.
