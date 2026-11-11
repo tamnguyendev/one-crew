@@ -543,7 +543,7 @@ class InstallTests(S2Fixture):
         # S2-R09: a second feedback's install inside the claimed window of a running one is refused
         fb2 = self.new_fb('another report for the same target')
         self.cli('support', 'artifact', fb2, '--wheel', str(self.wheel()[0]), '--manifest', str(self.manifest(self.wheel()[0])))
-        self.cli('support', 'rollback', self.fb)
+        self.owner('support', 'rollback', self.fb)          # dev25 (P1.c): rollback is the owner's, a worker actor is refused
         inside = {}
         real = hotfix().safe_point
         def during(*args, **kwargs):
@@ -556,7 +556,7 @@ class InstallTests(S2Fixture):
             code, made = self.install()
         self.assertIn('in progress', inside.get('error', ''))
         # a window violation: an attempt starts while the hooks are repointed
-        self.cli('support', 'rollback', self.fb)
+        self.owner('support', 'rollback', self.fb)
         realpoint = hotfix().repoint
         def racing(*args, **kwargs):
             done = realpoint(*args, **kwargs)

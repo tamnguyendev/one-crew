@@ -14,8 +14,9 @@ CLAUDE_CODE_CHILD_SESSION=1 and CLAUDECODE=1; the Opus review of L2 saw the same
 2.5.0.dev25 (review Fable 5.2 of dev24, P1-1): a process OneCrew starts to run the project's or a model's code (a check, a reviewer, a step-0
 precondition) carries ONECREW_VERIFIER (`child_env`). Such a process is treated as an AI session, so a check script cannot take the owner's
 decisions, whoever started the check. One exception keeps OneCrew's own test suite usable as a check: when every ledger the process opened lies
-in the temporary folder (fixed once, at import, from TMPDIR/TEMP/TMP; never re-read), the marker does not count. With no ledger opened yet it
-counts (closed when unknown). A process that declares a non-owner actor (ONECREW_ACTOR=onecrew|claude|codex|...) is an AI session too (P1.c).
+in the temporary folder (fixed once, when this module is first imported, from TMPDIR/TEMP/TMP; never re-read), the marker does not count. With no ledger opened yet it
+counts (closed when unknown). A process that declares a non-owner actor (ONECREW_ACTOR=onecrew|claude|codex|...) cannot run an owner verb either
+(P1.c, `owner_refused`); who is recorded as the author of an ordinary decision (in_ai_session) is unchanged for it.
 Said plainly: this REDUCES, it does not close, the risk. A script that removes the marker on purpose (os.environ.pop), starts `onecrew` with
 another TEMP, reaches a real ledger through a hardlink, or writes the sqlite file itself still gets through: an environment variable is a claim.
 Only signing the owner's decisions with something an AI cannot use (roadmap D4) closes it.
@@ -43,8 +44,9 @@ def _real(path):
 
 
 def _temp_root():
-    """The temporary folder of THIS process as it started: the first of TMPDIR, TEMP, TMP that is a folder, else the platform default. Read once,
-    at import; a later change of the environment or of tempfile.tempdir does not move it."""
+    """The temporary folder of THIS process: the first of TMPDIR, TEMP, TMP that is a folder, else the platform default. Read once, when this module
+    is first imported (the first Ledger at the latest); a later change of the environment or of tempfile.tempdir does not move it. A script that
+    changes TEMP before it imports onecrew, or starts onecrew with another TEMP, chooses it (known limit, LOI-DA-BIET)."""
     for name in ('TMPDIR', 'TEMP', 'TMP'):
         value = os.environ.get(name)
         if value and os.path.isdir(value): return _real(value)
@@ -93,9 +95,15 @@ def child_env(base):
 
 
 def in_ai_session():
-    # C11: the Claude Code marker present with any value, an empty one included, is an AI session; dev25: so is a OneCrew check (see the module
-    # docstring) and a process that declares a non-owner actor
-    return any(name in os.environ for name in AI_MARKERS) or started_by_check() or declared_ai_actor()
+    # C11: the Claude Code marker present with any value, an empty one included, is an AI session; dev25: so is a OneCrew check (module docstring)
+    return any(name in os.environ for name in AI_MARKERS) or started_by_check()
+
+
+def owner_refused():
+    """dev25: the one test of every refusal of an owner verb: an AI session (in_ai_session) or a process that declares a non-owner actor (P1.c).
+    Kept apart from in_ai_session, which also decides how an ordinary decision is attributed (decisions.record), so a worker that records its own
+    decision under its own name is not treated as a Claude session there."""
+    return in_ai_session() or declared_ai_actor()
 
 
 def why():
@@ -107,17 +115,17 @@ def why():
 
 
 def refuse_in_ai_session(what):
-    if in_ai_session():
+    if owner_refused():
         raise LedgerError(f'{what} refused: {why()}. The owner runs it in a terminal of their own.')
 
 
 def session_info():
     """What this process can say about who runs it, for the ledger: {'actor_env': ONECREW_ACTOR or None, 'ai_session': True | False | 'unknown'}.
-    True = an AI-session marker is set (or a OneCrew check started it, or it declares a non-owner actor). False = no marker and the process declares
+    True = an AI-session marker is set (or a OneCrew check started it, or it declares a non-owner actor: owner_refused). False = no marker and the process declares
     itself the owner (ONECREW_ACTOR=user|owner). 'unknown' = no marker and no declaration: an AI that unset the marker looks the same, so nothing is
     claimed. dev25: 'started_by': 'onecrew-check' when the check marker counts."""
     actor = os.environ.get('ONECREW_ACTOR')
-    info = {'actor_env': actor, 'ai_session': True if in_ai_session() else (False if actor in OWNER_ACTORS else 'unknown')}
+    info = {'actor_env': actor, 'ai_session': True if owner_refused() else (False if actor in OWNER_ACTORS else 'unknown')}
     if started_by_check(): info['started_by'] = 'onecrew-check'
     return info
 
@@ -159,7 +167,7 @@ def refuse_argv(argv):
     flag_form = bool(flag) and any(w.startswith(flag) for w in argv)
     verb = words[:2] if words[:2] in OWNER_VERBS else words[:3] if owner_form and words[:3] in OWNER_FORMS else words[:2]
     if flag_form: verb = (*words[:2], '--venv')
-    if not (words[:2] in OWNER_VERBS or owner_form or flag_form) or not in_ai_session(): return None
+    if not (words[:2] in OWNER_VERBS or owner_form or flag_form) or not owner_refused(): return None
     print(json.dumps({'error': f'{" ".join(verb)} refused: {why()}. The owner runs it in a terminal of their own.',
                       'type': 'LedgerError'}))
     return 2

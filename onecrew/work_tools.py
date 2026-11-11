@@ -443,6 +443,8 @@ def environment(runtime, task_id, contract=None, verification=False):
     env.setdefault('CI', 'true')
     env.update(PYTHONUTF8='1', PYTHONIOENCODING='utf-8')  # same codepage independence as the gate and the runner
     env['PYTHONDONTWRITEBYTECODE'] = '1'  # no stale bytecode, no __pycache__ in the workspace diff
+    from .v2.ownership import child_env
+    env = child_env(env)  # dev25 (review of dev25, P2-1): DROP_ENV removed every ONECREW_*/CLAUDE* marker; a worker or verification command is not the owner
     if contract is not None and boundary(contract) == 'contained':
         cache = root / ('vcache' if verification else 'cache')
         for key, name in CACHES.items(): env[key] = str(cache / name)  # package caches the boundary lets them write

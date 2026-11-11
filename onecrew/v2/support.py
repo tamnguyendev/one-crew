@@ -353,7 +353,7 @@ OWNER_WORDS = ('owner', 'user', 'human')
 def _ai_session():
     import os
     from . import ownership                     # dev25: also a OneCrew check and a declared non-owner actor
-    return any(name in os.environ for name in ('CLAUDE_CODE_CHILD_SESSION', 'CLAUDECODE')) or ownership.in_ai_session()
+    return any(name in os.environ for name in ('CLAUDE_CODE_CHILD_SESSION', 'CLAUDECODE')) or ownership.owner_refused()
 
 
 def _actor(by):

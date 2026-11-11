@@ -282,6 +282,36 @@ class DeclaredActor(Base):
         for actor in ('owner', 'user', ''):
             os.environ['ONECREW_ACTOR'] = actor
             self.assertFalse(ownership.in_ai_session(), actor)
+            self.assertIsNone(ownership.refuse_in_ai_session('x'), actor)
+
+    def test_a_worker_cannot_switch_the_governing_plan(self):
+        self.new_plan('B'); self.new_plan('A')
+        with patch.dict(os.environ, {'ONECREW_ACTOR': 'onecrew'}):
+            self.assertIsNone(active_plan.export(self.ledger, 'B'))
+        self.assertEqual(json.loads(active_plan.project_file(self.root).read_text(encoding='utf-8'))['plan'], 'A')
+
+    def test_review_p2_1_a_v1_worker_command_carries_the_marker_and_cannot_approve(self):
+        from types import SimpleNamespace
+        from onecrew import work_tools
+        self.new_plan('OTHER', approve=False)
+        work_root = self.base / 'work'
+        with patch.dict(os.environ, {'ONECREW_WORK_ROOT': str(work_root), 'ONECREW_ACTOR': 'onecrew'}):
+            env = work_tools.environment(SimpleNamespace(ledger=self.ledger), 'task-1')
+        self.assertEqual(env.get('ONECREW_VERIFIER'), '1')
+        out = self.base / 'v1.txt'
+        script = inner_cli(REPO, self.root, self.state, out, 'plan', 'approve', 'OTHER', '--by', 'owner', '--reference', 'x')
+        subprocess.run([PY, '-c', script], env=env, capture_output=True)
+        self.assertFalse(self.approved('OTHER'))
+        self.assertIn('ONECREW_VERIFIER', out.read_text(encoding='utf-8'))
+
+
+class OldGoverningCopy(Base):
+    def test_review_p3_4_a_copy_without_anchor_is_compared_by_plan_name(self):
+        self.new_plan('A')
+        path = active_plan.project_file(self.root)
+        value = json.loads(path.read_text(encoding='utf-8')); value.pop('anchor', None); active_plan._write(path, value)
+        with patch.dict(os.environ, AI):
+            self.assertIsNotNone(active_plan.export(self.ledger, 'A'))      # the AI may still refresh the governing plan
 
 
 class LimitsAsKnown(Base):

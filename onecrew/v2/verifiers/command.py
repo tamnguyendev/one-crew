@@ -1694,7 +1694,8 @@ def verifier_env(directory):
         keep.append(entry)
     env['PATH'] = os.pathsep.join(keep)
     from ..ownership import child_env
-    return child_env(dict(env, PYTHONUTF8='1', PYTHONIOENCODING='utf-8'))      # dev25 (P1-1): the check cannot take the owner's decisions
+    env = child_env(env)                                                    # dev25 (P1-1): the check cannot take the owner's decisions
+    return dict(env, PYTHONUTF8='1', PYTHONIOENCODING='utf-8')
 
 
 class _Job:

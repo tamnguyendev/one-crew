@@ -9,7 +9,7 @@
   - `Ledger.__init__` và ba bộ định tuyến CLI (`cli.route`, `owner_cli`, `support_cli`) ghi state root (realpath) **trước** khi quyết định từ chối. Chưa mở sổ nào thì dấu có hiệu lực (đóng khi không biết).
   - Dấu không tính vào dấu vân tay môi trường (D2), nên receipt của dev24 vẫn dùng lại được.
   - **Còn mở với AI cố ý né:** script tự xóa dấu (`os.environ.pop`), khởi chạy `onecrew` với `TEMP` khác, mở sổ thật qua hardlink trong thư mục tạm, hay sửa thẳng tệp sqlite. Hướng đóng thật: ký quyết định của chủ bằng thứ AI không dùng được (D4, roadmap; chủ quyết).
-- **P1.c (review thiết kế):** tiến trình khai `ONECREW_ACTOR` khác `user|owner` (worker OneCrew đặt `onecrew`) là phiên AI với `in_ai_session`. Vì vậy worker không tắt được enforce (`gate.set_enforced`), và không chạy được `support rollback`/`target add`/`cleanup --venv`/`confirm`. `hotfix._ai_session` và `support._ai_session` gọi cùng quy tắc.
+- **P1.c (review thiết kế):** tiến trình khai `ONECREW_ACTOR` khác `user|owner` (worker OneCrew đặt `onecrew`) không chạy được lệnh của chủ. Quy tắc nằm ở `ownership.owner_refused()`, mà mọi cửa từ chối lệnh của chủ dùng chung: `refuse_in_ai_session`, `refuse_argv`, `hotfix._ai_session`, `support._ai_session`, và quy tắc đổi plan canh. Vì vậy worker không tắt được enforce (`gate.set_enforced`), và không chạy được `support rollback`/`target add`/`cleanup --venv`/`confirm`. `in_ai_session` (dùng để ghi ai là tác giả một quyết định thường) không đổi với actor khai báo; test bị khóa `test_wf_node_learning` giữ hành vi đó.
 - **P1-2, đã sửa: AI không đổi được plan mà hook đang canh.**
   - Một quy tắc ở chỗ ghi tệp canh (`active_plan.export` → `switch_refusal`) áp cho mọi đường: `hook export`, `plan amend`, `verdict run|record`, `findings`, `internal_plan`, `answer_effects`.
   - Được ghi khi: dự án chưa có plan canh; làm mới đúng plan đang canh (kể cả plan đã nghiệm thu, và khi tệp hết hạn); chủ đổi (`plan approve`, `hook mode --plan`, cả hai sau `require_owner`; hoặc mọi lần ghi từ một tiến trình không phải phiên AI theo `ownership.in_ai_session`, như dev24); hoặc plan đang canh đã hết hiệu lực theo sổ và plan mới đang hiệu lực (chỉ làm canh chặt hơn).
@@ -17,7 +17,11 @@
   - `hook_cli.refreshed` vẫn ghi thẳng bằng `_write`, nhưng chỉ dựng lại đúng plan đang canh.
 - **Đổi hành vi:** khi hai plan cùng hiệu lực trong một dự án, lượt kiểm hay lượt sửa **do phiên AI chạy** không còn giành quyền canh; plan canh là plan chủ chọn sau cùng (lúc duyệt, `enforce.ps1`, hay một lệnh chủ tự chạy trong terminal của mình).
 - **Test:** `tests/test_dev25_p1_owner_guard.py` (29 ca, đỏ trên `7052cee` ở các ca lỗi, xanh trên dev25). Lớp `LimitsAsKnown` khẳng định hai giới hạn còn mở.
-- **Rà `subprocess`:** các đường v1 (job, delivery, cổng sandbox, preview) chạy dưới runner, vốn mang `ONECREW_ACTOR=onecrew`, nên P1.c phủ chúng. Đường nào dựng môi trường sạch riêng (`evaluation.clean_environment`, `sandbox_gate`) thì không mang dấu; ghi trong `LOI-DA-BIET`.
+- **Rà `subprocess`:**
+  - lệnh mà worker v1 chạy qua OneCrew, và lệnh kiểm v1 (`work_tools.environment`), trước đây bị gột mọi biến `ONECREW_*`/`CLAUDE*`, nên không mang dấu nào. Nay chúng đi qua `ownership.child_env` (review mã dev25, P2-1);
+  - CLI của worker (`subscription.environment`) giữ `ONECREW_ACTOR=onecrew`, nên P1.c phủ nó;
+  - các đường v1 khác dựng môi trường sạch riêng (`evaluation.clean_environment`, `sandbox_gate`, `cv_gate`, `preview`) thì không mang dấu; ghi trong `LOI-DA-BIET`.
+- **Review mã dev25 (P3):** bản canh do bản cũ ghi (không có `anchor`) được so theo tên plan. Đã có bằng chứng: một lượt pass do mã `7052cee` ghi vẫn "passed" với dev25 và chủ nghiệm thu được, không phải chạy lại (D2).
 
 ## v2.5.0.dev24 (10/11/2026) — gộp dòng verifier MEP (mep2…mep7) vào 2.5; chủ: "Gộp MEP rồi gửi" — LOCAL, chưa tag/push/phát hành
 

@@ -148,8 +148,8 @@ ENFORCING = ('approved', 'stopped_with_report', 'closed')       # the statuses h
 
 
 def _same(document, copy):
-    mine = document.get('anchor') or document.get('plan')
-    return bool(mine) and (copy.get('anchor') or copy.get('plan')) == mine
+    if document.get('anchor') and copy.get('anchor'): return document['anchor'] == copy['anchor']
+    return bool(document.get('plan')) and copy.get('plan') == document.get('plan')    # a copy from an old build has no anchor (review of dev25, P3-4)
 
 
 def governing_copy(ledger):
@@ -187,11 +187,11 @@ def switch_refusal(ledger, document, take_over=False):
     """dev25 (review Fable 5.2, P1-2): the one rule of every write of the hooks' file. None when `document` may become what the hooks follow, else
     the reason. Allowed: no plan governs the project yet; the same plan is refreshed (an accepted one included: the file then says what is true);
     the owner switches (`take_over`: plan approve and hook mode, both behind require_owner; or any write from a process that is not an AI session,
-    by the one rule of ownership.in_ai_session, as before dev25); or the governing plan no longer holds the project (the ledger has it accepted)
+    by the one rule of ownership.owner_refused, as before dev25); or the governing plan no longer holds the project (the ledger has it accepted)
     and the new one does, so the switch only makes the hooks stricter. Anything else is the owner's: an AI session, a OneCrew check or worker that
     runs `hook export`, `plan amend` or `verdict run` cannot put another plan (a wider or an accepted one) in place of the one that is enforced."""
-    from .ownership import in_ai_session
-    if take_over or not in_ai_session(): return None
+    from .ownership import owner_refused
+    if take_over or not owner_refused(): return None
     copy = governing_copy(ledger)
     if copy is None or (not copy.get('unreadable') and _same(document, copy)): return None
     if not _still_enforcing(ledger, copy) and document.get('status') in ENFORCING: return None
