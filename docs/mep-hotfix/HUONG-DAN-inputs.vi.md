@@ -25,7 +25,7 @@
   - **Thiếu hay không đọc được:** lượt kiểm bị từ chối trước khi lệnh chạy ("chưa chạy", không giữ run). Lúc `plan show` hay nghiệm thu, đường thiếu làm pass "cần kiểm lại", nghiệm thu bị chặn.
   - **Liên kết bên trong một thư mục `env_inputs`** (symlink, junction): OneCrew ghi nó trỏ đi đâu, nhưng không đọc thứ nó trỏ tới. Xem `LOI-DA-BIET.vi.md`.
 - **Đường có `.` hay `..`** (ví dụ `D:\work\.\repo\out.txt` hay `/home/a/x/../repo/cfg`) được chuẩn hóa trước khi kiểm, cả trên dòng lệnh lẫn trong nội dung các input: đường trỏ vào cây làm việc thật bị từ chối như cách viết thường, kể cả khi tệp chưa có (review dev24d).
-- **`inputs_unscanned` không bao giờ miễn được thứ dòng lệnh gọi tới,** dù viết khác (`tool/./check.py`, `tool/x/../check.py`, khác hoa/thường trên Windows): hợp đồng từ chối, và lúc chạy các tệp đó vẫn được quét.
+- **`inputs_unscanned` không bao giờ miễn được thứ dòng lệnh gọi tới,** dù viết khác (`tool/./check.py`, `tool/x/../check.py`, khác hoa/thường trên Windows), và cả khi dòng lệnh gọi **thư mục chứa nó** (ví dụ `pytest tool` hay `pytest .` thì mọi tệp trong `tool`, hay trong cả repo, đều được quét): hợp đồng từ chối, và lúc chạy các tệp đó vẫn được quét (review dev24e).
 - **Dấu vân tay được nhớ** theo đường, kích thước, giờ sửa (tới nano giây) và mã tệp: xem lại plan hay trang theo dõi không đọc lại tệp không đổi. Danh sách thư mục vẫn được đọc lại mỗi lần.
 - **Giới hạn băm, đếm ngay trong lúc duyệt** (mỗi tệp, mỗi thư mục, mỗi liên kết là một mục):
   - tối đa 20 000 mục và 512 MB cho cả `env_inputs`;

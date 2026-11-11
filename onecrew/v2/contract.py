@@ -95,7 +95,8 @@ def _unscanned(value, inputs, argv, cwd, name):
         if path in out: raise LedgerError(name + '.inputs_unscanned: ' + path + ' is listed twice.')
         if not any(path == i or path.startswith(i + '/') for i in inputs):
             raise LedgerError(name + '.inputs_unscanned: ' + path + ' is not one of the inputs or inside one.')
-        if any(n == fold(path) or n.startswith(fold(path) + '/') for n in named):
+        # review of dev24e (P1): equal to, under OR above what the command line names (a folder it names runs what is inside it; `.` names all)
+        if any(n == fold(path) or n.startswith(fold(path) + '/') or n == '.' or fold(path).startswith(n + '/') for n in named):
             raise LedgerError(name + '.inputs_unscanned: ' + path + ' is named by the command line; what the command runs or is given is always scanned.')
         out.append(path)
     return out

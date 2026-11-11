@@ -561,7 +561,7 @@ def _named_by_argv(argv, directory, top):
                 continue
             outer = os.path.normcase(str(Path(top).resolve()))
             seen = os.path.normcase(str(full))
-            if _within(seen, outer) and seen != outer: named.add(fold(os.path.relpath(seen, outer)))
+            if _within(seen, outer): named.add('.' if seen == outer else fold(os.path.relpath(seen, outer)))      # `.`: the whole repository (dev24e)
     return named
 
 
@@ -608,7 +608,8 @@ def check_live_tree_named(directory, argv, workspace_root, unscanned=()):
         if isinstance(word, str) and (pattern.search(word.encode('utf-8', 'surrogateescape')) or _dotted_live(word.encode('utf-8', 'surrogateescape'), top)):
             raise InputRefused(f'The command names the live tree by an absolute path ({word!r}): it would read or write past the checkout of the declared inputs. The verifier was not called.')
     named = _named_by_argv(argv, directory, top)
-    unscanned = tuple(u for u in unscanned if not any(n == fold(u) or n.startswith(fold(u) + '/') for n in named))
+    # review of dev24e (P1): an exemption equal to, under or above a path the command line names is dropped (a named folder runs what is inside it)
+    unscanned = tuple(u for u in unscanned if not any(n == fold(u) or n.startswith(fold(u) + '/') or n == '.' or fold(u).startswith(n + '/') for n in named))
     scanned = {'files': 0, 'not_text': 0}
     skipped = 0
     root = Path(workspace_root)

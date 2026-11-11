@@ -45,6 +45,7 @@
   - P2: dấu vân tay tệp được nhớ theo (đường, kích thước, giờ sửa ns, mã tệp): một lượt cập nhật trang theo dõi đo được khoảng 0,2 giây thay vì 2,9 giây;
   - P3: các dòng mốc trên trang theo dõi dùng đúng view sống mà thẻ nghiệm thu đã tính.
   - Test đỏ trên `945afdc`: `tests/test_dev24_p1d_review.py`.
+- **Review vòng 5 trên `1d29b43` (Kiro):** `inputs_unscanned` bằng, nằm dưới **hay nằm trên** một đường dòng lệnh gọi tới (`pytest tool`, `pytest .`) bị hợp đồng từ chối và bị bỏ miễn lúc chạy. Các P2/P3 còn lại ghi vào `LOI-DA-BIET.vi.md` theo quy tắc dừng. Phần workflow (P1 `next_action` sau "cần kiểm lại", P1 proof lồng hỏng) chờ quyết định của chủ. Test đỏ trên `1d29b43`: `tests/test_dev24_p1e_review.py`.
 - **Hướng dẫn** `docs/mep-hotfix/HUONG-DAN-inputs.vi.md` có mục «Trên 2.5»: mọi mốc lệnh ghi chương trình, cách tìm và chạy chương trình, gói Python, `env_inputs`, giới hạn, hệ quả khi nâng, phần còn chưa phủ. `NANG-RUNTIME.vi.md` mục C0 ghi hệ quả khi nâng.
 
 ## v2.5.0.dev23 (10/11/2026) — review dev21+dev22 `b015155` (Kiro, có P1) — LOCAL, chưa tag/push/phát hành
