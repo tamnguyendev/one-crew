@@ -144,16 +144,79 @@ def build(ledger, name):
             'state_root': str(root), 'exported_at': utcnow(), 'expires': (now + dt.timedelta(hours=EXPIRY_HOURS)).isoformat()}
 
 
-def export(ledger, name):
-    """Write the active plan for the hooks. Never raises: an approval or a verdict that is already in the ledger must not fail
-    because a file could not be written (the hooks then see a missing or stale file and say so)."""
+ENFORCING = ('approved', 'stopped_with_report', 'closed')       # the statuses hook_cli.judge_call enforces
+
+
+def _same(document, copy):
+    mine = document.get('anchor') or document.get('plan')
+    return bool(mine) and (copy.get('anchor') or copy.get('plan')) == mine
+
+
+def governing_copy(ledger):
+    """The active plan the hooks of this project follow now, as a dict: the project copy, else the newest state-root copy that names this project
+    (hook_cli.state_copy). None when there is none; {'unreadable': reason} when the copy that governs cannot be read."""
+    path = project_file(ledger.project)
+    if not path.exists():
+        from .hook_cli import state_copy
+        path = state_copy(ledger.state_root, ledger.project)
+        if path is None: return None
+    try:
+        value = json.loads(Path(path).read_text(encoding='utf-8-sig'))
+        if not isinstance(value, dict) or not (value.get('anchor') or value.get('plan')): raise ValueError('no plan named')
+        return value
+    except (OSError, ValueError) as error:
+        return {'unreadable': f'{path}: {type(error).__name__}: {error}'}
+
+
+def _still_enforcing(ledger, copy):
+    """True when the ledger says the governing plan still holds the project (approved, stopped_with_report, closed); also when that cannot be read
+    (closed when unknown). False when the ledger has it accepted, or does not know it (never approved)."""
+    if copy.get('unreadable'): return True
+    try:
+        here = ledger
+        if copy.get('state_root') and os.path.normcase(str(Path(copy['state_root']).resolve())) != os.path.normcase(str(Path(ledger.state_root).resolve())):
+            from ..ledger import Ledger
+            here = Ledger(ledger.project, copy['state_root'])
+        now = build(here, copy.get('anchor') or copy.get('plan'))
+    except Exception:                   # noqa: BLE001 - unknown is enforcing
+        return True
+    return now is not None and now.get('status') in ENFORCING
+
+
+def switch_refusal(ledger, document, take_over=False):
+    """dev25 (review Fable 5.2, P1-2): the one rule of every write of the hooks' file. None when `document` may become what the hooks follow, else
+    the reason. Allowed: no plan governs the project yet; the same plan is refreshed (an accepted one included: the file then says what is true);
+    the owner switches (`take_over`: plan approve and hook mode, both behind require_owner; or any write from a process that is not an AI session,
+    by the one rule of ownership.in_ai_session, as before dev25); or the governing plan no longer holds the project (the ledger has it accepted)
+    and the new one does, so the switch only makes the hooks stricter. Anything else is the owner's: an AI session, a OneCrew check or worker that
+    runs `hook export`, `plan amend` or `verdict run` cannot put another plan (a wider or an accepted one) in place of the one that is enforced."""
+    from .ownership import in_ai_session
+    if take_over or not in_ai_session(): return None
+    copy = governing_copy(ledger)
+    if copy is None or (not copy.get('unreadable') and _same(document, copy)): return None
+    if not _still_enforcing(ledger, copy) and document.get('status') in ENFORCING: return None
+    current = 'an unreadable active plan (' + copy['unreadable'] + ')' if copy.get('unreadable') else f"plan {copy.get('plan')} ({copy.get('status')})"
+    return (f"Plan {document.get('plan')} is not the plan the hooks of this project follow: {current} governs it and still holds it. Only the owner "
+            f"switches the governing plan: hook mode enforce --plan {document.get('plan')} --by owner (scripts/owner/enforce.ps1), or plan approve.")
+
+
+def export(ledger, name, take_over=False, strict=False):
+    """Write the active plan for the hooks. Never raises (unless `strict`): an approval or a verdict that is already in the ledger must not fail
+    because a file could not be written (the hooks then see a missing or stale file and say so). dev25: a plan that may not become the governing
+    one (switch_refusal) is not written at all; `strict` (the `hook export` verb) raises that reason instead of returning None."""
     try:
         document = build(ledger, name)
         if document is None: return None
+        refusal = switch_refusal(ledger, document, take_over)
+        if refusal:
+            if strict: raise LedgerError(refusal)
+            print('warning: active-plan.json not exported: ' + refusal, file=sys.stderr)
+            return None
         from . import namespaces
         _write(namespaces.active_file(ledger, document['anchor']), document)
         _write(project_file(ledger.project), document)
         return document
     except (OSError, LedgerError, ValueError) as error:
+        if strict: raise
         print(f'warning: active-plan.json not exported: {type(error).__name__}: {error}', file=sys.stderr)
         return None

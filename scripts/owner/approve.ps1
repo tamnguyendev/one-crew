@@ -2,7 +2,7 @@
 .SYNOPSIS
   Owner verb: approve a OneCrew v2 plan (plan approve --by owner).
 .DESCRIPTION
-  Type this in the owner's OWN terminal, not in an AI session: the CLI refuses it when CLAUDE_CODE_CHILD_SESSION is set.
+  Type this in the owner's OWN terminal, not in an AI session: the CLI refuses it when CLAUDE_CODE_CHILD_SESSION is set, and (2.5.0.dev25) inside a process a OneCrew check started.
   Only calls onecrew_cli.py; --by is always owner. Prints the status line, exits non-zero on a missing plan or a refusal.
   -Reference: where the owner said yes (recorded, max 500 chars). Keep it ASCII if the console garbles diacritics.
   Defaults for -Project (the repo holding this script), -StateRoot and -Python are for THIS machine: override them

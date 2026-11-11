@@ -2,7 +2,7 @@
 .SYNOPSIS
   Owner verb: accept the result of a OneCrew v2 plan (plan accept --by owner).
 .DESCRIPTION
-  Type this in the owner's OWN terminal, not in an AI session: the CLI refuses it when CLAUDE_CODE_CHILD_SESSION is set.
+  Type this in the owner's OWN terminal, not in an AI session: the CLI refuses it when CLAUDE_CODE_CHILD_SESSION is set, and (2.5.0.dev25) inside a process a OneCrew check started.
   Only calls onecrew_cli.py; --by is always owner. The CLI refuses while a milestone lacks a passing verdict, or when
   -ArtifactSha is not the artifact every milestone passed on. Prints the status line, exits non-zero on a refusal.
   Defaults for -Project (the repo holding this script), -StateRoot and -Python are for THIS machine: override them

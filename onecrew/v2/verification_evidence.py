@@ -30,9 +30,11 @@ def environment(env=None):
     This is a fingerprint of these observations, not a claim to inventory every
     operating-system library or authenticate an external model provider.
     """
+    # dev25 (owner D2): the check marker is a constant OneCrew sets on every check, so it is not part of the fingerprint (a dev24 receipt stays reusable)
+    from .ownership import VERIFIER_MARKER
     return {'python': sys.version, 'implementation': sys.implementation.name,
             'platform': platform.platform(), 'machine': platform.machine(),
-            'variables': {str(k): content_hash(str(v)) for k, v in sorted((env or {}).items())}}
+            'variables': {str(k): content_hash(str(v)) for k, v in sorted((env or {}).items()) if str(k).upper() != VERIFIER_MARKER}}
 
 
 def _path(value):

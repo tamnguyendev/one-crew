@@ -2,7 +2,7 @@
 .SYNOPSIS
   Owner verb: record the owner's own verdict on an owner-manual milestone (verdict record --by owner).
 .DESCRIPTION
-  Type this in the owner's OWN terminal, not in an AI session: the CLI refuses it when CLAUDE_CODE_CHILD_SESSION is set.
+  Type this in the owner's OWN terminal, not in an AI session: the CLI refuses it when CLAUDE_CODE_CHILD_SESSION is set, and (2.5.0.dev25) inside a process a OneCrew check started.
   Only calls onecrew_cli.py; --by is always owner. -ReceiptFile is stored as the receipt blob (write in it what the owner
   looked at and decided). Only owner-manual milestones take a receipt file; command and reviewer milestones
   are verified by `verdict run`. Milestones go in order. The CLI has no --reference for a verdict: put it in the receipt.

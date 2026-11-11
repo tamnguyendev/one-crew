@@ -3,7 +3,7 @@
   Owner verb: switch the hook of a plan to enforce (hook mode enforce --by owner) so it blocks instead of only logging.
   Typed AFTER approve.ps1 (plan approve, then hook mode enforce --plan <name>).
 .DESCRIPTION
-  Type this in the owner's OWN terminal, not in an AI session: the CLI refuses it when CLAUDE_CODE_CHILD_SESSION is set.
+  Type this in the owner's OWN terminal, not in an AI session: the CLI refuses it when CLAUDE_CODE_CHILD_SESSION is set, and (2.5.0.dev25) inside a process a OneCrew check started.
   Only calls onecrew_cli.py; --by is always owner. Prints the mode line, exits non-zero on a missing plan or a refusal.
   -Mode log goes back to logging only. The separate state-root gate (plan enforce on|off) is not done here.
   Defaults for -Project (the repo holding this script), -StateRoot and -Python are for THIS machine: override them

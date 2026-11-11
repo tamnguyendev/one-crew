@@ -116,6 +116,8 @@ def _report(args, argv, ledger):
 def main(argv, index=None):
     argv = list(argv)
     if index is None: index = next((i for i, w in enumerate(argv) if w == 'support'), 0)
+    from .ownership import note_argv_state_root
+    note_argv_state_root(argv[:index])            # dev25: before the refusal is decided
     refused = refuse_argv(argv[index:])           # `support confirm` is an owner verb (ownership.OWNER_VERBS)
     if refused: return refused
     args = _parser().parse_args(argv)

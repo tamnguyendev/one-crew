@@ -667,7 +667,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
             estimates.ensure_baseline(ledger, conn, state['selector'], estimate)
             step0.record_closed(ledger, conn, state['task_id'], name, revision, sha, verdict, choose)
     if not verdict['ok']: raise LedgerError(step0.refusal_text(verdict))   # after the commit, so the precondition run stays recorded
-    from . import active_plan; active_plan.export(ledger, name)  # L2: one line (hooks read the exported file, not the ledger)
+    from . import active_plan; active_plan.export(ledger, name, take_over=True)  # L2; dev25: the owner's approval makes it the governing plan
     return with_warnings(_show(ledger, name), contract)
 
 

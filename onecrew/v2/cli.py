@@ -54,7 +54,8 @@ def route(args, index):
         # this route lets a refusal use human text without changing JSON callers.
         from .owner_cli import main as owner_main
         return owner_main(args)
-    from .ownership import refuse_argv  # C3: the owner's verbs are refused inside an AI tool session
+    from .ownership import note_argv_state_root, refuse_argv  # C3: the owner's verbs are refused inside an AI tool session
+    note_argv_state_root(args[:index])                        # dev25: the ledger this command opens, before the refusal is decided
     refused = refuse_argv(args[index:])
     if refused: return refused
     if args[index:index + 2] == ['eval', 'plan-metrics']:

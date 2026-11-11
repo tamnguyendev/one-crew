@@ -967,13 +967,13 @@ def main(argv=None):
                 out = {'mode': active_plan.set_mode(ledger, args.mode), 'mode_committed': True,
                        'plan': document['plan'], 'revision': document['revision'], 'exported': False}
                 try:
-                    out['exported'] = bool(active_plan.export(ledger, name))
+                    out['exported'] = bool(active_plan.export(ledger, name, take_over=True))      # dev25: the owner chooses the governing plan
                     if not out['exported']: raise LedgerError('Active-plan export did not complete; see the retained export warning for its cause. The mode was already written.')
                 except (LedgerError, ValueError, OSError) as error:
                     print(json.dumps(dict(out, error=str(error), type=type(error).__name__), ensure_ascii=False))
                     return 2
             else:
-                out = active_plan.export(ledger, args.plan)
+                out = active_plan.export(ledger, args.plan, strict=True)      # dev25: refreshes the governing plan; switching it is the owner's
                 if out is None: raise LedgerError('Plan ' + args.plan + ' has never been approved; nothing to export.')
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return 0

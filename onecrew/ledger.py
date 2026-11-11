@@ -146,6 +146,8 @@ class Ledger:
         self.project_id = digest(self.project_path)
         default = Path(os.environ['LOCALAPPDATA']) / 'OneCrew' if os.environ.get('LOCALAPPDATA') else Path.home() / '.onecrew'
         self.state_root = Path(state_root if state_root is not None else default).resolve()
+        from .v2.ownership import note_state_root
+        note_state_root(self.state_root)        # dev25: an owner verb in a OneCrew check is allowed only while every ledger opened is a temporary one
         if self.state_root.is_relative_to(self.project):
             raise LedgerError('Ledger state must be outside the project workspace.')
         self.path = self.state_root / 'ledger.sqlite3'

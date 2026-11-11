@@ -98,13 +98,15 @@ def _crash(point):
 
 
 def _ai_session():
-    return any(name in os.environ for name in ('CLAUDE_CODE_CHILD_SESSION', 'CLAUDECODE'))
+    from . import ownership                     # dev25: also a OneCrew check and a declared non-owner actor (ownership.in_ai_session)
+    return any(name in os.environ for name in ('CLAUDE_CODE_CHILD_SESSION', 'CLAUDECODE')) or ownership.in_ai_session()
 
 
 def _refuse_ai(what):
     if _ai_session():
-        raise LedgerError(f'{what} refused: this process runs inside an AI tool session (CLAUDE_CODE_CHILD_SESSION or CLAUDECODE is set). '
-                          'The owner runs it in a terminal of their own.')
+        from . import ownership
+        why = ownership.why() if ownership.in_ai_session() else 'this process runs inside an AI tool session (CLAUDE_CODE_CHILD_SESSION or CLAUDECODE is set)'
+        raise LedgerError(f'{what} refused: {why}. The owner runs it in a terminal of their own.')
 
 
 # ---- the venv side (replaceable in tests) -------------------------------------------------------------------------------------

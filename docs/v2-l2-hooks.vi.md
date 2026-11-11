@@ -17,7 +17,7 @@ Mục tiêu: AI làm trong Claude Code bị chặn ngay tại chỗ khi ra ngoà
 | `hook stop` | Stop | mốc hiện tại chưa có verdict pass → `decision: block`; tối đa 2 lần mỗi phiên rồi cho qua và ghi `stop_cap` |
 | `hook session` | SessionStart | tóm tắt hợp đồng ≤ 25 dòng làm `additionalContext` |
 | `hook sync` | (tay) | nhập `violations.jsonl` vào sổ cái: `hook.blocked|logged|reminded|stop_blocked` |
-| `hook export P` / `hook mode` | (tay, owner) | xuất lại file / đổi `log`↔`enforce` |
+| `hook export P` / `hook mode` | (tay; `hook mode` của owner) | `hook export P` chỉ làm mới plan đang canh dự án (ai cũng được, kể cả khi tệp hết hạn); đổi sang plan khác là việc của chủ: `hook mode enforce --plan P`, `plan approve`, hay một lệnh chủ chạy trong terminal của mình; phiên AI, bộ kiểm hay worker không đổi được (2.5.0.dev25). Ngoại lệ: plan đang canh đã nghiệm thu thì một plan còn hiệu lực được lấy quyền canh. `hook mode` đổi `log`↔`enforce` |
 
 Giới hạn thật: Bash không phải ranh giới bảo mật (hook đọc chữ của lệnh, không thấy script ghi gì); lớp cứng là `permissions.deny`. Xem `docs/v2-parking-lot.vi.md` (nhãn L2) cho phần chưa làm.
 

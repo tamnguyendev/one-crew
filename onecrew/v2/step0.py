@@ -197,7 +197,9 @@ def _tail(data):
 
 
 def _run(ledger, argv, cwd, minutes):
-    env = dict(os.environ, PYTHONUTF8='1', PYTHONIOENCODING='utf-8')   # children are UTF-8 (S1)
+    from .ownership import child_env
+    # children are UTF-8 (S1); dev25: a precondition runs the project's code, also inside the owner's `plan approve`, so it carries the check marker
+    env = child_env(dict(os.environ, PYTHONUTF8='1', PYTHONIOENCODING='utf-8'))
     begin, out, err, code, timed_out = time.monotonic(), b'', b'', None, False
     try:
         process = subprocess.Popen(argv, cwd=str(cwd), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,

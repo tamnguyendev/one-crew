@@ -27,6 +27,11 @@ Trong lượt phát hành:
 - **Vì vậy:** tốt nhất chỉ nâng khi repo không còn plan mở. Nếu còn, sau khi nâng phải **chạy lại verdict** cho từng mốc (và `engine verify` cho từng phần việc đã kiểm), rồi mới nghiệm thu.
 - Mỗi lần cách chép đổi (giá trị `checkout_policy` mới), một mốc mới được ghi, và quy tắc trên áp lại.
 - **Plan workflow đang dở (lỗi đã biết, có từ 2.5.0.dev22):** sau khi nâng, một bước đã đạt bị đánh dấu "cần kiểm lại" nhưng chế độ tự chạy không kiểm lại nó, và màn hướng dẫn nói sai "bằng chứng đầu vào không khớp"; root đứng yên. **Cách làm:** chạy `engine verify` cho từng bước đó (xem `LOI-DA-BIET.vi.md`).
+- **Từ 2.5.0.dev25:**
+  - không có kết quả kiểm nào phải chạy lại: dấu `ONECREW_VERIFIER` không tính vào dấu vân tay; định dạng sổ và tệp canh không đổi; quay về dev24 được (mất hai lớp chặn);
+  - một bộ kiểm, reviewer hay lệnh tiền điều kiện gọi lệnh của chủ (`plan approve|accept|enforce`, `hook mode`, `support ...`) trên một sổ ngoài thư mục tạm nay bị từ chối. **Trước khi nâng**, đọc argv của mọi mốc kiểm và mọi lệnh `command_ok` bước 0 của repo xem có gọi `onecrew` như vậy không;
+  - khi hai plan cùng hiệu lực trong một dự án, lượt kiểm hay sửa do phiên AI chạy không còn đổi plan mà hook canh; hook theo plan chủ chọn sau cùng. Sau khi nâng, chạy `scripts/owner/enforce.ps1 -Plan <plan đang làm>` để chắc;
+  - worker OneCrew (`ONECREW_ACTOR=onecrew`) không còn tắt được enforce hay chạy `support` của chủ.
 - **Từ 2.5.0.dev24 cách chép là `exact-blob-bytes/3`:** mọi receipt của bộ kiểm lệnh ghi thêm chương trình đã chạy và gói Python của nó. Hệ quả khi nâng từ bản trước: **mọi pass của bộ kiểm lệnh trên plan chưa nghiệm thu phải chạy lại một lần**, có hay không có `inputs`. Plan đã nghiệm thu giữ nguyên.
 
 ## C1. Kiểm trước (chỉ đọc)

@@ -136,6 +136,7 @@ def main(args):
     if not human: return run(glob + argv)
     from . import ownership
     output, errors = io.StringIO(), io.StringIO()
+    ownership.note_argv_state_root(glob)             # dev25: before the refusal is decided
     with contextlib.redirect_stdout(output): refused = ownership.refuse_argv(['owner', *rest])
     if refused: return _human_result(parsed, refused, output.getvalue(), refused=True)
     from .tracking import REFERENCE_PLACEHOLDER

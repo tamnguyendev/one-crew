@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## v2.5.0.dev25 (11/11/2026) — hai P1 của review Fable 5.2 trên dev24; chủ duyệt thiết kế 11/11 ("A") — LOCAL, chưa tag/push/phát hành
+
+- **P1-1, đã GIẢM, CHƯA ĐÓNG: bộ kiểm chạy hộ không còn là đường vô ý để lấy quyết định của chủ.**
+  - Mọi tiến trình OneCrew chạy hộ mã của dự án hay của model mang dấu `ONECREW_VERIFIER` (`ownership.child_env`): bộ kiểm lệnh (`command.verifier_env`), reviewer/advisor/adapter (cùng hàm), và lệnh tiền điều kiện bước 0 (`step0._run`).
+  - Lệnh tiền điều kiện chạy cả trong `plan approve` của chủ: trước đây nó chạy bằng môi trường của chủ, nên một script AI viết gọi được lệnh của chủ (cùng gốc, review chưa nêu).
+  - `ownership.in_ai_session()` coi dấu đó là phiên AI, trừ khi mọi sổ tiến trình đã mở nằm trong thư mục tạm của nó. Thư mục tạm được chốt một lần lúc import, từ `TMPDIR`/`TEMP`/`TMP`, không đọc lại. Ngoại lệ này (D1) giữ bộ test của OneCrew dùng được làm bộ kiểm.
+  - `Ledger.__init__` và ba bộ định tuyến CLI (`cli.route`, `owner_cli`, `support_cli`) ghi state root (realpath) **trước** khi quyết định từ chối. Chưa mở sổ nào thì dấu có hiệu lực (đóng khi không biết).
+  - Dấu không tính vào dấu vân tay môi trường (D2), nên receipt của dev24 vẫn dùng lại được.
+  - **Còn mở với AI cố ý né:** script tự xóa dấu (`os.environ.pop`), khởi chạy `onecrew` với `TEMP` khác, mở sổ thật qua hardlink trong thư mục tạm, hay sửa thẳng tệp sqlite. Hướng đóng thật: ký quyết định của chủ bằng thứ AI không dùng được (D4, roadmap; chủ quyết).
+- **P1.c (review thiết kế):** tiến trình khai `ONECREW_ACTOR` khác `user|owner` (worker OneCrew đặt `onecrew`) là phiên AI với `in_ai_session`. Vì vậy worker không tắt được enforce (`gate.set_enforced`), và không chạy được `support rollback`/`target add`/`cleanup --venv`/`confirm`. `hotfix._ai_session` và `support._ai_session` gọi cùng quy tắc.
+- **P1-2, đã sửa: AI không đổi được plan mà hook đang canh.**
+  - Một quy tắc ở chỗ ghi tệp canh (`active_plan.export` → `switch_refusal`) áp cho mọi đường: `hook export`, `plan amend`, `verdict run|record`, `findings`, `internal_plan`, `answer_effects`.
+  - Được ghi khi: dự án chưa có plan canh; làm mới đúng plan đang canh (kể cả plan đã nghiệm thu, và khi tệp hết hạn); chủ đổi (`plan approve`, `hook mode --plan`, cả hai sau `require_owner`; hoặc mọi lần ghi từ một tiến trình không phải phiên AI theo `ownership.in_ai_session`, như dev24); hoặc plan đang canh đã hết hiệu lực theo sổ và plan mới đang hiệu lực (chỉ làm canh chặt hơn).
+  - Tệp canh không đọc được: chỉ chủ đổi. `hook export` của một plan khác trả exit 2 kèm lệnh của chủ.
+  - `hook_cli.refreshed` vẫn ghi thẳng bằng `_write`, nhưng chỉ dựng lại đúng plan đang canh.
+- **Đổi hành vi:** khi hai plan cùng hiệu lực trong một dự án, lượt kiểm hay lượt sửa **do phiên AI chạy** không còn giành quyền canh; plan canh là plan chủ chọn sau cùng (lúc duyệt, `enforce.ps1`, hay một lệnh chủ tự chạy trong terminal của mình).
+- **Test:** `tests/test_dev25_p1_owner_guard.py` (29 ca, đỏ trên `7052cee` ở các ca lỗi, xanh trên dev25). Lớp `LimitsAsKnown` khẳng định hai giới hạn còn mở.
+- **Rà `subprocess`:** các đường v1 (job, delivery, cổng sandbox, preview) chạy dưới runner, vốn mang `ONECREW_ACTOR=onecrew`, nên P1.c phủ chúng. Đường nào dựng môi trường sạch riêng (`evaluation.clean_environment`, `sandbox_gate`) thì không mang dấu; ghi trong `LOI-DA-BIET`.
+
 ## v2.5.0.dev24 (10/11/2026) — gộp dòng verifier MEP (mep2…mep7) vào 2.5; chủ: "Gộp MEP rồi gửi" — LOCAL, chưa tag/push/phát hành
 
 - **Gộp** `claude/mep-field-fixes-0911` (`4836971`, chứa `claude/hotfix-verifier-inputs`):

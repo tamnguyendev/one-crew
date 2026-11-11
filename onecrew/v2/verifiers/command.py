@@ -1693,7 +1693,8 @@ def verifier_env(directory):
         if _within(resolved, top) or (_within(resolved, scratch) and not _within(resolved, own)): continue
         keep.append(entry)
     env['PATH'] = os.pathsep.join(keep)
-    return dict(env, PYTHONUTF8='1', PYTHONIOENCODING='utf-8')
+    from ..ownership import child_env
+    return child_env(dict(env, PYTHONUTF8='1', PYTHONIOENCODING='utf-8'))      # dev25 (P1-1): the check cannot take the owner's decisions
 
 
 class _Job:
