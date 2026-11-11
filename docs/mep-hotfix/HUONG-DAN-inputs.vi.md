@@ -25,7 +25,7 @@
   - **Thiếu hay không đọc được:** lượt kiểm bị từ chối trước khi lệnh chạy ("chưa chạy", không giữ run). Lúc `plan show` hay nghiệm thu, đường thiếu làm pass "cần kiểm lại", nghiệm thu bị chặn.
   - **Liên kết bên trong một thư mục `env_inputs`** (symlink, junction): OneCrew ghi nó trỏ đi đâu, nhưng không đọc thứ nó trỏ tới. Xem `LOI-DA-BIET.vi.md`.
 - **Đường có `.` hay `..`** (ví dụ `D:\work\.\repo\out.txt` hay `/home/a/x/../repo/cfg`) được chuẩn hóa trước khi kiểm, cả trên dòng lệnh lẫn trong nội dung các input: đường trỏ vào cây làm việc thật bị từ chối như cách viết thường, kể cả khi tệp chưa có (review dev24d).
-- **`inputs_unscanned` không bao giờ miễn được thứ dòng lệnh gọi tới,** dù viết khác (`tool/./check.py`, `tool/x/../check.py`, khác hoa/thường trên Windows), và cả khi dòng lệnh gọi **thư mục chứa nó** (ví dụ `pytest tool` hay `pytest .` thì mọi tệp trong `tool`, hay trong cả repo, đều được quét): hợp đồng từ chối, và lúc chạy các tệp đó vẫn được quét (review dev24e).
+- **`inputs_unscanned`: chỉ những đường viết nguyên văn trên dòng lệnh luôn được quét** (một tệp, một thư mục, `.`, `--rootdir=...`), dù viết khác (`tool/./check.py`, `tool/x/../check.py`, khác hoa/thường trên Windows). Tên được miễn mà bằng, nằm dưới hay nằm trên một đường như vậy bị hợp đồng từ chối và bị bỏ miễn lúc chạy (review dev24e). **Tệp mà công cụ kiểm chạy hay đọc gián tiếp thì không được bảo vệ** (chủ 11/11, phương án A; xem `LOI-DA-BIET.vi.md`): ví dụ `pytest tests/x.py::test_a`, `pytest @args.txt`, tệp do `pytest.ini`/`pyproject.toml`/`conftest.py` hay `addopts` tìm thấy, `--doctest-glob` và các mẫu `*`, hay `pytest` không kèm đường nào. **Chỉ miễn tệp dữ liệu, không bao giờ miễn một test, script hay tệp cấu hình.**
 - **Dấu vân tay được nhớ** theo đường, kích thước, giờ sửa (tới nano giây) và mã tệp: xem lại plan hay trang theo dõi không đọc lại tệp không đổi. Danh sách thư mục vẫn được đọc lại mỗi lần.
 - **Giới hạn băm, đếm ngay trong lúc duyệt** (mỗi tệp, mỗi thư mục, mỗi liên kết là một mục):
   - tối đa 20 000 mục và 512 MB cho cả `env_inputs`;
@@ -126,7 +126,7 @@ Cả hai điểm áp dụng cho đường cũ lẫn đường `inputs`.
 
 **Quy tắc:**
 - Chỉ dùng được khi có `inputs`. Mỗi mục là một input hoặc nằm trong một input; tối đa 200 mục, không trùng.
-- **Không được miễn thứ dòng lệnh nêu**, kể cả thư mục chứa nó, tính cả `cwd`: chương trình và đối số luôn được quét. Dòng lệnh cũng luôn được quét.
+- **Không được miễn đường viết nguyên văn trên dòng lệnh** (tệp, thư mục, `.`, `--rootdir`), kể cả thư mục chứa nó hay nằm trong nó, tính cả `cwd`: các đường đó luôn được quét, và chính dòng lệnh cũng luôn được quét. **Không có bảo vệ** cho tệp mà công cụ kiểm tự tìm hay đọc gián tiếp (selector `file::test`, `@argfile`, `pytest.ini`/`pyproject.toml`/`conftest.py`, `addopts`, mẫu `*`, `pytest` không kèm đường): chỉ miễn tệp dữ liệu, không miễn test, script hay tệp cấu hình (xem `LOI-DA-BIET.vi.md`).
 - **Chủ duyệt từng mục:** mỗi mục nằm trong hợp đồng, nên `owner approve` cũng là chấp nhận việc miễn đó. Thêm hay bớt mục là sửa hợp đồng.
 - **Receipt ghi lại:** `input_scope.live_tree_scan` có `unscanned` (số tệp bỏ qua) và `unscanned_paths`.
 - Tệp được miễn vẫn là input: đổi nó thì bằng chứng cũ hết hiệu lực.

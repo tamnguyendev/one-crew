@@ -26,6 +26,7 @@ Trong lượt phát hành:
 - **Plan đã nghiệm thu giữ nguyên lịch sử.**
 - **Vì vậy:** tốt nhất chỉ nâng khi repo không còn plan mở. Nếu còn, sau khi nâng phải **chạy lại verdict** cho từng mốc (và `engine verify` cho từng phần việc đã kiểm), rồi mới nghiệm thu.
 - Mỗi lần cách chép đổi (giá trị `checkout_policy` mới), một mốc mới được ghi, và quy tắc trên áp lại.
+- **Plan workflow đang dở (lỗi đã biết, có từ 2.5.0.dev22):** sau khi nâng, một bước đã đạt bị đánh dấu "cần kiểm lại" nhưng chế độ tự chạy không kiểm lại nó, và màn hướng dẫn nói sai "bằng chứng đầu vào không khớp"; root đứng yên. **Cách làm:** chạy `engine verify` cho từng bước đó (xem `LOI-DA-BIET.vi.md`).
 - **Từ 2.5.0.dev24 cách chép là `exact-blob-bytes/3`:** mọi receipt của bộ kiểm lệnh ghi thêm chương trình đã chạy và gói Python của nó. Hệ quả khi nâng từ bản trước: **mọi pass của bộ kiểm lệnh trên plan chưa nghiệm thu phải chạy lại một lần**, có hay không có `inputs`. Plan đã nghiệm thu giữ nguyên.
 
 ## C1. Kiểm trước (chỉ đọc)
