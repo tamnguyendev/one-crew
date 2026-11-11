@@ -37,7 +37,7 @@
   - P2 liên kết lồng bên trong `env_inputs` và P3 tranh chấp giữa lúc băm và lúc chạy ghi vào `LOI-DA-BIET.vi.md`.
   - Test đỏ trên `84ef359`: `tests/test_dev24_p1c_review.py`.
 - **Review toàn bộ trên `945afdc` (Kiro, 3 P1 + 3 P2 + 1 P3), chủ 11/11: "Sửa cả lỗi cũ":**
-  - P1: quy tắc chương trình áp cả cho bằng chứng workflow **đã ghi**: `engine.state` (nên node phụ thuộc, nghiệm thu node, `verification_ready`, handoff lặp lại và `root_ready`) và `handoff_evidence` cùng gọi `common_verification.recorded_program_reasons`; node đã kiểm mà chương trình, gói Python hay `env_inputs` đổi thành "cần kiểm lại". `incidents` cũng xét proof theo quy tắc này; môi trường tra cứu chỉ dựng khi chương trình là tên trần;
+  - P1 (workflow): đã thử áp quy tắc chương trình cho kết quả kiểm node đã ghi, rồi **gỡ ra ở vòng 6** (chủ 11/11, phương án A): xem dòng vòng 6 dưới đây. Môi trường tra cứu chỉ dựng khi chương trình là tên trần (giữ);
   - P1: đường có `.`/`..` (dòng lệnh và nội dung input) được chuẩn hóa trước các bước chặn cây làm việc thật, kể cả đường chưa có;
   - P1: `inputs_unscanned` so tên đã chuẩn hóa (`./`, `..`, hoa/thường trên Windows); lúc chạy, tệp dòng lệnh gọi tới luôn được quét;
   - P2: chương trình tương đối có thư mục mà bản chép không có bị từ chối trước khi lệnh chạy;
@@ -45,7 +45,8 @@
   - P2: dấu vân tay tệp được nhớ theo (đường, kích thước, giờ sửa ns, mã tệp): một lượt cập nhật trang theo dõi đo được khoảng 0,2 giây thay vì 2,9 giây;
   - P3: các dòng mốc trên trang theo dõi dùng đúng view sống mà thẻ nghiệm thu đã tính.
   - Test đỏ trên `945afdc`: `tests/test_dev24_p1d_review.py`.
-- **Review vòng 5 trên `1d29b43` (Kiro):** `inputs_unscanned` bằng, nằm dưới **hay nằm trên** một đường dòng lệnh gọi tới (`pytest tool`, `pytest .`) bị hợp đồng từ chối và bị bỏ miễn lúc chạy. Các P2/P3 còn lại ghi vào `LOI-DA-BIET.vi.md` theo quy tắc dừng. Phần workflow (P1 `next_action` sau "cần kiểm lại", P1 proof lồng hỏng) chờ quyết định của chủ. Test đỏ trên `1d29b43`: `tests/test_dev24_p1e_review.py`.
+- **Review vòng 5 trên `1d29b43` (Kiro):** `inputs_unscanned` bằng, nằm dưới **hay nằm trên** một đường dòng lệnh gọi tới (`pytest tool`, `pytest .`) bị hợp đồng từ chối và bị bỏ miễn lúc chạy. Các P2/P3 còn lại ghi vào `LOI-DA-BIET.vi.md` theo quy tắc dừng. Test đỏ trên `1d29b43`: `tests/test_dev24_p1e_review.py`.
+- **Vòng 6, chủ 11/11 chọn phương án A ("ok, làm theo lời khuyên"):** gỡ quy tắc chương trình khỏi kết quả kiểm node **đã ghi** của plan workflow. `engine.py`, `common_handoff.py`, `incidents.py`, `common_verification.py` trở lại đúng từng byte như `945afdc`, nên `engine.state`, handoff và `next_action` chạy như 2.5.0.dev23 với các lần kiểm đã ghi. Giữ nguyên: quy tắc chương trình trên plan thường (`plan show`, nghiệm thu), xét lại proof khi **dùng lại** (`proof_mismatch`), mốc chính sách `exact-blob-bytes/3`, các sửa còn lại của vòng 4–5. Ghi lỗi đã biết vào `LOI-DA-BIET.vi.md`; sẽ sửa bằng một việc riêng, thiết kế trước. Test P1-1 trong `tests/test_dev24_p1d_review.py` nay khẳng định hành vi dev23.
 - **Hướng dẫn** `docs/mep-hotfix/HUONG-DAN-inputs.vi.md` có mục «Trên 2.5»: mọi mốc lệnh ghi chương trình, cách tìm và chạy chương trình, gói Python, `env_inputs`, giới hạn, hệ quả khi nâng, phần còn chưa phủ. `NANG-RUNTIME.vi.md` mục C0 ghi hệ quả khi nâng.
 
 ## v2.5.0.dev23 (10/11/2026) — review dev21+dev22 `b015155` (Kiro, có P1) — LOCAL, chưa tag/push/phát hành

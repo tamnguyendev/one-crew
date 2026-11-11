@@ -341,35 +341,6 @@ def expected_of(kind, proof):
     return port.expected_result(proof)
 
 
-_PROOFS = {}
-
-
-def recorded_program_reasons(ledger, body):
-    """review of dev24d (P1-1): the program rule (command.program_reasons) on every command proof a recorded node verification or handoff holds
-    (`observed.checks` or `checks`, each row's evidence wrapper), in the project's environment. The ONE function engine.state applies where it
-    decides a node is verified or accepted, and handoff_evidence where it decides a handoff stands: eligible, accept_node, verification_ready,
-    an idempotent handoff and root_ready all read those. A just-issued receipt passes it. [] when every proof still speaks for its program."""
-    project = getattr(ledger, 'project', None)
-    if not project: return []
-    rows = ((body.get('observed') or {}).get('checks') if isinstance(body.get('observed'), dict) else None) or body.get('checks') or []
-    store = Snapshots(ledger.state_root)
-    reasons = []
-    for row in rows:
-        ref = row.get('evidence') if isinstance(row, dict) else None
-        if not ref: continue
-        if ref not in _PROOFS:
-            try:
-                wrapper = json.loads(store.read_blob(ref))
-                field = PROOF_FIELD.get(wrapper.get('kind'))
-                _PROOFS[ref] = json.loads(store.read_blob(wrapper[field])) if wrapper.get('kind') == 'candidate-command-check' and field in wrapper else None
-            except (LedgerError, OSError, ValueError, KeyError, TypeError, AttributeError):
-                _PROOFS[ref] = None          # not a command proof (another evidence kind): the gates of that evidence judge it
-        proof = _PROOFS[ref]
-        if proof is None: continue
-        reasons += [row.get('id', '?') + ': ' + why for why in command.program_reasons(proof, project, env_from=project)]
-    return reasons
-
-
 def proof_mismatch(wrapper, proof, milestone, plan_sha, revision, tree, project=None):
     """Why a retained (wrapper, proof) pair is NOT the approved milestone's own check on this candidate tree under this
     contract; None when it is. Shared by handoff reuse and native learning so a receipt of another command, a no-op, a

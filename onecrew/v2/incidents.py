@@ -113,7 +113,7 @@ def _node_receipt(ledger, conn, state, receipt, body, *, latest=False):
             milestone = next((m for m in contract['milestones'] if m['id'] == row['id']), None)
             if (milestone is None or wrapper.get('node') != item['id'] or wrapper.get('snapshot') != body['artifact']
                     or wrapper.get('tree') != observed.get('candidate_tree')
-                    or cv.proof_mismatch(wrapper, proof, milestone, sha, definition_event['revision'], wrapper['tree'], project=ledger.project) is not None):
+                    or cv.proof_mismatch(wrapper, proof, milestone, sha, definition_event['revision'], wrapper['tree']) is not None):
                 raise LedgerError('Candidate check evidence does not bind the recorded node artifact and contract.')
             if cv.expected_of(kind, proof) != row['result']:
                 raise LedgerError('Candidate result differs from its actual configured verification.')

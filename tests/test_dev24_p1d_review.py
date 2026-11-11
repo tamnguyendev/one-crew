@@ -1,14 +1,13 @@
 """2.5.0.dev24 — Kiro review of 945afdc (FAIL, 3 P1 + 3 P2 + 1 P3); owner 11/11: "Sửa cả lỗi cũ".
-- P1-1: a published workflow proof is judged by the program rule where engine.state decides a node is verified or accepted (and where a
-  handoff is taken as standing): after the program, its Python packages or an env_input changed, eligible(B) is false, accept_node(A) is
-  refused, a handoff is not returned as idempotent and root_ready is false. Each reuse sink is tested with a package change (not an
-  environment variable, which the evidence binding already catches).
+- P1-1, owner 11/11 option A ("ok, làm theo lời khuyên"): the program rule on RECORDED workflow verifications is taken back out of dev24; a
+  verified node stays verified after its program's Python packages changed, as in 2.5.0.dev23 (LOI-DA-BIET; a design-first task later). A
+  proof that is REUSED is still judged by the rule (proof_mismatch with the project), so a re-check runs the verifier again.
 - P1-2: `.`/`..` in an absolute path (on the command line or in an input's text) no longer passes the live-tree checks.
 - P1-3: inputs_unscanned cannot exempt what the command line names under another spelling (`tool/./check.py`, case on Windows).
 - P2: a relative program with a folder that is not there is refused before the verifier; the tracking page offers owner accept for a plan whose
   milestones declare different inputs (the union tree, as `verdict artifact`); a view polled again does not read unchanged files again.
 - P3: the tracking milestone rows show the live view the acceptance card used.
-Red on 945afdc.
+Red on 945afdc (the P1-1 cases now assert the dev23 behaviour, green on both).
 """
 import json
 import os
@@ -53,43 +52,29 @@ class WorkflowFixture(CandidateFixture):
 for _name in [n for n in dir(CandidateFixture) if n.startswith('test')]: setattr(WorkflowFixture, _name, None)
 
 
-class PublishedProofIsJudged(WorkflowFixture):
-    def test_a_verified_node_is_not_verified_after_its_program_packages_changed(self):
+class RecordedVerificationAsInDev23(WorkflowFixture):
+    # owner 11/11 option A: a recorded verification is trusted as in 2.5.0.dev23 (known issue); these assert that behaviour
+    def test_a_verified_node_stays_verified_after_its_program_packages_changed(self):
         self.revise(self.definition()); self.step()
         engine.verify(self.ledger, 'P1', 'C', self.production_checker)
-        view = engine.state(self.ledger, 'P1')
-        self.assertEqual(view['nodes']['C']['state'], 'verified')
         self.upgrade_a_package()
         view = engine.state(self.ledger, 'P1')
-        self.assertNotEqual(view['nodes']['C']['state'], 'verified', view['nodes']['C'])
-        self.assertTrue(view['nodes']['C'].get('needs_recheck'))
-        self.assertFalse(engine.eligible(view, 'I')['ready'])
-        with self.assertRaises(LedgerError):
-            engine.accept_node(self.ledger, 'P1', 'C')
+        self.assertEqual(view['nodes']['C']['state'], 'verified', view['nodes']['C'])
+        self.assertFalse(view['nodes']['C'].get('needs_recheck'))
+        self.assertEqual(engine.accept_node(self.ledger, 'P1', 'C')['state'], 'accepted')
 
-    def test_a_handoff_is_not_idempotent_and_root_ready_is_false_after_the_program_changed(self):
+    def test_a_handoff_stays_idempotent_and_root_ready_after_the_program_changed(self):
         self.revise(self.definition()); self.step()
         engine.verify(self.ledger, 'P1', 'C', self.production_checker)
         self.step(); engine.verify(self.ledger, 'P1', 'I', self.production_checker)
         result = handoff(self.ledger, 'P1', control=self.control)
+        self.upgrade_a_package()
         self.assertTrue(engine.root_ready(self.ledger, 'P1', result['artifact']))
-        self.upgrade_a_package()
-        self.assertFalse(engine.root_ready(self.ledger, 'P1', result['artifact']))
-        self.assertIsNone(engine.handoff_evidence(self.ledger, 'P1'))
-        try:
-            again = handoff(self.ledger, 'P1', control=self.control)
-        except LedgerError:
-            again = None
-        self.assertFalse((again or {}).get('idempotent'), again)
+        self.assertIsNotNone(engine.handoff_evidence(self.ledger, 'P1'))
+        self.assertTrue(handoff(self.ledger, 'P1', control=self.control)['idempotent'])
 
-    def test_the_node_reuse_sink_runs_the_check_again_after_a_package_change(self):
-        self.revise(self.definition()); self.step()
-        engine.verify(self.ledger, 'P1', 'C', self.production_checker)
-        first = self.evidence_of('C')
-        self.upgrade_a_package()
-        engine.verify(self.ledger, 'P1', 'C', self.production_checker)
-        self.assertEqual(engine.state(self.ledger, 'P1')['nodes']['C']['state'], 'verified')
-        self.assertNotEqual(self.evidence_of('C'), first)              # a fresh check, not the earlier proof reused
+
+class ReusedProofIsJudged(WorkflowFixture):
 
     def test_proof_mismatch_names_the_program_change_with_the_project(self):
         self.revise(self.definition()); self.step()
