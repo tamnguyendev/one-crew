@@ -153,13 +153,14 @@ def _same(document, copy):
 
 
 def governing_copy(ledger):
-    """The active plan the hooks of this project follow now, as a dict: the project copy, else the newest state-root copy that names this project
-    (hook_cli.state_copy). None when there is none; {'unreadable': reason} when the copy that governs cannot be read."""
-    path = project_file(ledger.project)
-    if not path.exists():
-        from .hook_cli import state_copy
-        path = state_copy(ledger.state_root, ledger.project)
-        if path is None: return None
+    """The active plan the hooks of this project follow now, as a dict, chosen as hook_cli.govern chooses it: the newest state-root copy that names
+    this project (hook_cli.state_copy; the hooks follow it when the project copy is missing, unreadable or different), else the project copy. None
+    when there is none; {'unreadable': reason} when the copy that governs cannot be read."""
+    from .hook_cli import state_copy
+    path = state_copy(ledger.state_root, ledger.project)
+    if path is None:
+        path = project_file(ledger.project)
+        if not path.exists(): return None
     try:
         value = json.loads(Path(path).read_text(encoding='utf-8-sig'))
         if not isinstance(value, dict) or not (value.get('anchor') or value.get('plan')): raise ValueError('no plan named')
@@ -186,12 +187,10 @@ def _still_enforcing(ledger, copy):
 def switch_refusal(ledger, document, take_over=False):
     """dev25 (review Fable 5.2, P1-2): the one rule of every write of the hooks' file. None when `document` may become what the hooks follow, else
     the reason. Allowed: no plan governs the project yet; the same plan is refreshed (an accepted one included: the file then says what is true);
-    the owner switches (`take_over`: plan approve and hook mode, both behind require_owner; or any write from a process that is not an AI session,
-    by the one rule of ownership.owner_refused, as before dev25); or the governing plan no longer holds the project (the ledger has it accepted)
-    and the new one does, so the switch only makes the hooks stricter. Anything else is the owner's: an AI session, a OneCrew check or worker that
-    runs `hook export`, `plan amend` or `verdict run` cannot put another plan (a wider or an accepted one) in place of the one that is enforced."""
-    from .ownership import owner_refused
-    if take_over or not owner_refused(): return None
+    the owner switches (`take_over`: plan approve and hook mode, both behind require_owner); or the governing plan no longer holds the project (the
+    ledger has it accepted) and the new one does, so the switch only makes the hooks stricter. Anything else is the owner's, whoever runs it
+    (owner 12/11, option B): `hook export`, `plan amend` or `verdict run` of another plan never puts it in place of the one that is enforced."""
+    if take_over: return None
     copy = governing_copy(ledger)
     if copy is None or (not copy.get('unreadable') and _same(document, copy)): return None
     if not _still_enforcing(ledger, copy) and document.get('status') in ENFORCING: return None

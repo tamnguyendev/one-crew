@@ -384,10 +384,23 @@ class GoverningPlan(Base):
             verdict.run(self.ledger, 'B', 'M1', self.root)
         self.assertEqual(self.project_plan(), 'A')
 
-    def test_a_write_from_the_owners_own_process_switches_as_before(self):
+    def test_owner_option_b_a_process_without_marker_does_not_switch_either(self):
+        # owner 12/11, option B: only plan approve / hook mode (take_over) switch; a verdict run from an unmarked process (a tool that sets no
+        # marker, or the owner's own terminal) refreshes nothing else and leaves the governing plan in place
         self.new_plan('B'); self.new_plan('A')
-        verdict.run(self.ledger, 'B', 'M1', self.root)                       # no AI marker: the owner's terminal (as in 2.5.0.dev24)
-        self.assertEqual(self.project_plan(), 'B')
+        verdict.run(self.ledger, 'B', 'M1', self.root)
+        self.assertEqual(self.project_plan(), 'A')
+        self.assertIsNone(active_plan.export(self.ledger, 'B'))
+        self.assertEqual(self.project_plan(), 'A')
+
+    def test_an_unreadable_project_copy_of_the_governing_plan_is_refreshed_from_the_state_root_copy(self):
+        # the hooks follow the state-root copy when the project copy is broken (hook_cli.govern); the same plan may rewrite it
+        self.new_plan('A'); active_plan.set_mode(self.ledger, 'enforce'); active_plan.export(self.ledger, 'A')
+        active_plan.project_file(self.root).write_text('{ broken', encoding='utf-8')
+        active_plan.set_mode(self.ledger, 'log')
+        with patch.dict(os.environ, AI):
+            self.assertIsNotNone(active_plan.export(self.ledger, 'A'))
+        self.assertEqual(json.loads(active_plan.project_file(self.root).read_text(encoding='utf-8'))['mode'], 'log')
 
     def test_15_an_amendment_of_another_plan_does_not_switch_it(self):
         self.new_plan('B'); self.new_plan('A')

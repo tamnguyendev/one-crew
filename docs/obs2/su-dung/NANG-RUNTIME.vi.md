@@ -30,7 +30,7 @@ Trong lượt phát hành:
 - **Từ 2.5.0.dev25:**
   - không có kết quả kiểm nào phải chạy lại: dấu `ONECREW_VERIFIER` không tính vào dấu vân tay; định dạng sổ và tệp canh không đổi; quay về dev24 được (mất hai lớp chặn);
   - một bộ kiểm, reviewer hay lệnh tiền điều kiện gọi lệnh của chủ (`plan approve|accept|enforce`, `hook mode`, `support ...`) trên một sổ ngoài thư mục tạm nay bị từ chối. **Trước khi nâng**, đọc argv của mọi mốc kiểm và mọi lệnh `command_ok` bước 0 của repo xem có gọi `onecrew` như vậy không;
-  - khi hai plan cùng hiệu lực trong một dự án, lượt kiểm hay sửa do phiên AI chạy không còn đổi plan mà hook canh; hook theo plan chủ chọn sau cùng. Sau khi nâng, chạy `scripts/owner/enforce.ps1 -Plan <plan đang làm>` để chắc;
+  - khi hai plan cùng hiệu lực trong một dự án, lượt kiểm hay sửa (dù ai chạy) không còn đổi plan mà hook canh; hook theo plan chủ chọn sau cùng (`plan approve` hoặc `enforce.ps1`). Sau khi nâng, chạy `scripts/owner/enforce.ps1 -Plan <plan đang làm>` để chắc;
   - worker OneCrew (`ONECREW_ACTOR=onecrew`), cùng lệnh mà worker v1 chạy qua OneCrew (mang `ONECREW_VERIFIER`), không còn tắt được enforce hay chạy `support` của chủ;
   - **đây vẫn là lớp mềm:** mã do AI viết mà cố ý né (tự xóa dấu, đổi `TEMP`, hardlink, sửa thẳng sqlite) vẫn qua. "Chỉ chủ duyệt" **chưa** được ép bằng mật mã. Xem `LOI-DA-BIET.vi.md`.
 - **Từ 2.5.0.dev24 cách chép là `exact-blob-bytes/3`:** mọi receipt của bộ kiểm lệnh ghi thêm chương trình đã chạy và gói Python của nó. Hệ quả khi nâng từ bản trước: **mọi pass của bộ kiểm lệnh trên plan chưa nghiệm thu phải chạy lại một lần**, có hay không có `inputs`. Plan đã nghiệm thu giữ nguyên.
