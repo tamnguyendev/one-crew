@@ -1,0 +1,17 @@
+{
+ "id": "U1-20261112-DEV25-P2-2",
+ "file": "tests/test_wf_r7_t46a.py",
+ "old_sha256": "c8d31194f4de118ee69671b99b37debe2dc0264d4ab279d9529a47c0dd391654",
+ "new_sha256": "11ca7cbb6421c5af33b51a5be429446a71fa43d65911ae9b1c1eb95a5e7cb2c2",
+ "reason": "2.5.0.dev25 P2-2 (owner option B, 12/11): only the owner switches the plan the hooks follow (plan approve / hook mode --plan, i.e. active_plan.export(take_over=True)); a plain export of another plan no longer does. The fixture of ResumePackWatchedFilesTests made p1 the governing plan with a plain export while p4 (approved last, stopped_with_report) held the project; it now does it the owner's way: one line, active_plan.export(cls.ledger, 'p1', take_over=True). Every assertion is unchanged; e7_counter still sees a re-export of the governing plan written by a careless resume pack (the export of p1 is a refresh and is written), and e7 still sees the watched files unchanged by the pack. No assertion removed, nothing skipped.",
+ "authorized_by": "Chu so huu, 12/11/2026, qua phien dieu phoi \"Plan digest va bao trang thai\", chon B cho P2-2 (siet luat doi plan canh ve dung ban da duyet). Ban ghi do chu chay script chu-u1-dev25.ps1 tao ra.",
+ "applied_by": "chu so huu (script chu-u1-dev25.ps1 ap dung ban sua do claude, phien onecrew-2.5-dev25 Opus 5.5, soan); nhanh onecrew-2.5-dev25",
+ "evidence": {
+  "base": "addc5ad + strict switch rule (uncommitted at writing, committed before the owner runs the script)",
+  "diff": "one line: tests/test_wf_r7_t46a.py:55 active_plan.export(cls.ledger, 'p1') -> active_plan.export(cls.ledger, 'p1', take_over=True)",
+  "red": "D:/OneCrewRuns/v25/dev25/f4/test_wf_r7_t46a.log (strict rule, unedited test: e7_counter fails)",
+  "green": "D:/OneCrewRuns/v25/dev25/u1-check: edited test on the strict rule, 4/4 pass"
+ },
+ "note": "sha256 of the LF form (the committed blob), as kit-guard pins it; old_sha256 equals the R02 pin in wfkit/development-manifest.json",
+ "at": "2026-11-12"
+}

@@ -52,7 +52,7 @@ class ResumePackWatchedFilesTests(ResumeBase):
         config = where.config_file(cls.root)
         config.parent.mkdir(parents=True, exist_ok=True)
         config.write_text(json.dumps({'state_root': str(cls.state)}), encoding='utf-8')
-        active_plan.export(cls.ledger, 'p1')                        # the project copy describes the running plan
+        active_plan.export(cls.ledger, 'p1', take_over=True)        # the owner makes the running plan the governing one (dev25 P2-2: only the owner switches it)
 
     def watched(self):
         files = sorted(set(self.state.rglob('active-plan.json')) | {active_plan.project_file(self.root), self.root / '.claude' / 'settings.local.json',
