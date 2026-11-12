@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## v2.5.0.dev25 (11/11/2026) — hai P1 của review Fable 5.2 trên dev24; chủ duyệt thiết kế 11/11 ("A") — LOCAL, chưa tag/push/phát hành
+## v2.5.0.dev25 (11–12/11/2026) — hai P1 của review Fable 5.2 trên dev24; chủ duyệt thiết kế 11/11 ("A") — LOCAL, chưa tag/push/phát hành
 
 - **P1-1, đã GIẢM, CHƯA ĐÓNG: bộ kiểm chạy hộ không còn là đường vô ý để lấy quyết định của chủ.**
   - Mọi tiến trình OneCrew chạy hộ mã của dự án hay của model mang dấu `ONECREW_VERIFIER` (`ownership.child_env`): bộ kiểm lệnh (`command.verifier_env`), reviewer/advisor/adapter (cùng hàm), và lệnh tiền điều kiện bước 0 (`step0._run`).
@@ -18,12 +18,13 @@
 - **Đổi hành vi:** khi hai plan cùng hiệu lực trong một dự án, lượt kiểm hay lượt sửa không còn giành quyền canh, dù ai chạy. Plan canh là plan chủ chọn sau cùng: lúc duyệt, hoặc `enforce.ps1` (`hook mode enforce --plan`).
 - **Plan đang canh được xác định như hook xác định** (`hook_cli.govern`): bản state-root trước, bản dự án sau. Vì vậy một bản dự án hỏng của chính plan đang canh vẫn được làm mới.
 - **Test bị khóa `test_wf_r7_t46a`:** fixture đặt plan đang chạy làm plan canh bằng đường của chủ (`take_over=True`), không còn bằng một lần `export` thường. Đổi một dòng, có bản U1 do chủ ghi (`U1-20261112-DEV25-P2-2`). Ca `e7_counter` vẫn bắt một gói resume xuất lại tệp canh.
-- **Test:** `tests/test_dev25_p1_owner_guard.py` (29 ca, đỏ trên `7052cee` ở các ca lỗi, xanh trên dev25). Lớp `LimitsAsKnown` khẳng định hai giới hạn còn mở.
+- **Test:** `tests/test_dev25_p1_owner_guard.py` (34 ca, đỏ trên `7052cee` ở các ca lỗi, xanh trên dev25). Lớp `LimitsAsKnown` khẳng định hai giới hạn còn mở.
 - **Rà `subprocess`:**
   - lệnh mà worker v1 chạy qua OneCrew, và lệnh kiểm v1 (`work_tools.environment`), trước đây bị gột mọi biến `ONECREW_*`/`CLAUDE*`, nên không mang dấu nào. Nay chúng đi qua `ownership.child_env` (review mã dev25, P2-1);
   - CLI của worker (`subscription.environment`) giữ `ONECREW_ACTOR=onecrew`, nên P1.c phủ nó;
   - các đường v1 khác dựng môi trường sạch riêng (`evaluation.clean_environment`, `sandbox_gate`, `cv_gate`, `preview`) thì không mang dấu; ghi trong `LOI-DA-BIET`.
 - **Review mã dev25 (P3):** bản canh do bản cũ ghi (không có `anchor`) được so theo tên plan. Đã có bằng chứng: một lượt pass do mã `7052cee` ghi vẫn "passed" với dev25 và chủ nghiệm thu được, không phải chạy lại (D2).
+- **Kiểm trên `7bbd18c` (mã như bản phát hành, chỉ khác số phiên bản):** gate 277/286, đúng 9 đỏ kế thừa theo tên và 25 vấn đề như gate dev24; test rộng 200 module: 17 đỏ kế thừa, 8 đỏ do máy quá tải; chạy lại riêng thì 5 xanh, 3 chập chờn y như trên `7052cee` (A/B 3 vòng mỗi bên).
 
 ## v2.5.0.dev24 (10/11/2026) — gộp dòng verifier MEP (mep2…mep7) vào 2.5; chủ: "Gộp MEP rồi gửi" — LOCAL, chưa tag/push/phát hành
 
