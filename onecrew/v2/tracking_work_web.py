@@ -144,13 +144,13 @@ function workEvidence(d,k){return k&&(d.evidence_keys||[]).indexOf(k)>=0?openBtn
 function nodeName(d,id){var w=d.work||{},n=(w.node_titles||w.nodes||{})[id];return n?workText(n)+' ('+id+')':id||'chưa rõ phần việc'}
 function sitPanel(d){var s=sit(d),a=s.activity||{},needs=d.needs_user||[],lu=d.last_update,n=d.nodes_summary||{},where=s.milestones?s.milestones.text:(n.total?((n.verified||0)+(n.accepted||0))+'/'+n.total+' phần việc đã kiểm':'');
   var ask=needs.length?'<a href="#needs">'+esc(needs.map(function(x){return needTitle(x)}).join(' · '))+'</a>':'Không có quyết định nào đang chờ bạn. Điều này không có nghĩa là việc đang tiến triển.';
-  var cur=((d.work||{}).outputs||[]).filter(function(x){return !x.stale}),outs=cur.length,chk=cur.filter(function(x){return x.level==='verified'||x.level==='accepted'}).length;
+  var all=((d.work||{}).outputs||[]),cur=all.filter(function(x){return !x.stale}),outs=cur.length,old=all.length-outs,chk=cur.filter(function(x){return x.level==='verified'||x.level==='accepted'}).length;
   return '<section class="sit" aria-label="Tóm tắt việc" data-k="sit"><div class="sit-grid">'
     +'<div><b>Đang ở đâu</b><span>'+workBadge(d)+(where?' <span class="sit-count">'+esc(where)+'</span>':'')+'</span>'+(s.milestones?'<small>'+esc(s.milestones.note)+'</small>':'')+'</div>'
     +'<div><b>Vướng gì</b><span>'+esc(s.reason||'chưa xác định')+'</span></div>'
     +'<div><b>Ai làm tiếp</b><span>'+(s.next?esc(s.next_by_text||'Chưa có thông tin người xử lý')+'<small>Bước tiếp theo: '+esc(s.next)+'</small>':'Không còn bước tiếp theo')+'</span></div>'
     +'<div class="'+(needs.length?'sit-need':'')+'"><b>Bạn cần làm gì</b><span>'+ask+'</span></div>'
-    +'<div><b>Kết quả ở đâu</b><span>'+esc(d.work?(outs?outs+' đầu ra hiện hành · '+chk+' đã kiểm':'Chưa ghi nhận đầu ra'):((d.level||{}).label||'chưa có đầu ra'))+' <button type="button" class="linkish" data-work-tab="results">Mở Kết quả &amp; kiểm chứng</button></span></div>'
+    +'<div><b>Kết quả ở đâu</b><span>'+esc(d.work?((outs?outs+' đầu ra hiện hành · '+chk+' đã kiểm':(old?'Không có đầu ra hiện hành':'Chưa ghi nhận đầu ra'))+(old?' · '+old+' bản cũ hoặc cần kiểm lại':'')):((d.level||{}).label||'chưa có đầu ra'))+' <button type="button" class="linkish" data-work-tab="results">Mở Kết quả &amp; kiểm chứng</button></span></div>'
     +'</div><p class="sit-foot"><span class="'+(a.running?'live':'idle')+'">'+esc(a.text||'')+(a.since?' · từ '+when(a.since):'')+(a.last_signal?' · tín hiệu cuối '+when(a.last_signal)+' ('+relText(a.last_signal)+')':'')+'</span>'
     +'<span>Hoạt động cuối của việc: '+(lu?'<time title="'+when(lu.at)+'">'+when(lu.at)+'</time> · '+esc(lu.summary||''):'chưa có')+'</span>'
     +'<span class="mut">Sổ đọc lúc '+(d.generated_at?when(d.generated_at):'chưa rõ')+'</span></p></section>'}
@@ -159,7 +159,7 @@ function msStrip(d){var c=d.milestone_checks;if(!c||!(c.rows||[]).length)return 
 function workOverview(d,w){var o=(w.outputs||[]).filter(function(x){return !x.stale}),f=w.findings||[],open=f.filter(function(x){return (x.status||x.state)==='open'}).length,c=d.milestone_checks,m=d.measure||{};
   var checkTime=c?(c.rows||[]).reduce(function(t,r){return typeof r.check_seconds==='number'?(t||0)+r.check_seconds:t},null):null;
   return workOwnerSection(d)+msStrip(d)
-    +'<div class="work-grid">'+workCard('Kết quả đã có',o.length?o.length+' đầu ra hiện hành · '+o.filter(function(x){return x.level==='verified'||x.level==='accepted'}).length+' đã kiểm':'Chưa ghi nhận đầu ra','Lịch sử cũ không tính vào số này. Xem từng đầu ra trong Kết quả & kiểm chứng.')
+    +'<div class="work-grid">'+workCard('Kết quả đã có',o.length?o.length+' đầu ra hiện hành · '+o.filter(function(x){return x.level==='verified'||x.level==='accepted'}).length+' đã kiểm':((w.outputs||[]).length?'Không có đầu ra hiện hành · '+(w.outputs||[]).length+' bản cũ hoặc cần kiểm lại':'Chưa ghi nhận đầu ra'),'Lịch sử cũ không tính vào số này. Xem từng đầu ra trong Kết quả & kiểm chứng.')
     +workCard('Dự kiến còn lại',d.eta&&d.eta.label,d.eta&&d.eta.reason)+'</div>'
     +(open?'<p class="work-warning">Còn '+open+' finding đang mở. Đây chưa phải số bug độc lập.</p>':'')
     +(c?'<p class="work-meta">Thời gian chạy bộ kiểm đã ghi: '+(checkTime===null?'chưa có lần kiểm nào đủ mốc thời gian':hms(checkTime))+'. Đây là thời gian kiểm, không phải thời gian làm việc; việc không chạy qua engine nên không có số đo thực hiện.</p>'
@@ -202,8 +202,8 @@ function workResults(d,w){var outputs=w.outputs||[],runs=(w.checks||{}).runs||[]
     +'<p class="work-meta">'+esc(nodeName(d,x.node))+' · '+(x.stale?(x.stale_reason==='cần kiểm lại'?'Cần kiểm lại: lần đạt này không còn được tính · ':'Bản cũ / cần kiểm lại · '):'')+(x.inherited?'Kế thừa · ':'')+'Thế hệ '+workEsc(x.generation)+'</p>'
     +(x.inherited&&x.from_generation!=null?'<p class="work-meta">Kế thừa từ thế hệ '+workEsc(x.from_generation)+' · lượt tạo '+workEsc(x.from_attempt)+'</p>':'')
     +workEvidence(d,x.artifact||x.key)+workSource(x)+'</article>'}).join('')}
-  var h='<h3>Kết quả hiện hành</h3>'+(current.length?outputRows(current):workEmpty('Chưa có đầu ra hiện hành được ghi nhận.'))
-    +(history.length?'<details data-k="work-history"><summary>Đầu ra lịch sử ('+history.length+')</summary>'+outputRows(history)+'</details>':'')
+  var h='<h3>Kết quả hiện hành</h3>'+(current.length?outputRows(current):workEmpty(history.length?'Chưa có đầu ra hiện hành: '+history.length+' đầu ra trước đây là bản cũ hoặc cần kiểm lại (xem bên dưới), không chứng nhận bản hiện tại.':'Chưa có đầu ra hiện hành được ghi nhận.'))
+    +(history.length?'<details data-k="work-history"'+(current.length?'':' open')+'><summary>Đầu ra lịch sử ('+history.length+')</summary>'+outputRows(history)+'</details>':'')
     +workRepairFlow(d,w)+'<details data-k="work-check-details"><summary>Chi tiết các lần kiểm, vấn đề và người thực hiện</summary>';
   h+='<h3>Các lần kiểm</h3><p class="work-meta">Một check có thể gồm nhiều testcase. Số check/finding không phải số bug độc lập; thiếu thống kê testcase thì không tự suy ra.</p>';
   var summary=(w.checks||{}).summary||{},cases=summary.testcases;
