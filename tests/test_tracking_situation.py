@@ -119,6 +119,17 @@ class Model(unittest.TestCase):
         s = call(engine_view=ev(C={'phase': 'pending'}, I={'phase': 'pending'}))
         self.assertEqual(s['stage'], 'todo')
 
+    def test_an_owner_only_engine_step_is_the_owners_not_the_checkers(self):
+        # P6 of the OBS-1 data set: every node verified, handoff blocked because apply_to_project is not granted (engine: amend_grant,
+        # handoff_blocked, owner_only). Before: "Chờ kiểm · Hoàn tất kiểm bàn giao · Bộ kiểm OneCrew"; only the owner can amend the grant.
+        ev = {'nodes': {'C': {'phase': 'complete', 'state': 'verified'}}, 'definition': {'nodes': [{'id': 'C'}]}}
+        g = {'kind': 'amend_grant', 'state': 'handoff_blocked', 'owner_only': True, 'reason': 'apply_to_project is not granted'}
+        s = call(engine_view=ev, has_started=True, level='verified', acceptance={'ready': False, 'reason': g['reason']}, guidance=g)
+        self.assertEqual((s['stage'], s['next_by'], s['next_by_text']), ('stopped', 'owner', 'Bạn'))
+        self.assertIn('sửa hợp đồng', s['next']); self.assertNotEqual(s['next_by_text'], 'Bộ kiểm OneCrew')
+        s = call(engine_view=ev, has_started=True, level='verified', acceptance={'ready': False}, guidance=dict(g, owner_only=False))
+        self.assertNotEqual(s['next_by'], 'owner')                                            # without the engine's owner flag nothing is attributed to the owner
+
     def test_owner_decisions_name_the_owner_without_moving_the_stage(self):
         definition = {'nodes': [{'id': 'C', 'goal': 'Code'}]}
         running = dict(engine_view={'nodes': {'C': {'phase': 'running', 'attempt': 'a1'}}, 'definition': definition},

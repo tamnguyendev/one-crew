@@ -27,6 +27,9 @@ CHECKER = 'Bộ kiểm OneCrew'
 NOTHING_RUNS = 'Không có lượt chạy hay lần kiểm nào đang diễn ra trong sổ.'
 MILESTONE_STATES = {'passed': 'Đạt', 'failed': 'Không đạt', 'recheck': 'Cần kiểm lại', 'checking': 'Đang kiểm', 'pending': 'Chưa kiểm',
                     'stopped': 'Đã dừng'}
+OWNER_STEPS = {'amend_grant': 'Quyết định có sửa hợp đồng để cho phép bàn giao vào dự án hay không',
+               'owner_decision': 'Quyết định sau khi dừng: duyệt bản sửa để đi tiếp, hoặc kết thúc',
+               'read_plan': 'Đọc kế hoạch và quyết định bước tiếp theo'}
 RUN_KINDS = ('verdict.run_started', 'verdict.receipt_issued', 'verdict.run_abandoned', 'verdict.recorded')
 
 
@@ -201,6 +204,13 @@ def situation(*, state, views, checks, engine_view, attempts, active, requests, 
         next_text = 'Kiểm lại mốc ' + mid
     elif engine_view is not None:
         stage, reason, next_text, by_text, by = _engine(state, engine_view, active, needs, acceptance, level, progress)
+        g = guidance or {}
+        if g.get('owner_only') and not active:       # the engine's own next step says only the owner can take it (e.g. amend_grant: handoff blocked)
+            if g.get('state') in ('stopped', 'handoff_blocked'): stage = 'stopped'
+            reason = str(g.get('reason') or reason)[:200]
+            next_text = OWNER_STEPS.get(g.get('kind'), 'Quyết định của bạn theo bước tiếp theo của OneCrew')
+            by, by_text = 'owner', OWNER
+            src.append('engine.next_action:' + str(g.get('kind')))
     elif views:
         stage, reason, next_text, by_text, by = _plain(views, rows, acceptance, level, has_started)
     else:

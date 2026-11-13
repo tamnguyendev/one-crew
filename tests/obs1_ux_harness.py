@@ -257,7 +257,7 @@ async function morePolls(n){const base=polls;return await waitFor(()=>polls>=bas
 async function loaded(){w=f.contentWindow;d=w.document;await waitFor(()=>d.readyState==='complete'&&$('#conn')&&$('#conn').className==='ok'&&$$('li.task').length>0, 15000, 'page+first poll');watchPolls();w.focus()}
 function rowOf(plan){return $$('li.task').find(li=>li.querySelector('.name').textContent===plan)}
 function st(){return w.__track.state()}
-function shown(plan){return $('#dtitle')&&$('#dtitle').textContent.indexOf(plan)===0&&$('#detail .dsum')}   // the LOADED detail of plan (a loading/error pane has a heading but no summary strip)
+function shown(plan){return $('#dtitle')&&$('#dtitle').textContent.indexOf(plan)===0&&$('#detail .sit')}   // the LOADED detail of plan (a loading/error pane has a heading but no summary; 13/11: the summary is .sit)
 async function select(plan){rowOf(plan).click();return await waitFor(()=>shown(plan), 10000, 'detail '+plan)}
 function key(el,k){el.dispatchEvent(new w.KeyboardEvent('keydown',{key:k,bubbles:true,cancelable:true}))}
 function seqOf(){const m=/seq (\d+)/.exec($('#conn').textContent);return m?parseInt(m[1],10):null}
@@ -270,7 +270,7 @@ async function fakeLoaded(){w=f.contentWindow;d=w.document;fk=w.__fake;if(!fk)th
   if(!($('#conn')&&$('#conn').className==='ok'))throw new Error('fake clock: the first overview was never painted');watchPolls();w.focus()}
 function P1cmds(){return $$('#detail code').map(c=>c.textContent).filter(c=>/question answer/.test(c)).length}
 function snap(tag){const t=$('#dtitle'),ds=$('#dstatus'),s=st(),dc=$('#dconn');          // what the reader sees at this moment, with the page's own state
-  const x={t:(fk?fk.now():Date.now())-T0,tag:tag||null,title:t?t.textContent.slice(0,24):'',loaded:!!$('#detail .dsum'),state:s.detailState,dstatus:ds?ds.getAttribute('data-state'):null,dtext:ds?ds.textContent.slice(0,260):null,
+  const x={t:(fk?fk.now():Date.now())-T0,tag:tag||null,title:t?t.textContent.slice(0,24):'',loaded:!!$('#detail .sit'),state:s.detailState,dstatus:ds?ds.getAttribute('data-state'):null,dtext:ds?ds.textContent.slice(0,260):null,
     dconn:dc&&!dc.hidden?dc.textContent.slice(0,160):null,conn:$('#conn').className,ctext:$('#conn').textContent.slice(0,160),sel:s.selected&&s.selected.plan,dfor:s.detailFor&&s.detailFor.plan,okAt:s.detailOkAt,cmds:P1cmds(),retry:!!$('#dretry'),
     inflight:fk?fk.reqs.filter(r=>r.kind==='task'&&r.state==='pending').length:null};
   samples.push(x);return x}
@@ -339,7 +339,7 @@ if(S==='ux04'){
   const r=$('#detailpane').getBoundingClientRect(); check('the detail is in view right after the click', r.top>=-1 && r.top<w.innerHeight*0.8 && r.height>50, {top:r.top, h:r.height, inner:w.innerHeight});
   check('the clicked row keeps focus (mouse selection)', d.activeElement===rowOf(plan) || d.activeElement===d.body, d.activeElement&&d.activeElement.tagName);
   check('the URL names the task', w.location.search.indexOf('plan=')>=0 && w.location.search.indexOf('project_id=')>=0, w.location.search);
-  if(w.innerWidth<900){$('#back').click(); await sleep(100)}                      // narrow: the list must be on screen before the keyboard part
+  $('#back').click(); await sleep(100);                                            // 13/11: the detail is a full page at every width: the list must be on screen before the keyboard part
   const first=rowOf('P1'); first.focus(); key(first,'ArrowDown'); const second=d.activeElement; check('ArrowDown moves focus to the next row', second && second.classList.contains('task') && second!==first);
   const plan2=second.querySelector('.name').textContent; key(second,'Enter'); await waitFor(()=>shown(plan2), 8000, 'detail by Enter');
   check('Enter selects the focused row and moves focus to the detail title', d.activeElement===$('#dtitle'), d.activeElement&&d.activeElement.id);
@@ -352,18 +352,18 @@ if(S==='ux04'){
   w.history.back(); await waitFor(()=>st().selected===null, 8000, 'back to list'); check('Back again returns to the list', st().selected===null && $('#nodetail'));
 }
 if(S==='ux05'){
-  const badge=p=>{const r=rowOf(p);if(!r)return null;const s=r.querySelector('.st'),g=s.querySelector('.g');return {cls:s.className, text:s.textContent.replace(g?g.textContent:'','').trim()}};
-  check('closed plan: grey "đã đóng", not "hoàn tất"', badge('P3') && badge('P3').cls==='st done closed' && badge('P3').text==='đã đóng', badge('P3'));
-  check('verified plan: "đã kiểm, chờ nghiệm thu"', badge('P6') && badge('P6').cls==='st done verified' && badge('P6').text==='đã kiểm, chờ nghiệm thu', badge('P6'));
-  check('accepted plan: "đã nghiệm thu"', badge('P7') && badge('P7').cls==='st done accepted' && badge('P7').text==='đã nghiệm thu', badge('P7'));
-  check('blocked plan: "bị chặn"', badge('P4') && badge('P4').cls==='st blocked', badge('P4'));
-  check('the three done badges have three different colours', new Set(['P3','P6','P7'].map(p=>w.getComputedStyle(rowOf(p).querySelector('.st')).backgroundColor)).size===3);
+  const badge=p=>{const r=rowOf(p);if(!r)return null;const s=r.querySelector('.stg'),g=s.querySelector('.g');return {cls:s.className, text:s.textContent.replace(g?g.textContent:'','').trim()}};   // 13/11: the model's stage badge
+  check('closed plan: "Đã đóng", not "Hoàn tất"', badge('P3') && badge('P3').cls==='stg closed' && badge('P3').text==='Đã đóng', badge('P3'));
+  check('verified plan whose handoff needs the owner: not accepted, not "Hoàn tất", the owner acts next', badge('P6') && badge('P6').cls==='stg stopped' && /Người xử lý: Bạn/.test(rowOf('P6').textContent), badge('P6'));
+  check('accepted plan: "Hoàn tất"', badge('P7') && badge('P7').cls==='stg done' && badge('P7').text==='Hoàn tất', badge('P7'));
+  check('held or running plan is not done', badge('P4') && ['stg fix','stg doing'].includes(badge('P4').cls), badge('P4'));
+  check('the three ends have three different colours', new Set(['P3','P6','P7'].map(p=>w.getComputedStyle(rowOf(p).querySelector('.stg')).backgroundColor)).size===3);
   await select('P3'); const labels=$$('.tile .l').map(e=>e.textContent);
   check('time tiles name their measure', labels.some(l=>/từ khi duyệt \(lịch\)/i.test(l)) && labels.some(l=>/thực hiện \(attempt\)/i.test(l)) && labels.some(l=>/^chờ$/i.test(l)), labels);
   check('no "đã chạy" label anywhere', !/đã chạy/.test(d.body.textContent));
   check('the closed plan says it has no output and that closing is not accepting', /chưa có đầu ra/.test($('#detail').textContent) && /không phải nghiệm thu/.test($('#detail').textContent));
   check('the list has no percentage and no ETA number', !/\d+ ?%/.test($('#list').textContent));
-  check('badges carry a glyph besides the colour', $$('li.task .st .g').length===$$('li.task .st').length && $$('li.task .st .g').every(g=>g.textContent.trim().length===1));
+  check('badges carry a glyph besides the colour', $$('li.task .stg .g').length===$$('li.task .stg').length && $$('li.task .stg .g').every(g=>g.textContent.trim().length===1));
   await select('P4'); const cells=Array.from($('#detail table').querySelectorAll('td')).map(td=>td.textContent.trim());
   check('phase and output words are Vietnamese (raw code in title)', cells.some(c=>/^(đang chạy|bị giữ|chờ đến lượt|xong)/.test(c)) && cells.some(c=>/^(chưa có đầu ra|đã tạo|đã kiểm|đã nghiệm thu)/.test(c)) && !cells.some(c=>/^(running|held|pending|none|produced)$/.test(c)), cells.slice(0,8));
 }
@@ -386,20 +386,21 @@ if(S==='ux06'){
 if(S==='ux07'){
   const rows=$$('li.task'); check('rows exist', rows.length>=5);
   check('no 64-hex hash as list text', !/\b[0-9a-f]{64}\b/.test($('#list').textContent));
-  check('rows carry status, name, current step and a relative update time', rows.every(r=>r.querySelector('.st')&&r.querySelector('.name')&&r.querySelector('.r2')&&/trước|vừa xong/.test(r.querySelector('.r2').textContent)), rows.map(r=>r.querySelector('.r2').textContent));
-  check('full paths and ids are muted secondary text', rows.every(r=>r.querySelector('.r3.mut')) && !rows.some(r=>/^[a-z]:\\/i.test(r.querySelector('.r1').textContent)));
+  check('rows carry status, name, next step and a relative update time', rows.every(r=>r.querySelector('.stg')&&r.querySelector('.name')&&r.querySelector('.c-next')&&r.querySelector('.r2')&&/trước|vừa xong/.test(r.querySelector('.r2').textContent)), rows.map(r=>r.querySelector('.r2').textContent));
+  check('full paths and ids are muted secondary text', rows.every(r=>r.querySelector('.r3.mut')) && !rows.some(r=>/^[a-z]:\\/i.test(r.querySelector('.ttl').textContent)));
   check('the needs-you rows are marked', rowOf('P1').querySelector('.needb'));
-  check('the header counts tasks and the chips count needs', /\d+ task/.test($('#count').textContent) && /cần bạn \(\d+\)/.test($('#chips').textContent), $('#count').textContent+' | '+$('#chips').textContent);
-  const chips=$$('#chips button'); check('quick-filter chips with counts', chips.length>=3 && chips.every(c=>/\(\d+\)/.test(c.textContent)), chips.map(c=>c.textContent));
-  chips.find(c=>c.dataset.kind==='blocked').click(); check('the blocked chip keeps only blocked rows', $$('li.task').length>=1 && $$('li.task').every(r=>r.querySelector('.st').classList.contains('blocked')) && $('#chips button[data-kind="blocked"]').getAttribute('aria-pressed')==='true');
-  $('#chips button[data-kind=""]').click(); check('tất cả chip restores the list', $$('li.task').length>=5);
-  $('#kind').value='blocked'; $('#kind').dispatchEvent(new w.Event('change',{bubbles:true})); check('status filter keeps only blocked', $$('li.task').length>=1 && $$('li.task').every(r=>r.querySelector('.st').classList.contains('blocked')));
+  check('the header counts tasks and the chips count needs', /\d+ công việc/.test($('#count').textContent) && /cần bạn quyết định \(\d+\)/i.test($('#chips').textContent), $('#count').textContent+' | '+$('#chips').textContent);
+  const chips=$$('#chips button'); check('quick-filter chips with counts (13/11: a chip shows only when it has rows)', chips.length>=2 && chips.every(c=>/\(\d+\)/.test(c.textContent) && !/\(0\)/.test(c.textContent)), chips.map(c=>c.textContent));
+  const chip=chips.find(c=>c.dataset.kind==='fix')||chips.find(c=>c.dataset.kind==='need'), ck=chip.dataset.kind;
+  chip.click(); check('a stage chip keeps only its rows and says it is on', $$('li.task').length>=1 && $$('li.task').every(r=>ck==='fix'?r.querySelector('.stg.fix'):r.querySelector('.needb')) && $('#chips button[data-kind="'+ck+'"]').getAttribute('aria-pressed')==='true' && !$('#factive').hidden);
+  $('#chips button[data-kind="'+ck+'"]').click(); check('pressing the chip again restores the list', $$('li.task').length>=5 && $('#factive').hidden);
+  $('#kind').value='closed'; $('#kind').dispatchEvent(new w.Event('change',{bubbles:true})); check('status filter keeps only closed', $$('li.task').length>=1 && $$('li.task').every(r=>r.querySelector('.stg.closed')));
   $('#kind').value='need'; $('#kind').dispatchEvent(new w.Event('change',{bubbles:true})); check('"cần bạn" filter keeps only rows with a need', $$('li.task').length>=1 && $$('li.task').every(r=>r.querySelector('.needb')));
   $('#kind').value=''; $('#q').value='P4'; $('#q').dispatchEvent(new w.Event('input',{bubbles:true})); check('search narrows to P4', $$('li.task').length===1 && rowOf('P4'));
   $('#q').value='nothing-matches-xyz'; $('#q').dispatchEvent(new w.Event('input',{bubbles:true})); check('no match says so', $$('li.task').length===0 && /không có task nào khớp/i.test($('#empty').textContent));
   $('#q').value=''; $('#q').dispatchEvent(new w.Event('input',{bubbles:true}));
 }
-function clipped(e){for(let p=e.parentElement;p&&p!==d.body;p=p.parentElement){const o=w.getComputedStyle(p).overflow;if(o==='hidden'||o==='auto'||o==='scroll')return true}return false}
+function clipped(e){for(let p=e.parentElement;p&&p!==d.body;p=p.parentElement){const o=w.getComputedStyle(p).overflowX;if(o==='hidden'||o==='auto'||o==='scroll')return true}return false}   // 13/11: overflowX (a box with overflow-x:auto;overflow-y:hidden computes 'auto hidden' as the shorthand)
 function overflowing(){return $$('body *').filter(e=>{const r=e.getBoundingClientRect();return r.width>0 && r.right>w.innerWidth+1 && !clipped(e) && !e.closest('.evbox pre')}).slice(0,8).map(e=>e.tagName+(e.id?'#'+e.id:'')+(e.className&&typeof e.className==='string'?'.'+e.className.split(' ')[0]:'')+'@'+Math.round(e.getBoundingClientRect().right))}
 if(S==='ux08'){
   const de=d.documentElement; out.overflow_list=overflowing(); check('no horizontal page scroll on the list', de.scrollWidth<=w.innerWidth+1 && out.overflow_list.length===0, {scrollWidth:de.scrollWidth, inner:w.innerWidth, elements:out.overflow_list});
@@ -410,7 +411,8 @@ if(S==='ux08'){
   if(narrow){check('narrow: the list is hidden and the detail shown', $('#listpane').offsetParent===null && $('#detailpane').offsetParent!==null && $('#back').offsetParent!==null);
     check('narrow: the detail starts in the upper part of the page (below the compact header)', w.scrollY===0 && $('#detailpane').getBoundingClientRect().top<w.innerHeight/3 && $('#dtitle').getBoundingClientRect().bottom<w.innerHeight/2, {y:w.scrollY, top:$('#detailpane').getBoundingClientRect().top, title:$('#dtitle').getBoundingClientRect().bottom});
     $('#back').click(); await sleep(100); check('narrow: back shows the list again', $('#listpane').offsetParent!==null && st().selected===null);}
-  else{check('wide: list and detail side by side', $('#listpane').offsetParent!==null && $('#detailpane').offsetParent!==null && $('#detailpane').getBoundingClientRect().left>$('#listpane').getBoundingClientRect().left);}
+  else{check('wide: the detail is a wide page of its own with a way back', $('#listpane').offsetParent===null && $('#detailpane').offsetParent!==null && $('#back').offsetParent!==null && $('#detailpane').getBoundingClientRect().width>=Math.min(1100,w.innerWidth*0.8), {w:$('#detailpane').getBoundingClientRect().width, inner:w.innerWidth});
+    $('#back').click(); await sleep(100); check('wide: back shows the list again', $('#listpane').offsetParent!==null && st().selected===null);}
   await select('P1'); const att=$('details[data-k="attempts"]'); if(att){att.open=true} check('technical tables scroll in their own box, not the page', de.scrollWidth<=w.innerWidth+1 && $$('.scroll').length>0, de.scrollWidth);
 }
 if(S==='race'){
@@ -442,15 +444,15 @@ if(S==='clock'){
 }
 if(S==='ux03b'){
   await select('P1'); const needs=$$('details.need'), N=needs.length; check('at least three questions, each folded', N>=3 && needs.every(n=>!n.open), N);
-  check('the heading counts them and the summary strip links to them', new RegExp('Cần bạn \\('+N+'\\)').test($('#needs').textContent) && new RegExp(N+' câu hỏi chờ bạn').test($('.dsum').textContent), $('#needs').textContent.slice(0,30)+' | '+$('.dsum').textContent);
-  check('the summary strip shows the current step', new RegExp('chờ bạn trả lời '+N+' câu hỏi').test($('.dsum .step').textContent), $('.dsum .step').textContent);
+  check('the heading counts them and the summary links to them', new RegExp('Cần bạn \\('+N+'\\)').test($('#needs').textContent) && $('.sit .sit-need a[href="#needs"]') && $('.sit .sit-need').textContent.split(' · ').length>=N, $('#needs').textContent.slice(0,30)+' | '+$('.sit').textContent.slice(0,200));
+  check('the summary says the owner answers next', /Bạn/.test($('.sit').textContent) && /Trả lời câu hỏi/.test($('.sit').textContent), $('.sit').textContent.slice(0,200));
   const stats=$('.stats'), nh=$('#needs'), gt=$('.gantt'); check('order: summary strip, questions (folded), timeline, tiles', nh && gt && stats && (nh.compareDocumentPosition(gt) & Node.DOCUMENT_POSITION_FOLLOWING) && (gt.compareDocumentPosition(stats) & Node.DOCUMENT_POSITION_FOLLOWING), 0);
   const titles=needs.map(n=>n.querySelector('summary').textContent); check('each question keeps its own title (no merging)', new Set(titles).size===N, titles);
-  check('the summary strip and the start of the timeline are above the fold (folded questions do not push them down)', $('.dsum').getBoundingClientRect().bottom < w.innerHeight && gt.getBoundingClientRect().top < (w.innerWidth<900? w.innerHeight*1.5 : w.innerHeight*0.8), {strip:$('.dsum').getBoundingClientRect().bottom, gantt:gt.getBoundingClientRect().top, inner:w.innerHeight});
+  check('the summary and the detail tabs are near the top (folded questions do not push them down)', $('.sit').getBoundingClientRect().bottom < (w.innerWidth<900? w.innerHeight*1.6 : w.innerHeight) && $('.work-nav').getBoundingClientRect().top < (w.innerWidth<900? w.innerHeight*2.2 : w.innerHeight*1.3), {sit:$('.sit').getBoundingClientRect().bottom, tabs:$('.work-nav')&&$('.work-nav').getBoundingClientRect().top, inner:w.innerHeight});
   check('folded questions take one line each', needs[N-1].getBoundingClientRect().bottom - needs[0].getBoundingClientRect().top < 44*N+20, needs[N-1].getBoundingClientRect().bottom - needs[0].getBoundingClientRect().top);
   needs[1].open=true; check('opening one shows reason, impact, options and templates', /Vì:/.test(needs[1].textContent) && /Ảnh hưởng:/.test(needs[1].textContent) && needs[1].querySelectorAll('.opt').length===2 && needs[1].querySelectorAll('mark.ph').length>=2);
   await morePolls(2); check('the opened question stays open across polls', $$('details.need')[1].open && !$$('details.need')[0].open);
-  check('the list column is narrower than the detail while reading (wide)', w.innerWidth<900 || $('#listpane').getBoundingClientRect().width < $('#detailpane').getBoundingClientRect().width*0.6, {l:$('#listpane').getBoundingClientRect().width, r:$('#detailpane').getBoundingClientRect().width});
+  check('the detail uses the page width while reading (13/11: no narrow panel)', $('#listpane').offsetParent===null && $('#detailpane').getBoundingClientRect().width>=Math.min(1100,w.innerWidth*0.8)-40, {r:$('#detailpane').getBoundingClientRect().width, inner:w.innerWidth});
 }
 if(S==='gantt'){
   await select('P8');$('#grange').value='all';$('#grange').dispatchEvent(new w.Event('change',{bubbles:true})); const J=await (await fetch('/api/task?plan='+encodeURIComponent(st().selected.plan)+'&project_id='+encodeURIComponent(st().selected.project)+'&timeline=300',{cache:'no-store'})).json();
@@ -886,7 +888,7 @@ if(S==='rt_slow'){                                     // REAL TIME (no virtual 
   // C: the next P8 read is held 70 s by the proxy (longer than the page waits), later ones are quick. Every render of the status line is recorded
   //    as it happens (MutationObserver): the timeout state lasts less than one 500 ms sample when the next try is answered at once
   const trans=[], rec=()=>{const ds=$('#dstatus'),k=ds?ds.getAttribute('data-state')+'|'+ds.textContent.slice(0,200):'none';
-    if(!trans.length||trans[trans.length-1].k!==k)trans.push({t:now(),k:k,state:ds?ds.getAttribute('data-state'):null,text:ds?ds.textContent.slice(0,260):null,title:$('#dtitle')?$('#dtitle').textContent.slice(0,24):'',loaded:!!$('#detail .dsum')})};
+    if(!trans.length||trans[trans.length-1].k!==k)trans.push({t:now(),k:k,state:ds?ds.getAttribute('data-state'):null,text:ds?ds.textContent.slice(0,260):null,title:$('#dtitle')?$('#dtitle').textContent.slice(0,24):'',loaded:!!$('#detail .sit')})};
   const mo=new w.MutationObserver(rec); mo.observe($('#detail'),{childList:true,subtree:true,characterData:true}); rec();
   await fetch('/__fault?detail=ok&plan='+encodeURIComponent(P8)+'&delay=70000&count=1'); const TC=now();
   let stale=null; for(const t1=now()+110000; now()<t1 && !stale;){await sleep(500); snap('C'); stale=trans.find(x=>x.t>=TC&&x.state==='stale'&&/45 s/.test(x.text||''))||null}
