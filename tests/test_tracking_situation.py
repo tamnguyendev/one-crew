@@ -127,6 +127,7 @@ class Model(unittest.TestCase):
         s = call(engine_view=ev, has_started=True, level='verified', acceptance={'ready': False, 'reason': g['reason']}, guidance=g)
         self.assertEqual((s['stage'], s['next_by'], s['next_by_text']), ('stopped', 'owner', 'Bạn'))
         self.assertIn('sửa hợp đồng', s['next']); self.assertNotEqual(s['next_by_text'], 'Bộ kiểm OneCrew')
+        self.assertFalse(s['no_owner_decision'])                                              # never "nothing waits for you" beside "the owner acts next"
         s = call(engine_view=ev, has_started=True, level='verified', acceptance={'ready': False}, guidance=dict(g, owner_only=False))
         self.assertNotEqual(s['next_by'], 'owner')                                            # without the engine's owner flag nothing is attributed to the owner
 

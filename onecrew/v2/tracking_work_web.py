@@ -143,7 +143,9 @@ function workSource(x){var s=x&&x.source,q=s&&(s.seq!=null?s.seq:s.verdict_seq);
 function workEvidence(d,k){return k&&(d.evidence_keys||[]).indexOf(k)>=0?openBtn(k):'<span class="work-meta">Chưa có bằng chứng mở được từ task này</span>'}
 function nodeName(d,id){var w=d.work||{},n=(w.node_titles||w.nodes||{})[id];return n?workText(n)+' ('+id+')':id||'chưa rõ phần việc'}
 function sitPanel(d){var s=sit(d),a=s.activity||{},needs=d.needs_user||[],lu=d.last_update,n=d.nodes_summary||{},where=s.milestones?s.milestones.text:(n.total?((n.verified||0)+(n.accepted||0))+'/'+n.total+' phần việc đã kiểm':'');
-  var ask=needs.length?'<a href="#needs">'+esc(needs.map(function(x){return needTitle(x)}).join(' · '))+'</a>':'Không có quyết định nào đang chờ bạn. Điều này không có nghĩa là việc đang tiến triển.';
+  var ask=needs.length?'<a href="#needs">'+esc(needs.map(function(x){return needTitle(x)}).join(' · '))+'</a>'
+    :s.next_by==='owner'?esc(s.next||'Quyết định của bạn')+'<small>Bước này do OneCrew chỉ ra; trang chưa có mẫu lệnh cho nó.</small>'   // 13/11: never "nothing waits for you" beside "Ai làm tiếp: Bạn"
+    :'Không có quyết định nào đang chờ bạn. Điều này không có nghĩa là việc đang tiến triển.';
   var all=((d.work||{}).outputs||[]),cur=all.filter(function(x){return !x.stale}),outs=cur.length,old=all.length-outs,chk=cur.filter(function(x){return x.level==='verified'||x.level==='accepted'}).length;
   return '<section class="sit" aria-label="Tóm tắt việc" data-k="sit"><div class="sit-grid">'
     +'<div><b>Đang ở đâu</b><span>'+workBadge(d)+(where?' <span class="sit-count">'+esc(where)+'</span>':'')+'</span>'+(s.milestones?'<small>'+esc(s.milestones.note)+'</small>':'')+'</div>'

@@ -245,4 +245,4 @@ def situation(*, state, views, checks, engine_view, attempts, active, requests, 
                   'note': 'số mốc đạt, không phải phần trăm công việc'} if passed is not None else None
     return {'stage': stage, 'label': STAGES[stage], 'reason': reason, 'next': next_text, 'next_by': by,
             'next_by_text': by_text if next_text else None, 'activity': activity, 'milestones': milestones,
-            'no_owner_decision': not owner_needs, 'source': src}
+            'no_owner_decision': not owner_needs and by != 'owner', 'source': src}
