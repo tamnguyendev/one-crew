@@ -996,7 +996,9 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     has_started = first_started is not None or bool(attempts) or bool(state.get('verdicts')) or bool(runs)
     acceptance = _acceptance(rd, conn, state, contract, engine_view, level)
     live = acceptance.pop('views', None)
-    if live is not None and not engine_root: views = live
+    if live is not None and not engine_root:
+        views = live
+        level = _level(state, engine_view, views)       # UX 13/11 (B1): the overview said "đã kiểm" while the milestones it shows need a recheck
     guidance = acceptance.get('next_action')
     if engine_view is not None and guidance is None:
         from . import engine
@@ -1093,7 +1095,8 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     item['eta'] = _eta(rd, row['request_key'], now)
     item['holds'] = _holds(rd, row['request_key'], conn) if engine_root else []
     from . import tracking_work
-    item['work'] = tracking_work.project(rd, conn, row, state, events, engine_view, item['evidence_keys'])
+    recheck = {v['id'] for v in views if v.get('stale') or v.get('needs_recheck')} if engine_view is None else set()
+    item['work'] = tracking_work.project(rd, conn, row, state, events, engine_view, item['evidence_keys'], recheck=recheck)
     # dev11: the stdout/stderr a command receipt of this root names open where the receipt does (track evidence opens them one hop through it)
     named_outputs = {k for r in ((item['work'] or {}).get('checks') or {}).get('runs', []) if r.get('outputs') and r.get('receipt') in present
                      for k in (r['outputs']['stdout'], r['outputs']['stderr'])}

@@ -157,6 +157,37 @@ class Ledgers(Fixture):
         self.assertTrue(c['timed'])
         self.assertEqual(d['situation'], s)
 
+    def test_a_pass_the_live_check_no_longer_counts_is_verified_nowhere_on_the_page(self):
+        # B1/B2 (UX 13/11): milestones that declare their inputs passed, then those inputs changed in the working files. The acceptance check
+        # judges the working files and finds the passes stale; dev25 still said "đã kiểm" (level) beside milestones needing a recheck, and the
+        # outputs read as current proof. Counter-checked on dev25 7b609b2: level verified with both milestones pending + stale.
+        v = lambda m: milestone(m, OK, verifier={'type': 'command', 'config': {'argv': OK, 'inputs': ['a.txt']}})
+        value = plan_json(milestones=[v('M1'), v('M2')], title='Inputs'); value['items'] = [{'id': 'I1', 'title': 'Do it', 'tier': 'must', 'milestone': 'M1'}]
+        plans.propose(self.ledger, 'P3', value, 'claude')                 # declared inputs are refused on a workflow root
+        os.environ.pop('ONECREW_ACTOR', None); plans.approve(self.ledger, 'P3', 'owner', 'test fixture')
+        verdict.run(self.ledger, 'P3', 'M1'); verdict.run(self.ledger, 'P3', 'M2')
+        before = tracking.detail(self.ledger.state_root, 'P3')
+        self.assertEqual((before['level']['kind'], before['acceptance']['ready']), ('verified', True))   # precondition
+        (self.root / 'a.txt').write_text('changed after both passes')
+        d = tracking.detail(self.ledger.state_root, 'P3')
+        item = next(t for p in tracking.overview(self.ledger.state_root)['projects'] for t in p['tasks'] if t['plan'] == 'P3')
+        for t in (d, item):
+            self.assertNotEqual(t['level']['kind'], 'verified', t['level'])
+            self.assertNotEqual(t['status'].get('outcome'), 'verified')
+            self.assertEqual(t['situation']['stage'], 'check'); self.assertIn('cần kiểm lại', t['situation']['reason'])
+            self.assertNotIn('accept', [n['kind'] for n in t['needs_user']])
+        self.assertEqual([r['state'] for r in d['milestone_checks']['rows']], ['recheck', 'recheck'])
+        outs = [o for o in d['work']['outputs'] if o['node'] in ('M1', 'M2')]
+        self.assertTrue(outs and all(o['stale'] and o.get('stale_reason') == 'cần kiểm lại' for o in outs), outs)
+
+    def test_a_failed_check_output_is_checked_and_not_passed_not_only_produced(self):
+        self.plan('P4', [milestone('M1', BAD), milestone('M2', OK)])
+        verdict.run(self.ledger, 'P4', 'M1')
+        d = tracking.detail(self.ledger.state_root, 'P4')
+        [out] = [o for o in d['work']['outputs'] if o['node'] == 'M1']
+        self.assertEqual(out['level'], 'failed')
+        self.assertNotEqual(d['level']['kind'], 'verified')
+
     def test_a_fix_then_recheck_reads_as_passed_with_its_history(self):
         # the fix is a real change of the project (a pass on the same tree after a fail is not a fix); the verifier's condition is a flag outside
         # the project so the changed file is not one the command line names (that would make the pass inconclusive by the integrity rule)

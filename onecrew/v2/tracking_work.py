@@ -284,7 +284,7 @@ def _checks(reader, state, events, root, blobs, engine, limitations):
             'coverage': 'Chỉ receipt có sự kiện phát hành và binding; số check không phải số testcase.'}
 
 
-def _outputs(state, events, root, engine, evidence_keys, checks, blobs):
+def _outputs(state, events, root, engine, evidence_keys, checks, blobs, recheck=frozenset()):
     rows, starts, seen = [], {}, {}
     current = (engine or {}).get('nodes', {})
     definitions = ((engine or {}).get('definition') or {}).get('nodes', [])
@@ -314,6 +314,8 @@ def _outputs(state, events, root, engine, evidence_keys, checks, blobs):
                  and r['artifact'] == artifact and r['revision'] == p.get('revision') and r['source']['seq'] >= seq
                  ]
         proof = matching[-1:] if matching and matching[-1]['authentic'] and matching[-1]['status'] == 'pass' else []
+        failed = bool(matching and matching[-1]['authentic'] and matching[-1]['status'] == 'fail')   # UX 13/11 (B2): checked and not passed, not "only produced"
+        if not nid and node_id in recheck: stale = True                        # UX 13/11 (B2): the milestone view says this pass needs a recheck
         accepted = any(k == 'node.accepted' and b.get('node') == nid and b.get('generation') == gen
                        and b.get('internal_revision') == p.get('internal_revision') and s >= seq for s, k, b, _ in events) if nid else False
         row = {'id': 'output:' + str(seq), 'node': node_id, 'title': _display(titles.get(nid) or node_id or 'Đầu ra'),
@@ -321,7 +323,8 @@ def _outputs(state, events, root, engine, evidence_keys, checks, blobs):
                'artifact': artifact, 'receipt': p.get('receipt'), 'stored': artifact in evidence_keys,
                'openable': artifact in evidence_keys, 'inherited': inherited or bool(nid and not stale and
                     p.get('internal_revision') != (engine or {}).get('internal_revision')),
-               'stale': stale, 'level': 'accepted' if accepted and proof else 'verified' if proof else 'produced',
+               'stale': stale, 'level': 'accepted' if accepted and proof else 'verified' if proof else 'failed' if failed else 'produced',
+               **({'stale_reason': 'cần kiểm lại'} if not nid and node_id in recheck else {}),
                'verification': [r['id'] for r in proof], 'source': source, 'sources': [source]}
         if inherited:
             row['from_generation'], row['from_attempt'] = p.get('generation'), p.get('continues_attempt')
@@ -401,7 +404,7 @@ def _repairs(events, root, blobs, checks, engine):
     return rows
 
 
-def project(reader, conn, row, state, events, engine, evidence_keys):
+def project(reader, conn, row, state, events, engine, evidence_keys, recheck=frozenset()):
     """Detail-only addition; caller already holds report._Reader's RO transaction.
 
     Events are the complete root history, independent of the visible timeline.
@@ -417,7 +420,7 @@ def project(reader, conn, row, state, events, engine, evidence_keys):
             'effective_revision': None, 'contract': None, 'source_solution': None, 'card': None}, None
         limitations.append('Không đọc được hợp đồng có hash hợp lệ; không suy quyền hay nội dung solution.')
     checks = _checks(reader, state, events, row['id'], blobs, engine, limitations)
-    outputs = _outputs(state, events, row['id'], engine, set(evidence_keys), checks, blobs)
+    outputs = _outputs(state, events, row['id'], engine, set(evidence_keys), checks, blobs, recheck=recheck)
     definitions = ((engine or {}).get('definition') or {}).get('nodes', [])
     actors = [_actor('assigned', n['id'], None, {'kind': 'plan.revised', 'internal_revision': (engine or {}).get('internal_revision')},
                      n.get('executor')) for n in definitions]
