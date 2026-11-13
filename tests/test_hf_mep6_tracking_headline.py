@@ -55,8 +55,11 @@ class Headline(fixtures.Fixture):
         verdict.run(self.ledger, 'P1', 'M1')
         item, detail = self.views()
         self.assertEqual([m['state'] for m in item['milestones']], ['passed', 'pending', 'pending'])     # precondition: a real passing verdict
-        for t in (item, detail):
-            self.assertEqual(self.js('workStatus', t), 'Đang làm · đạt 1/3 mốc · chờ kiểm M2, M3')
+        for t in (item, detail):                                                            # 13/11: a short badge; the count, the reason and the next step apart
+            self.assertEqual(self.js('workStatus', t), 'Đang thực hiện')
+            self.assertEqual(t['situation']['milestones']['text'], 'Đạt 1/3 mốc')
+            self.assertEqual(t['situation']['reason'], 'Chưa kiểm mốc M2, M3')
+            self.assertEqual(t['situation']['next'], 'Làm và kiểm mốc M2')
             self.assertEqual(self.js('nextMilestone', t), 'M2 — Milestone M2')
         self.assertIn('chờ verdict của mốc M2, M3', item['status']['reason'])            # the sourced reason is unchanged
 
@@ -65,8 +68,8 @@ class Headline(fixtures.Fixture):
         verdict.run(self.ledger, 'P1', 'M1')
         item, _ = self.views()
         card = self.js('workStatus', item)
-        self.assertIn('M1', card); self.assertIn('chưa đạt', card)
-        self.assertNotIn('Đang làm · đạt', card)
+        self.assertEqual(card, 'Cần sửa')
+        self.assertIn('M1', item['situation']['reason']); self.assertIn('không đạt', item['situation']['reason'])
 
     def test_the_board_card_names_the_next_milestone_only_while_work_is_in_progress(self):
         self.plan()
@@ -74,9 +77,10 @@ class Headline(fixtures.Fixture):
         verdict.run(self.ledger, 'P1', 'M1')
         during, _ = self.views()
         html = self.run_js('row(' + json.dumps(during) + ')', extra=self.row_source())
-        self.assertIn('Mốc tiếp theo: M2 — Milestone M2', html)
+        self.assertIn('Làm và kiểm mốc M2', html); self.assertIn('Đang thực hiện', html)
         self.assertIn(TITLE, html)
-        self.assertNotIn('Mốc tiếp theo', self.run_js('row(' + json.dumps(before) + ')', extra=self.row_source()))     # not started: no "next"
+        first = self.run_js('row(' + json.dumps(before) + ')', extra=self.row_source())
+        self.assertIn('Chưa bắt đầu', first); self.assertNotIn('Đang thực hiện', first)        # not started: never shown as in progress
 
     def row_source(self):
         page = tracking_web.PAGE

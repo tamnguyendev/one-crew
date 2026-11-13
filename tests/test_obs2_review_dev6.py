@@ -30,15 +30,16 @@ class ReviewPresentation(unittest.TestCase):
         self.assertNotIn('data-copy=""',html)
 
     def test_milestone_work_is_not_never_started_and_does_not_grant_acceptance(self):
-        for milestone in ({'state':'passed'}, {'state':'pending','last_verdict':{'result':'fail'}}):
-            task=dict(root_status='approved',status={'kind':'waiting'},nodes_summary={},has_started=False,
-                      acceptance={'ready':False},milestones=[milestone],current_step='Cần kiểm lại mốc')
-            self.assertEqual(self.run_js('workStage('+json.dumps(task)+')'),'doing')
-            self.assertNotEqual(self.run_js('workStatus('+json.dumps(task)+')'),'Chưa khởi chạy')
-        task['milestones']=[{'state':'pending'}]
-        self.assertEqual(self.run_js('workStage('+json.dumps(task)+')'),'todo')
-        task['acceptance']['ready']=True
-        self.assertEqual(self.run_js('workStage('+json.dumps(task)+')'),'accept')
+        # 13/11: on the model (tracking_situation), as the page now renders it
+        from tests.test_tracking_situation import call, view, rows
+        for vs in ([view('M1', 'passed'), view('M2')], [view('M1', 'failed'), view('M2')]):
+            s = call(views=vs, checks=rows(vs), has_started=True, acceptance={'ready': False})
+            self.assertIn(s['stage'], ('doing', 'fix')); self.assertNotEqual(s['label'], 'Chưa bắt đầu')
+        vs = [view('M1')]
+        self.assertEqual(call(views=vs, checks=rows(vs), acceptance={'ready': False})['stage'], 'todo')
+        vs = [view('M1', 'passed')]
+        self.assertEqual(call(views=vs, checks=rows(vs), has_started=True, level='verified', acceptance={'ready': True})['stage'], 'accept')
+        self.assertEqual(call(views=vs, checks=rows(vs), has_started=True, level='verified', acceptance={'ready': False})['stage'], 'check')
 
     def test_initial_body_is_not_a_change_and_later_change_keeps_its_words(self):
         row=dict(id='first',kind='initial',revision=1,diff=[{'path':'nodes','change':'added','before':None,'after':'Work'}],
@@ -76,5 +77,8 @@ class MilestoneProgress(fixtures.Fixture):
         t=tracking.detail(self.ledger.state_root,'P1')
         self.assertFalse(t['acceptance']['ready'])
         self.assertNotIn('accept',[n['kind'] for n in t['needs_user']])
-        self.assertEqual(self.run_js('workStage('+json.dumps(t)+')'),'doing')
+        # 13/11: the two passes are on different artifacts: the model says Chờ kiểm with the acceptance rule's reason, never acceptance
+        self.assertEqual(self.run_js('workStage('+json.dumps(t)+')'),'check')
+        self.assertEqual(t['situation']['reason'],t['acceptance']['reason'])                # the acceptance rule's own words, not a guess
+        self.assertNotEqual(t['situation']['next_by'],'owner')
         self.assertEqual(before,(self.ledger.state_root/'ledger.sqlite3').read_bytes())

@@ -1022,6 +1022,15 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     stopped_now = kind == 'blocked' and (state['status'] == 'stopped_with_report' or (guidance or {}).get('state') == 'stopped')    # the fifth state: nothing runs until the owner decides; a block has a next step
     active_rows = [{'attempt': a['id'], 'status': a['status'], 'since': a['created_at'], 'unit': a['unit'], 'stage': a['stage'],
                     'node': next((nid for nid, r in nodes.items() if r['attempt'] == a['id']), None)} for a in attempts if a['status'] in ('reserved', 'running', 'unknown')]
+    needs = _needs_user(state, requests, views, level, engine_view, project=row['project_path'], state_root=str(reader.state_root), contract=contract, acceptance=acceptance)
+    from . import tracking_situation
+    checks = None
+    if engine_view is None and views:
+        from . import verdict as verdicts
+        checks = tracking_situation.milestone_checks(views, history, state['latest'], now, lambda run: verdicts.lost_reason(run, now, verdicts.process_alive))
+    situation = tracking_situation.situation(state=state, views=views, checks=checks, engine_view=engine_view, attempts=attempts, active=active_rows,
+                                             requests=requests, needs=needs, acceptance=acceptance, level=level, has_started=has_started,
+                                             guidance=guidance, status_kind=kind, status_reason=reason, progress=progress)
     item = {'id': row['id'], 'plan': state['name'], 'selector': row['request_key'], 'project': row['project_path'], 'project_id': row['project_id'],
             'goal': _goal(contract, payload), 'title': clean(payload.get('title'), 200), 'owner_view': _owner_view(contract), 'contract_revision': state['latest'],
             'headline': clean((contract or {}).get('title'), 200),     # mep6: the owner's line for the card; the AI's restated goal stays in 'goal'
@@ -1036,7 +1045,8 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
             'next_action': guidance,
             'last_update': {'seq': last[0], 'kind': last[1], 'at': last[3], 'summary': clean(_summary(last[1], last[2]), 200)} if last else None,
             'last_evidence': _last_evidence(events),
-            'needs_user': _needs_user(state, requests, views, level, engine_view, project=row['project_path'], state_root=str(reader.state_root), contract=contract, acceptance=acceptance),
+            'needs_user': needs,
+            'situation': situation,
             'active': active_rows,
             'nodes_summary': counts,
             'tracking': {'adapter': 'engine' if engine_root else 'milestones',
@@ -1049,6 +1059,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
             'capabilities': list(state.get('capabilities') or ()),
             'read_only': True}
     if not full: return item
+    item['milestone_checks'] = checks
     item['nodes'] = nodes
     item['attempts'] = attempts
     item['requests'] = [{'id': r['id'], 'revision': r['revision'], 'state': r['state'], 'created_at': r['created_at'], 'updated_at': r['updated_at'],
@@ -1212,7 +1223,11 @@ def _overview(state_root, *, project_id=None, now=None):
                     item = {'id': row['id'], 'plan': clean(row['request_key'], 100), 'selector': row['request_key'], 'project': row['project_path'], 'project_id': row['project_id'],
                             'goal': None, 'root_status': UNKNOWN, 'status': {'kind': 'unknown', 'label': WORDS['unknown'], 'reason': 'không đọc được: ' + clean(str(error), 200), 'source': []},
                             'level': {'kind': 'none', 'label': LEVEL_WORDS['none']}, 'elapsed': {'seconds': UNKNOWN}, 'needs_user': [], 'active': [], 'last_update': None,
-                            'last_evidence': None, 'nodes_summary': {}, 'tracking': {'adapter': UNKNOWN, 'coverage': 'lỗi đọc', 'errors': [clean(str(error), 200)]}, 'read_only': True}
+                            'last_evidence': None, 'nodes_summary': {}, 'tracking': {'adapter': UNKNOWN, 'coverage': 'lỗi đọc', 'errors': [clean(str(error), 200)]},
+                            'situation': {'stage': 'unknown', 'label': 'Chưa xác định', 'reason': 'Không đọc được việc này trong sổ', 'next': None, 'next_by': None,
+                                          'next_by_text': None, 'activity': {'running': False, 'text': 'Không đọc được hoạt động', 'since': None}, 'milestones': None,
+                                          'no_owner_decision': True, 'source': []},
+                            'read_only': True}
                 projects.setdefault(row['project_path'], []).append(item)
             result['projects'] = [{'path': path, 'tasks': items} for path, items in projects.items()]
             result['tasks_total'] = sum(len(p['tasks']) for p in result['projects'])

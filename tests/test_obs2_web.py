@@ -83,8 +83,21 @@ function gantt(d){return '<section class="gantt">Timeline dependency (tested sep
         for title in ('Tổng quan', 'Solution', 'Thay đổi', 'Kết quả & kiểm chứng', 'Tiến độ'):
             self.assertIn(title, out)
         self.assertIn('Chưa đủ dữ liệu', out)
-        self.assertIn('Đối chiếu điều kiện đăng nhập', out)
         self.assertIn('aria-labelledby="work-tab-overview"', out)
+
+    def test_the_summary_answers_the_five_questions_from_the_model(self):
+        # 13/11: the current step left the Tổng quan cards for the summary above the tabs (sitPanel), worded by the model
+        node = shutil.which('node')
+        if not node: self.skipTest('Node needed for JS rendering acceptance')
+        d = {'situation': {'stage': 'fix', 'label': 'Cần sửa', 'reason': 'Đối chiếu điều kiện đăng nhập không đạt', 'next': 'Sửa và kiểm lại mốc M2', 'next_by_text': 'Chưa có thông tin người xử lý',
+                           'activity': {'running': False, 'text': 'Không có lượt chạy hay lần kiểm nào đang diễn ra trong sổ.'}},
+             'needs_user': [], 'level': {'label': 'chưa có đầu ra'}, 'last_update': {'at': 'T1', 'summary': 'mốc M2 không đạt'}, 'generated_at': 'T2'}
+        code = 'function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c]))}function when(v){return v}function needTitle(n){return n.kind}\n' + SCRIPT + '\nconsole.log(sitPanel(' + json.dumps(d) + '));'
+        out = subprocess.run([node, '-'], input=code, text=True, encoding='utf-8', capture_output=True, timeout=10).stdout
+        for text in ('Đang ở đâu', 'Vướng gì', 'Ai làm tiếp', 'Bạn cần làm gì', 'Kết quả ở đâu', 'Cần sửa', 'Đối chiếu điều kiện đăng nhập không đạt',
+                     'Sửa và kiểm lại mốc M2', 'Chưa có thông tin người xử lý', 'Không có quyết định nào đang chờ bạn. Điều này không có nghĩa là việc đang tiến triển.',
+                     'Hoạt động cuối của việc: ', '>T1</time> · mốc M2 không đạt', 'Sổ đọc lúc T2'):
+            self.assertIn(text, out)
 
     def test_solution_payload_is_visible_and_unavailable_payload_is_not(self):
         ref = {'id': 'SOL-1', 'revision': 3, 'status': 'available',

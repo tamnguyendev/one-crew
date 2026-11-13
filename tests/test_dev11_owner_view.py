@@ -222,8 +222,10 @@ class TrackingPage(Fixture):
 
     def test_the_list_row_and_the_detail_header_call_the_owner_helpers(self):
         from onecrew.v2.tracking_web import PAGE
-        row = PAGE[PAGE.index('function row(t)'):PAGE.index('function render(force)')]
-        for helper in ('workTitle(t)', 'workDesc(t)', 'workWaiting(t)', 'workNoOwner(t)'):
+        row = PAGE[PAGE.index('function workItem(t)'):]           # 13/11: row() renders workItem(t); the owner part opens the Tổng quan tab
+        row = row[:row.index('\nfunction ')]
+        for helper in ('workTitle(t)', 'workDesc(t)', 'workNoOwner(t)'):
             self.assertIn(helper, row)
-        detail = PAGE[PAGE.index('function renderDetail(d)'):]
-        self.assertIn('workOwnerSection(d)', detail[:4000])
+        self.assertIn('workItem(t)', PAGE[PAGE.index('function row(t)'):PAGE.index('function render(force)')])
+        overview = PAGE[PAGE.index('function workOverview(d,w)'):]
+        self.assertIn('workOwnerSection(d)', overview[:600])

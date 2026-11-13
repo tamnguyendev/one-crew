@@ -4,13 +4,15 @@ from tests import obs1_ux_harness as base
 SCENARIO = r'''
 if(S==='work'){
   const first=qs.get('first')||'CODE', second=qs.get('second')||'DOC';
-  check('board groups cards into sourced stages', $$('.board-lane').length===7 && $$('.board-lane li.task').length===2);
+  check('list is the default view with one row per task', $('#list').dataset.mode==='list' && $$('#list .lrows li.task').length===2);
+  $('[data-list-mode="board"]').click();
+  check('board groups cards into sourced stages', $$('.board-lane').length>=6 && $$('.board-lane li.task').length===2);
   check('board states are not draggable controls', !$$('li.task').some(x=>x.draggable));
   check('sample data is visibly distinguished', $('#sample')&&!$('#sample').hidden);
   const originalCards=$$('li.task').map(x=>x.dataset.plan).sort().join(',');
   for(const order of ['created','updated','deadline','attention']){$('#sort').value=order;$('#sort').dispatchEvent(new w.Event('change',{bubbles:true}));check('sorting '+order+' preserves the same tasks',$$('li.task').map(x=>x.dataset.plan).sort().join(',')===originalCards);}
-  const docCard=rowOf(second);check('document waits for check not owner', docCard.textContent.includes('chờ kiểm')&&!docCard.querySelector('.needb'));
-  check('pending amendment is not ready for acceptance',rowOf(first).closest('.board-lane').dataset.stage==='doing');
+  const docCard=rowOf(second);check('document waits for check not owner', docCard.textContent.toLowerCase().includes('chờ kiểm')&&!docCard.querySelector('.needb'));
+  check('pending amendment is not ready for acceptance',rowOf(first).closest('.board-lane').dataset.stage!=='accept'&&!!rowOf(first).querySelector('.needb'));
   await select(first);
   const decision=$('#detail details.need');
   check('decision starts compact so work tabs remain accessible',!decision.open);
@@ -35,7 +37,8 @@ if(S==='work'){
   const expand=$('.gtree [data-fold^="n:"]');expand.click();check('attempt ids appear only on expansion',$$('.gtree .att').length>=1);expand.click();
 
   check('five named work tabs', $$('.work-nav [role=tab]').length===5);
-  check('overview answers current/output/owner/estimate', ['Hiện tại','Kết quả đã có','Việc cần bạn','Dự kiến còn lại'].every(t=>$('#work-content').textContent.includes(t)));
+  check('summary answers where / blocker / who next / owner action / results', ['Đang ở đâu','Vướng gì','Ai làm tiếp','Bạn cần làm gì','Kết quả ở đâu'].every(t=>$('#detail .sit').textContent.includes(t)));
+  check('overview answers output/estimate', ['Kết quả đã có','Dự kiến còn lại'].every(t=>$('#work-content').textContent.includes(t)));
   check('technical detail folded by default', !$('#detail details[data-k="work-technical"]').open);
   for(const tab of ['solution','changes','results','progress','overview']){
     $('[data-work-tab="'+tab+'"]').click();

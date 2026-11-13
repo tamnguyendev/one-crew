@@ -197,7 +197,9 @@ class BrowserTests(WebFixture):
         cls, text = badge(dom)
         self.assertEqual(cls, 'ok', text); self.assertIn('kết nối OK', text); self.assertIn('seq', text)
         body = dom.split('</script>')[-1] if '</script>' in dom else dom
-        self.assertIn('P1', dom); self.assertIn('class="st waiting"', dom); self.assertIn('Chờ bạn trả lời</span>', dom); self.assertIn('class="needb">1 quyết định cần bạn', dom)
+        # 13/11: the short stage badge of the model, the question as the next step and the owner as the one who takes it
+        self.assertIn('P1', dom); self.assertIn('class="stg todo"', dom); self.assertIn('Chưa bắt đầu</span>', dom); self.assertIn('class="needb">Cần bạn', dom)
+        self.assertIn('Trả lời câu hỏi', dom); self.assertIn('Người xử lý: Bạn', dom)
         self.assertNotIn('hunter2', dom)
         detail = dump_dom(self.browser, self.url + '?plan=P1', self.profile)              # the reply commands live in the task detail (UX-03), one per option
         self.assertIn('owner answer', detail); self.assertIn("--choice 'seven'", detail); self.assertIn("--choice 'thirty'", detail); self.assertNotIn('hunter2', detail)

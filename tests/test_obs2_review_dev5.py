@@ -14,17 +14,18 @@ from tests.test_v2_l1 import Fixture
 
 class ReviewCards(unittest.TestCase):
     run_js = cards.Cards.run_js
+    # 13/11: the stage is the model's (tracking_situation); same intents on the model
     def test_checked_output_with_unstarted_work_is_not_waiting_for_check(self):
-        t = dict(root_status='approved', has_started=True, level={'kind':'produced'},
-                 nodes_summary={'verified':1,'produced':0,'pending':1},
-                 status={'kind':'waiting'}, needs_user=[{'kind':'request'}])
-        self.assertEqual(self.run_js('workStage('+json.dumps(t)+')'), 'doing')
-        self.assertEqual(self.run_js('workStatus('+json.dumps(t)+')'), 'Chờ bạn trả lời')
+        from tests.test_tracking_situation import call
+        ev = {'nodes': {'C': {'phase': 'complete', 'state': 'verified', 'attempt': 'a'}, 'I': {'phase': 'pending'}}, 'definition': {'nodes': [{'id': 'C'}, {'id': 'I'}]}}
+        s = call(engine_view=ev, has_started=True, level='produced', needs=[{'kind': 'request', 'question': 'Q?'}])
+        self.assertEqual(s['stage'], 'doing'); self.assertEqual(s['next_by_text'], 'Bạn')
 
     def test_verified_nodes_without_acceptance_readiness_do_not_request_acceptance(self):
-        t = dict(root_status='approved', has_started=True, level={'kind':'verified'},
-                 acceptance={'ready':False}, nodes_summary={'verified':2}, status={'kind':'waiting'})
-        self.assertEqual(self.run_js('workStage('+json.dumps(t)+')'), 'doing')
+        from tests.test_tracking_situation import call
+        ev = {'nodes': {'C': {'phase': 'complete', 'state': 'verified'}, 'I': {'phase': 'complete', 'state': 'verified'}}, 'definition': {'nodes': [{'id': 'C'}, {'id': 'I'}]}}
+        s = call(engine_view=ev, has_started=True, level='verified', acceptance={'ready': False, 'reason': 'Chờ kiểm bàn giao'})
+        self.assertNotEqual(s['stage'], 'accept'); self.assertNotEqual(s['next_by'], 'owner')
 
     def test_initial_plan_is_labelled_creation_not_change(self):
         out = self.run_js('workChanges({},'+json.dumps({'changes':[{'id':'1','kind':'initial','internal_revision':1,'diff':[]}]})+')')

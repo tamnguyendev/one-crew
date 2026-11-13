@@ -854,18 +854,23 @@ details{margin:6px 0}summary{cursor:pointer;color:var(--mut)}summary:focus-visib
 
 </style></head><body>
 <header>
-<div class="bar"><h1>OneCrew · Công việc</h1><span id="health" role="status" class="small"></span><span id="dconn" role="status" hidden></span><span id="count" class="small mut"></span><span id="chips" role="group" aria-label="lọc nhanh"></span></div>
+<div class="bar"><h1>OneCrew · Công việc</h1><span id="health" role="status" class="small"></span><span id="dconn" role="status" hidden></span><span id="count" class="small mut"></span></div>
 <div class="tools">
+<label class="search"><input id="q" type="search" placeholder="Tìm công việc…" aria-label="Tìm theo tên việc, mục tiêu, bước"></label>
+<div id="viewsw" role="group" aria-label="Cách xem danh sách"><button type="button" data-list-mode="list" aria-pressed="true">Danh sách</button><button type="button" data-list-mode="board" aria-pressed="false">Bảng</button></div>
+<details id="filters" data-k="filters"><summary>Bộ lọc <span id="fcount" class="small mut"></span></summary><div class="fbody">
 <label>Dự án <select id="proj"><option value="">tất cả</option></select></label>
-<label>Lọc <select id="kind"><option value="">tất cả</option><option value="need">Cần bạn quyết định</option><option value="running">đang thực hiện</option><option value="waiting">đang chờ</option><option value="blocked">bị chặn</option><option value="done">đã xong</option><option value="unknown">chưa xác định</option></select></label>
-<label><span>tìm</span><input id="q" type="search" placeholder="Tìm công việc…" size="24" aria-label="tìm theo plan, mục tiêu, bước"></label>
+<label>Trạng thái <select id="kind"><option value="">tất cả</option><option value="need">Cần bạn quyết định</option><option value="running">Đang có lượt chạy</option><option value="todo">Chưa bắt đầu</option><option value="doing">Đang thực hiện</option><option value="fix">Cần sửa</option><option value="check">Chờ kiểm</option><option value="accept">Chờ nghiệm thu</option><option value="done">Hoàn tất</option><option value="stopped">Đã dừng</option><option value="unknown">Chưa xác định</option><option value="closed">Đã đóng</option></select></label>
 <label>Sắp xếp <select id="sort"><option value="attention">Cần xử lý trước</option><option value="updated">Cập nhật gần nhất</option><option value="created">Ngày tạo (cũ trước)</option><option value="deadline">Hạn hoàn thành (nếu có)</option></select></label>
+</div></details>
+<span id="chips" role="group" aria-label="lọc nhanh"></span>
 </div>
+<div id="factive" role="status" hidden></div>
 <div id="sample" class="sample-banner" hidden>Các thẻ đang xem có nhãn “dữ liệu thử” trong tên. Kiểm tra đúng dự án và sổ trước khi chạy lệnh.</div>
 <details class="connection-details"><summary>Thông tin kết nối và giới hạn</summary><span id="conn">đang kết nối…</span><p class="note small mut"><span class="long">Chỉ đọc: không có nút duyệt, trả lời, dừng hay tiếp tục task; mở bằng chứng không phải là duyệt. Kết nối "OK" chỉ nói trang đang nhận dữ liệu, không nói việc đã xong. </span><span class="brief">Chỉ đọc; "kết nối OK" không có nghĩa việc đã xong. </span><span id="src"></span></p></details>
 </header>
 <main id="main" data-view="list">
-<section class="pane" id="listpane" aria-label="Danh sách công việc"><h2>Bảng công việc</h2><p class="stage-note">Mỗi thẻ là một công việc. Cột là giai đoạn; nhãn cho biết ai cần làm tiếp. Chỉ xem, không kéo thả.</p><div id="empty"></div>
+<section class="pane" id="listpane" aria-label="Danh sách công việc"><h2>Công việc</h2><p class="stage-note" id="stagenote">Mỗi dòng là một công việc: trạng thái, bước tiếp theo, kết quả và hoạt động cuối. Trạng thái do sổ tính; trang chỉ xem, không kéo thả hay đổi trạng thái.</p><div id="empty"></div>
 <div id="list" role="group" aria-label="Bảng công việc"></div>
 <details id="untrackedbox" data-k="untracked"><summary>Chưa được theo dõi</summary><div id="untracked" class="small"></div></details></section>
 <section class="pane" id="detailpane" aria-label="Chi tiết task"><div id="detail"><div id="nodetail">Chọn một task ở danh sách để xem chi tiết, timeline và bằng chứng.</div></div></section>
@@ -880,8 +885,9 @@ var TECH=['attempt.','executor.managed','decision.recorded','execution.configure
 var $=function(s){return document.querySelector(s)};
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function hms(s){if(typeof s!=='number')return 'chưa xác định';if(s>0&&s<1)return 'dưới 1s';s=Math.floor(s);var h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return h?h+'h'+String(m).padStart(2,'0')+'m':m?m+'m'+String(x).padStart(2,'0')+'s':x+'s'}
-function when(t){if(!t)return '—';var d=new Date(t);return isNaN(d)?esc(t):d.toLocaleTimeString()+' '+d.toLocaleDateString()}
-function clock(t){if(!t)return '—';var d=new Date(t);return isNaN(d)?esc(t):d.toLocaleTimeString()}
+var TF={hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false},DF={day:'2-digit',month:'2-digit',year:'numeric'};
+function when(t){if(!t)return '—';var d=new Date(t);return isNaN(d)?esc(t):d.toLocaleTimeString('vi-VN',TF)+' '+d.toLocaleDateString('vi-VN',DF)}
+function clock(t){if(!t)return '—';var d=new Date(t);return isNaN(d)?esc(t):d.toLocaleTimeString('vi-VN',TF)}
 function relText(t){var d=new Date(t);if(isNaN(d))return esc(t);var s=Math.round((Date.now()-d.getTime())/1000);if(s<5)return 'vừa xong';if(s<60)return s+' giây trước';if(s<3600)return Math.floor(s/60)+' phút trước';if(s<86400)return Math.floor(s/3600)+' giờ trước';return Math.floor(s/86400)+' ngày trước'}
 function rel(t){return t?'<time data-rel="'+esc(t)+'" title="'+when(t)+'">'+relText(t)+'</time>':'—'}
 function tick(){document.querySelectorAll('[data-rel]').forEach(function(e){e.textContent=relText(e.getAttribute('data-rel'))});
@@ -893,14 +899,14 @@ function word(map,k){return '<span title="'+esc(k)+'">'+esc(map[k]||k||'—')+'<
 function short(p){p=String(p||'');var parts=p.split(/[\\\/]/).filter(Boolean);return parts.length>2?'…'+parts.slice(-2).join('\\'):p}
 function conn(cls,text){var c=$('#conn');c.className=cls;c.textContent=text;var h=$('#health');h.className=cls==='ok'?'small mut':'err';h.textContent=cls==='ok'?'Đang cập nhật':text}
 function narrow(){return window.matchMedia('(max-width:899px)').matches}
-function setView(){$('#main').setAttribute('data-view',selected?'detail':'list')}
+function setView(){var v=selected?'detail':'list';$('#main').setAttribute('data-view',v);document.body.setAttribute('data-view',v)}   // 13/11: the list's search and filters step aside on the detail page (kept, not reset)
 function sameSel(a,b){return !!a&&!!b&&a.plan===b.plan&&(a.project||'')===(b.project||'')}
 function urlOf(sel){return sel?'?plan='+encodeURIComponent(sel.plan)+(sel.project?'&project_id='+encodeURIComponent(sel.project):''):location.pathname}
 function mine(){return detailData&&sameSel(detailFor,selected)?detailData:null}   // R4: the detail data only while it belongs to the CURRENT selection
 function detailState(){return !selected?'none':mine()?(detailError?'stale':'ok'):(detailError?'error':'loading')}
 function taskOf(sel){return sel?tasks().find(function(t){return t.selector===sel.plan&&(!sel.project||t.project_id===sel.project)})||null:null}
 function nameOf(sel){var t=taskOf(sel);return t?t.plan:String(sel.plan||'').replace(/^plan(-ns)?:/,'')}
-function clockMs(ms){return ms?new Date(ms).toLocaleTimeString():'?'}
+function clockMs(ms){return ms?new Date(ms).toLocaleTimeString('vi-VN',TF):'?'}
 function iso(ms){return ms?new Date(ms).toISOString():null}
 function dind(){var e=$('#dconn'),k=detailState();if(k==='none'){e.hidden=true;e.className='';e.textContent='';return}   // the detail freshness, apart from the overview badge
   var n=nameOf(selected);e.hidden=false;
@@ -908,35 +914,37 @@ function dind(){var e=$('#dconn'),k=detailState();if(k==='none'){e.hidden=true;e
   else if(k==='ok'){e.className='ok';e.textContent='chi tiết '+n+': cập nhật lúc '+clockMs(detailOkAt)}
   else{e.className='bad';e.textContent='chi tiết '+n+': lỗi tải từ '+clockMs(detailError.since)+(k==='stale'?' · đang hiện dữ liệu lúc '+clockMs(detailOkAt):' · chưa có dữ liệu')
     +(reading()?' · đang thử lại':detailTimeouts>=DETAIL_TRIES?' · đã ngừng tự thử (bấm Thử lại)':'')}}   // P2: a read in flight or the stop, also in the header
+function crumbs(title,tab){return '<nav class="crumbs" aria-label="Đường dẫn"><button type="button" id="back">← Tất cả công việc</button><span class="sep" aria-hidden="true">›</span><span class="here">'+esc(title)+'</span>'+(tab?'<span class="sep" aria-hidden="true">›</span><span id="crumbtab">'+esc(tab)+'</span>':'')+'</nav>'}
 function pendingPane(sel){var t=taskOf(sel),e=detailError;   // the selected task's own heading while its detail is loading or failed; nothing of any other task
-  var h='<div class="dhead"><button type="button" id="back">← Danh sách</button><h2 id="dtitle" data-k="dtitle" tabindex="-1">'+esc(nameOf(sel))+(t?' '+st(t.status):'')+'</h2><button type="button" id="close" class="small" title="bỏ chọn task">Đóng</button></div>';
+  var h=crumbs(t?workTitle(t):nameOf(sel),'')+'<div class="dhead"><h2 id="dtitle" data-k="dtitle" tabindex="-1">'+esc(t?workTitle(t):nameOf(sel))+(t?' '+workBadge(t):'')+'</h2><button type="button" id="close" class="small" title="bỏ chọn task">Đóng</button></div>';
   var since=detailInflight&&sameSel(detailInflight.sel,sel)?detailInflight.since:Date.now();
   h+=e?'<div id="dstatus" class="dstatus err" role="status" data-state="error" data-k="dstatus" tabindex="-1">Không tải được chi tiết task này ('+esc(e.message)+') từ '+clockMs(e.since)+', lần thử gần nhất <span id="dlast">'+clockMs(e.last)+'</span>; <span id="dnote">'+noteHtml()+'</span>. Chưa có dữ liệu chi tiết nào của task này nên không có câu hỏi hay mẫu lệnh nào để hiện.</div>'
       :'<div id="dstatus" class="dstatus" role="status" data-state="loading" data-k="dstatus" tabindex="-1">đang tải chi tiết… <span class="mut">(đã chờ <span data-live="0" data-live-at="'+since+'">0s</span>, tối đa '+DETAIL_TIMEOUT/1000+' s)</span></div>';
-  if(t)h+='<div class="small mut">Theo danh sách: '+esc(t.current_step||t.status.reason||'')+'</div>';
+  if(t)h+='<div class="small mut">Theo danh sách: '+esc(workReason(t))+'</div>';
   $('#detail').innerHTML=h}
 function tasks(){var out=[];(last&&last.projects||[]).forEach(function(p){p.tasks.forEach(function(t){out.push(t)})});return out}
 function visible(){var cur=$('#proj').value,kind=$('#kind').value,q=($('#q').value||'').toLowerCase();
   return workOrder(tasks().filter(function(t){if(cur&&t.project!==cur)return false;
-    if(kind==='need'&&!(t.needs_user||[]).length)return false;if(kind&&kind!=='need'&&t.status.kind!==kind)return false;
+    if(kind==='need'&&!(t.needs_user||[]).length)return false;if(kind==='running'&&!(sit(t).activity||{}).running)return false;if(kind&&kind!=='need'&&kind!=='running'&&workStage(t)!==kind)return false;
     if(q&&workSearch(t).indexOf(q)<0)return false;return true}),$('#sort').value)}
 function row(t){var sel=sameSel(selected,{plan:t.selector,project:t.project_id}),lastv=!sel&&sameSel(lastViewed,{plan:t.selector,project:t.project_id});
-  return '<li class="task'+(lastv?' last':'')+'" role="option" tabindex="0" aria-selected="'+sel+'" data-plan="'+esc(t.selector)+'" data-project="'+esc(t.project_id)+'" data-k="task:'+esc(t.project_id)+':'+esc(t.selector)+'">'
-   +'<div class="r1">'+(workNoOwner(t)?'<span class="name">'+esc(t.plan)+'</span>':'')+'<span class="ttl" title="'+esc(workNoOwner(t)?'':'chi tiết kỹ thuật: plan '+t.plan)+'">'+esc(workTitle(t))+'</span>'+(workNoOwner(t)?'<span class="small mut"> · '+workNoOwner(t)+'</span>':'')+workBadge(t)+((t.needs_user||[]).length?'<span class="needb">'+t.needs_user.length+' quyết định cần bạn</span>':'')+'</div>'
-   +(workDesc(t)?'<div class="r2 desc"><span>'+esc(workDesc(t))+'</span></div>':'')
-   +'<div class="r2"><span>'+esc((t.status||{}).kind==='blocked'?(t.current_step||t.status.reason):((t.needs_user||[]).length?(workWaiting(t)||'Mở thẻ để xem nội dung cần quyết định'):(workStage(t)==='doing'&&nextMilestone(t)?'Mốc tiếp theo: '+nextMilestone(t):'Không có yêu cầu dành cho bạn')))+'</span>'+(t.last_update?'<span class="mut">Cập nhật '+rel(t.last_update.at)+'</span>':'')+'</div>'
-   +'<div class="r3" title="'+esc(t.project)+'">'+esc(short(t.project))+(t.deadline?' · Hạn '+esc(when(t.deadline)):'')+'</div></li>'}
+  return '<li class="task'+(lastv?' last':'')+'" role="option" tabindex="0" aria-selected="'+sel+'" data-plan="'+esc(t.selector)+'" data-project="'+esc(t.project_id)+'" data-stage="'+esc(workStage(t))+'" data-k="task:'+esc(t.project_id)+':'+esc(t.selector)+'">'+workItem(t)+'</li>'}
+var listMode=(function(){try{return localStorage.getItem('onecrew-track-mode')==='board'?'board':'list'}catch(e){return 'list'}})();
+function setMode(m){listMode=m==='board'?'board':'list';try{localStorage.setItem('onecrew-track-mode',listMode)}catch(e){}render(true)}
+function filterSummary(){var parts=[],k=$('#kind'),p=$('#proj'),q=($('#q').value||'').trim();if(p.value)parts.push('dự án '+short(p.value));if(k.value)parts.push(k.options[k.selectedIndex].text);if(q)parts.push('tìm “'+q+'”');return parts}
 function render(force){
   if(!last)return;var ps=$('#proj'),cur=ps.value,opts='<option value="">tất cả</option>';
   (last.projects||[]).forEach(function(p){opts+='<option value="'+esc(p.path)+'"'+(p.path===cur?' selected':'')+'>'+esc(short(p.path))+'</option>'});if(ps.innerHTML!==opts)ps.innerHTML=opts;
   var vis=visible(),all=tasks(),need=all.filter(function(t){return (t.needs_user||[]).length}).length;
   $('#count').textContent=all.length+' công việc'+(vis.length!==all.length?' · hiện '+vis.length:'');
-  var kindNow=$('#kind').value,counts={need:need,blocked:all.filter(function(t){return t.status.kind==='blocked'}).length,running:all.filter(function(t){return t.status.kind==='running'}).length};
-  var chips=[['need','Cần bạn quyết định'],['blocked','bị chặn'],['running','Đang chạy']].map(function(c){return '<button type="button" class="chip" data-kind="'+c[0]+'" aria-pressed="'+(kindNow===c[0])+'">'+c[1]+' ('+counts[c[0]]+')</button>'}).join('')+(kindNow?'<button type="button" class="chip" data-kind="" aria-pressed="false">tất cả</button>':'');
+  var kindNow=$('#kind').value,counts={need:need,fix:all.filter(function(t){return workStage(t)==='fix'}).length,unknown:all.filter(function(t){return workStage(t)==='unknown'}).length,running:all.filter(function(t){return (sit(t).activity||{}).running}).length};
+  var chips=[['need','Cần bạn quyết định'],['fix','Cần sửa'],['unknown','Chưa xác định'],['running','Đang có lượt chạy']].filter(function(c){return counts[c[0]]||kindNow===c[0]}).map(function(c){return '<button type="button" class="chip" data-kind="'+c[0]+'" aria-pressed="'+(kindNow===c[0])+'">'+c[1]+' ('+counts[c[0]]+')</button>'}).join('');
+  document.querySelectorAll('#viewsw [data-list-mode]').forEach(function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-list-mode')===listMode))});
+  var fs=filterSummary(),fa=$('#factive');fa.hidden=!fs.length;var fh=fs.length?'<b>Đang lọc:</b> '+esc(fs.join(' · '))+' <button type="button" id="fclear">Bỏ lọc</button>':'';if(fa.innerHTML!==fh)fa.innerHTML=fh;$('#fcount').textContent=fs.length?'('+fs.length+' đang áp dụng)':'';
   if($('#chips').innerHTML!==chips)$('#chips').innerHTML=chips;
-  var sig=JSON.stringify(vis.map(function(t){return [t.selector,t.project_id,t.status.label,t.current_step,t.last_update&&t.last_update.seq,(t.needs_user||[]).length,t.title]}))+'|'+$('#sort').value+'|'+(selected?selected.plan+selected.project:'')+(lastViewed?lastViewed.plan:'');
+  var sig=JSON.stringify(vis.map(function(t){return [t.selector,t.project_id,t.status.label,JSON.stringify(t.situation||null),t.last_update&&t.last_update.seq,(t.needs_user||[]).length,t.title]}))+'|'+$('#sort').value+'|'+listMode+'|'+(selected?selected.plan+selected.project:'')+(lastViewed?lastViewed.plan:'');
   if(sig!==listSig||force){var foc=document.activeElement&&document.activeElement.getAttribute&&document.activeElement.getAttribute('data-k');
-    $('#list').innerHTML=workBoard(vis);listSig=sig;
+    $('#list').setAttribute('data-mode',listMode);$('#list').innerHTML=vis.length?(listMode==='board'?workBoard(vis):workRows(vis)):'';listSig=sig;
     if(foc){var again=document.querySelector('[data-k="'+foc.replace(/"/g,'\\"')+'"]');if(again)again.focus({preventScroll:true})}}
   $('#empty').textContent=vis.length?'':(all.length?'Không có task nào khớp bộ lọc.':'Không có plan nào trong sổ này.');
   var u=last.untracked||{},parts=['<div>'+esc(u.statement||'')+'</div>'],n=(u.other_tasks||[]).length+(u.registry_projects_without_plan||[]).length+(u.hook_sessions||[]).length;
@@ -992,13 +1000,11 @@ function groups(d){var g={},order=[];function add(key,title,e){if(!g[key]){g[key
 @@WORK_SCRIPT@@
 function renderDetail(d){
   var P=prov(d);
-  var h=['<div class="dhead"><button type="button" id="back">← Danh sách</button><h2 id="dtitle" data-k="dtitle" tabindex="-1">'+(workNoOwner(d)?'<span class="work-id">'+esc(d.plan)+' · </span>':'')+esc(workTitle(d))+' '+workBadge(d)+'</h2><button type="button" id="close" class="small" title="bỏ chọn task">Đóng</button></div>'];
+  var h=[crumbs(workTitle(d),d.work?crumbTab(d):''),'<div class="dhead"><h2 id="dtitle" data-k="dtitle" tabindex="-1">'+(workNoOwner(d)?'<span class="work-id">'+esc(d.plan)+' · </span>':'')+esc(workTitle(d))+' '+workBadge(d)+'</h2><button type="button" id="close" class="small" title="bỏ chọn task">Đóng</button></div>'];
   if(detailError)h.push('<div id="dstatus" class="dstatus stale" role="status" data-state="stale" data-k="dstatus" tabindex="-1">Chi tiết chưa cập nhật từ '+clockMs(detailOkAt)+': lỗi tải chi tiết ('+esc(detailError.message)+', lần thử gần nhất <span id="dlast">'+clockMs(detailError.last)+'</span>); đang hiện dữ liệu lúc '+(d.generated_at?clock(d.generated_at):clockMs(detailOkAt))+'. Mẫu lệnh trả lời bên dưới là của lúc đó: nếu câu hỏi đã được trả lời hoặc đổi bản, OneCrew từ chối lệnh nhờ --revision. <span id="dnote" data-cap="1">'+cap(noteHtml())+'</span>.</div>');
   h.push('<div class="small mut">Đang xem '+(workNoOwner(d)?'task <b>'+esc(d.plan)+'</b>':'việc này')+' của project <span title="'+esc(d.project)+'">'+esc(short(d.project))+'</span> · <a href="'+esc(urlOf({plan:d.selector,project:d.project_id}))+'">liên kết tới task này</a></div>');
   var needs=d.needs_user||[],nq=needs.filter(function(n){return n.kind==='request'}).length,nother=needs.length-nq;
-  h.push('<div class="dsum"><span class="step">'+esc(workStatus(d))+'</span>'+(needs.length?'<a href="#needs" class="small">'+(nq?nq+' câu hỏi chờ bạn':'')+(nq&&nother?' · ':'')+(nother?nother+' việc cần bạn':'')+'</a>':'<span class="small mut">không cần bạn lúc này</span>')+'</div>');
-  h.push(workOwnerSection(d));                                          // dev11: the owner part first; goal, plan and task id in "chi tiết kỹ thuật"
-  if(workStage(d)==='doing'&&nextMilestone(d))h.push('<p class="small" data-k="dnext" style="margin:6px 0">Mốc tiếp theo: <b>'+esc(nextMilestone(d))+'</b></p>');   // mep6
+  h.push(sitPanel(d));                                                  // UX 13/11: where it is, what blocks it, who acts next, what the owner does, where the results are
   var done=d.status.kind==='done';
   var nowKeys={};needs.forEach(function(n){nowKeys[needKey(n)]=n});
   if(copied&&!copiedStillValid(copied,d))copied=null;      // R7-1: feedback of a command this data no longer offers (binding lost, other runtime/state) is dropped, never shown again
@@ -1011,7 +1017,7 @@ function renderDetail(d){
     needs.forEach(function(n,i){h.push(needCard(n,i))})}
   h.push(workDashboard(d));
   h.push('<div id="legacy-progress"'+(d.work&&workTab!=='overview'&&workTab!=='progress'?' hidden':'')+'>');
-  if(!d.work||workTab!=='progress')h.push(gantt(d));
+  if(!d.work||(workTab!=='progress'&&!d.milestone_checks))h.push(gantt(d));
   if(d.work)h.push('<details data-k="work-technical"><summary>Số đo và nhật ký kỹ thuật</summary>');
   function brief(t,n){t=String(t||'');return t.length>n?'<span title="'+esc(t)+'">'+esc(t.slice(0,n))+'…</span>':esc(t)}
   h.push('<div class="stats"><div class="tile"><div class="l">Trạng thái</div><div class="v">'+esc(d.status.label)+'</div><div class="s">'+brief(d.status.reason,140)+'</div></div>'
@@ -1061,7 +1067,8 @@ function needs_open_sync(){Object.keys(knownNeeds).forEach(function(k){var el=do
 function tms(t){if(t==null||t==='')return null;var v=new Date(t).getTime();return isNaN(v)?null:v}
 function gDuration(seconds){if(typeof seconds!=='number'||!Number.isFinite(seconds)||seconds<0)return 'chưa đủ mốc đo';if(seconds===0)return '0s';if(seconds<1)return (seconds*1000<1?'<1':String(Math.round(seconds*1000)))+' ms';if(seconds<60)return Number(seconds.toFixed(2))+'s';if(seconds<3600)return Math.floor(seconds/60)+' phút'+(Math.round(seconds%60)?' '+Math.round(seconds%60)+'s':'');if(seconds>=86400)return Number((seconds/86400).toFixed(2))+' ngày';return Number((seconds/3600).toFixed(2))+' giờ'}
 function gTicks(W){var span=W.w1-W.w0,target=span/4,power=Math.pow(10,Math.floor(Math.log10(target))),step=[.5,1,2,5,10,20,50,100,200,500,1000,2000,5000,10000,15000,30000,60000,120000,300000,600000,900000,1800000,3600000,7200000,21600000,43200000,86400000].find(function(x){return x>=target})||86400000*Math.pow(10,Math.floor(Math.log10(target/86400000)))*[1,2,2.5,5,10].find(function(x){return x>=target/86400000/Math.pow(10,Math.floor(Math.log10(target/86400000))) });
-  var out=[];for(var t=0;t<=span+.0001&&out.length<8;t+=step)out.push({pct:t/span*100,label:gDuration(t/1000),at:W.w0+t});if(span-(out[out.length-1].at-W.w0)>=step*.45)out.push({pct:100,label:gDuration(span/1000),at:W.w1});return out}
+  var out=[];for(var t=0;t<=span+.0001&&out.length<8;t+=step)out.push({pct:t/span*100,label:gDuration(t/1000),at:W.w0+t});
+  var rest=span-(out[out.length-1].at-W.w0);if(rest>0){if(rest<step*.8&&out.length>1)out.pop();out.push({pct:100,label:gDuration(span/1000),at:W.w1})}return out}   // UX 13/11: '6 phút6 phút 57s' — a near-end tick gives way to the end label
 function gWindow(g){if(gPinnedWindow&&gPinnedWindow.range===gRange)return Object.assign({},gPinnedWindow);
   var a=g.axis||{},e0=tms(a.start),e1=tms(a.end);
   if(gRange==='current'){var ts=[];(g.rows||[]).filter(function(r){return r.current||r.active}).forEach(function(r){(r.segments||[]).forEach(function(x){ts.push(tms(x.from),tms(x.to))});(r.waits||[]).forEach(function(x){ts.push(tms(x.from),tms(x.until))});(r.verification||[]).forEach(function(x){ts.push(tms(x.from),tms(x.to))});(r.marks||[]).forEach(function(x){ts.push(tms(x.at))})});ts=ts.filter(function(x){return x!==null});if(ts.length){e0=Math.min.apply(null,ts);e1=Math.max.apply(null,ts)}}
@@ -1083,7 +1090,7 @@ function gantt(d){var g=d.gantt||{rows:[],plan_marks:[],axis:{}},W=gWindow(g),ro
   var h=['<section class="gantt'+(selStep?' has-selection':'')+'" data-k="gantt" aria-label="Tiến trình công việc">'];
   var shown=gRange==='current'?rows.filter(function(r){return r.current||r.active}):rows,types={};shown.forEach(function(r){(r.segments||[]).forEach(function(x){types[x.kind]=true});if((r.waits||[]).some(function(x){return x.until}))types.wait=true;if((r.verification||[]).length)types.verification=true});
   var legend='<div class="legend">'+Object.keys(types).map(function(k){return '<span><i class="sw '+esc(k)+'"></i>'+esc(segWord(k))+'</span>'}).join('')+'</div>';
-  h.push('<div class="gmain"><div class="gintro"><b>Tiến trình công việc</b><p>'+esc(typeof workStatus==='function'?workStatus(d):d.current_step||'Trạng thái chưa xác định')+'</p><span class="mut">'+esc(d.current_step||'')+'</span></div>');
+  h.push('<div class="gmain"><div class="gintro"><b>Tiến trình các phần việc</b><p class="mut">Để xem lịch sử và tìm chỗ chậm; trạng thái của việc nằm ở phần tóm tắt phía trên.</p></div>');
   if(!W){h.push('<p id="gempty" class="mut">Chưa có mốc thời gian có nguồn. Không suy chưa có dữ liệu thành thời lượng 0.</p></div><div id="gside" hidden></div></section>');return h.join('')}
   h.push('<div class="gtop"><label>Xem <select id="grange">'+[['current','Hiện hành'],['all','Toàn bộ lịch sử'],['15m','15 phút cuối'],['1h','1 giờ cuối']].map(function(x){return '<option value="'+x[0]+'"'+(gRange===x[0]?' selected':'')+'>'+x[1]+'</option>'}).join('')+'</select></label><button type="button" id="gfit">Về hiện hành</button><span>Trục tương đối · cửa sổ '+gDuration((W.w1-W.w0)/1000)+'</span></div><div class="ganchor">Mốc 0: '+when(new Date(W.w0).toISOString())+(gPinnedWindow?' · Đang giữ khung lịch sử; bấm Về hiện hành để theo dữ liệu mới.':'')+'</div>');
   if(lostSince||detailError)h.push('<p class="gstale" id="gstale">Dữ liệu cũ · đồng hồ dừng. '+(lostSince?'Mất kết nối.':'Chi tiết chưa cập nhật.')+'</p>');
@@ -1156,7 +1163,8 @@ function restore(s){if(!s)return;Object.keys(s.open).forEach(function(k){var x=d
   var gs=document.querySelector('#detail .gscroll');if(gs&&s.gs)gs.scrollLeft=s.gs;
   $('#detailpane').scrollTop=s.pane;if(Math.abs(window.scrollY-s.win)>2)window.scrollTo(0,s.win)}
 function paint(d,sel,why){var s=snapshot();detailData=d;detailFor={plan:sel.plan,project:sel.project};renderDetail(d);restore(s);if(why==='select')afterSelect()}
-function afterSelect(){setView();if(narrow())window.scrollTo(0,0);else{var r=$('#detailpane').getBoundingClientRect();if(r.top<0||r.top>window.innerHeight*0.8)$('#detailpane').scrollIntoView({block:'start'})}
+var listY=0;
+function afterSelect(){setView();window.scrollTo(0,0);
   if(selected&&selected.focusDetail){selected.focusDetail=false;var t=$('#dtitle');if(t)t.focus({preventScroll:true})}}
 function restNote(){return detailTimeouts>=DETAIL_TRIES?'trang đã thử '+DETAIL_TRIES+' lần liền, mỗi lần chờ '+DETAIL_TIMEOUT/1000+' s, và ngừng tự thử: <button type="button" id="dretry">Thử lại</button>'
   :'trang tự thử lại'+(detailTimeouts?' (lần '+(detailTimeouts+1)+'/'+DETAIL_TRIES+', mỗi lần chờ tối đa '+DETAIL_TIMEOUT/1000+' s)':' sau mỗi lần làm mới danh sách (mỗi '+(INTERVAL/1000)+' s khi kết nối tốt)')}   // P2: what happens next, said with the failure
@@ -1193,9 +1201,9 @@ function detailFailed(sel,msg){var now=Date.now(),note=restNote(),changed=!detai
   else{var l2=$('#dlast');if(l2)l2.textContent=clockMs(now)}
   dind()}
 function select(sel,opts){opts=opts||{};if(!sel){if(detailInflight){clearTimeout(detailInflight.timer);detailInflight.ctl.abort();detailInflight=null}   // closing cancels the read: selecting the task again starts a fresh one (never a nearly expired one)
-    if(selected){lastViewed=selected}selected=null;selEv=null;evState={};copied=null;detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailSeq=null;detailTimeouts=0;$('#detail').innerHTML='<div id="nodetail">Chọn một task ở danh sách để xem chi tiết, timeline và bằng chứng.</div>';setView();render(true);dind();
+    if(selected){lastViewed=selected}selected=null;selEv=null;evState={};copied=null;detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailSeq=null;detailTimeouts=0;$('#detail').innerHTML='<div id="nodetail">Chọn một task ở danh sách để xem chi tiết, timeline và bằng chứng.</div>';setView();render(true);dind();window.scrollTo(0,listY);
     if(!opts.silent&&location.search)history.pushState({},'',location.pathname);return}
-  var other=!sameSel(selected,sel);if(other)workTab='overview';detailTimeouts=0;      // a click on a task (the same one too) is the reader asking again: a new series of tries
+  var other=!sameSel(selected,sel);if(other)workTab='overview';detailTimeouts=0;if(!selected)listY=window.scrollY;      // a click on a task (the same one too) is the reader asking again: a new series of tries
   if(other){selEv=null;evState={};copied=null;detailSeq=null;selStep=null;gRange='current';gPinnedWindow=null;gFold={};staleNotes=[];knownNeeds={};detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailTimeouts=0}
   selected={plan:sel.plan,project:sel.project||'',focusDetail:!!opts.focusDetail};setView();render(true);
   if(!mine()){pendingPane(selected);afterSelect()}dind();     // another task: its heading + "đang tải" at once, never the previous task's content
@@ -1225,7 +1233,9 @@ document.addEventListener('click',function(ev){var t=ev.target;
   if(t.classList&&t.classList.contains('copy')){var ck=t.closest('.need').getAttribute('data-k'),ct=t.getAttribute('data-copy'),cd=mine();
     if(!cd||!copiedStillValid({k:ck,text:ct},cd)){if(cd){var cs=snapshot();renderDetail(cd);restore(cs)}return}   // R7-1: a card painted before the data changed never copies a command the latest data no longer offers
     copyText(ct,ck);return}
-  if(t.classList&&t.classList.contains('chip')){$('#kind').value=t.getAttribute('data-kind');render(true);return}
+  if(t.classList&&t.classList.contains('chip')){var ck2=t.getAttribute('data-kind');$('#kind').value=$('#kind').value===ck2?'':ck2;render(true);return}
+  var lm=t.closest&&t.closest('[data-list-mode]');if(lm){setMode(lm.getAttribute('data-list-mode'));lm.focus({preventScroll:true});return}
+  if(t.id==='fclear'){$('#kind').value='';$('#proj').value='';$('#q').value='';render(true);var qq=$('#q');if(qq)qq.focus({preventScroll:true});return}
   var wt=t.closest&&t.closest('[data-work-tab]');if(wt){workTab=wt.getAttribute('data-work-tab');var wd=mine();if(wd){var ws=snapshot();renderDetail(wd);restore(ws);var wb=document.querySelector('[data-work-tab="'+workTab+'"]');if(wb){wb.focus({preventScroll:true});if(workTab==='progress')wb.closest('.work-nav').scrollIntoView({block:'start'})}}return}
   if(t.classList&&t.classList.contains('stale-hide')){var key=t.getAttribute('data-key');staleNotes=staleNotes.filter(function(x){return x.key!==key});var d0=mine();if(d0){var s0=snapshot();renderDetail(d0);restore(s0)}return}
   if(t.classList&&t.classList.contains('tg')){var fk=t.getAttribute('data-fold');if(fk.indexOf('h:')===0){gFold[fk]=gFold[fk]===false?true:false;if(gFold[fk]===false&&gRange==='current'){gRange='all';gPinnedWindow=null;var hd=mine();if(hd){gPinnedWindow=gWindow(hd.gantt);if(gPinnedWindow)gPinnedWindow.range='all'}}}else gFold[fk]=gFold[fk]===false?true:false;repaintGantt();var b=document.querySelector('[data-fold="'+fk+'"]');if(b)b.focus({preventScroll:true});return}
@@ -1242,7 +1252,7 @@ document.addEventListener('keydown',function(ev){var t=ev.target;
     else if(ev.key==='Home'&&items.length){ev.preventDefault();items[0].focus()}else if(ev.key==='End'&&items.length){ev.preventDefault();items[items.length-1].focus()}return}
   if(t.closest&&t.closest('ol.ev > li')&&(ev.key==='Enter'||ev.key===' ')&&!(t.tagName==='BUTTON'||t.tagName==='A')){ev.preventDefault();t.closest('ol.ev > li').click();return}
   if(t.classList&&(t.classList.contains('seg')||t.classList.contains('mk'))&&(ev.key==='Enter'||ev.key===' ')){ev.preventDefault();t.click();return}
-  if(ev.key==='Escape'&&selected&&t.closest&&t.closest('#detailpane')){ev.preventDefault();var k=selected;select(null);var again=document.querySelector('[data-k="task:'+k.project+':'+k.plan+'"]');if(again)again.focus()}
+  if(ev.key==='Escape'&&selected&&!(t.closest&&t.closest('input,select,textarea'))){ev.preventDefault();var k=selected;select(null);var again=document.querySelector('[data-k="task:'+k.project+':'+k.plan+'"]');if(again)again.focus()}
 });
 document.addEventListener('change',function(ev){if(ev.target&&ev.target.id==='grange'){gRange=ev.target.value;gPinnedWindow=null;var gd=mine();if(gRange==='all'&&gd){(gd.gantt.rows||[]).forEach(function(r){gFold['n:'+r.node]=false;gFold['h:'+r.node]=false});gPinnedWindow=gWindow(gd.gantt);if(gPinnedWindow)gPinnedWindow.range=gRange}repaintGantt()}});
 document.addEventListener('toggle',function(ev){if(ev.target&&ev.target.classList&&ev.target.classList.contains('need'))needs_open_sync()},true);
@@ -1251,6 +1261,7 @@ $('#q').addEventListener('input',function(){render(true)});$('#kind').addEventLi
 $('#proj').addEventListener('change',function(){var v=$('#proj').value;if(selected&&v&&selected.project){var t=tasks().filter(function(x){return x.project===v&&x.project_id===selected.project});if(!t.length){select(null);$('#detail').innerHTML='<div id="nodetail">Đã đổi sang project '+esc(short(v))+': chọn một task của project này.</div>'}}render(true)});
 window.addEventListener('popstate',function(){var qs=new URLSearchParams(location.search);if(qs.get('plan'))select({plan:qs.get('plan'),project:qs.get('project_id')||''},{silent:true});else select(null,{silent:true})});
 window.matchMedia('(max-width:899px)').addEventListener('change',setView);
+if(!window.matchMedia('(max-width:760px)').matches)$('#filters').open=true;   // desktop: the filters are open; phone: folded, the active ones are listed under the search
 setInterval(tick,1000);
 var qs=new URLSearchParams(location.search);if(qs.get('plan'))select({plan:qs.get('plan'),project:qs.get('project_id')||''},{silent:true});
 poll();
