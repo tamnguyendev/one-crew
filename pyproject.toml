@@ -156,6 +156,7 @@ py-modules = [
     "onecrew.v2.tracking_web",
     "onecrew.v2.tracking_work_web",
     "onecrew.v2.tracking_work",
+    "onecrew.v2.tracking_situation",
     "onecrew.v2.verifiers.advisor",
     "onecrew.v2.verifiers.command",
     "onecrew.v2.verifiers.reviewer",
