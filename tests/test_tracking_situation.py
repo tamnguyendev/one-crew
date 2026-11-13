@@ -86,7 +86,7 @@ class Model(unittest.TestCase):
         s = call(views=vs, checks=live, has_started=True)
         self.assertEqual((s['stage'], s['activity']['running']), ('check', True)); self.assertIn('M2', s['activity']['text'])
         lost = ts.milestone_checks(vs, history, 1, None, lambda run: 'process_gone')
-        s = call(views=vs, checks=lost, has_started=True)
+        s = call(views=vs, checks=lost, has_started=True, status_kind='running')     # tracking's status counts an open run as running; a lost one is not
         self.assertEqual(s['stage'], 'unknown'); self.assertIn('mất tín hiệu', s['reason']); self.assertFalse(s['activity']['running'])
 
     def test_checks_have_their_own_time_and_untimed_ones_draw_nothing(self):

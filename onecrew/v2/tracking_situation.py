@@ -227,8 +227,6 @@ def situation(*, state, views, checks, engine_view, attempts, active, requests, 
     elif live_checks:
         starts = [c.get('started') for r in rows if r['id'] in live_checks for c in r['checks'] if c.get('state') == 'open']
         activity = {'running': True, 'text': 'Đang chạy bộ kiểm mốc ' + _names(live_checks), 'since': min([s for s in starts if s], default=None)}
-    elif status_kind == 'running':
-        activity = {'running': True, 'text': 'Có hoạt động đang chạy theo sổ', 'since': None}
     else:
         activity = {'running': False, 'text': NOTHING_RUNS, 'since': None}
     activity.setdefault('last_signal', None)
