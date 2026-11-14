@@ -268,6 +268,14 @@ def _needs(f):
         return 'giải điều chưa biết thuộc chủ sở hữu' if any(u['resolver']=='owner' for u in f['runtime_unknowns']) else 'chưa cần quyết; AI cần giải unknown đúng phần bị giữ'
     if _open_findings(f): return 'chưa cần quyết; AI cần xử lý finding còn mở'
     if f.get('finding_error'): return 'chưa thể nghiệm thu: không đọc được sổ finding'
+    if ((f.get('contract') or {}).get('authority') or {}).get('repos'):
+        for kind, _, payload in reversed(f.get('events') or []):
+            if kind != 'node.produced' or not payload.get('artifact'): continue
+            try:
+                if Snapshots(f['state_root']).load(payload['artifact']).get('head') is None:
+                    return 'xem bản phân tích MR-R; verify và nghiệm thu engine hiện cần Git base'
+            except (OSError, ValueError, LedgerError):
+                continue
     first = next((v for v in f['views'] if v['state'] != 'passed'), None)
     if first is None or (first['state'] == 'pending' and first['verifier'] == 'owner-manual'): return 'nghiệm thu'
     return NOTHING                                                                # the AI repairs, or a check is still to run
@@ -529,7 +537,7 @@ def _report(f):
     sections = (_outputs, _milestones, _minutes, _blocks, _questions, _outside, _parked)
     for number, (title, build) in enumerate(zip(TITLES, sections), 1):
         lines += ['', f'{number}. {title}'] + build(f)
-    lines += _reviewer_notes(f)
+    lines += _reviewer_notes(f) + _repo_coverage(f)
     return '\n'.join(lines) + '\n'
 
 
@@ -546,6 +554,58 @@ def _stores_nothing(function):
 @_stores_nothing
 def render_report(state_root, name, revision=None, project_id=None):
     return _report(_lookup(state_root, name, revision, project_id))
+
+
+def _repo_coverage(f):
+    """MR-R source coverage is ledger evidence, independent of a worker's claim in its prose. No source repository is opened here."""
+    declared = ((f.get('contract') or {}).get('authority') or {}).get('repos') or []
+    if not declared: return []
+    lines = ['', 'Nguồn đa repo — quyền của bản hợp đồng đang xem:']
+    for repo in declared:
+        lines += _wrap(f'{repo["alias"]}: {repo["path"]}; đọc: ' + ', '.join(repo['read']))
+    latest = {}
+    for kind, at, payload in f.get('events') or []:
+        if kind not in ('node.produced', 'node.result_retained', 'node.held'): continue
+        key = payload.get('receipt') or (payload.get('candidate') or {}).get('receipt')
+        if key and payload.get('node'): latest[payload['node']] = (key, at)
+    if not latest: return lines + _wrap('Chưa có biên nhận đọc nguồn; quyền được khai không chứng minh nguồn đã được đọc.')
+    lines += _wrap('Phủ nguồn theo biên nhận mới nhất của từng node; đây là lịch sử ảnh ghim, không là kiểm filesystem hiện tại:')
+    for node, (key, at) in sorted(latest.items()):
+        try:
+            body = json.loads(_blob_text(f['state_root'], key) or '')
+        except (ValueError, TypeError):
+            lines += _wrap(f'node {node}: không đọc được biên nhận {key}; coverage unknown')
+            continue
+        source = body.get('source') if isinstance(body, dict) else None
+        if not isinstance(source, dict) or not isinstance(source.get('repos'), dict): continue
+        gaps = source.get('coverage_gaps') or []
+        lines += _wrap(f'node {node}: ' + ('PHỦ THIẾU' if gaps else 'không có gap repo trong biên nhận') + f'; biên nhận {key}, lúc {at}')
+        for alias, row in sorted(source['repos'].items()):
+            status = row.get('status') or ('pinned' if row.get('kind') == 'git-tree' else 'unavailable')
+            label = f'{alias}: {status}'
+            if row.get('tree'): label += f'; tree {row["tree"]}; HEAD {row.get("head") or "unknown"}; dirty={row.get("dirty")}'
+            if row.get('current') is False: label += '; snapshot cũ'
+            if row.get('state'): label += '; ' + row['state']
+            if row.get('reason'): label += '; ' + row['reason']
+            lines += _wrap(label)
+        pending = source.get('not_delivered') or []
+        if pending: lines += _wrap('Kết quả chưa được chuyển vào prompt: ' + ', '.join(map(str, pending)))
+        if body.get('partial') is False and body.get('artifact'):
+            try:
+                store = Snapshots(f['state_root'])
+                manifest = store.load(body['artifact'])
+                if manifest.get('head') is None:
+                    lines += _wrap('Ảnh candidate không có Git base: lát MR-R trả bản phân tích; verify, tích hợp, handoff và nghiệm thu root '
+                                   'của engine hiện cần Git. Nội dung dưới đây chưa được kiểm hoặc nghiệm thu.')
+                for path in body.get('changed_paths') or []:
+                    item = manifest['files'].get(path) or {}
+                    if not path.lower().endswith(('.md', '.txt')) or not item.get('working'): continue
+                    text = store.read_blob(item['working']).decode('utf-8')
+                    lines += _wrap(f'Candidate node {node}, {path}; artifact {body["artifact"]}; blob {item["working"]}:')
+                    lines += ['    ' + line for line in text.split('\n')]
+            except (OSError, ValueError, LedgerError):
+                lines += _wrap(f'node {node}: không đọc được nội dung candidate {body["artifact"]}; xem biên nhận, không suy đã mất output.')
+    return lines
 
 
 # ---- digest -----------------------------------------------------------------------------------------------------------
@@ -734,7 +794,7 @@ def render_handover(state_root, name, revision=None, project_id=None):
     f = _lookup(state_root, name, revision, project_id)
     lines = _heading(f, 'BÀN GIAO') + ['Theo acceptance:'] + _acceptance_lines(f) + [LIMITS_HEADING]
     for limit in _limits(f): lines += _wrap('- ' + limit, '  ', '    ')
-    return '\n'.join(lines) + '\n'
+    return '\n'.join(lines + _repo_coverage(f)) + '\n'
 
 
 # ---- plan present -----------------------------------------------------------------------------------------------------
@@ -903,7 +963,7 @@ def render_present(state_root, name, revision=None, project_id=None):
         lines += _wrap(f'Chưa rõ {unknown["unknown"]}: {unknown["question"]}; giữ {", ".join(unknown["required_by"])}; chủ thể giải: {unknown["resolver"]}.', '', '  ')
     for number, (title, build) in enumerate(zip(PRESENT_TITLES, (_present_request, _present_result, _present_risk, _present_acceptance, _present_missing)), 1):
         lines += ['', f'{number}. {title}'] + build(f)
-    return '\n'.join(lines) + '\n'
+    return '\n'.join(lines + _repo_coverage(f)) + '\n'
 
 
 def forecast_lines(state_root, name, revision=None, project_id=None):

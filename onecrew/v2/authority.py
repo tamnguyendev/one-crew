@@ -33,6 +33,12 @@ MAX_GRANTED = 20
 # O2 decision fields above: it delegates no decision and ranks nobody; a contract without it is byte-identical to before.
 READ = 'read'
 MAX_READ = 40
+# MR-R: the optional repositories a root's workers may read (v2/source_repos): [{alias, path, read}]. Like `read`, not a decision field; a
+# contract without it is byte-identical to before. An alias is 2-24 lowercase letters/digits/-/_ (never one letter: `C:` is a drive).
+REPOS = 'repos'
+MAX_REPOS = 20
+REPO_ALIAS = re.compile(r'[a-z][a-z0-9_-]{1,23}')
+DEVICE = re.compile(r'(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?', re.I)
 
 
 # ---- path helpers ------------------------------------------------------------------------------------------------------
@@ -90,8 +96,8 @@ def owned_match(path, patterns):
 
 def normalize(raw):
     """The `authority` object of a root contract, normalized, or LedgerError ('authority: ...'). Unknown fields are refused: no rank, no class."""
-    if not isinstance(raw, dict) or set(raw) - set(FIELDS) - {'push', READ}:
-        extra = sorted(set(raw) - set(FIELDS) - {'push', READ}) if isinstance(raw, dict) else []
+    if not isinstance(raw, dict) or set(raw) - set(FIELDS) - {'push', READ, REPOS}:
+        extra = sorted(set(raw) - set(FIELDS) - {'push', READ, REPOS}) if isinstance(raw, dict) else []
         raise LedgerError('authority: unknown fields ' + ','.join(map(str, extra)) + '; the grant is ' + ', '.join(FIELDS) + '.' if extra
                           else 'authority: expected an object.')
     v1 = work_contract.normalize_authority({k: v for k, v in raw.items() if k in work_contract.AUTHORITY})
@@ -106,6 +112,7 @@ def normalize(raw):
         raise LedgerError('authority.auto_accept: root self-acceptance is not enabled (decision O4 is the owner\'s); the list stays empty.')
     out = dict(v1, granted_actions=sorted(set(granted)), self_decide=sorted(set(decide_list), key=Q_IDS.index), auto_accept=[])
     if READ in raw: out[READ] = read_patterns(raw[READ])
+    if REPOS in raw: out[REPOS] = repo_grants(raw[REPOS])
     return out
 
 
@@ -129,6 +136,66 @@ def read_patterns(value, what='authority.read'):
     if not isinstance(value, list) or not 1 <= len(value) <= MAX_READ:
         raise LedgerError(f'{what}: 1-{MAX_READ} folders, files or globs the workers of this root may read.')
     return sorted({read_pattern(p, what) for p in value})
+
+
+def is_absolute(path):
+    """A declared repository path that is absolute: a drive path (X:/...) or a POSIX path (/...)."""
+    return bool(re.match(r'[A-Za-z]:/', path)) or path.startswith('/')
+
+
+def repo_path(value, what):
+    """MR-R: the folder of a declared repository, kept as written with / between folders: a folder under the coordination folder (no
+    traversal) or an absolute folder (X:/... or /...); never a network path, a control or credential folder or a reserved device name."""
+    if not isinstance(value, str) or not value.strip() or len(value) > 400:
+        raise LedgerError(f'{what}: the folder of the repository, 1-400 characters.')
+    text = value.replace('\\', '/')
+    if text.startswith('//'): raise LedgerError(f'{what}: a network path is not supported: {text[:120]}')
+    head = text[:3] if re.match(r'[A-Za-z]:/', text) else '/' if text.startswith('/') else ''
+    rest = text[len(head):].rstrip('/')
+    parts = rest.split('/') if rest else []
+    if not parts: raise LedgerError(f'{what}: name the folder of the repository, not a drive or the coordination folder itself.')
+    from ..snapshots import control_part
+    for part in parts:
+        if (part in ('', '.', '..') or part.endswith((' ', '.')) or re.search(r'[<>:"|?*\x00-\x1f]', part) or DEVICE.fullmatch(part)
+                or control_part(part)):
+            raise LedgerError(f'{what}: an unsafe folder path (traversal, a control or credential folder, or a reserved name): {text[:120]}')
+    return head + rest
+
+
+def repo_grants(value):
+    """MR-R: authority.repos, normalized (sorted by alias), or LedgerError: 1-20 repositories, each {alias, path, read} and nothing else, no
+    alias or folder declared twice; `read` follows the authority.read rules, relative to that repository."""
+    if not isinstance(value, list) or not 1 <= len(value) <= MAX_REPOS:
+        raise LedgerError(f'authority.repos: 1-{MAX_REPOS} repositories [{{"alias", "path", "read"}}] the workers of this root may read.')
+    out, aliases, folders = [], set(), set()
+    for entry in value:
+        if not isinstance(entry, dict) or set(entry) != {'alias', 'path', 'read'}:
+            raise LedgerError('authority.repos: each repository is {"alias", "path", "read"} and nothing else.')
+        alias = entry['alias']
+        if not isinstance(alias, str) or not REPO_ALIAS.fullmatch(alias):
+            raise LedgerError('authority.repos alias: 2-24 lowercase letters, digits, - or _, starting with a letter (one letter would read as a drive).')
+        if alias in aliases: raise LedgerError(f'authority.repos: the alias {alias} is declared twice.')
+        path = repo_path(entry['path'], f'authority.repos[{alias}].path')
+        if path.casefold() in folders: raise LedgerError(f'authority.repos: the folder {path} is declared twice (one folder, one alias).')
+        aliases.add(alias); folders.add(path.casefold())
+        out.append({'alias': alias, 'path': path, 'read': read_patterns(entry['read'], f'authority.repos[{alias}].read')})
+    return sorted(out, key=lambda r: r['alias'])
+
+
+def check_owned(repos, owned):
+    """MR-R: a write location of the root (scope.owned) is never inside a declared repository given by a relative path (an absolute one is
+    judged against the coordination folder when the plan is revised): source repositories are read only."""
+    for repo in repos:
+        if is_absolute(repo['path']): continue
+        top = repo['path'].casefold()
+        for path in owned:
+            rel = _scope_path(path, pattern=True)
+            wildcard = re.search(r'[*?\[]', rel)
+            prefix = rel[:wildcard.start()].rsplit('/', 1)[0] if wildcard and '/' in rel[:wildcard.start()] else '' if wildcard else rel
+            if (rel == '.' or rel == top or rel.startswith(top + '/') or top.startswith(rel + '/') or
+                    (wildcard and (not prefix or prefix == top or top.startswith(prefix + '/') or prefix.startswith(top + '/')))):
+                raise LedgerError(f'scope.owned {path} is inside the declared repository {repo["alias"]} ({repo["path"]}): source repositories '
+                                  'are read only.')
 
 
 def seal(contract):

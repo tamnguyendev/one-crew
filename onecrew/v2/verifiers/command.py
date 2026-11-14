@@ -282,10 +282,15 @@ def _git(directory, *args, env=None, input=None, raw=False):
     if budget is not None: budget.check(step)
     limit = budget.left() if budget is not None else STEP_SECONDS
     begin = time.monotonic()
+    caller = {k: v for k, v in (env or {}).items() if k.upper().startswith('GIT_')}
+    # MR-R: a caller that names its own GIT_OBJECT_DIRECTORY (a source repository read through a persistent private store under the state root, with
+    # the repository's own objects only as an alternate and every write refused by the caller) opts out of the Sol6 throw-away store explicitly. The two
+    # are never stacked: one object directory per git call, and the isolation for everything else stays as it was.
+    isolated = {} if any(k.upper() == 'GIT_OBJECT_DIRECTORY' for k in caller) else _object_env(directory)
     # Threads, not subprocess.run(timeout): on Windows run() writes `input` first, and with thousands of names that write lasts as long as git works, so
     # the limit was looked at only when git was nearly done. Here the limit holds while git reads its input, and a kill reaches only this git's own tree.
     process = subprocess.Popen([*GIT_PROGRAM, '-C', str(directory), *args], stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, env=dict(clean, **{k: v for k, v in (env or {}).items() if k.upper().startswith('GIT_')}, **_object_env(directory)),
+                               stderr=subprocess.PIPE, env=dict(clean, **{**caller, **isolated}),
                                creationflags=0x08000000 if os.name == 'nt' else 0)
     out, err = [], []
     pumps = [threading.Thread(target=_collect, args=(process.stdout, out), daemon=True), threading.Thread(target=_collect, args=(process.stderr, err), daemon=True)]
@@ -323,7 +328,7 @@ def toplevel(directory):
 
 
 @_bounded
-def artifact_sha(directory, verified=False):
+def artifact_sha(directory, verified=False, git_env=None, store=None, include=None):
     """Git tree hash of the working tree (tracked and untracked, honouring .gitignore), via a throw-away index: the
     repository's own index and refs are not touched. A name that hard_links finds (another name on the disk, a file through a junction, a name that
     cannot be examined) is never hashed: its place in the tree holds a marker blob made of its stat data only (size, modification time, file id), so
@@ -336,28 +341,70 @@ def artifact_sha(directory, verified=False):
     the file git reads is the one judged. Links and folders (a nested repository, a file that became a folder) are pinned the same way, although git
     reads no content there: otherwise such a name could become a hard link before git looks at it (review of 3c1687a, finding 1). A file that fails
     is a marker here and refuses verified_sha. A file that is gone is dropped, as `git add -A` drops it, unless the real index keeps it outside a
-    sparse checkout. OneCrew's own files (.onecrew/) are never part of the tree, so they are neither held nor read (finding 4)."""
-    top = str(Path(_git(directory, 'rev-parse', '--show-toplevel')).resolve())
-    linked = set(hard_links(top))
-    if verified and linked: refuse_hard_links(top)
+    sparse checkout. OneCrew's own files (.onecrew/) are never part of the tree, so they are neither held nor read (finding 4).
+    MR-R: `git_env` (GIT_* variables) reaches every git call made here, e.g. a private object store for a read-only source repository
+    (GIT_OBJECT_DIRECTORY, the repository's objects as GIT_ALTERNATE_OBJECT_DIRECTORIES) and its read-only switches; None changes nothing.
+    A git_env that names GIT_OBJECT_DIRECTORY opts out of the Sol6 read isolation store on purpose (see _git): the two are never stacked.
+    `store` (MR-R, with such a git_env): not one object of the source repository is written or freshened. Git freshens (touches) an object that
+    exists, an alternate's included, whenever it is asked to write it again, so here the files are staged with --info-only (hashed, nothing
+    written), only the blobs no object store holds yet are written, into `store` (_write_missing, while the files are still held), and the
+    trees are written with `store` as the only object store git sees (--missing-ok: the blobs it names may live in the repository).
+    `include` optionally limits which working-tree names are hashed (MR-R read grant); omitted names retain their HEAD entries. The caller
+    must reject changes to omitted names before claiming an exact working-tree pin. None preserves the existing project capture behavior."""
+    extra = dict(git_env or {})
+    top = str(Path(_git(directory, 'rev-parse', '--show-toplevel', env=extra)).resolve())
+    linked = set(hard_links(top, git_env=extra))
+    if verified and linked: refuse_hard_links(top, git_env=extra)
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
-        env = {'GIT_INDEX_FILE': str(Path(temp) / 'index')}
+        env = dict(extra, GIT_INDEX_FILE=str(Path(temp) / 'index'))
         _git(top, 'read-tree', 'HEAD', env=env)
         held, others = _listed(top, env, '--cached'), _listed(top, env, '--others', '--exclude-standard')
         with _Pins(top) as pins:
-            names = sorted(n for n in held | others if n not in linked and n.rstrip('/') not in linked and not _own(n))
+            names = sorted(n for n in held | others if n not in linked and n.rstrip('/') not in linked and not _own(n)
+                           and (include is None or include(n)))
             refused, gone = pins.pin(names)
             if refused and verified: raise HardLinked(_refusal(*refused[0]))
             why = dict(refused)
             linked |= set(why)
-            _stage(top, env, sorted(pins.held), [n for n in gone if n in held and n not in _sparse_kept(top)])
+            _stage(top, env, sorted(pins.held), [n for n in gone if n in held and n not in _sparse_kept(top, extra)], info_only=store is not None)
             _repositories_for_files(top, env, pins)
             if linked: _add_markers(top, sorted(linked), held, others, Path(temp), env, why)
+            if store is not None: _write_missing(top, env)
             pins.recheck()
         # hook files (.onecrew/) are not part of the artifact. -f: a hook may rewrite one between the add and this rm, and without it git refuses to drop
         # a staged entry that differs from both the file and HEAD (the gate on c6d8477); only the throw-away index is touched.
         _git(top, 'rm', '-r', '--cached', '-f', '-q', '--ignore-unmatch', '--', '.onecrew', env=env)
+        if store is not None:
+            own = {k: v for k, v in env.items() if k != 'GIT_ALTERNATE_OBJECT_DIRECTORIES'}
+            return _git(top, 'write-tree', '--missing-ok', env=dict(own, GIT_OBJECT_DIRECTORY=str(store)))
         return _git(top, 'write-tree', env=env)
+
+
+def _write_missing(top, env):
+    """MR-R (artifact_sha with a private store): the blobs the throw-away index names that no object store holds yet (new or changed working-tree
+    content) are written into the store of `env`; a blob that exists anywhere is left alone, so no object of the source repository is written or
+    freshened. The files are still held: a file whose content changed after it was staged (another blob id now) refuses the tree."""
+    rows = [row for row in _git(top, 'ls-files', '-s', '-z', env=env, raw=True).decode('utf-8', 'surrogateescape').split('\0') if row]
+    wanted = {}
+    for row in rows:
+        meta, _, name = row.partition('\t')
+        mode, oid, _stage_number = meta.split()
+        if mode in ('100644', '100755', '120000'): wanted.setdefault(oid, (mode, name))
+    if not wanted: return
+    checked = _git(top, 'cat-file', '--batch-check', env=env, input=''.join(o + '\n' for o in wanted).encode('ascii'), raw=True)
+    missing = [oid for oid, line in zip(wanted, checked.decode('ascii', 'replace').splitlines()) if line.strip().endswith(' missing')]
+    files = [(oid, wanted[oid][1]) for oid in missing if wanted[oid][0] != '120000']
+    links = [(oid, wanted[oid][1]) for oid in missing if wanted[oid][0] == '120000']
+    made = _git(top, 'hash-object', '-w', '--stdin-paths', env=env,
+                input=''.join(name + '\n' for _, name in files).encode('utf-8', 'surrogateescape')).split() if files else []
+    for oid, name in links:                                  # Git's Windows link spelling differs from os.readlink's extended path.
+        target = os.readlink(Path(top) / name)
+        if os.name == 'nt' and target.startswith('\\\\?\\'): target = target[4:]
+        made.append(_git(top, 'hash-object', '-w', '--stdin', env=env, input=target.replace('\\', '/').encode('utf-8')))
+    expected = [oid for oid, _ in files] + [oid for oid, _ in links]
+    if made != expected:
+        moved = next((name for (oid, name), got in zip(files + links, made) if oid != got), None)
+        raise LedgerError(f'{moved!r} changed while the working tree was pinned: pin again.')
 
 
 class InputRefused(LedgerError):
@@ -1128,21 +1175,22 @@ def _listed(top, env, *args):
     return {n for n in _git(top, 'ls-files', '-z', *args, env=env, raw=True).decode('utf-8', 'surrogateescape').split('\0') if n}
 
 
-def _sparse_kept(top):
+def _sparse_kept(top, git_env=None):
     """The names the real index keeps outside a sparse checkout (skip-worktree): absent on purpose, kept as HEAD holds them (review B2 round 3)."""
-    rows = _git(top, 'ls-files', '-t', '-z', raw=True).decode('utf-8', 'surrogateescape').split('\0')
+    rows = _git(top, 'ls-files', '-t', '-z', raw=True, env=git_env).decode('utf-8', 'surrogateescape').split('\0')
     return {row[2:] for row in rows if row.startswith('S ')}
 
 
-def _stage(top, env, present, gone):
+def _stage(top, env, present, gone, info_only=False):
     """Drop `gone` from the throw-away index, then hash `present` into it: `git update-index` with exactly these names, so nothing else of the working
     tree is read (a name made after the listing is not taken). In that order, sorted, and with --remove and --replace, a file that became a folder or a
     folder that became a file takes its new place as with `git add -A` / `add -u` (review of 3c1687a, finding 2): the gone file under a folder that is
-    now a file is dropped first; a folder that was a file (not a nested repository) is dropped before the files in it are added."""
+    now a file is dropped first; a folder that was a file (not a nested repository) is dropped before the files in it are added. `info_only` (MR-R):
+    the ids are computed and nothing is written (artifact_sha with a private store)."""
     enc = lambda n: n.rstrip('/').encode('utf-8', 'surrogateescape') + b'\0'
     if gone: _git(top, *NOSPARSE, 'update-index', '--force-remove', '-z', '--stdin', env=env, input=b''.join(enc(n) for n in gone))
-    if present: _git(top, *NOSPARSE, 'update-index', '--add', '--remove', '--replace', '-z', '--stdin', env=env,
-                     input=b''.join(enc(n) for n in sorted(present, key=lambda n: n.rstrip('/'))))
+    if present: _git(top, *NOSPARSE, 'update-index', '--add', '--remove', '--replace', *(('--info-only',) if info_only else ()), '-z', '--stdin',
+                     env=env, input=b''.join(enc(n) for n in sorted(present, key=lambda n: n.rstrip('/'))))
 
 
 def _repositories_for_files(top, env, pins):
@@ -1390,7 +1438,7 @@ def _add_markers(top, linked, held, others, temp, env, why=None):
     inner = {name for name, _ in marks if any(other.startswith(name + '/') for other, _ in marks)}
     gone += [name for name in inner if name in held]
     marks = [(name, status) for name, status in marks if name not in inner]
-    gone = [n for n in gone if n not in _sparse_kept(top)]
+    gone = [n for n in gone if n not in _sparse_kept(top, {k: v for k, v in env.items() if k != 'GIT_INDEX_FILE'})]
     if gone: _stage(top, env, [], gone)
     if not marks: return
     files = []
@@ -1409,17 +1457,18 @@ def _add_markers(top, linked, held, others, temp, env, why=None):
 
 
 @_bounded
-def hard_links(directory):
+def hard_links(directory, git_env=None):
     """The working-tree names that a verifier's trees would take from the disk and that are not safe to hash: a file with another name on the disk (a
     hard link), a file reached through a junction (git walks into it as into a folder), and a name that cannot be examined. That other name or place
     may be one every reader is kept from, an ignored .env or a home .ssh: `git add` would hash its content into the tree under an ordinary name and
     every verifier would read it in the checkout, where nothing tells (reviews FX-R01, D-R03). The names are those of HEAD, of the real index (a name
     added with -f or -N) and the untracked files that are not ignored, .onecrew included (git hashes it before the tree leaves it out, D-R04, D-R05);
-    every one is looked at, whatever the stat data of an index says. Names, link counts and reparse tags only: nothing is read."""
-    top = Path(_git(directory, 'rev-parse', '--show-toplevel'))
-    listed = _git(top, 'ls-files', '-z', '--cached', raw=True)                     # the real index
+    every one is looked at, whatever the stat data of an index says. Names, link counts and reparse tags only: nothing is read. `git_env`: as in
+    artifact_sha (MR-R)."""
+    top = Path(_git(directory, 'rev-parse', '--show-toplevel', env=git_env))
+    listed = _git(top, 'ls-files', '-z', '--cached', raw=True, env=git_env)       # the real index
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
-        env = {'GIT_INDEX_FILE': str(Path(temp) / 'index')}
+        env = dict(git_env or {}, GIT_INDEX_FILE=str(Path(temp) / 'index'))
         _git(top, 'read-tree', 'HEAD', env=env)
         listed += b'\0' + _git(top, 'ls-files', '-z', '--cached', '--others', '--exclude-standard', env=env, raw=True)
     found, folders = set(), {}
@@ -1442,11 +1491,11 @@ def hard_links(directory):
 
 
 @_bounded
-def refuse_hard_links(directory):
+def refuse_hard_links(directory, git_env=None):
     """Raise HardLinked, with the reason and the way out, when hard_links finds a name."""
-    found = hard_links(directory)
+    found = hard_links(directory, git_env=git_env)
     if found:
-        top = Path(_git(directory, 'rev-parse', '--show-toplevel'))
+        top = Path(_git(directory, 'rev-parse', '--show-toplevel', env=git_env))
         name, more = found[0], f' (and {len(found) - 1} more)' if len(found) > 1 else ''
         try:
             through = _through(top, name)

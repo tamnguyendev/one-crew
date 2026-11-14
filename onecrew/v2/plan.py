@@ -466,6 +466,8 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_
     metadata = namespaces.workflow_metadata(workflow, capabilities)
     text_field(author, 'author', 100); refuse_owner_author(author)
     contract = contracts.validate(raw)
+    from . import source_repos
+    source_repos.check_locations(ledger, contract)
     _env_inputs_outside(ledger, contract)                             # dev24b (P2): env_inputs outside the repository
     if reuse_existing:
         # Re-entry only: never amend, upgrade capabilities, approve or revive an
@@ -524,6 +526,8 @@ def amend(ledger, name, raw, reason, author, events=None, keep_content_author=Fa
     changes that unknown (keep_content_author), which leaves the text with whoever wrote it before."""
     text_field(reason, 'reason', 200); text_field(author, 'author', 100); refuse_owner_author(author)
     contract = contracts.validate(raw)
+    from . import source_repos
+    source_repos.check_locations(ledger, contract)
     _env_inputs_outside(ledger, contract)                             # dev24b (P2): env_inputs outside the repository
     if check_form: refuse_form(ledger, raw, author, verb='Amend')        # dev11: the plan amend command, as plan propose
     else: refuse_owner_part(ledger, contract, verb='Amend')              # dev12 K3, dev14 L3: the library too (the contract rules of approve)

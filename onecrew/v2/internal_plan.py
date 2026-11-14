@@ -305,7 +305,7 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None)
         decide(ledger, state, contract, sha, {'kind': 'change_acceptance', 'nodes': [n.get('id') for n in nodes],
                                               'changes': diff['changes'][:20], 'summary': diff['summary']}, ctx, 'onecrew.internal_plan')
     normalized = _validate(nodes, outputs)
-    source_tools.check_plan(contract, normalized)      # 2.4-A: a node's read scope stays inside the root read grant
+    source_tools.check_plan(contract, normalized, project=ledger.project)      # 2.4-A: a node's read scope stays inside the root read grant
     if old_nodes:
         # W19 (T38c): a node whose generation this revision moves cannot keep a repair marker bound to its old generation.
         from . import repair_tasks

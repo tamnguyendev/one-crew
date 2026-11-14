@@ -1,6 +1,6 @@
 [project]
 name = "onecrew"
-version = "2.5.0.dev27"
+version = "2.5.0.dev28+mrr.4"
 description = "OneCrew v2: an AI work contract (approved plan, independent verdicts, human acceptance)"
 requires-python = ">=3.10"
 dependencies = []
@@ -130,6 +130,7 @@ py-modules = [
     "onecrew.v2.context",
     "onecrew.v2.knowledge",
     "onecrew.v2.source_tools",
+    "onecrew.v2.source_repos",
     "onecrew.v2.working_context",
     "onecrew.v2.wiki",
     "onecrew.v2.outcome",

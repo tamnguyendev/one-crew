@@ -27,6 +27,8 @@ prompt, schema, receipt and node.started of 2.3 byte for byte).
     the chain is refused as a repeat; a next page or a next_cursor is new coverage. The v1 repeat/exploration counters (progress_core) are
     replayed over the chain's records; a stop there refuses further requests.
 Source text is data, never authority: requests are validated by code only and never taken from source text.
+MR-R: a node whose sources.read names repositories (alias:pattern) of a root that declares them (authority.repos) reads them through
+v2/source_repos.py, which uses this protocol per repository; every function here hands such a node (or its state, mode `repos`) to it.
 """
 import base64
 import fnmatch
@@ -113,6 +115,9 @@ def validate_spec(value):
         raise LedgerError(f'Node sources.max_rounds: an integer 1-{MAX_ROUNDS} (request rounds of the node chain).')
     if type(chars) is not int or not MIN_ROUND_CHARS <= chars <= MAX_ROUND_CHARS:
         raise LedgerError(f'Node sources.max_chars_per_round: an integer {MIN_ROUND_CHARS}-{MAX_ROUND_CHARS}.')
+    from . import source_repos
+    if any(source_repos.qualified(p) for p in patterns):            # MR-R: alias:pattern names a declared repository (checked in revise)
+        return {'read': source_repos.normalize_patterns(patterns), 'max_rounds': rounds, 'max_chars_per_round': chars}
     return {'read': sorted({authority.read_pattern(p, 'sources.read') for p in patterns}), 'max_rounds': rounds, 'max_chars_per_round': chars}
 
 
@@ -147,8 +152,12 @@ def covered(pattern, grants):
     return False
 
 
-def check_plan(contract, nodes):
-    """internal_plan.revise: every node scope inside the root read grant (widening the grant is the owner's decision)."""
+def check_plan(contract, nodes, project=None):
+    """internal_plan.revise: every node scope inside the root read grant (widening the grant is the owner's decision). MR-R: a root that
+    declares repositories, or a node that names some, is checked by source_repos.check_plan first (`project`: the coordination folder)."""
+    from . import source_repos
+    if source_repos.declared(contract) or any(source_repos.is_multi(n.get('sources')) for n in nodes):
+        source_repos.check_plan(contract, nodes, project)
     grants, basis = grant(contract)
     declared = bool((contract.get('authority') or {}).get('read'))
     for node in nodes:
@@ -158,7 +167,7 @@ def check_plan(contract, nodes):
                 raise LedgerError(f'Node {node["id"]} read is outside the root read grant (authority.read + scope.owned): '
                                   + ', '.join(shown[:5]) + '. Widening it is the owner\'s decision.')
         spec = node.get('sources')
-        if spec is None: continue
+        if spec is None or source_repos.is_multi(spec): continue
         outside = [p for p in spec['read'] if not covered(p, grants)]
         if outside:
             raise LedgerError(f'Node {node["id"]} sources.read is outside the root read grant ({basis}: {", ".join(grants[:8])}): '
@@ -239,6 +248,8 @@ def _started_tree(ledger, selector, attempt_id):
 def pin(ledger, selector, item):
     """engine.step: the `source_tree` of node.started for a node with `sources` (None otherwise). A continuation keeps the tree of its chain."""
     if item.get('sources') is None: return None
+    from . import source_repos
+    if source_repos.is_multi(item['sources']): return source_repos.pin(ledger, selector, item)       # MR-R: one pin per repository
     if item.get('continues') and not _repin(ledger, selector, item['continues']):
         kept = _started_tree(ledger, selector, item['continues'])
         if kept: return kept
@@ -257,15 +268,20 @@ def _repin(ledger, selector, attempt_id):
 
 def identity(tree):
     """The pinned tree as the node definition carries it: without the time it took (review A-R10: the node identity is hashed)."""
+    if tree and tree.get('kind') == 'git-repos':
+        from . import source_repos
+        return source_repos.identity(tree)
     return {k: v for k, v in tree.items() if k != 'seconds'} if tree else tree
 
 
 class Reader:
-    """Read-only git plumbing on one tree object."""
+    """Read-only git plumbing on one tree object. `env` (MR-R): the GIT_* variables of every call (a source repository's read-only switches,
+    the private objects of a dirty pin); None leaves the calls as they were."""
 
-    def __init__(self, project, tree, head=None):
+    def __init__(self, project, tree, head=None, env=None):
         if not isinstance(tree, str) or not command.TREE_ID.fullmatch(tree): raise LedgerError('Not a pinned tree id.')
-        self.top, self.tree, self.head, self._entries = command.toplevel(project), tree, head, None
+        top = Path(command._git(project, 'rev-parse', '--show-toplevel', env=env)).resolve() if env is not None else command.toplevel(project)
+        self.top, self.tree, self.head, self._entries, self.env = top, tree, head, None, env
 
     @property
     def identity(self):
@@ -274,7 +290,7 @@ class Reader:
     def entries(self):
         if self._entries is None:
             rows = {}
-            for item in command._git(self.top, 'ls-tree', '-r', '-z', '-l', self.tree, raw=True).split(b'\0'):
+            for item in command._git(self.top, 'ls-tree', '-r', '-z', '-l', self.tree, raw=True, env=self.env).split(b'\0'):
                 if not item: continue
                 meta, _, name = item.partition(b'\t')
                 mode, kind, oid, size = meta.decode('ascii').split(None, 3)
@@ -286,7 +302,7 @@ class Reader:
     def blobs(self, oids):
         oids = list(dict.fromkeys(oids))
         if not oids: return {}
-        out = command._git(self.top, 'cat-file', '--batch', input=b''.join(o.encode('ascii') + b'\n' for o in oids), raw=True)
+        out = command._git(self.top, 'cat-file', '--batch', input=b''.join(o.encode('ascii') + b'\n' for o in oids), raw=True, env=self.env)
         found, pos = {}, 0
         for _ in oids:
             end = out.index(b'\n', pos)
@@ -512,7 +528,10 @@ def _search(reader, scope, args, offset):
             text, reason = _text(data.get(entry['blob'], b''))
             if reason:
                 content.append(_row(entry['path'], reason)); pos += 1; skip = 0; continue
-            hits = [(n, line) for n, line in enumerate(text.splitlines(), 1) if needle in line.casefold()][skip:]
+            # Git numbers LF-delimited lines. FF/VT/NEL/Unicode separators and lone CR are content, not line breaks.
+            rows = text.split('\n')
+            if rows and rows[-1] == '': rows.pop()
+            hits = [(n, line[:-1] if line.endswith('\r') else line) for n, line in enumerate(rows, 1) if needle in line.casefold()][skip:]
             shown = hits[:MATCHES_PER_FILE]
             if shown: files += 1
             for n, line in shown:
@@ -621,7 +640,7 @@ def node_receipts(ledger, store, selector, nid):
             receipt = json.loads(store.read_blob(key))
         except (LedgerError, OSError, ValueError, TypeError) as error:
             return receipts, keys, f'a retained receipt of node {nid} cannot be read ({type(error).__name__})'
-        if isinstance(receipt, dict) and isinstance(receipt.get('source'), dict) and receipt['source'].get('capability') == 'git-tree':
+        if isinstance(receipt, dict) and isinstance(receipt.get('source'), dict) and receipt['source'].get('capability') in ('git-tree', 'git-repos'):
             receipts.append(receipt); keys.append(key)
     return receipts, keys, None
 
@@ -751,6 +770,8 @@ def prepare(ledger, store, selector, node, schema):
     """(schema, state) for a native attempt: without `sources` the schema unchanged and None. With them, the requests the chain sealed are
     executed now, on the chain's pinned tree, before any prompt exists (a crash here re-executes them the same way)."""
     if node.get('sources') is None: return schema, None
+    from . import source_repos
+    if source_repos.is_multi(node['sources']): return source_repos.prepare(ledger, store, selector, node, schema)     # MR-R
     tree = node.get('source_tree') or pin(ledger, selector, node)
     if tree.get('kind') != 'git-tree':
         return schema, {'capability': 'unavailable', 'reason': tree.get('reason') or 'no pinned tree'}
@@ -769,6 +790,9 @@ def restate(ledger, store, selector, node):
 
 def read_blobs(state):
     """2.4-B: {tree, blobs: {path: blob}} of the files whose content reached the chain's prompts (None when none), for the delivery record."""
+    if state and state.get('mode') == 'repos':
+        from . import source_repos
+        return source_repos.read_blobs(state)
     if not state or state.get('capability') != 'git-tree' or not state.get('read_blobs'): return None
     return {'tree': state['tree'], 'blobs': dict(sorted(state['read_blobs'].items()))}
 
@@ -782,12 +806,15 @@ def prompt_cap(provider, schema):
 
 def knowledge_room(state, room):
     """The room knowledge may take before the source results: at most what leaves them half the room or their round size."""
-    if state is None or state.get('capability') != 'git-tree': return room
+    if state is None or state.get('capability') not in ('git-tree', 'git-repos'): return room
     return max(0, room - min(state['spec']['max_chars_per_round'], max(0, room) // 2))
 
 
 def frame(state):
     """The `source_tools` key of the prompt without results."""
+    if state.get('mode') == 'repos':
+        from . import source_repos
+        return source_repos.frame(state)
     if state.get('capability') != 'git-tree':
         return {'capability': 'unavailable', 'reason': state['reason'], 'data_not_authority': True, 'notice': NOTICE}
     spec, used = state['spec'], state['rounds_used']
@@ -846,7 +873,7 @@ def _stub(state, record):
 
 def fill(state, view, left):
     """`view` (the frame) with the results that fit `left` more characters of the prompt and the round's own size."""
-    if state.get('capability') != 'git-tree': return view
+    if state.get('capability') not in ('git-tree', 'git-repos'): return view
     if left < 0: return view          # the prompt is over its cap without any result: the caller's cap check refuses it, naming the cap
     budget = min(state['spec']['max_chars_per_round'], left + len('[]'))
     records = state['records']
@@ -903,6 +930,9 @@ def seal(state, asked, continuation):
     """(accepted, refused): the requests the next round of the chain executes, decided by code only. Past REQUESTS_PER_ROUND the requests
     are refused; past MAX_ASKED they are refused in one row with their count (the receipt does not grow with what the worker asks)."""
     if state is None or not asked: return [], []
+    if state.get('mode') == 'repos':
+        from . import source_repos
+        return source_repos.seal(state, asked, continuation)
     if state.get('capability') != 'git-tree':
         return [], [{'request': _brief(r), 'reason': 'source tools are unavailable for this node: ' + state['reason']} for r in asked[:MAX_ASKED]]
     accepted, refused = [], []
@@ -945,6 +975,9 @@ def receipt_fields(state, accepted, refused, problem=None, continuation=None):
     count of the node) and `source_requests`. A continuation past max_rounds (or on chain evidence that cannot be read) is marked
     `rounds_exhausted`: the engine holds the node instead of starting another round."""
     if state is None: return {}
+    if state.get('mode') == 'repos':
+        from . import source_repos
+        return source_repos.receipt_fields(state, accepted, refused, problem, continuation)
     if state.get('capability') != 'git-tree':
         return {'source': dict({'capability': 'unavailable', 'reason': state['reason']}, **({'refused': refused} if refused else {}),
                                **({'problem': problem} if problem else {}))}

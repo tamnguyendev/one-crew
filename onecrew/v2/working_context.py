@@ -222,6 +222,17 @@ def _own(ledger, store, conn_data, plan, nid, attempt_id, row, started, receipt,
     for path, blob in sorted((((row or {}).get('sources_read') or {}).get('blobs') or {}).items()):
         now = _current_blob(ledger, path)
         if now != blob: critical.append({'path': path, 'reason': 'source changed since it was read', 'was': blob, 'now': now})
+    repos = (((row or {}).get('sources_read') or {}).get('repos') or {})
+    if repos:                                   # MR-R: a file of a declared repository is judged in ITS repository; the path names it (alias:file)
+        from . import source_repos
+        for alias, block in sorted(repos.items()):
+            blobs = block.get('blobs') or {}
+            current = source_repos.current_blobs(block.get('root'), sorted(blobs))       # one git process per repository
+            for path, blob in sorted(blobs.items()):
+                now = current.get(path)
+                if now != blob:
+                    critical.append({'path': f'{alias}:{path}', 'repo': alias, 'file': path, 'reason': 'source changed since it was read',
+                                     'was': blob, 'now': now})
     return critical, notes
 
 

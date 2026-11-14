@@ -254,6 +254,8 @@ def validate(value):
     if value.get('authority') is not None:
         from . import authority
         optional['authority'] = authority.normalize(value['authority'])
+        if optional['authority'].get('repos') and isinstance(scope['owned'], list):                                   # MR-R
+            authority.check_owned(optional['authority']['repos'], scope['owned'])
     if value.get('advisor') is not None: optional['advisor'] = _advisor(value['advisor'])      # W43: the provider and model of the advisor, when the contract pins them
     return {**optional, 'schema_version': SCHEMA_VERSION, 'title': text_field(value.get('title'), 'title', 200),
             'size': size, 'understanding': _understanding(value.get('understanding'), size),
