@@ -45,6 +45,9 @@ if(S==='obs2c'){
   const rel=$('#relations'),words=['Việc sửa','Lý do','Từ lần kiểm không đạt','Nối với việc gốc: REPAIR'];
   out.relations={sections:$$('#relations').length,repairs:$$('#relations [data-rel^="repair:"]').length,children:$$('#relations [data-rel^="child:"]').length,tab:(w.__track.state().selected||{}).plan,tail:rel?rel.textContent.slice(-900):null};
   check('the relation section shows the repair, its reason, its check and its root',!!rel&&words.every(x=>rel.textContent.includes(x)),{missing:words.filter(x=>!rel||!rel.textContent.includes(x)),repairs:out.relations.repairs});
+  const heads=$$('#relations .rel-item h4').map(x=>x.textContent);
+  check('every spawned item is named by its kind and its name, never by its raw id',heads.length===3&&heads.every(t=>/^(Việc sửa|Phần việc con) · /.test(t)&&!/TASK-|[0-9a-f]{12}/.test(t)),heads);
+  check('the first heading is the source of the assignment, never read as "AI"',!!rel&&rel.querySelector('.rel-grid b').textContent==='Nguồn giao việc');
   check('child tasks name the event they come from',$$('#relations [data-rel^="child:"]').length>=1&&$('#relations [data-rel^="child:"]').textContent.includes('node.started'));
   check('who asked comes from the ledger',!!rel&&rel.textContent.includes('Chủ giao')&&rel.textContent.includes('Sửa phép cộng cho đúng rồi bàn giao'));
   check('the page offers no write control',!$$('#detail button,#detail a').some(b=>/^(Duyệt|Nghiệm thu|Tách|Gộp|Đổi tên|Huỷ|Hủy)/.test(b.textContent.trim())));

@@ -52,6 +52,17 @@ COVERAGE_NOTE = ('Danh sách dựng từ mọi gốc plan trong sổ của phạ
                  'được vẫn được đếm và hiện là chưa xác định; bằng chứng đã mất khỏi kho hiện là không mở được trong chi tiết, và một lần kiểm '
                  'đạt mà receipt không còn trong kho không được tính là đã kiểm.')
 LIST_KEYS = ('list', 'q', 'project', 'stage', 'source', 'time', 'since', 'until', 'floor', 'more', 'limit')
+# what a spawned item is, in plain words (repair 1 of 14/11: a relation is never shown as its raw id alone)
+KIND_WORDS = {'repair': 'Việc sửa', 'child': 'Phần việc con'}
+REPAIR_STATES = {'verified': 'đã kiểm lại đủ phần ảnh hưởng', 'partial': 'mới kiểm lại một phần', 'unverified': 'chưa kiểm lại'}
+ATTEMPT_STATES = {'reserved': 'đã giữ chỗ, chưa chạy', 'running': 'đang chạy', 'settled': 'lượt chạy đã kết thúc', 'unknown': 'kết quả lượt chạy chưa xác định',
+                  'failed': 'lượt chạy lỗi', 'cancelled': 'lượt chạy đã dừng', 'abandoned': 'lượt chạy bị bỏ dở'}
+NO_STATE = 'trạng thái chưa xác định'
+NO_NAME = 'chưa có tên trong sổ'
+
+
+def _short(value):
+    return (value[:12] + '…') if isinstance(value, str) and len(value) > 12 else value
 
 
 def _clean(value, limit=300):
@@ -89,7 +100,7 @@ def origin(state, contract, error=None):
         source, why, basis = 'ai', f'hợp đồng ghi người giao việc là {by}, không phải chủ sở hữu (origin)', ['contract.origin']
     else:
         source, basis = 'unknown', ['plan.proposed:rev1.author'] + (['contract.origin'] if contract else [])
-        why = ('hợp đồng không ghi ai giao việc (origin): ' + NOT_TRACKED + '; người viết hợp đồng ' + (str(author) if author else 'không được ghi')
+        why = ('hợp đồng không ghi người giao việc (origin): ' + NOT_TRACKED + '; người viết hợp đồng ' + (str(author) if author else 'không được ghi')
                + ' — viết hay duyệt hợp đồng không phải là giao việc') if contract else ('không đọc được hợp đồng' + (f' ({error})' if error else '')
                + '; tác giả bản 1: ' + (str(author) if author else 'không được ghi') + ' — nguồn giao việc ' + NOT_TRACKED)
     shown = (contract or {}).get('presentation') or {}
@@ -154,13 +165,18 @@ def relations(reader, conn, row, state, events, item, work):
                    'source': {'kind': kind, 'seq': seq, 'at': at}}
     if end and end['kind'] == 'closed' and state.get('status') != 'closed': end = None     # a plan.closed the plan model does not count (no engine)
     spawned = []
+    titles = {nid: (n or {}).get('title') for nid, n in ((work or {}).get('nodes') or {}).items()
+              if (n or {}).get('title') and (n or {}).get('title') != nid}                         # the node goals of the definition (tracking_work); an id is no name
     for r in (work or {}).get('repairs') or []:
-        spawned.append({'kind': 'repair', 'id': r.get('id'), 'label': 'việc sửa', 'source_label': 'AI/engine phát sinh sau một lần kiểm không đạt',
-                        'node': r.get('node'), 'reason': _clean(r.get('reason'), 400), 'failed_checks': [_clean(c, 100) for c in (r.get('failed_checks') or [])[:10]],
+        node = r.get('node')
+        spawned.append({'kind': 'repair', 'id': r.get('id'), 'label': KIND_WORDS['repair'], 'source_label': 'AI/engine phát sinh sau một lần kiểm không đạt',
+                        'name': _clean(titles.get(node), 200) if titles.get(node) else None, 'name_source': 'plan.revised: tên phần việc được sửa' if titles.get(node) else None,
+                        'node': node, 'reason': _clean(r.get('reason'), 400), 'failed_checks': [_clean(c, 100) for c in (r.get('failed_checks') or [])[:10]],
                         'from_check': {'seq': r.get('source_event'), 'receipt': r.get('source_receipt'), 'authentic': r.get('authentic_source')},
                         'affected_nodes': list(r.get('affected_nodes') or [])[:20], 'status': r.get('status'), 'applicable': r.get('applicable'),
+                        'state': r.get('status'), 'state_label': REPAIR_STATES.get(r.get('status'), NO_STATE) + (' · lịch sử, không chứng nhận bản hiện hành' if r.get('applicable') is False else ''),
                         'rechecks': list(r.get('verification') or [])[:20], 'rebindings': len(r.get('rebindings') or []),
-                        'root': root, 'source': r.get('source')})
+                        'short_id': _short(r.get('id')), 'opens': 'results', 'root': root, 'source': r.get('source')})
     kids = children(events)
     if kids:
         marks = ','.join('?' for _ in kids)
@@ -170,11 +186,17 @@ def relations(reader, conn, row, state, events, item, work):
             attempts.setdefault(a['task'], []).append({'id': a['id'], 'status': a['status'], 'generation': a['generation']})
         for cid, c in kids.items():
             body = payloads.get(cid) or {}
-            spawned.append({'kind': 'child', 'id': cid, 'label': 'việc con', 'source_label': 'engine tạo cho một phần việc (node.started)',
+            name = body.get('title') or body.get('goal')
+            runs = attempts.get(cid, [])
+            latest = runs[-1]['status'] if runs else None              # the attempts table, in the order the ledger created them
+            spawned.append({'kind': 'child', 'id': cid, 'label': KIND_WORDS['child'], 'source_label': 'engine tạo cho một phần việc (node.started)',
+                            'name': _clean(name, 200) if isinstance(name, str) and name.strip() else None,
+                            'name_source': 'tasks: tên của việc con' if isinstance(name, str) and name.strip() else None,
                             'node': c['node'], 'generation': c['generation'], 'attempt': c['attempt'],
-                            'title': _clean(body.get('title') or body.get('goal'), 200), 'attempts': attempts.get(cid, [])[:10],
-                            'known_task': cid in payloads, 'root': root, 'source': {'kind': 'node.started', 'seq': c['seq'], 'at': c['at']},
-                            'also': c['also'][:10]})
+                            'title': _clean(name, 200) if isinstance(name, str) and name.strip() else None, 'attempts': runs[:10],
+                            'state': latest, 'state_label': ATTEMPT_STATES.get(latest, 'lượt chạy: ' + str(latest)) if latest else 'chưa có lượt chạy ghi nhận',
+                            'known_task': cid in payloads, 'short_id': _short(cid), 'opens': 'progress',
+                            'root': root, 'source': {'kind': 'node.started', 'seq': c['seq'], 'at': c['at']}, 'also': c['also'][:10]})
     return {'origin': (item or {}).get('origin'), 'root': root, 'revisions': revisions, 'approvals': approvals, 'spawned': spawned,
             'advice': advice, 'end': end,
             'counts': {'repairs': sum(1 for s in spawned if s['kind'] == 'repair'), 'children': sum(1 for s in spawned if s['kind'] == 'child'),

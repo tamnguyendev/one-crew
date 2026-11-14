@@ -87,6 +87,7 @@ li.task .links{font-size:12px;color:var(--mut);margin-right:2px}
 .rel-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:10px 16px}.rel-grid>div{min-width:0;display:grid;gap:3px;align-content:start}
 .rel-grid b{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}.rel-grid small{font-size:12.5px;color:var(--mut)}
 .rel-h{font-size:14px;margin:14px 0 4px}.rel-item{border-top:1px solid var(--line);padding:8px 0;min-width:0}.rel-item h4{font-size:14px;margin:0 0 4px}.rel-item p{margin:3px 0}
+.rel-kind{font-weight:700}.rel-noname{color:var(--mut);font-style:italic;font-weight:400}.rel-meta{font-size:13px;color:var(--mut)}.rel-state{color:var(--fg);font-weight:600}.rel-foot{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline}.rel-id{font-size:12px}
 @media(max-width:760px){.stage-note{display:none}header{padding:10px 12px}h1{font-size:17px}main,main[data-view=list],main[data-view=detail]{padding:10px 12px}#detailpane{padding:12px}
   .tools{gap:8px}.tools .search{flex:1 1 100%;max-width:none}#filters .fbody{flex-direction:column;align-items:stretch}#filters .fbody label{justify-content:space-between}
   #list[data-mode=list] .lhead{display:none}.lrows li.task{display:block;padding:12px}.lrows li.task>div+div{margin-top:6px}.lrows li.task .lbl{display:inline}
@@ -182,19 +183,25 @@ function workOverview(d,w){var o=(w.outputs||[]).filter(function(x){return !x.st
 // OBS-2C: "Nguồn và quan hệ" — display only, every line names the ledger event it comes from; what no producer records says "chưa theo dõi"
 function relSrc(s){return s&&s.kind?' <span class="work-meta">· nguồn '+esc(s.kind)+(s.seq!=null?' #'+esc(s.seq):'')+(s.at?' · '+esc(when(s.at)):'')+'</span>':''}
 var REPAIR_WORDS={verified:'Đã kiểm lại đủ phần ảnh hưởng',partial:'Mới kiểm lại một phần',unverified:'Chưa kiểm lại đủ'};
-function relItem(x,d){var root=x.root||{},h='<article class="rel-item" data-rel="'+esc(x.kind)+':'+esc(x.id)+'"><h4>'+(x.kind==='repair'?'Việc sửa':'Việc con')+' · '+esc(nodeName(d,x.node))+' <span class="org ai">AI phát sinh</span></h4>'
-    +'<p class="work-meta">'+esc(x.source_label||'')+'</p>';
+// repair 1 of 14/11: each item says WHAT it is (kind word), its name when the ledger records one (else "chưa có tên trong sổ", never an
+// invented one) and its sourced state; the raw id is only a short secondary text; the button opens the tab of this detail that shows it
+var REL_KIND={repair:'Việc sửa',child:'Phần việc con'},REL_OPENS={results:'Xem ở Kết quả & kiểm chứng',progress:'Xem ở Tiến độ'};
+function relName(x,d){if(x.kind==='repair')return 'cho phần việc '+(x.name?esc(x.name):'<span class="rel-noname">chưa có tên trong sổ</span>');return x.name?esc(x.name):'<span class="rel-noname">chưa có tên trong sổ</span>'}
+function relItem(x,d){var root=x.root||{},h='<article class="rel-item" data-rel="'+esc(x.kind)+':'+esc(x.id)+'"><h4><span class="rel-kind">'+esc(REL_KIND[x.kind]||x.label||'Việc liên quan')+'</span> · '+relName(x,d)+'</h4>'
+    +'<p class="rel-meta"><span class="rel-state">'+esc(x.state_label||'trạng thái chưa xác định')+'</span> · <span class="org ai">AI phát sinh</span> '+esc(x.source_label||'')+'</p>';
   if(x.kind==='repair'){h+='<p><b>Lý do:</b> '+esc(x.reason||'chưa theo dõi')+'</p>'
       +'<p><b>Từ lần kiểm không đạt:</b> '+(x.from_check&&x.from_check.seq!=null?'sự kiện #'+esc(x.from_check.seq):'chưa theo dõi')+((x.failed_checks||[]).length?' · kiểm không đạt: '+esc(x.failed_checks.join(', ')):'')+(x.from_check&&x.from_check.receipt?' '+workEvidence(d,x.from_check.receipt):'')+'</p>'
       +((x.affected_nodes||[]).length?'<p><b>Phần ảnh hưởng:</b> '+esc(x.affected_nodes.map(function(n){return nodeName(d,n)}).join(', '))+'</p>':'')
-      +'<p><b>Kiểm lại:</b> '+esc(REPAIR_WORDS[x.status]||x.status||'chưa xác định')+(x.applicable===false?' · lịch sử, không chứng nhận bản hiện hành':'')+(x.rebindings?' · '+x.rebindings+' lần nối lại thứ tự (không tính là vòng sửa mới)':'')+'</p>'}
-  else h+=(x.title?'<p>'+esc(x.title)+'</p>':'')+'<p><b>Lượt chạy:</b> '+((x.attempts||[]).length?esc(x.attempts.map(function(a){return 'thế hệ '+a.generation+' · '+a.status}).join('; ')):'chưa có lượt chạy ghi nhận')+'</p>';
-  return h+'<p class="rel-root"><b>Nối với việc gốc:</b> '+esc(root.plan||'chưa theo dõi')+' (việc đang xem)'+relSrc(x.source)+((x.also||[]).length?' · còn được nêu ở '+x.also.map(function(s){return '#'+esc(s)}).join(', ')+' (đếm một lần)':'')+'</p></article>'}
+      +(x.rebindings?'<p class="work-meta">'+x.rebindings+' lần nối lại thứ tự (không tính là vòng sửa mới)</p>':'')}
+  else h+='<p><b>Của phần việc:</b> '+esc(nodeName(d,x.node))+(typeof x.generation==='number'?' · thế hệ '+x.generation:'')+'</p>'
+      +'<p><b>Lượt chạy:</b> '+((x.attempts||[]).length?x.attempts.length+' lượt · gần nhất: '+esc(x.state_label):'chưa có lượt chạy ghi nhận')+'</p>';
+  return h+'<p class="rel-root"><b>Nối với việc gốc:</b> '+esc(root.plan||'chưa theo dõi')+' (việc đang xem)'+relSrc(x.source)+((x.also||[]).length?' · còn được nêu ở '+x.also.map(function(s){return '#'+esc(s)}).join(', ')+' (đếm một lần)':'')+'</p>'
+    +'<p class="rel-foot">'+(REL_OPENS[x.opens]?'<button type="button" class="linkish" data-work-tab="'+esc(x.opens)+'">'+REL_OPENS[x.opens]+'</button> ':'')+'<span class="work-meta rel-id" title="'+esc(x.id)+'">mã '+esc(x.short_id||x.id)+'</span></p></article>'}
 function relSection(d){var r=d.relations,o=d.origin||(r&&r.origin);if(!r&&!o)return '';r=r||{};var a=(o&&o.approval)||{},end=r.end,sp=r.spawned||[],revs=r.revisions||[];
   var h='<section class="rel" id="relations" aria-label="Nguồn và quan hệ" data-k="relations"><h3>Nguồn và quan hệ</h3><div class="rel-grid">'
-    +'<div><b>Ai giao việc</b><span>'+orgBadge(o)+'</span><small>'+esc((o&&o.why)||'chưa theo dõi')+'</small></div>'
+    +'<div><b>Nguồn giao việc</b><span>'+orgBadge(o)+'</span><small>'+esc((o&&o.why)||'chưa theo dõi')+'</small></div>'
     +'<div><b>Yêu cầu ban đầu</b><span>'+esc((o&&o.request)||'chưa theo dõi')+'</span><small>'+esc((o&&o.request_note)||'')+'</small></div>'
-    +'<div><b>Duyệt</b><span>'+esc(a.label||'chưa duyệt')+'</span>'+(a.session==='unknown'?'<small>Phiên duyệt không khai báo là của ai: không kết luận là phiên AI.</small>':'')+'</div>'
+    +'<div><b>Duyệt</b><span>'+esc(a.label||'chưa duyệt')+'</span>'+(a.session==='unknown'?'<small>Phiên duyệt không khai báo là của người nào: không kết luận là phiên AI.</small>':'')+'</div>'
     +'<div><b>Kết thúc</b><span>'+esc(end?end.label:'chưa kết thúc')+'</span>'+(end&&end.reason?'<small>'+esc(end.reason)+'</small>':'')+'</div></div>';
   h+='<h4 class="rel-h">Việc phát sinh từ việc này ('+sp.length+')</h4>'+(sp.length?sp.map(function(x){return relItem(x,d)}).join(''):workEmpty('Sổ không ghi việc sửa hay việc con nào của việc này.'));
   h+='<details data-k="rel-revisions"><summary>Các bản hợp đồng ('+revs.length+')</summary>'+(revs.length?revs.map(function(v){return '<div class="rel-item"><b>Bản '+esc(v.revision)+'</b> · '+(v.kind==='proposed'?'đề xuất':'sửa')+' bởi '+esc(v.author||'chưa ghi')+(v.author_is_owner?' (chủ sở hữu)':'')

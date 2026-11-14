@@ -21,15 +21,16 @@ Trang theo dõi giờ cho xem **mọi** công việc của dự án, kể cả v
 
 - **Chủ giao**: hợp đồng ghi lời giao việc của bạn, hoặc chính bạn là người viết hợp đồng.
 - **AI giao**: hợp đồng ghi người giao việc là một AI hay một bên điều phối, không phải bạn.
-- **Chưa rõ nguồn**: hợp đồng không ghi ai giao việc. AI viết hợp đồng hay bạn đã duyệt cũng không có nghĩa là bạn giao việc đó.
-- Phiên duyệt không khai báo là của ai thì ghi "chưa rõ phiên", không bao giờ ghi là phiên AI.
+- **Chưa rõ nguồn**: hợp đồng không ghi người giao việc. AI viết hợp đồng hay bạn đã duyệt cũng không có nghĩa là bạn giao việc đó.
+- Phiên duyệt không khai báo là của người nào thì ghi "chưa rõ phiên", không bao giờ ghi là phiên AI.
 
 ## Mở một việc: phần "Nguồn và quan hệ"
 
 Ở thẻ **Tổng quan** của việc:
-- Ai giao việc, yêu cầu ban đầu (lời của bạn nếu hợp đồng có ghi), lần duyệt, kết thúc.
-- **Việc phát sinh**: mỗi việc sửa ghi lý do, lần kiểm không đạt sinh ra nó, phần bị ảnh hưởng, kết quả kiểm lại, và dòng "Nối với việc gốc". Mỗi việc con ghi phần việc và các lượt chạy. Một việc được nhiều sự kiện nhắc tới vẫn chỉ đếm một lần.
-- Các bản hợp đồng: ai viết, lý do sửa, ảnh hưởng.
+- **Nguồn giao việc**, yêu cầu ban đầu (lời của bạn nếu hợp đồng có ghi), lần duyệt, kết thúc.
+- **Việc phát sinh**: mỗi dòng ghi rõ loại (**Việc sửa** hay **Phần việc con**), tên ghi trong sổ (không có thì ghi "chưa có tên trong sổ"), trạng thái, và nút mở thẻ chi tiết tương ứng. Mã kỹ thuật chỉ là chữ nhỏ ở cuối dòng.
+  Việc sửa ghi thêm lý do, lần kiểm không đạt sinh ra nó, phần bị ảnh hưởng; phần việc con ghi phần việc, thế hệ và lượt chạy. Dòng "Nối với việc gốc" nói nó thuộc việc nào. Một việc được nhiều sự kiện nhắc tới vẫn chỉ đếm một lần.
+- Các bản hợp đồng: người viết, lý do sửa, ảnh hưởng.
 - Tách, gộp, đổi tên việc hay việc bạn nhờ trong chat: sổ chưa ghi, trang ghi **chưa theo dõi**.
 
 ## Những điều trang không suy ra

@@ -4,9 +4,12 @@ repair and child tasks, finished work, receipts, two projects, a secret).
 Each test checks the result AND the reason the ledger gives for it: the order is the creation seq, paging is by floor/more, a source
 comes from a recorded author/origin/approval, a relation from a recorded event; a value without a record is "unknown"/"chưa theo dõi".
 The page that renders this model is checked in tests/test_obs2c_browser.py."""
+import html as htmls
 import json
 import os
+import re
 import shutil
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -15,9 +18,30 @@ import urllib.request
 
 from onecrew.ledger import Ledger, LedgerError
 from onecrew.v2 import plan as plans, tracking, tracking_list, tracking_web
+from onecrew.v2.tracking_work_web import SCRIPT
 from tests import obs2c_fixture as fx
 
 COUNT = 150
+AI_SOURCE_WORDS = {'AI giao', 'AI phát sinh'}       # the only labels allowed to start with "AI"/"Ai": they name the AI source
+PRELUDE = r'''
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function when(v){return v||''} function hms(n){return typeof n==='number'?n+'s':'chưa xác định'} function gantt(d){return ''}
+function openBtn(k){return '<button type="button" class="ev-open" data-key="'+k+'">xem nội dung</button>'}
+'''
+
+
+def render(expr, data):
+    """The shipped page script (tracking_work_web.SCRIPT) run by node on a model value; only the page-level helpers it borrows are given."""
+    node = shutil.which('node')
+    if not node: raise unittest.SkipTest('Node needed to render the shipped page script')
+    code = PRELUDE + SCRIPT + '\nvar d=' + json.dumps(data, ensure_ascii=False) + ';console.log(JSON.stringify(' + expr + '));'
+    done = subprocess.run([node, '-'], input=code, text=True, encoding='utf-8', capture_output=True, timeout=60)
+    if done.returncode: raise AssertionError(done.stderr[-2000:])
+    return json.loads(done.stdout.strip().splitlines()[-1])
+
+
+def visible(markup):
+    return htmls.unescape(re.sub(r'<[^>]+>', '', markup))
 
 
 def rows(page):
@@ -254,6 +278,53 @@ class ListModel(unittest.TestCase):
         found = tracking_list.children(twice)
         self.assertEqual(sorted(found), ['TASK-x', 'TASK-y'])
         self.assertEqual((found['TASK-x']['seq'], found['TASK-x']['also']), (5, [9]))
+
+    # ---- repair 1 of 14/11 (coordinator review of the dev28 wheel): plain words for the spawned items, no heading that reads as "AI" --
+    def test_the_relation_section_names_each_spawned_item_by_kind_name_and_state_never_by_its_raw_id(self):
+        detail = tracking.detail(self.root, 'REPAIR')
+        spawned = {s['kind'] + ':' + s['id']: s for s in detail['relations']['spawned']}
+        html = render('relSection(d)', detail)
+        items = re.findall(r'<article class="rel-item" data-rel="([^"]+)">(.*?)</article>', html, re.S)
+        self.assertEqual(sorted(k for k, _ in items), sorted(spawned))                    # every linked item once, and only those
+        self.assertEqual(sorted(s['kind'] for s in spawned.values()), ['child', 'child', 'repair'])
+        generations = set()
+        for key, body in items:
+            model, head = spawned[key], visible(re.search(r'<h4>(.*?)</h4>', body, re.S).group(1))
+            words = visible(body)
+            self.assertTrue(head.startswith(('Việc sửa · ', 'Phần việc con · ')), head)
+            self.assertNotIn(model['id'][:8], head)                                        # the name line never carries the id
+            self.assertNotIn('TASK-', head)
+            self.assertIn(model['state_label'], words)                                     # its state, from the ledger
+            self.assertIn('mã ' + model['short_id'], words)                                # the id: once, as a short secondary text
+            self.assertEqual(words.count(model['id'][:12]), 1)
+            self.assertIn('data-work-tab="' + model['opens'] + '"', body)                  # opens the tab of this detail that shows it
+            if model['kind'] == 'repair':
+                self.assertEqual(head, 'Việc sửa · cho phần việc Chuẩn bị nội dung đầu ra')   # the node's name in the definition
+                self.assertIn(model['state_label'], tracking_list.REPAIR_STATES.values())
+            else:
+                self.assertEqual(head, 'Phần việc con · ' + (model['name'] or 'chưa có tên trong sổ'))
+                self.assertEqual((model['state'], model['state_label']), ('settled', 'lượt chạy đã kết thúc'))
+                generations.add(model['generation'])
+                self.assertIn('thế hệ ' + str(model['generation']), words)
+        self.assertEqual(generations, {0, 1})                                              # the two child parts are told apart
+        nameless = dict(next(s for s in spawned.values() if s['kind'] == 'child'), name=None, title=None)
+        shown = visible(render('relItem(d.x,d)', dict(detail, x=nameless)))
+        self.assertIn('Phần việc con · chưa có tên trong sổ', shown)                     # no name recorded: said so, none invented
+
+    def test_no_new_heading_or_chip_reads_as_the_ai_unless_it_names_the_ai_source(self):
+        html = render('relSection(d)', tracking.detail(self.root, 'REPAIR'))
+        grid = [visible(x) for x in re.findall(r'<div><b>(.*?)</b>', html)]
+        self.assertEqual(grid, ['Nguồn giao việc', 'Yêu cầu ban đầu', 'Duyệt', 'Kết thúc'])
+        self.assertNotIn('ai giao việc', visible(html).casefold())
+        page = tracking_web.PAGE
+        labels = grid + [visible(x) for x in re.findall(r'<(?:h3|h4|summary)[^>]*>(.*?)</(?:h3|h4|summary)>', html, re.S)]
+        labels += [visible(x) for x in re.findall(r'<span class="org [a-z]+"[^>]*>(.*?)</span>', html)]
+        labels += re.findall(r'<option value="[^"]*">([^<]+)</option>', page[page.index('id="origin"'):page.index('</select>', page.index('id="origin"'))])
+        labels += re.findall(r"\['ended','([^']+)'\]", page) + list(tracking_list.SOURCE_WORDS.values()) + list(tracking_list.KIND_WORDS.values())
+        self.assertIn('Nguồn giao việc', labels)
+        for label in labels:
+            if re.match(r'(?i)ai\b', label.strip()):
+                self.assertIn(label.strip(), AI_SOURCE_WORDS, label)                       # upper-cased by CSS it must still mean the AI source
 
     def test_the_list_is_read_only_and_filters_secrets(self):
         ledger = tracking._source(self.root)[0].path
