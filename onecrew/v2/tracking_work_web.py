@@ -184,10 +184,11 @@ function workOverview(d,w){var o=(w.outputs||[]).filter(function(x){return !x.st
 function relSrc(s){return s&&s.kind?' <span class="work-meta">· nguồn '+esc(s.kind)+(s.seq!=null?' #'+esc(s.seq):'')+(s.at?' · '+esc(when(s.at)):'')+'</span>':''}
 var REPAIR_WORDS={verified:'Đã kiểm lại đủ phần ảnh hưởng',partial:'Mới kiểm lại một phần',unverified:'Chưa kiểm lại đủ'};
 // repair 1 of 14/11: each item says WHAT it is (kind word), its name when the ledger records one (else "chưa có tên trong sổ", never an
-// invented one) and its sourced state; the raw id is only a short secondary text; the button opens the tab of this detail that shows it
+// invented one) and its sourced state; the raw id is only a short secondary text; the button opens the tab of this detail that shows it.
+// Its key is data-relation, never data-rel: that attribute belongs to the page's relative-time <time> elements (repair 2 of 14/11)
 var REL_KIND={repair:'Việc sửa',child:'Phần việc con'},REL_OPENS={results:'Xem ở Kết quả & kiểm chứng',progress:'Xem ở Tiến độ'};
 function relName(x,d){if(x.kind==='repair')return 'cho phần việc '+(x.name?esc(x.name):'<span class="rel-noname">chưa có tên trong sổ</span>');return x.name?esc(x.name):'<span class="rel-noname">chưa có tên trong sổ</span>'}
-function relItem(x,d){var root=x.root||{},h='<article class="rel-item" data-rel="'+esc(x.kind)+':'+esc(x.id)+'"><h4><span class="rel-kind">'+esc(REL_KIND[x.kind]||x.label||'Việc liên quan')+'</span> · '+relName(x,d)+'</h4>'
+function relItem(x,d){var root=x.root||{},h='<article class="rel-item" data-relation="'+esc(x.kind)+':'+esc(x.id)+'"><h4><span class="rel-kind">'+esc(REL_KIND[x.kind]||x.label||'Việc liên quan')+'</span> · '+relName(x,d)+'</h4>'
     +'<p class="rel-meta"><span class="rel-state">'+esc(x.state_label||'trạng thái chưa xác định')+'</span> · <span class="org ai">AI phát sinh</span> '+esc(x.source_label||'')+'</p>';
   if(x.kind==='repair'){h+='<p><b>Lý do:</b> '+esc(x.reason||'chưa theo dõi')+'</p>'
       +'<p><b>Từ lần kiểm không đạt:</b> '+(x.from_check&&x.from_check.seq!=null?'sự kiện #'+esc(x.from_check.seq):'chưa theo dõi')+((x.failed_checks||[]).length?' · kiểm không đạt: '+esc(x.failed_checks.join(', ')):'')+(x.from_check&&x.from_check.receipt?' '+workEvidence(d,x.from_check.receipt):'')+'</p>'

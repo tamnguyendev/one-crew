@@ -44,6 +44,38 @@ def visible(markup):
     return htmls.unescape(re.sub(r'<[^>]+>', '', markup))
 
 
+# repair 2 of 14/11: the shipped page script (the whole <script> of tracking_web.PAGE, as test_tracking_situation.Script runs it) with a
+# document whose querySelectorAll matches `tag[attr]` / `[attr]` selectors against the start tags of a markup string, so the page's own
+# tick() can be run over rendered HTML and every element it rewrites is recorded.
+TICK_STUB = r'''
+var MARKUP='',WRITES=[];
+function tagsOf(markup){var out=[],re=/<([a-zA-Z][a-zA-Z0-9]*)((?:\s+[^\s=>]+(?:="[^"]*")?)*)\s*\/?>/g,m;while((m=re.exec(markup))){var attrs={},ra=/([^\s=]+)(?:="([^"]*)")?/g,a;
+  while((a=ra.exec(m[2]))){attrs[a[1]]=a[2]===undefined?'':a[2]}out.push({tag:m[1].toLowerCase(),attrs:attrs})}return out}
+function elementOf(t){return {tagName:t.tag.toUpperCase(),getAttribute:function(n){return t.attrs[n]},set textContent(v){WRITES.push({tag:t.tag,attrs:t.attrs,text:v})}}}
+var document={querySelector:function(){return {addEventListener:function(){},value:'',options:[],style:{}}},addEventListener:function(){},
+  querySelectorAll:function(sel){var m=/^([a-z0-9]*)\[([a-z-]+)\]$/i.exec(sel);if(!m)return [];return tagsOf(MARKUP).filter(function(t){return (!m[1]||t.tag===m[1].toLowerCase())&&(m[2] in t.attrs)}).map(elementOf)}};
+var window={matchMedia:function(){return {matches:false,addEventListener:function(){}}},addEventListener:function(){},scrollTo:function(){},scrollY:0};
+var location={search:'',pathname:'/'};var history={pushState:function(){}};var localStorage={getItem:function(){return null},setItem:function(){}};
+function setInterval(){};function setTimeout(){};function fetch(){return {then:function(){return {then:function(){return {catch:function(){return {then:function(){}}}}}}}}};
+'''
+
+
+def page_tick(markup_expr, data=None):
+    """(markup, writes): the markup the page builds with `markup_expr` (over `d` = data, with the page's own helpers) and every element
+    the shipped tick() then rewrites in it: [{tag, attrs, text}]."""
+    node = shutil.which('node')
+    if not node: raise unittest.SkipTest('Node needed to run the shipped page script')
+    page = tracking_web._page(2)
+    start = page.index('<script>') + 8
+    body = page[start:page.rindex('</script>')]
+    body = body.replace('(function(){', '', 1); body = body[:body.rindex('})();')]
+    code = (TICK_STUB + body + '\nvar d=' + json.dumps(data, ensure_ascii=False) + ';MARKUP=' + markup_expr
+            + ';tick();console.log(JSON.stringify([MARKUP,WRITES]));')
+    done = subprocess.run([node, '-'], input=code, text=True, encoding='utf-8', capture_output=True, timeout=60)
+    if done.returncode: raise AssertionError(done.stderr[-2000:])
+    return json.loads(done.stdout.strip().splitlines()[-1])
+
+
 def rows(page):
     return [t for p in page['projects'] for t in p['tasks']]
 
@@ -284,7 +316,7 @@ class ListModel(unittest.TestCase):
         detail = tracking.detail(self.root, 'REPAIR')
         spawned = {s['kind'] + ':' + s['id']: s for s in detail['relations']['spawned']}
         html = render('relSection(d)', detail)
-        items = re.findall(r'<article class="rel-item" data-rel="([^"]+)">(.*?)</article>', html, re.S)
+        items = re.findall(r'<article class="rel-item" data-relation="([^"]+)">(.*?)</article>', html, re.S)
         self.assertEqual(sorted(k for k, _ in items), sorted(spawned))                    # every linked item once, and only those
         self.assertEqual(sorted(s['kind'] for s in spawned.values()), ['child', 'child', 'repair'])
         generations = set()
@@ -310,6 +342,22 @@ class ListModel(unittest.TestCase):
         nameless = dict(next(s for s in spawned.values() if s['kind'] == 'child'), name=None, title=None)
         shown = visible(render('relItem(d.x,d)', dict(detail, x=nameless)))
         self.assertIn('Phần việc con · chưa có tên trong sổ', shown)                     # no name recorded: said so, none invented
+
+    def test_the_pages_time_ticker_rewrites_only_its_own_times_never_a_relation_item(self):
+        detail = tracking.detail(self.root, 'REPAIR')
+        data = {'detail': detail, 'row': self.item('REPAIR')}
+        section, alone = page_tick('relSection(d.detail)', data)
+        self.assertEqual(len(re.findall(r'<article class="rel-item" data-relation="', section)), 3)
+        self.assertNotIn('data-rel=', section)                                             # the relation items carry their own attribute
+        self.assertEqual(alone, [])                                                        # the relation section alone: the ticker touches nothing
+        markup, writes = page_tick('relSection(d.detail)+workItem(d.row)', data)          # with a list row, whose "Hoạt động cuối" is a <time data-rel>
+        self.assertIn('<time data-rel="', markup)
+        self.assertTrue(writes)                                                            # the ticker still updates the row's relative time ...
+        self.assertEqual({w['tag'] for w in writes}, {'time'})                             # ... and nothing but <time> elements
+        self.assertFalse([w for w in writes if 'data-relation' in w['attrs'] or 'rel-item' in w['attrs'].get('class', '')])
+        # the trap itself: an element that is not a <time> but carries data-rel is left alone (the dev27 ticker replaced its whole text)
+        trap = '<article class="rel-item" data-rel="repair:982f00"><h4>Việc sửa · cho phần việc X</h4></article>'
+        self.assertEqual(page_tick(json.dumps(trap))[1], [])
 
     def test_no_new_heading_or_chip_reads_as_the_ai_unless_it_names_the_ai_source(self):
         html = render('relSection(d)', tracking.detail(self.root, 'REPAIR'))

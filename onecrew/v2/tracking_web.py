@@ -901,7 +901,7 @@ function when(t){if(!t)return '—';var d=new Date(t);return isNaN(d)?esc(t):d.t
 function clock(t){if(!t)return '—';var d=new Date(t);return isNaN(d)?esc(t):d.toLocaleTimeString('vi-VN',TF)}
 function relText(t){var d=new Date(t);if(isNaN(d))return esc(t);var s=Math.round((Date.now()-d.getTime())/1000);if(s<5)return 'vừa xong';if(s<60)return s+' giây trước';if(s<3600)return Math.floor(s/60)+' phút trước';if(s<86400)return Math.floor(s/3600)+' giờ trước';return Math.floor(s/86400)+' ngày trước'}
 function rel(t){return t?'<time data-rel="'+esc(t)+'" title="'+when(t)+'">'+relText(t)+'</time>':'—'}
-function tick(){document.querySelectorAll('[data-rel]').forEach(function(e){e.textContent=relText(e.getAttribute('data-rel'))});
+function tick(){document.querySelectorAll('time[data-rel]').forEach(function(e){e.textContent=relText(e.getAttribute('data-rel'))});   // repair 2 of 14/11 (OBS-2C): only the <time> elements rel() writes; any other element with a data attribute is never rewritten
   document.querySelectorAll('[data-live]').forEach(function(e){var s=parseFloat(e.getAttribute('data-live')),at=parseFloat(e.getAttribute('data-live-at'));if(!isNaN(s)&&!isNaN(at))e.textContent=hms(s+(Date.now()-at)/1000)})}
 var GLYPH={running:'▶',waiting:'◔',blocked:'■',unknown:'?',done:'□',accepted:'✔',verified:'✓',closed:'□'};
 function st(t){var g=t.outcome?GLYPH[t.outcome]:GLYPH[t.kind];return '<span class="st '+esc(t.kind)+(t.outcome?' '+esc(t.outcome):'')+'"><span class="g" aria-hidden="true">'+(g||'')+'</span>'+esc(t.label)+'</span>'}

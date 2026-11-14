@@ -41,14 +41,22 @@ if(S==='obs2c'){
   await settle('spawned filter',()=>F().source==='spawned'&&rowsNow().length===1);
   check('the spawned filter lists the work that holds a repair',rowsNow().length===1&&planOf(rowsNow()[0])==='REPAIR'&&rowsNow()[0].textContent.includes('1 việc sửa'));
   rowsNow()[0].click();
-  await settle('repair detail',()=>$('#relations [data-rel^="repair:"]')&&$('#relations [data-rel^="child:"]')&&$('#relations').textContent.includes('Nối với việc gốc: REPAIR'));
+  await settle('repair detail',()=>$('#relations [data-relation^="repair:"]')&&$('#relations [data-relation^="child:"]')&&$('#relations').textContent.includes('Nối với việc gốc: REPAIR'));
   const rel=$('#relations'),words=['Việc sửa','Lý do','Từ lần kiểm không đạt','Nối với việc gốc: REPAIR'];
-  out.relations={sections:$$('#relations').length,repairs:$$('#relations [data-rel^="repair:"]').length,children:$$('#relations [data-rel^="child:"]').length,tab:(w.__track.state().selected||{}).plan,tail:rel?rel.textContent.slice(-900):null};
+  out.relations={sections:$$('#relations').length,repairs:$$('#relations [data-relation^="repair:"]').length,children:$$('#relations [data-relation^="child:"]').length,tab:(w.__track.state().selected||{}).plan,tail:rel?rel.textContent.slice(-900):null};
   check('the relation section shows the repair, its reason, its check and its root',!!rel&&words.every(x=>rel.textContent.includes(x)),{missing:words.filter(x=>!rel||!rel.textContent.includes(x)),repairs:out.relations.repairs});
-  const heads=$$('#relations .rel-item h4').map(x=>x.textContent);
-  check('every spawned item is named by its kind and its name, never by its raw id',heads.length===3&&heads.every(t=>/^(Việc sửa|Phần việc con) · /.test(t)&&!/TASK-|[0-9a-f]{12}/.test(t)),heads);
+  // repair 2 of 14/11: every relation item, as the reader sees it, keeps its words (kind + name, state, short id only) — read now AND after
+  // the page's relative-time ticker (setInterval 1 s) has run several times: the dev27 ticker once rewrote every [data-rel] element
+  function itemsRead(){return $$('#relations .rel-item').map(a=>({head:(a.querySelector('h4')||{}).textContent||'',state:(a.querySelector('.rel-state')||{}).textContent||'',id:(a.querySelector('.rel-id')||{}).textContent||'',text:a.textContent}))}
+  function itemsOk(list){return list.length===3&&list.every(x=>/^(Việc sửa|Phần việc con) · \S/.test(x.head)&&!/TASK-|[0-9a-f]{12}/.test(x.head)&&x.state.length>3&&/^mã \S+…$/.test(x.id)&&!/^(repair|child):/.test(x.text.trim()))}
+  const before=itemsRead();
+  check('every spawned item is named by its kind and its name, never by its raw id',itemsOk(before),before);
+  await sleep(3500);
+  const after=itemsRead();
+  check('after the time ticker ran, every spawned item still shows its kind, name, state and only a short id',itemsOk(after)&&JSON.stringify(after.map(x=>x.head))===JSON.stringify(before.map(x=>x.head)),after.map(x=>x.text.slice(0,120)));
+  check('the ticker still updates the relative times it owns',$$('time[data-rel]').length>0&&$$('[data-rel]').every(e=>e.tagName==='TIME'));
   check('the first heading is the source of the assignment, never read as "AI"',!!rel&&rel.querySelector('.rel-grid b').textContent==='Nguồn giao việc');
-  check('child tasks name the event they come from',$$('#relations [data-rel^="child:"]').length>=1&&$('#relations [data-rel^="child:"]').textContent.includes('node.started'));
+  check('child tasks name the event they come from',$$('#relations [data-relation^="child:"]').length>=1&&$('#relations [data-relation^="child:"]').textContent.includes('node.started'));
   check('who asked comes from the ledger',!!rel&&rel.textContent.includes('Chủ giao')&&rel.textContent.includes('Sửa phép cộng cho đúng rồi bàn giao'));
   check('the page offers no write control',!$$('#detail button,#detail a').some(b=>/^(Duyệt|Nghiệm thu|Tách|Gộp|Đổi tên|Huỷ|Hủy)/.test(b.textContent.trim())));
   check('the detail has no horizontal overflow',fits(),{w:w.innerWidth,s:d.documentElement.scrollWidth});
