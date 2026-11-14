@@ -40,7 +40,7 @@ from pathlib import Path
 
 from ..ledger import LedgerError, utcnow
 from ..specs import digest
-from . import namespaces, plan as plans, report
+from . import namespaces, plan as plans, report, tracking_list
 
 VERSION = 1
 UNKNOWN = 'unknown'
@@ -979,6 +979,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     if contract and not engine_root:
         try: views = plans.milestone_views(contract, state, state['latest'])
         except (LedgerError, OSError, ValueError, KeyError): views = []
+    gaps = _receipt_gaps(reader.state_root, state, views, engine_view)
     events, children, history = _history(conn, row['id'], events)
     attempts = _attempts(conn, [row['id']] + sorted(children))
     progress = _current_progress(_progress_rows(events), engine_view)
@@ -998,6 +999,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     live = acceptance.pop('views', None)
     if live is not None and not engine_root:
         views = live
+        _receipt_gaps(reader.state_root, state, views, None)        # OBS-2C: the live views too (the gaps were reported above)
         level = _level(state, engine_view, views)       # UX 13/11 (B1): the overview said "đã kiểm" while the milestones it shows need a recheck
     guidance = acceptance.get('next_action')
     if engine_view is not None and guidance is None:
@@ -1059,6 +1061,8 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
                             **({'needs_recheck': True, 'state_text': 'cần kiểm lại', 'note': v.get('recheck_note')} if v.get('needs_recheck') else {})}
                            for v in views],
             'capabilities': list(state.get('capabilities') or ()),
+            'origin': tracking_list.origin(state, contract, contract_error),      # OBS-2C: who asked for it, from ledger records only
+            'evidence_gaps': gaps,
             'read_only': True}
     if not full: return item
     item['milestone_checks'] = checks
@@ -1102,7 +1106,31 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
                      for k in (r['outputs']['stdout'], r['outputs']['stderr'])}
     if named_outputs - present:
         item['evidence_keys'] = sorted(present | {k for k, v in _stored(reader.state_root, named_outputs).items() if v})
+    item['relations'] = tracking_list.relations(rd, conn, row, state, events, item, item['work'])     # OBS-2C: sourced relations, display only
     return item
+
+
+RECEIPT_GONE = 'receipt của lần kiểm đạt không còn trong kho bằng chứng: không tính là đã kiểm; cần kiểm lại'
+
+
+def _receipt_gaps(state_root, state, views, engine_view):
+    """OBS-2C: a pass whose receipt is not in the store is not counted as checked (a missing receipt is never green). A milestone view is
+    marked needs_recheck (the situation model words it "cần kiểm lại") unless the plan has ended (accepted / closed keep their history);
+    an engine node is reported only (its outputs are judged on their receipts in tracking_work). Returns the gaps [{milestone|node, receipt}]."""
+    from ..snapshots import Snapshots
+    root = Snapshots(state_root).root
+    def gone(key): return not (isinstance(key, str) and HEX64.fullmatch(key) and (root / 'blobs' / key).is_file())
+    gaps, ended = [], state.get('status') in ('accepted', 'closed')
+    for v in views:
+        receipt = (v.get('last_verdict') or {}).get('receipt')
+        if v.get('state') == 'passed' and gone(receipt):
+            gaps.append({'milestone': v['id'], 'receipt': receipt if isinstance(receipt, str) else None, 'note': RECEIPT_GONE})
+            if not ended: v.update(state='pending', stale=True, needs_recheck=True, receipt_missing=True, recheck_note=RECEIPT_GONE)
+    for nid, r in ((engine_view or {}).get('nodes') or {}).items():
+        if r.get('state') in ('verified', 'accepted') and gone(r.get('verification_receipt')):
+            key = r.get('verification_receipt')
+            gaps.append({'node': nid, 'receipt': key if isinstance(key, str) else None, 'note': 'receipt kiểm của phần việc không còn trong kho'})
+    return gaps
 
 
 def _measure(rd, selector):
@@ -1199,15 +1227,33 @@ def overview(state_root, *, project_id=None, now=None):
     return outward(_overview(state_root, project_id=project_id, now=now))
 
 
+def _overview_shell(state_root, now, source):
+    """The overview model before any root is read (also the shape of an OBS-2C list page, tracking_list.page)."""
+    return {'kind': 'onecrew-tracking-overview', 'version': VERSION, 'generated_at': _iso(now), 'state_root': str(Path(state_root).resolve()),
+            'read_only': True, 'controls': CONTROLS, 'source': source, 'projects': [], 'tasks_total': 0,
+            'coverage': {'engine': 'root sequential-engine: node / thế hệ / attempt / quan sát tiến độ / chờ',
+                         'milestones': 'root không engine: mốc và verdict', 'other': 'task ngoài plan: phase checkpoint v1',
+                         'external': STATEMENT},
+            'untracked': {'statement': STATEMENT, 'other_tasks': [], 'registry_projects_without_plan': [], 'hook_sessions': []}}
+
+
+def _unreadable(row, error):
+    """The list entry of a root whose item could not be read: counted and shown as unknown, never dropped."""
+    return {'id': row['id'], 'plan': clean(row['request_key'], 100), 'selector': row['request_key'], 'project': row['project_path'], 'project_id': row['project_id'],
+            'goal': None, 'root_status': UNKNOWN, 'status': {'kind': 'unknown', 'label': WORDS['unknown'], 'reason': 'không đọc được: ' + clean(str(error), 200), 'source': []},
+            'level': {'kind': 'none', 'label': LEVEL_WORDS['none']}, 'elapsed': {'seconds': UNKNOWN}, 'needs_user': [], 'active': [], 'last_update': None,
+            'last_evidence': None, 'nodes_summary': {}, 'tracking': {'adapter': UNKNOWN, 'coverage': 'lỗi đọc', 'errors': [clean(str(error), 200)]},
+            'situation': {'stage': 'unknown', 'label': 'Chưa xác định', 'reason': 'Không đọc được việc này trong sổ', 'next': None, 'next_by': None,
+                          'next_by_text': None, 'activity': {'running': False, 'text': 'Không đọc được hoạt động', 'since': None}, 'milestones': None,
+                          'no_owner_decision': True, 'source': []},
+            'origin': {'source': 'unknown', 'label': 'Chưa rõ nguồn', 'why': 'không đọc được việc này trong sổ', 'basis': [], 'request': None},
+            'read_only': True}
+
+
 def _overview(state_root, *, project_id=None, now=None):
     now = _now(now)
     reader, source = _source(state_root)
-    result = {'kind': 'onecrew-tracking-overview', 'version': VERSION, 'generated_at': _iso(now), 'state_root': str(Path(state_root).resolve()),
-              'read_only': True, 'controls': CONTROLS, 'source': source, 'projects': [], 'tasks_total': 0,
-              'coverage': {'engine': 'root sequential-engine: node / thế hệ / attempt / quan sát tiến độ / chờ',
-                           'milestones': 'root không engine: mốc và verdict', 'other': 'task ngoài plan: phase checkpoint v1',
-                           'external': STATEMENT},
-              'untracked': {'statement': STATEMENT, 'other_tasks': [], 'registry_projects_without_plan': [], 'hook_sessions': []}}
+    result = _overview_shell(state_root, now, source)
     if source['status'] != 'ok': return result
     try:
         with reader.transaction() as conn:
@@ -1223,14 +1269,7 @@ def _overview(state_root, *, project_id=None, now=None):
                 try:
                     item = _item(reader, conn, row, now)
                 except (LedgerError, OSError, ValueError, KeyError, TypeError) as error:
-                    item = {'id': row['id'], 'plan': clean(row['request_key'], 100), 'selector': row['request_key'], 'project': row['project_path'], 'project_id': row['project_id'],
-                            'goal': None, 'root_status': UNKNOWN, 'status': {'kind': 'unknown', 'label': WORDS['unknown'], 'reason': 'không đọc được: ' + clean(str(error), 200), 'source': []},
-                            'level': {'kind': 'none', 'label': LEVEL_WORDS['none']}, 'elapsed': {'seconds': UNKNOWN}, 'needs_user': [], 'active': [], 'last_update': None,
-                            'last_evidence': None, 'nodes_summary': {}, 'tracking': {'adapter': UNKNOWN, 'coverage': 'lỗi đọc', 'errors': [clean(str(error), 200)]},
-                            'situation': {'stage': 'unknown', 'label': 'Chưa xác định', 'reason': 'Không đọc được việc này trong sổ', 'next': None, 'next_by': None,
-                                          'next_by_text': None, 'activity': {'running': False, 'text': 'Không đọc được hoạt động', 'since': None}, 'milestones': None,
-                                          'no_owner_decision': True, 'source': []},
-                            'read_only': True}
+                    item = _unreadable(row, error)
                 projects.setdefault(row['project_path'], []).append(item)
             result['projects'] = [{'path': path, 'tasks': items} for path, items in projects.items()]
             result['tasks_total'] = sum(len(p['tasks']) for p in result['projects'])

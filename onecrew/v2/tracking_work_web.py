@@ -78,6 +78,15 @@ button.linkish{border:0;background:none;padding:0 2px;color:var(--run);text-deco
 .repair-flow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.repair-flow>div{border:1px solid var(--line);border-radius:8px;padding:12px;overflow-wrap:anywhere}.repair-flow b{display:block;margin-bottom:8px}
 #legacy-progress[hidden]{display:none}.work-warning{border-left:3px solid var(--wait);padding:8px 12px;background:var(--need);color:var(--needfg)}
 .gnselect strong{-webkit-line-clamp:3}
+.org{display:inline-block;font-size:11.5px;font-weight:650;padding:0 7px;border-radius:9px;border:1px solid var(--line);margin-right:4px;white-space:nowrap;line-height:1.6;vertical-align:baseline}
+.org.owner{background:#e6f4ea;color:#1e4620;border-color:#b7dfc2}.org.ai{background:#ede7f6;color:#3f2a77;border-color:#cfc2ee}.org.unknown{background:var(--card);color:var(--mut);border-style:dashed}
+li.task .links{font-size:12px;color:var(--mut);margin-right:2px}
+.listfoot{margin:12px 0 4px;font-size:13.5px;overflow-wrap:anywhere}.listfoot .cov{margin:4px 0}#more{min-height:38px;font-weight:600;margin:4px 0}.needout{background:var(--need);color:var(--needfg);padding:6px 10px;border-radius:8px}
+#filters input[type=date]{min-height:36px}
+.rel{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:14px 0;background:var(--card);overflow-wrap:anywhere}.rel h3{margin:0 0 10px;font-size:16px}
+.rel-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:10px 16px}.rel-grid>div{min-width:0;display:grid;gap:3px;align-content:start}
+.rel-grid b{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}.rel-grid small{font-size:12.5px;color:var(--mut)}
+.rel-h{font-size:14px;margin:14px 0 4px}.rel-item{border-top:1px solid var(--line);padding:8px 0;min-width:0}.rel-item h4{font-size:14px;margin:0 0 4px}.rel-item p{margin:3px 0}
 @media(max-width:760px){.stage-note{display:none}header{padding:10px 12px}h1{font-size:17px}main,main[data-view=list],main[data-view=detail]{padding:10px 12px}#detailpane{padding:12px}
   .tools{gap:8px}.tools .search{flex:1 1 100%;max-width:none}#filters .fbody{flex-direction:column;align-items:stretch}#filters .fbody label{justify-content:space-between}
   #list[data-mode=list] .lhead{display:none}.lrows li.task{display:block;padding:12px}.lrows li.task>div+div{margin-top:6px}.lrows li.task .lbl{display:inline}
@@ -116,8 +125,11 @@ function workBadge(t){var s=sit(t),k=s.stage||'unknown';return '<span class="stg
 function workReason(t){return sit(t).reason||''}
 function workWho(t){var s=sit(t);return s.next?(s.next_by_text||'Chưa có thông tin người xử lý'):''}
 function workResult(t){var s=sit(t),m=s.milestones;return m?m.text:((t.level||{}).label||'chưa có đầu ra')}   // a milestone root: the count of passed milestones (its 'level' would read "chưa có đầu ra" beside a pass)
+// OBS-2C: where the work came from (ledger records only) and what it spawned, each id counted once (tracking_list)
+function orgBadge(o){return o&&o.source?'<span class="org '+esc(o.source)+'" data-origin="'+esc(o.source)+'" title="'+esc(o.why||'')+'">'+esc(o.label||o.source)+'</span>':''}
+function linksText(t){var l=(t.list||{}).links||{},p=[];if(l.repairs)p.push(l.repairs+' việc sửa');if(l.children)p.push(l.children+' việc con');return p.length?'<span class="links" title="việc AI/engine phát sinh trong việc này; mỗi việc đếm một lần">'+esc(p.join(' · '))+'</span>':''}
 function workItem(t){var s=sit(t),needs=(t.needs_user||[]).length,lu=t.last_update;
-  return '<div class="c-title"><span class="ttl">'+esc(workTitle(t))+'</span><span class="sub">'+(workNoOwner(t)?'<span class="name">'+esc(t.plan)+'</span> · '+workNoOwner(t)+' · ':'')+'<span class="r3 mut" title="'+esc(t.project)+'">'+esc(short(t.project))+'</span></span>'+(workDesc(t)?'<span class="c-desc">'+esc(workDesc(t))+'</span>':'')+'</div>'
+  return '<div class="c-title"><span class="ttl">'+esc(workTitle(t))+'</span><span class="sub">'+orgBadge(t.origin)+linksText(t)+(t.origin||linksText(t)?' · ':'')+(workNoOwner(t)?'<span class="name">'+esc(t.plan)+'</span> · '+workNoOwner(t)+' · ':'')+'<span class="r3 mut" title="'+esc(t.project)+'">'+esc(short(t.project))+'</span></span>'+(workDesc(t)?'<span class="c-desc">'+esc(workDesc(t))+'</span>':'')+'</div>'
     +'<div class="c-state">'+workBadge(t)+'<span class="why">'+esc(workReason(t))+'</span></div>'
     +'<div class="c-next">'+(needs?'<span class="needb">Cần bạn</span> ':'')+'<span class="nx">'+esc(s.next||'Không còn bước tiếp theo')+'</span>'+(s.next?'<span class="who">Người xử lý: '+esc(workWho(t))+'</span>':'')+'</div>'
     +'<div class="c-res"><span class="lbl">Kết quả: </span>'+esc(workResult(t))+'</div>'
@@ -165,7 +177,29 @@ function workOverview(d,w){var o=(w.outputs||[]).filter(function(x){return !x.st
     +workCard('Dự kiến còn lại',d.eta&&d.eta.label,d.eta&&d.eta.reason)+'</div>'
     +(open?'<p class="work-warning">Còn '+open+' finding đang mở. Đây chưa phải số bug độc lập.</p>':'')
     +(c?'<p class="work-meta">Thời gian chạy bộ kiểm đã ghi: '+(checkTime===null?'chưa có lần kiểm nào đủ mốc thời gian':hms(checkTime))+'. Đây là thời gian kiểm, không phải thời gian làm việc; việc không chạy qua engine nên không có số đo thực hiện.</p>'
-      :'<p class="work-meta">Thời gian đã trôi qua: '+hms(d.elapsed&&d.elapsed.seconds)+' · Thực hiện đã ghi nhận: '+hms(m.attempts_wall_seconds)+' · Chờ đã ghi nhận: '+hms(m.wait_seconds)+'. Không tự quy thời gian chưa rõ thành thời gian làm việc.</p>')}
+      :'<p class="work-meta">Thời gian đã trôi qua: '+hms(d.elapsed&&d.elapsed.seconds)+' · Thực hiện đã ghi nhận: '+hms(m.attempts_wall_seconds)+' · Chờ đã ghi nhận: '+hms(m.wait_seconds)+'. Không tự quy thời gian chưa rõ thành thời gian làm việc.</p>')
+    +relSection(d)}
+// OBS-2C: "Nguồn và quan hệ" — display only, every line names the ledger event it comes from; what no producer records says "chưa theo dõi"
+function relSrc(s){return s&&s.kind?' <span class="work-meta">· nguồn '+esc(s.kind)+(s.seq!=null?' #'+esc(s.seq):'')+(s.at?' · '+esc(when(s.at)):'')+'</span>':''}
+var REPAIR_WORDS={verified:'Đã kiểm lại đủ phần ảnh hưởng',partial:'Mới kiểm lại một phần',unverified:'Chưa kiểm lại đủ'};
+function relItem(x,d){var root=x.root||{},h='<article class="rel-item" data-rel="'+esc(x.kind)+':'+esc(x.id)+'"><h4>'+(x.kind==='repair'?'Việc sửa':'Việc con')+' · '+esc(nodeName(d,x.node))+' <span class="org ai">AI phát sinh</span></h4>'
+    +'<p class="work-meta">'+esc(x.source_label||'')+'</p>';
+  if(x.kind==='repair'){h+='<p><b>Lý do:</b> '+esc(x.reason||'chưa theo dõi')+'</p>'
+      +'<p><b>Từ lần kiểm không đạt:</b> '+(x.from_check&&x.from_check.seq!=null?'sự kiện #'+esc(x.from_check.seq):'chưa theo dõi')+((x.failed_checks||[]).length?' · kiểm không đạt: '+esc(x.failed_checks.join(', ')):'')+(x.from_check&&x.from_check.receipt?' '+workEvidence(d,x.from_check.receipt):'')+'</p>'
+      +((x.affected_nodes||[]).length?'<p><b>Phần ảnh hưởng:</b> '+esc(x.affected_nodes.map(function(n){return nodeName(d,n)}).join(', '))+'</p>':'')
+      +'<p><b>Kiểm lại:</b> '+esc(REPAIR_WORDS[x.status]||x.status||'chưa xác định')+(x.applicable===false?' · lịch sử, không chứng nhận bản hiện hành':'')+(x.rebindings?' · '+x.rebindings+' lần nối lại thứ tự (không tính là vòng sửa mới)':'')+'</p>'}
+  else h+=(x.title?'<p>'+esc(x.title)+'</p>':'')+'<p><b>Lượt chạy:</b> '+((x.attempts||[]).length?esc(x.attempts.map(function(a){return 'thế hệ '+a.generation+' · '+a.status}).join('; ')):'chưa có lượt chạy ghi nhận')+'</p>';
+  return h+'<p class="rel-root"><b>Nối với việc gốc:</b> '+esc(root.plan||'chưa theo dõi')+' (việc đang xem)'+relSrc(x.source)+((x.also||[]).length?' · còn được nêu ở '+x.also.map(function(s){return '#'+esc(s)}).join(', ')+' (đếm một lần)':'')+'</p></article>'}
+function relSection(d){var r=d.relations,o=d.origin||(r&&r.origin);if(!r&&!o)return '';r=r||{};var a=(o&&o.approval)||{},end=r.end,sp=r.spawned||[],revs=r.revisions||[];
+  var h='<section class="rel" id="relations" aria-label="Nguồn và quan hệ" data-k="relations"><h3>Nguồn và quan hệ</h3><div class="rel-grid">'
+    +'<div><b>Ai giao việc</b><span>'+orgBadge(o)+'</span><small>'+esc((o&&o.why)||'chưa theo dõi')+'</small></div>'
+    +'<div><b>Yêu cầu ban đầu</b><span>'+esc((o&&o.request)||'chưa theo dõi')+'</span><small>'+esc((o&&o.request_note)||'')+'</small></div>'
+    +'<div><b>Duyệt</b><span>'+esc(a.label||'chưa duyệt')+'</span>'+(a.session==='unknown'?'<small>Phiên duyệt không khai báo là của ai: không kết luận là phiên AI.</small>':'')+'</div>'
+    +'<div><b>Kết thúc</b><span>'+esc(end?end.label:'chưa kết thúc')+'</span>'+(end&&end.reason?'<small>'+esc(end.reason)+'</small>':'')+'</div></div>';
+  h+='<h4 class="rel-h">Việc phát sinh từ việc này ('+sp.length+')</h4>'+(sp.length?sp.map(function(x){return relItem(x,d)}).join(''):workEmpty('Sổ không ghi việc sửa hay việc con nào của việc này.'));
+  h+='<details data-k="rel-revisions"><summary>Các bản hợp đồng ('+revs.length+')</summary>'+(revs.length?revs.map(function(v){return '<div class="rel-item"><b>Bản '+esc(v.revision)+'</b> · '+(v.kind==='proposed'?'đề xuất':'sửa')+' bởi '+esc(v.author||'chưa ghi')+(v.author_is_owner?' (chủ sở hữu)':'')
+      +(v.reason?'<p><b>Lý do:</b> '+esc(v.reason)+'</p>':'')+(v.impact?'<p><b>Ảnh hưởng:</b> '+esc(v.impact)+'</p>':'')+relSrc(v.source)+'</div>'}).join(''):workEmpty('Chưa có bản hợp đồng đọc được.'))+'</details>';
+  return h+'<p class="work-meta">Việc gốc của việc này: '+esc(((r.parent||{}).note)||'chưa theo dõi')+' — chưa theo dõi. '+esc(r.not_tracked||'')+'</p></section>'}
 function workSolution(d,w){var s=w.solution||{},c=s.contract||{},card=s.card||{},ref=s.source_solution;
   return '<div class="work-grid">'+workCard('Bản đề xuất mới nhất',s.latest_revision)+workCard('Bản được duyệt',s.approved_revision)
     +workCard('Bản có thể thực hiện',s.runnable_revision,'Bản đề xuất mới không tự thay thế bản đang được phép chạy. Không có bản chạy được thì chưa suy quyền thực hiện.')+workCard('Mục tiêu',c.goal||d.goal)+'</div>'

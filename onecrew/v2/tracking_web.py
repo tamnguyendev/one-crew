@@ -1,6 +1,8 @@
 """OBS-1: the local read-only tracking page (stdlib http.server on 127.0.0.1) over onecrew/v2/tracking.py.
 
 GET only: `/` (the page, one file, no external resource), `/api/health`, `/api/overview`, `/api/task?plan=…`, `/api/evidence?plan=…&key=…`.
+OBS-2C: `/api/overview?list=1&…` answers one page of the work list (tracking_list.page: stable order by creation seq, `floor`/`more` paging,
+search and filters judged on the ledger, coverage); without a list parameter it is the full overview as before (the CLI, older pages).
 Any other method is 405: the page has no control, and no request here can approve, answer, pause or resume a task. Each request reads the ledger
 anew (sqlite read-only, no transaction kept between polls), so the page rebuilds from the durable source on every poll: a reconnect, a reopened
 tab or a restarted server shows the same truth without a cursor to lose and without duplicating an event (the ledger's seq is the identity).
@@ -61,7 +63,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from ..ledger import LedgerError, utcnow
-from . import tracking
+from . import tracking, tracking_list
 
 MARKER = 'tracking/server.json'
 LOCK = 'tracking/open.lock'
@@ -170,7 +172,12 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
                                                       **{k: stats[k] for k in ('requests', 'last_read_ms', 'started_at', 'errors')}})
                 if url.path == '/api/overview':
                     started = time.perf_counter()
-                    value = tracking.overview(state_root, project_id=scope)
+                    if any(k in q for k in tracking_list.LIST_KEYS):          # OBS-2C: one page of the list (stable order, filters on the ledger)
+                        try: tracking_list.params(q)
+                        except ValueError as error: return self._send(HTTPStatus.BAD_REQUEST, {'error': str(error), 'read_only': True})
+                        value = tracking_list.page(state_root, q, project_id=scope)
+                    else:
+                        value = tracking.overview(state_root, project_id=scope)
                     stats['last_read_ms'] = round((time.perf_counter() - started) * 1000, 1)
                     value['server'] = {'pid': os.getpid(), 'instance': identity['instance'], 'version': identity['version'], 'read_ms': stats['last_read_ms'],
                                        'poll_seconds': interval, 'started_at': stats['started_at'], 'requests': stats['requests'], 'project_id': project_id}
@@ -860,7 +867,10 @@ details{margin:6px 0}summary{cursor:pointer;color:var(--mut)}summary:focus-visib
 <div id="viewsw" role="group" aria-label="Cách xem danh sách"><button type="button" data-list-mode="list" aria-pressed="true">Danh sách</button><button type="button" data-list-mode="board" aria-pressed="false">Bảng</button></div>
 <details id="filters" data-k="filters"><summary>Bộ lọc <span id="fcount" class="small mut"></span></summary><div class="fbody">
 <label>Dự án <select id="proj"><option value="">tất cả</option></select></label>
-<label>Trạng thái <select id="kind"><option value="">tất cả</option><option value="need">Cần bạn quyết định</option><option value="running">Đang có lượt chạy</option><option value="todo">Chưa bắt đầu</option><option value="doing">Đang thực hiện</option><option value="fix">Cần sửa</option><option value="check">Chờ kiểm</option><option value="accept">Chờ nghiệm thu</option><option value="done">Hoàn tất</option><option value="stopped">Đã dừng</option><option value="unknown">Chưa xác định</option><option value="closed">Đã đóng</option></select></label>
+<label>Trạng thái <select id="kind"><option value="">tất cả</option><option value="need">Cần bạn quyết định</option><option value="running">Đang có lượt chạy</option><option value="todo">Chưa bắt đầu</option><option value="doing">Đang thực hiện</option><option value="fix">Cần sửa</option><option value="check">Chờ kiểm</option><option value="accept">Chờ nghiệm thu</option><option value="done">Hoàn tất</option><option value="stopped">Đã dừng</option><option value="unknown">Chưa xác định</option><option value="closed">Đã đóng</option><option value="ended">Đã kết thúc (nghiệm thu hoặc đóng)</option></select></label>
+<label>Nguồn <select id="origin"><option value="">tất cả</option><option value="owner">Chủ giao</option><option value="ai">AI giao</option><option value="unknown">Chưa rõ nguồn</option><option value="spawned">Có việc AI phát sinh (việc sửa, việc con)</option></select></label>
+<label>Thời gian <select id="tfield"><option value="created">Ngày tạo</option><option value="updated">Cập nhật cuối</option><option value="ended">Ngày kết thúc</option></select></label>
+<label>Từ <input id="since" type="date" aria-label="Từ ngày"></label><label>Đến hết <input id="until" type="date" aria-label="Đến hết ngày"></label>
 <label>Sắp xếp <select id="sort"><option value="attention">Cần xử lý trước</option><option value="updated">Cập nhật gần nhất</option><option value="created">Ngày tạo (cũ trước)</option><option value="deadline">Hạn hoàn thành (nếu có)</option></select></label>
 </div></details>
 <span id="chips" role="group" aria-label="lọc nhanh"></span>
@@ -872,6 +882,7 @@ details{margin:6px 0}summary{cursor:pointer;color:var(--mut)}summary:focus-visib
 <main id="main" data-view="list">
 <section class="pane" id="listpane" aria-label="Danh sách công việc"><h2>Công việc</h2><p class="stage-note" id="stagenote">Mỗi dòng là một công việc: trạng thái, bước tiếp theo, kết quả và hoạt động cuối. Trạng thái do sổ tính; trang chỉ xem, không kéo thả hay đổi trạng thái.</p><div id="empty">Đang đọc sổ…</div>
 <div id="list" role="group" aria-label="Bảng công việc"></div>
+<div id="listfoot" class="listfoot" aria-live="polite"></div>
 <details id="untrackedbox" data-k="untracked"><summary>Chưa được theo dõi</summary><div id="untracked" class="small"></div></details></section>
 <section class="pane" id="detailpane" aria-label="Chi tiết task"><div id="detail"><div id="nodetail">Chọn một task ở danh sách để xem chi tiết, timeline và bằng chứng.</div></div></section>
 </main>
@@ -923,22 +934,48 @@ function pendingPane(sel){var t=taskOf(sel),e=detailError;   // the selected tas
   if(t)h+='<div class="small mut">Theo danh sách: '+esc(workReason(t))+'</div>';
   $('#detail').innerHTML=h}
 function tasks(){var out=[];(last&&last.projects||[]).forEach(function(p){p.tasks.forEach(function(t){out.push(t)})});return out}
-function visible(){var cur=$('#proj').value,kind=$('#kind').value,q=($('#q').value||'').toLowerCase();
+function ended(t){return t.root_status==='accepted'||t.root_status==='closed'}
+function visible(){var cur=$('#proj').value,kind=$('#kind').value,src=$('#origin').value,raw=($('#q').value||'').trim(),q=raw.toLowerCase(),lf=last&&last.list&&last.list.filters,byServer=!!lf&&(lf.q||'')===raw;   // OBS-2C: the server already searched every root for this text (the client keeps filtering the loaded rows at once)
   return workOrder(tasks().filter(function(t){if(cur&&t.project!==cur)return false;
-    if(kind==='need'&&!(t.needs_user||[]).length)return false;if(kind==='running'&&!(sit(t).activity||{}).running)return false;if(kind&&kind!=='need'&&kind!=='running'&&workStage(t)!==kind)return false;
-    if(q&&workSearch(t).indexOf(q)<0)return false;return true}),$('#sort').value)}
+    if(kind==='need'&&!(t.needs_user||[]).length)return false;if(kind==='running'&&!(sit(t).activity||{}).running)return false;
+    if(kind==='ended'){if(!ended(t))return false}else if(kind&&kind!=='need'&&kind!=='running'&&workStage(t)!==kind)return false;
+    if(src==='spawned'){if(!((t.list||{}).links||{}).spawned)return false}else if(src&&(t.origin||{}).source!==src)return false;
+    if(q&&!byServer&&workSearch(t).indexOf(q)<0)return false;return true}),$('#sort').value)}
+// OBS-2C: the list is read a page at a time in the ledger's stable order (creation seq, newest first). `listFloor` is the creation seq of the
+// last loaded row: every poll reads the same region again (rows created meanwhile come on top), "Xem thêm" asks for LIST_PAGE more below it.
+// A change of filter starts a new list (listGen); an answer to an older request is never shown.
+var LIST_PAGE=50,listGen=0,listFloor=null,listMore=0,qTimer=null;
+function dayAt(v,plus){var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(v||'');if(!m)return null;return new Date(+m[1],+m[2]-1,+m[3]+(plus||0)).toISOString()}   // the reader's local midnight, as an instant
+function listQuery(){var p={list:'1',limit:String(LIST_PAGE)},raw=($('#q').value||'').trim(),s=dayAt($('#since').value),u=dayAt($('#until').value,1);
+  if(raw)p.q=raw;if($('#proj').value)p.project=$('#proj').value;if($('#kind').value)p.stage=$('#kind').value;if($('#origin').value)p.source=$('#origin').value;
+  if(s||u){p.time=$('#tfield').value||'created';if(s)p.since=s;if(u)p.until=u}
+  if(listFloor!==null)p.floor=String(listFloor);if(listMore)p.more=String(listMore);
+  return Object.keys(p).map(function(k){return k+'='+encodeURIComponent(p[k])}).join('&')}
+function relist(){listGen++;listFloor=null;listMore=0;render(true);fetchList()}
+function loadMore(){listGen++;listMore=LIST_PAGE;var b=$('#more');if(b){b.disabled=true;b.textContent='đang tải thêm…'}fetchList()}
+function footHtml(){var L=last&&last.list;if(!L)return '';
+  var h='<p class="cov" id="coverage"><b>'+(L.complete?'Đã tải đủ':'Đang hiện một phần')+':</b> '+L.shown+' việc đã tải · tổng '+L.total+' việc trong sổ'
+    +(L.matched_exact?(L.matched!==L.total?' · '+L.matched+' việc khớp bộ lọc':''):' · bộ lọc trạng thái xét từng việc: đã xét '+L.scanned+', thấy '+L.shown+' khớp')
+    +(L.remaining?' · còn '+L.remaining+' việc '+(L.matched_exact?'khớp bộ lọc ':'')+'chưa '+(L.matched_exact?'tải':'xét'):'')+'.</p>';
+  if(!L.complete)h+='<button type="button" id="more" data-k="more">Xem thêm '+Math.min(LIST_PAGE,L.remaining)+' việc</button>';
+  if(L.unreadable)h+='<p class="small err">'+L.unreadable+' việc không đọc được: vẫn được đếm và hiện là chưa xác định.</p>';
+  var ao=L.attention_outside||{};if(ao.count)h+='<p class="needout" id="needout">Ngoài phần đã tải còn '+ao.count+' việc đang chờ bạn: '+(ao.items||[]).map(function(x){return esc(x.plan)+' ('+esc(x.why)+')'}).join(', ')+(ao.count>(ao.items||[]).length?', …':'')+'. Chọn lọc “Cần bạn quyết định” để đọc đủ.</p>';
+  return h+'<details class="small mut" data-k="listcov" id="listcov"><summary>Thứ tự và phạm vi của danh sách</summary><p>'+esc(L.order_basis)+'</p><p>'+esc(L.coverage)+'</p><p>'+esc(L.not_tracked)+'</p></details>'}
+function paintFoot(){var f=$('#listfoot'),h=footHtml();if(f.innerHTML===h)return;var a=document.activeElement,had=a&&a.id==='more',cov=$('#listcov'),open=cov&&cov.open;f.innerHTML=h;if(open&&$('#listcov'))$('#listcov').open=true;if(had&&$('#more'))$('#more').focus({preventScroll:true})}
 function row(t){var sel=sameSel(selected,{plan:t.selector,project:t.project_id}),lastv=!sel&&sameSel(lastViewed,{plan:t.selector,project:t.project_id});
   return '<li class="task'+(lastv?' last':'')+'" role="option" tabindex="0" aria-selected="'+sel+'" data-plan="'+esc(t.selector)+'" data-project="'+esc(t.project_id)+'" data-stage="'+esc(workStage(t))+'" data-k="task:'+esc(t.project_id)+':'+esc(t.selector)+'">'+workItem(t)+'</li>'}
 var listMode=(function(){try{return localStorage.getItem('onecrew-track-mode')==='board'?'board':'list'}catch(e){return 'list'}})();
 function setMode(m){listMode=m==='board'?'board':'list';try{localStorage.setItem('onecrew-track-mode',listMode)}catch(e){}render(true)}
-function filterSummary(){var parts=[],k=$('#kind'),p=$('#proj'),q=($('#q').value||'').trim();if(p.value)parts.push('dự án '+short(p.value));if(k.value)parts.push(k.options[k.selectedIndex].text);if(q)parts.push('tìm “'+q+'”');return parts}
+function filterSummary(){var parts=[],k=$('#kind'),p=$('#proj'),o=$('#origin'),q=($('#q').value||'').trim(),s=$('#since').value,u=$('#until').value,tf=$('#tfield');if(p.value)parts.push('dự án '+short(p.value));if(k.value)parts.push(k.options[k.selectedIndex].text);
+  if(o.value)parts.push('nguồn: '+o.options[o.selectedIndex].text);if(s||u)parts.push(tf.options[tf.selectedIndex].text.toLowerCase()+(s?' từ '+s:'')+(u?' đến hết '+u:''));if(q)parts.push('tìm “'+q+'”');return parts}
 function render(force){
   if(!last)return;var ps=$('#proj'),cur=ps.value,opts='<option value="">tất cả</option>';
-  (last.projects||[]).forEach(function(p){opts+='<option value="'+esc(p.path)+'"'+(p.path===cur?' selected':'')+'>'+esc(short(p.path))+'</option>'});if(ps.innerHTML!==opts)ps.innerHTML=opts;
-  var vis=visible(),all=tasks(),need=all.filter(function(t){return (t.needs_user||[]).length}).length;
-  $('#count').textContent=all.length+' công việc'+(vis.length!==all.length?' · hiện '+vis.length:'');
-  var kindNow=$('#kind').value,counts={need:need,fix:all.filter(function(t){return workStage(t)==='fix'}).length,unknown:all.filter(function(t){return workStage(t)==='unknown'}).length,running:all.filter(function(t){return (sit(t).activity||{}).running}).length};
-  var chips=[['need','Cần bạn quyết định'],['fix','Cần sửa'],['unknown','Chưa xác định'],['running','Đang có lượt chạy']].filter(function(c){return counts[c[0]]||kindNow===c[0]}).map(function(c){return '<button type="button" class="chip" data-kind="'+c[0]+'" aria-pressed="'+(kindNow===c[0])+'">'+c[1]+' ('+counts[c[0]]+')</button>'}).join('');
+  ((last.list&&last.list.projects)||last.projects||[]).forEach(function(p){opts+='<option value="'+esc(p.path)+'"'+(p.path===cur?' selected':'')+'>'+esc(short(p.path))+'</option>'});if(ps.innerHTML!==opts)ps.innerHTML=opts;   // OBS-2C: every project of the scope, not only the loaded rows'
+  var vis=visible(),all=tasks(),need=all.filter(function(t){return (t.needs_user||[]).length}).length,L=last.list,part=L&&!L.complete;
+  $('#count').textContent=L?'Đang hiện '+vis.length+(vis.length!==all.length?' (đã tải '+all.length+')':'')+' / '+L.total+' công việc':all.length+' công việc'+(vis.length!==all.length?' · hiện '+vis.length:'');
+  var kindNow=$('#kind').value,counts={need:need,fix:all.filter(function(t){return workStage(t)==='fix'}).length,unknown:all.filter(function(t){return workStage(t)==='unknown'}).length,running:all.filter(function(t){return (sit(t).activity||{}).running}).length,
+    ended:L&&L.counts&&typeof L.counts.ended==='number'?L.counts.ended:all.filter(ended).length};
+  var chips=[['need','Cần bạn quyết định'],['fix','Cần sửa'],['unknown','Chưa xác định'],['running','Đang có lượt chạy'],['ended','Đã kết thúc']].filter(function(c){return counts[c[0]]||kindNow===c[0]}).map(function(c){return '<button type="button" class="chip" data-kind="'+c[0]+'" aria-pressed="'+(kindNow===c[0])+'">'+c[1]+' ('+counts[c[0]]+(part&&c[0]!=='ended'?', phần đã tải':'')+')</button>'}).join('');   // 'ended' counts every root of the scope (the ledger's index)
   document.querySelectorAll('#viewsw [data-list-mode]').forEach(function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-list-mode')===listMode))});
   var fs=filterSummary(),fa=$('#factive');fa.hidden=!fs.length;var fh=fs.length?'<b>Đang lọc:</b> '+esc(fs.join(' · '))+' <button type="button" id="fclear">Bỏ lọc</button>':'';if(fa.innerHTML!==fh)fa.innerHTML=fh;$('#fcount').textContent=fs.length?'('+fs.length+' đang áp dụng)':'';
   if($('#chips').innerHTML!==chips)$('#chips').innerHTML=chips;
@@ -946,7 +983,8 @@ function render(force){
   if(sig!==listSig||force){var foc=document.activeElement&&document.activeElement.getAttribute&&document.activeElement.getAttribute('data-k');
     $('#list').setAttribute('data-mode',listMode);$('#list').innerHTML=vis.length?(listMode==='board'?workBoard(vis):workRows(vis)):'';listSig=sig;
     if(foc){var again=document.querySelector('[data-k="'+foc.replace(/"/g,'\\"')+'"]');if(again)again.focus({preventScroll:true})}}
-  $('#empty').textContent=vis.length?'':(all.length?'Không có task nào khớp bộ lọc.':'Không có plan nào trong sổ này.');
+  $('#empty').textContent=vis.length?'':(all.length?'Không có task nào khớp bộ lọc.':L&&L.total?'Không có task nào khớp bộ lọc'+(L.complete?'.':' trong phần đã xét; bấm “Xem thêm” để xét tiếp.'):'Không có plan nào trong sổ này.');
+  paintFoot();
   var u=last.untracked||{},parts=['<div>'+esc(u.statement||'')+'</div>'],n=(u.other_tasks||[]).length+(u.registry_projects_without_plan||[]).length+(u.hook_sessions||[]).length;
   (u.other_tasks||[]).slice(0,10).forEach(function(o){parts.push('<div>· task <code>'+esc(o.id.slice(0,12))+'</code> '+esc(o.key)+' phase '+esc(o.phase)+' — '+esc(o.note)+'</div>')});
   (u.registry_projects_without_plan||[]).slice(0,10).forEach(function(r){parts.push('<div>· '+esc(r.project)+' — '+esc(r.note)+'</div>')});
@@ -1209,14 +1247,17 @@ function select(sel,opts){opts=opts||{};if(!sel){if(detailInflight){clearTimeout
   if(!mine()){pendingPane(selected);afterSelect()}dind();     // another task: its heading + "đang tải" at once, never the previous task's content
   if(!opts.silent&&location.search!==urlOf(selected))history.pushState({plan:selected.plan,project:selected.project},'',urlOf(selected));
   loadDetail('select')}
-function poll(){var ctl=new AbortController(),late=false,tm=setTimeout(function(){late=true;ctl.abort()},OVERVIEW_TIMEOUT);   // P2 (found with it): an overview read that never answers no longer freezes the page under a green badge
-  fetch('/api/overview',{cache:'no-store',signal:ctl.signal}).then(function(r){return r.json()}).then(function(j){
-    if(j.error&&!j.source){j.source={status:'lỗi',detail:j.error,ledger:''};j.projects=last?last.projects:[];j.untracked=last?last.untracked:{}}
+function fetchList(done){var gen=listGen,ctl=new AbortController(),late=false,tm=setTimeout(function(){late=true;ctl.abort()},OVERVIEW_TIMEOUT);   // P2 (found with it): an overview read that never answers no longer freezes the page under a green badge
+  fetch('/api/overview?'+listQuery(),{cache:'no-store',signal:ctl.signal}).then(function(r){return r.json()}).then(function(j){
+    if(gen!==listGen)return;                                   // OBS-2C: the answer of a list the reader has since changed (filter, "Xem thêm") is not shown
+    if(j.error&&!j.source){j.source={status:'lỗi',detail:j.error,ledger:''};j.projects=last?last.projects:[];j.untracked=last?last.untracked:{};j.list=last?last.list:null}
+    else if(j.list){listFloor=j.list.complete?0:j.list.floor;listMore=0}
     last=j;lastOk=Date.now();if(lostSince)detailTimeouts=0;lostSince=null;var s=j.source||{};    // reconnected: the detail of the selection is read again (a new, bounded series of tries)
     if(s.status!=='ok'){conn('src','NGUỒN '+(s.status||'?')+': '+(s.detail||''))}else{conn('ok','kết nối OK · dữ liệu lúc '+new Date(j.generated_at).toLocaleTimeString()+' · seq '+s.last_seq+' · đọc '+(j.server&&j.server.read_ms)+' ms')}
     $('#src').textContent='Sổ: '+(s.ledger||'')+' · poll '+(INTERVAL/1000)+' s · wheel '+(j.server&&j.server.version||'?');render();if(selected)loadDetail('poll');
-  }).catch(function(e){if(!last)$('#empty').textContent='Chưa đọc được sổ: mất kết nối với server theo dõi; trang tự thử lại.';if(!lostSince){lostSince=new Date();repaintGantt()}conn('bad','MẤT KẾT NỐI với server theo dõi từ '+lostSince.toLocaleTimeString()+(late?' (không trả lời trong '+OVERVIEW_TIMEOUT/60000+' phút)':'')+(lastOk?' — đang hiện dữ liệu cũ lúc '+new Date(lastOk).toLocaleTimeString():' — chưa có dữ liệu')+'; worker không bị ảnh hưởng; trang tự thử lại')})
-  .then(function(){clearTimeout(tm);setTimeout(poll,INTERVAL)})}
+  }).catch(function(e){if(gen!==listGen)return;if(!last)$('#empty').textContent='Chưa đọc được sổ: mất kết nối với server theo dõi; trang tự thử lại.';if(!lostSince){lostSince=new Date();repaintGantt()}conn('bad','MẤT KẾT NỐI với server theo dõi từ '+lostSince.toLocaleTimeString()+(late?' (không trả lời trong '+OVERVIEW_TIMEOUT/60000+' phút)':'')+(lastOk?' — đang hiện dữ liệu cũ lúc '+new Date(lastOk).toLocaleTimeString():' — chưa có dữ liệu')+'; worker không bị ảnh hưởng; trang tự thử lại')})
+  .then(function(){clearTimeout(tm);if(done)done()})}
+function poll(){fetchList(function(){setTimeout(poll,INTERVAL)})}
 function copyText(text,k){var c=copied={k:k,text:text,ok:false};var sel0=selected;     // c: this copy's own record (copied is reset when the selection changes)
   function current(){return copied===c&&sameSel(selected,sel0)&&copiedStillValid(c,mine())}   // dev9 P2 (Codex): only the attempt the page still holds acts on its result. A newer copy, another task (even after coming back), a lost binding or a new revision/command in the CURRENT data makes it stale: its late result starts no fallback write and changes nothing (a clipboard call already sent to the browser cannot be taken back)
   function done(){var d=mine();if(!d||!sameSel(selected,sel0))return;var s=snapshot();renderDetail(d);restore(s)}   // dev8 P3: the reader's place when the result lands (focus, sections, scroll), not at the click: a late result never pulls them back
@@ -1233,9 +1274,10 @@ document.addEventListener('click',function(ev){var t=ev.target;
   if(t.classList&&t.classList.contains('copy')){var ck=t.closest('.need').getAttribute('data-k'),ct=t.getAttribute('data-copy'),cd=mine();
     if(!cd||!copiedStillValid({k:ck,text:ct},cd)){if(cd){var cs=snapshot();renderDetail(cd);restore(cs)}return}   // R7-1: a card painted before the data changed never copies a command the latest data no longer offers
     copyText(ct,ck);return}
-  if(t.classList&&t.classList.contains('chip')){var ck2=t.getAttribute('data-kind');$('#kind').value=$('#kind').value===ck2?'':ck2;render(true);return}
+  if(t.classList&&t.classList.contains('chip')){var ck2=t.getAttribute('data-kind');$('#kind').value=$('#kind').value===ck2?'':ck2;relist();return}
   var lm=t.closest&&t.closest('[data-list-mode]');if(lm){setMode(lm.getAttribute('data-list-mode'));lm.focus({preventScroll:true});return}
-  if(t.id==='fclear'){$('#kind').value='';$('#proj').value='';$('#q').value='';render(true);var qq=$('#q');if(qq)qq.focus({preventScroll:true});return}
+  if(t.id==='fclear'){$('#kind').value='';$('#proj').value='';$('#q').value='';$('#origin').value='';$('#since').value='';$('#until').value='';relist();var qq=$('#q');if(qq)qq.focus({preventScroll:true});return}
+  if(t.id==='more'){loadMore();return}
   var wt=t.closest&&t.closest('[data-work-tab]');if(wt){workTab=wt.getAttribute('data-work-tab');var wd=mine();if(wd){var ws=snapshot();renderDetail(wd);restore(ws);var wb=document.querySelector('[data-work-tab="'+workTab+'"]');if(wb){wb.focus({preventScroll:true});if(workTab==='progress')wb.closest('.work-nav').scrollIntoView({block:'start'})}}return}
   if(t.classList&&t.classList.contains('stale-hide')){var key=t.getAttribute('data-key');staleNotes=staleNotes.filter(function(x){return x.key!==key});var d0=mine();if(d0){var s0=snapshot();renderDetail(d0);restore(s0)}return}
   if(t.classList&&t.classList.contains('tg')){var fk=t.getAttribute('data-fold');if(fk.indexOf('h:')===0){gFold[fk]=gFold[fk]===false?true:false;if(gFold[fk]===false&&gRange==='current'){gRange='all';gPinnedWindow=null;var hd=mine();if(hd){gPinnedWindow=gWindow(hd.gantt);if(gPinnedWindow)gPinnedWindow.range='all'}}}else gFold[fk]=gFold[fk]===false?true:false;repaintGantt();var b=document.querySelector('[data-fold="'+fk+'"]');if(b)b.focus({preventScroll:true});return}
@@ -1257,8 +1299,9 @@ document.addEventListener('keydown',function(ev){var t=ev.target;
 document.addEventListener('change',function(ev){if(ev.target&&ev.target.id==='grange'){gRange=ev.target.value;gPinnedWindow=null;var gd=mine();if(gRange==='all'&&gd){(gd.gantt.rows||[]).forEach(function(r){gFold['n:'+r.node]=false;gFold['h:'+r.node]=false});gPinnedWindow=gWindow(gd.gantt);if(gPinnedWindow)gPinnedWindow.range=gRange}repaintGantt()}});
 document.addEventListener('toggle',function(ev){if(ev.target&&ev.target.classList&&ev.target.classList.contains('need'))needs_open_sync()},true);
 $('#sort').addEventListener('change',function(){render(true)});
-$('#q').addEventListener('input',function(){render(true)});$('#kind').addEventListener('change',function(){render(true)});
-$('#proj').addEventListener('change',function(){var v=$('#proj').value;if(selected&&v&&selected.project){var t=tasks().filter(function(x){return x.project===v&&x.project_id===selected.project});if(!t.length){select(null);$('#detail').innerHTML='<div id="nodetail">Đã đổi sang project '+esc(short(v))+': chọn một task của project này.</div>'}}render(true)});
+$('#q').addEventListener('input',function(){render(true);clearTimeout(qTimer);qTimer=setTimeout(relist,350)});$('#kind').addEventListener('change',relist);   // OBS-2C: the loaded rows are filtered at once, the ledger is searched after a short pause
+['#origin','#tfield','#since','#until'].forEach(function(s){$(s).addEventListener('change',relist)});
+$('#proj').addEventListener('change',function(){var v=$('#proj').value;if(selected&&v&&selected.project){var t=tasks().filter(function(x){return x.project===v&&x.project_id===selected.project});if(!t.length){select(null);$('#detail').innerHTML='<div id="nodetail">Đã đổi sang project '+esc(short(v))+': chọn một task của project này.</div>'}}relist()});
 window.addEventListener('popstate',function(){var qs=new URLSearchParams(location.search);if(qs.get('plan'))select({plan:qs.get('plan'),project:qs.get('project_id')||''},{silent:true});else select(null,{silent:true})});
 window.matchMedia('(max-width:899px)').addEventListener('change',setView);
 if(!window.matchMedia('(max-width:760px)').matches)$('#filters').open=true;   // desktop: the filters are open; phone: folded, the active ones are listed under the search
@@ -1267,7 +1310,7 @@ var qs=new URLSearchParams(location.search);if(qs.get('plan'))select({plan:qs.ge
 poll();
 window.__track={state:function(){return {selected:selected,detailSeq:detailSeq,selEv:selEv,evOpen:Object.keys(evState),copied:copied,lastOk:lastOk,lost:!!lostSince,selStep:selStep,gRange:gRange,stale:staleNotes.map(function(x){return x.id}),axisNow:mine()&&mine().gantt&&mine().gantt.axis?mine().gantt.axis.now:null,
   detailFor:mine()?{plan:detailFor.plan,project:detailFor.project}:null,detailState:detailState(),detailError:detailError?{since:iso(detailError.since),last:iso(detailError.last),message:detailError.message}:null,detailOkAt:iso(detailOkAt),
-  detailTimeouts:detailTimeouts,detailInflight:detailInflight?{plan:detailInflight.sel.plan,since:iso(detailInflight.since)}:null}}};   // read-only inspection for tests; no control
+  detailTimeouts:detailTimeouts,detailInflight:detailInflight?{plan:detailInflight.sel.plan,since:iso(detailInflight.since)}:null,list:{gen:listGen,floor:listFloor,more:listMore,answer:last&&last.list?{total:last.list.total,shown:last.list.shown,complete:last.list.complete,floor:last.list.floor,filters:last.list.filters}:null}}}};   // read-only inspection for tests; no control
 })();
 </script></body></html>
 '''
