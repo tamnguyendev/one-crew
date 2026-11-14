@@ -81,8 +81,9 @@ class ListModel(unittest.TestCase):
         self.assertEqual((found['list']['matched'], found['list']['complete']), (1, True))
         self.assertEqual(names(self.page(q='w007')), [fx.OLD])                # the plan name, case-insensitive
         self.assertEqual(first['tasks_total'], self.total)
-        self.assertEqual(len(tracking.overview(self.root)['projects'][0]['tasks']) + len(tracking.overview(self.root)['projects'][1]['tasks']),
-                         self.total)                                        # without list parameters: the full overview, as before
+        full = tracking.overview(self.root)                                  # without list parameters: the full overview, as before
+        self.assertNotIn('list', full)
+        self.assertEqual(sum(len(p['tasks']) for p in full['projects']), self.total)
 
     # ---- 2. load more while new roots and events arrive: no duplicate, no lost row ---------------------------------------------------
     def test_loading_more_while_events_arrive_never_doubles_or_loses_a_row(self):
@@ -260,7 +261,7 @@ class ListModel(unittest.TestCase):
             blobs = os.path.join(self.root, 'snapshots', 'blobs')
             return (ledger.read_bytes(), ledger.stat().st_mtime_ns, sorted(os.listdir(blobs)) if os.path.isdir(blobs) else None)
         before = snapshot()
-        answer = self.page(limit=200)
+        answer = self.page(limit=60)
         tracking.detail(self.root, 'SECRET'); tracking.detail(self.root, 'REPAIR')
         self.assertEqual(snapshot(), before)                                  # the ledger and the store are only read
         self.assertTrue(answer['read_only'] and answer['list']['read_only'])

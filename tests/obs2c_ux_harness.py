@@ -41,9 +41,10 @@ if(S==='obs2c'){
   await settle('spawned filter',()=>F().source==='spawned'&&rowsNow().length===1);
   check('the spawned filter lists the work that holds a repair',rowsNow().length===1&&planOf(rowsNow()[0])==='REPAIR'&&rowsNow()[0].textContent.includes('1 việc sửa'));
   rowsNow()[0].click();
-  await settle('repair detail',()=>$('#relations [data-rel^="repair:"]'));
-  const rel=$('#relations');
-  check('the relation section shows the repair, its reason, its check and its root',!!rel&&rel.textContent.includes('Việc sửa')&&rel.textContent.includes('Lý do')&&rel.textContent.includes('Từ lần kiểm không đạt')&&rel.textContent.includes('Nối với việc gốc: REPAIR'),rel&&rel.textContent.slice(0,400));
+  await settle('repair detail',()=>$('#relations [data-rel^="repair:"]')&&$('#relations [data-rel^="child:"]')&&$('#relations').textContent.includes('Nối với việc gốc: REPAIR'));
+  const rel=$('#relations'),words=['Việc sửa','Lý do','Từ lần kiểm không đạt','Nối với việc gốc: REPAIR'];
+  out.relations={sections:$$('#relations').length,repairs:$$('#relations [data-rel^="repair:"]').length,children:$$('#relations [data-rel^="child:"]').length,tab:(w.__track.state().selected||{}).plan,tail:rel?rel.textContent.slice(-900):null};
+  check('the relation section shows the repair, its reason, its check and its root',!!rel&&words.every(x=>rel.textContent.includes(x)),{missing:words.filter(x=>!rel||!rel.textContent.includes(x)),repairs:out.relations.repairs});
   check('child tasks name the event they come from',$$('#relations [data-rel^="child:"]').length>=1&&$('#relations [data-rel^="child:"]').textContent.includes('node.started'));
   check('who asked comes from the ledger',!!rel&&rel.textContent.includes('Chủ giao')&&rel.textContent.includes('Sửa phép cộng cho đúng rồi bàn giao'));
   check('the page offers no write control',!$$('#detail button,#detail a').some(b=>/^(Duyệt|Nghiệm thu|Tách|Gộp|Đổi tên|Huỷ|Hủy)/.test(b.textContent.trim())));
