@@ -1,50 +1,29 @@
-# Thử MR-R (đọc nhiều repo) — không cần `git init` thư mục cha
+# Thử MR-R (đọc và tìm nguồn trên nhiều repo) bằng wheel đã cài
 
-**Trạng thái: bản phát triển `2.4.0.dev6+mrr.3`. Chưa phát hành, chưa nghiệm thu, chưa thử với model thật.** Mọi thử dưới đây dùng claude giả
-(có trong gói, không gọi model, không mạng). Không dùng cho dự án thật.
+**Trạng thái: bản thử `2.5.0.dev28+mrr.4`. Chưa phát hành, chưa nghiệm thu, chưa thử với model thật.** Mọi thử dưới đây dùng claude giả của bộ test
+(không gọi model, không mạng). Chỉ dùng thư mục thử, không dùng repo thật.
 
-## 1. Thử nhanh bằng gói (một lệnh)
+## Chuẩn bị (người dựng gói làm sẵn)
 
-Gói tự tạo repo mẫu, venv mới từ wheel của gói, rồi chạy 12 kịch bản qua CLI đã cài (có 3 lần **kill process thật** giữa chừng):
+- Wheel đã cài vào một venv ngoài checkout; lệnh `onecrew` dưới đây là của venv đó (`python -c "import onecrew; print(onecrew.__file__)"` phải trỏ vào venv, không phải checkout).
+- Thư mục cha thử `D:\OneCrewRuns\dot-1411\lab-mrr`: **không phải Git**, chứa hai repo Git nhỏ `repo-a` và `repo-b`, có file trùng tên ở cả hai (ví dụ `src/main.py`).
+- Thư mục sổ riêng ngoài cả hai repo, ví dụ `D:\OneCrewRuns\dot-1411\lab-mrr-state`. Không dùng sổ thật.
 
-```
-powershell -ExecutionPolicy Bypass -File "<thư mục gói>/verify/thu-mrr.ps1" -Work "D:/OneCrewRuns/mrr-thu-3"
-```
+## Lệnh thử
 
-Thư mục `-Work` phải **chưa tồn tại**. Đạt khi dòng cuối là `DAT: ...` (hết ≈10–15 phút). Dòng `KHONG DAT: ...` nêu kịch bản lỗi;
-bằng chứng ở `<Work>\evidence\thu`. Script không ghi gì ngoài `-Work`, không đụng sổ OneCrew thật.
+Chạy trong thư mục chứa `hop-dong.mau.json` và `nodes.mau.json` (cạnh thư mục thử, không nằm trong repo nào):
 
-## 2. Thử trên hai repo của bạn (thư mục cha không phải Git)
-
-Bạn có một thư mục điều phối, ví dụ `D:\work`, chứa `repo-a` và `repo-b` (mỗi cái là repo Git). **Không** `git init` `D:\work`, **không** `onecrew init`.
-
-1. Chép `mau/hop-dong.mau.json` và `mau/nodes.mau.json` của gói ra ngoài `D:\work`. Trong hợp đồng, sửa `authority.repos`
-   (`alias`, `path` dưới `D:\work` hoặc đường dẫn tuyệt đối có ổ đĩa, `read` = phần được đọc); sửa `understanding.target` cho đúng một file có thật.
-   `scope.owned` là nơi ghi báo cáo, phải nằm **ngoài** mọi repo. Trong `nodes.mau.json`, `sources.read` dạng `alias:thư-mục/`.
-2. Chọn thư mục sổ **ngoài** `D:\work` và ngoài mọi repo, ví dụ `D:\onecrew-state`. Chạy (4 lệnh, bằng `onecrew` của venv đã cài từ gói):
-
-```
-onecrew --project D:/work --state-root D:/onecrew-state plan propose P1 --file hop-dong.mau.json --author codex --workflow --capability namespaced-storage --capability root-budget --capability internal-plan --capability sequential-engine
-onecrew --project D:/work --state-root D:/onecrew-state plan approve P1 --by owner --reference "thử MR-R"
-onecrew --project D:/work --state-root D:/onecrew-state engine revise P1 --file nodes.mau.json
-onecrew --project D:/work --state-root D:/onecrew-state engine step P1
+```bash
+onecrew --project D:/OneCrewRuns/dot-1411/lab-mrr --state-root D:/OneCrewRuns/dot-1411/lab-mrr-state plan propose P1 --file hop-dong.mau.json --author codex --workflow --capability namespaced-storage --capability root-budget --capability internal-plan --capability sequential-engine
 ```
 
-3. Lặp `engine step P1` (mỗi lần một tiến trình mới) tới khi node `R` ra `produced`. Xem kết quả:
+Rồi (ba lệnh, mỗi lệnh một dòng, cùng `--project` và `--state-root` như trên): `plan approve P1 --by owner --reference "thử MR-R"`, `engine revise P1 --file nodes.mau.json`, và lặp `engine step P1` (mỗi lần một tiến trình mới) cho tới khi node `R` ra `produced`. Xem kết quả bằng `plan report P1`.
 
-```
-onecrew --project D:/work --state-root D:/onecrew-state plan report P1
-```
+## Đạt khi thấy
 
-Báo cáo ghi, từng repo: quyền, tree/HEAD đã ghim, dirty, khoảng trống (`PHỦ THIẾU`, lý do), và nội dung candidate; mỗi nhận xét trích dẫn dạng
-`alias@tree12:file:dòng`. Đây là **candidate phân tích**, chưa phải kết quả đã kiểm hay nghiệm thu.
+1. Báo cáo ghi từng repo: quyền đọc, tree và HEAD đã ghim, dirty hay không; nguồn trích dạng `alias@tree:file:dòng`, hai file trùng tên ở hai repo không lẫn.
+2. Làm hỏng một repo (đổi tên thư mục, hoặc để merge dở) rồi chạy lại: báo cáo ghi **khoảng trống có tên** (`PHỦ THIẾU`, lý do) cho repo đó; repo còn lại vẫn được đọc.
+3. Đường dẫn ngoài quyền bị từ chối, và ngân sách còn lại không được cấp lại sau khi sửa quyền.
+4. Hai repo nguồn không đổi byte nào (kể cả `.git`): so sánh trước/sau bằng `git -C <repo> status` và dung lượng thư mục `.git`; thư mục cha vẫn không có `.git`.
 
-Worker thật (`claude` CLI với model) chưa được thử trong bản này: cần máy có `claude` đăng nhập; mọi bằng chứng hiện có dùng worker giả.
-
-## 3. Điều cần biết khi đọc kết quả
-
-- Repo nguồn chỉ được đọc, kể cả thư mục `.git` (kiểm từng byte trước/sau trong thử nhanh). Repo thiếu, đang merge dở, có filter/LFS chưa kéo, sparse index,
-  partial clone thiếu object... là **khoảng trống có tên** cho repo đó; repo khác vẫn được đọc. Báo cáo không bao giờ coi “đã khai quyền” là “đã đọc”.
-- Hai repo cùng một thư mục (hai cách viết đường dẫn) chỉ đọc một lần, alias còn lại là khoảng trống `same_repository`.
-- **Chưa làm (cố ý):** ghi/sửa mã nhiều repo, commit/push, deploy, rollback nguyên tử xuyên repo; verify/accept/handoff của engine trong thư mục điều phối
-  không Git; kiểm tự động trích dẫn trong văn bản của worker (thử nhanh tự đối chiếu bằng git, đó là bộ kiểm chứ không phải tính năng).
+Đây là **candidate phân tích**, chưa phải kết quả đã kiểm hay nghiệm thu. Chưa làm (cố ý): ghi nhiều repo, commit/push, phát hành đa repo, nghiệm thu của engine trên thư mục cha không Git.
