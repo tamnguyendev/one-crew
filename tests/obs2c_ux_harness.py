@@ -47,7 +47,7 @@ if(S==='obs2c'){
   check('the relation section shows the repair, its reason, its check and its root',!!rel&&words.every(x=>rel.textContent.includes(x)),{missing:words.filter(x=>!rel||!rel.textContent.includes(x)),repairs:out.relations.repairs});
   // repair 2 of 14/11: every relation item, as the reader sees it, keeps its words (kind + name, state, short id only) — read now AND after
   // the page's relative-time ticker (setInterval 1 s) has run several times: the dev27 ticker once rewrote every [data-rel] element
-  function itemsRead(){return $$('#relations .rel-item').map(a=>({head:(a.querySelector('h4')||{}).textContent||'',state:(a.querySelector('.rel-state')||{}).textContent||'',id:(a.querySelector('.rel-id')||{}).textContent||'',text:a.textContent}))}
+  function itemsRead(){return $$('#relations article.rel-item').map(a=>({head:(a.querySelector('h4')||{}).textContent||'',state:(a.querySelector('.rel-state')||{}).textContent||'',id:(a.querySelector('.rel-id')||{}).textContent||'',text:a.textContent}))}
   function itemsOk(list){return list.length===3&&list.every(x=>/^(Việc sửa|Phần việc con) · \S/.test(x.head)&&!/TASK-|[0-9a-f]{12}/.test(x.head)&&x.state.length>3&&/^mã \S+…$/.test(x.id)&&!/^(repair|child):/.test(x.text.trim()))}
   const before=itemsRead();
   check('every spawned item is named by its kind and its name, never by its raw id',itemsOk(before),before);
