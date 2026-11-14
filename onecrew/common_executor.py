@@ -216,7 +216,8 @@ class NativeExecutor(executors.Executor):
             # R9: a resumed attempt that answers files: [] (and no continuation) says the partial candidate is complete
             nothing_more = bool(resume) and continuation is None and isinstance(value, dict) and value.get('files') == []
             # 2.4-A review A-R08: after reading rounds that changed no file, a final answer must still write one (as in 2.3)
-            if sourced and nothing_more and source_state and source_state.get('capability') == 'git-tree' and not source_state.get('chain_changed'):
+            if (sourced and nothing_more and source_state and source_state.get('capability') in ('git-tree', 'git-repos')
+                    and not source_state.get('chain_changed')):
                 nothing_more = False
             # 2.4-A: a reading round (continuation + source requests) may carry no file yet
             reading = sourced and continuation is not None and asked is not None

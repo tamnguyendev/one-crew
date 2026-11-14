@@ -190,8 +190,15 @@ class MrrFixture(WorkerMixin, unittest.TestCase):
                          'assumptions': [], 'confidence': 'high', 'unknowns': []}
         return plan_json(scope={'owned': owned or ['a.txt', REPORT, 'reports/other.md']}, authority=authority, understanding=understanding)
 
-    def item(self, nid='R', patterns=('core:src/', 'app:src/'), read=('brief.md',), write=(REPORT,), rounds=4, chars=40000):
+    # The shared node() helper gives a node a 60 s execution cap: scaffolding for tests that run no git. A node of these tests pins two repositories,
+    # reads them under the Sol6 read isolation (a throw-away object store per read) and hashes dirty trees, so one engine step measured 10-14 s on a
+    # quiet machine and 30-100 s on a loaded one (Defender, other agents): the cap then ended the step with "Root deadline exhausted" / held, a
+    # flake that proved nothing about reading. The cap is widened here; DeadlineTests keeps one test that proves a cap still stops work.
+    NODE_CAP = 1800
+
+    def item(self, nid='R', patterns=('core:src/', 'app:src/'), read=('brief.md',), write=(REPORT,), rounds=4, chars=40000, cap=None):
         value = node(nid, write=write)
+        value['execution_cap_seconds'] = cap or self.NODE_CAP
         value['read'] = list(read); value['executor'] = dict(PIN)
         value['sources'] = {'read': list(patterns), 'max_rounds': rounds, 'max_chars_per_round': chars}
         return value
@@ -199,6 +206,7 @@ class MrrFixture(WorkerMixin, unittest.TestCase):
     def plan(self, *items):
         integration = node('I', [i['id'] for i in items], integration=True, write=())
         integration['executor'] = dict(PIN)
+        integration['execution_cap_seconds'] = self.NODE_CAP
         return self.ip.revise(self.ledger, 'P1', [*items, integration], reason='Multi-repository reading fixture', evidence=['a.txt:1'])
 
     def step(self, adapter=None):
@@ -835,6 +843,25 @@ class RevokeTests(MrrFixture):
         self.assertNotIn('NEEDLE-BETA', later)
         self.assertEqual([(g['repo'], g['status']) for g in self.receipt(produced)['source']['coverage_gaps']], [('app', 'revoked')])
         self.assertLess(self.remaining_calls(), budget)                             # the amendment gave no budget back
+
+
+class DeadlineTests(MrrFixture):
+    def test_mr14_a_node_cap_still_stops_reading_work_that_outlives_it(self):
+        """NODE_CAP above is scaffolding width, not an exemption: a cap of 2 s that a slow worker outlives still ends the work."""
+        import time
+        self.plan(self.item(cap=2))
+        def slow(prompt, schema):
+            time.sleep(4)
+            return ask({'op': 'read', 'repo': 'core', 'path': 'src/alpha.py'})
+        self.values += [slow, lambda p, s: done('late\n', path=REPORT)]
+        outcomes = []
+        for _ in range(2):
+            try:
+                outcomes.append(self.step()['state'])
+            except LedgerError as error:
+                outcomes.append(str(error))
+        self.assertNotIn('produced', outcomes, outcomes)
+        self.assertTrue(any(o == 'held' or 'deadline' in o.lower() for o in outcomes), outcomes)
 
 
 class SingleRepoUnchangedTests(unittest.TestCase):
