@@ -38,6 +38,18 @@ onecrew --project <repo> --state-root <ledger-folder> doctor    # one PASS / WAR
 
 Then **open a NEW Claude Code session in the repo**: Claude Code loads hooks only at session start.
 
+### Install the user hook (once per machine, from your own terminal)
+
+The hook `init` writes lives in the repo, so a Claude Code session opened **outside** it (in another repo, say) and its subagents are not checked against this repo's contract when they write here. To check them:
+
+```powershell
+onecrew hook user install      # remove: hook user uninstall; look: hook user status
+```
+
+It adds exactly one PreToolUse entry to `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR\settings.json`), keeps every other setting, copies the file to `.bak` once, and refuses to run inside an AI session. From then on every Claude Code session on this machine, and its subagents, is checked against the plan of the project it writes in when it uses Edit/Write/MultiEdit/NotebookEdit/Bash/PowerShell; a project with no plan runs as before. `doctor` has a `user hook` line. Open a new Claude Code session after installing.
+
+Not covered: other AI tools, programs that write files without those tools, and the hook is not an OS sandbox. `cd "$VAR"` and interpreter code with a computed path are refused, but only where a plan governs the place. If the `onecrew` program the hook names is deleted or moved, every write is blocked until you reinstall or uninstall (`doctor` shows FAIL).
+
 ## 4. Your first contract
 
 Describe the job to the AI in the new session. It writes a contract file; a sample that lints clean is [docs/obs2/su-dung/mau-hop-dong.json](obs2/su-dung/mau-hop-dong.json). Then (every command takes `--project <repo> --state-root <ledger-folder>`):

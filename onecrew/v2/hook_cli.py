@@ -80,15 +80,30 @@ def load_plan(path):
                 'status': 'approved'}, f'{type(error).__name__}: {error}'
 
 
+# #25: who made the call that is being judged, and through which hook. Set once per process by note_call; record() writes it on every line.
+CALL = {'agent_id': None, 'agent_type': None, 'tool_use_id': None, 'scope': 'project', 'quiet': False}
+
+
+def note_call(event, scope='project', quiet=False):
+    """#25: remember the identity fields of the payload (null when it has none: never guessed). `quiet`: a user-scope call in a project that has its own
+    OneCrew hook, which records the call; this one only answers."""
+    CALL.update(scope=scope, quiet=quiet)
+    for key in ('agent_id', 'agent_type', 'tool_use_id'):
+        value = event.get(key) if isinstance(event, dict) else None
+        CALL[key] = value if isinstance(value, str) and value else None
+
+
 def record(project, plan, event, tool, reason, rule, subject='', session=None, mode=None):
     """Append to <project>/.onecrew/violations.jsonl (no ledger lock). Only when .onecrew/ exists: a repo without a plan stays untouched."""
+    if CALL['quiet']: return
     folder = Path(project) / '.onecrew'
     try:
         folder.mkdir(exist_ok=True)                      # a plan governs this project, so the record goes in even if .onecrew/ was deleted
     except OSError:
         return
     line = {'id': uuid.uuid4().hex, 'at': now(), 'event': event, 'tool': tool, 'rule': rule, 'reason': reason[:400], 'subject': subject[:300],
-            'plan': (plan or {}).get('plan'), 'revision': (plan or {}).get('revision'), 'mode': mode or (plan or {}).get('mode'), 'session': session}
+            'plan': (plan or {}).get('plan'), 'revision': (plan or {}).get('revision'), 'mode': mode or (plan or {}).get('mode'), 'session': session,
+            'agent_id': CALL['agent_id'], 'agent_type': CALL['agent_type'], 'tool_use_id': CALL['tool_use_id'], 'scope': CALL['scope']}
     try:
         with (folder / 'violations.jsonl').open('a', encoding='utf-8') as stream: stream.write(json.dumps(line, ensure_ascii=False) + '\n')
     except OSError:
@@ -363,6 +378,285 @@ def shell_segments(command):
         i += 1
     parts.append(''.join(current))
     return [p for p in parts if p.strip()]
+
+
+# ---- #25: where each part of a command runs (cd), heredoc bodies, code given to an interpreter ----------------------------------------------
+# Kept apart from shell_targets/all_targets (which read one piece of text) so the shell rules above stay as they were: shell_effects cuts the command
+# into the pieces a shell runs one after the other, keeps the directory in force for each piece, and asks all_targets about the piece alone.
+
+CODE_PATH = '$(interpreter code)'       # a write the code does to a path or with a mode that is not a literal: the hook cannot read where it goes
+CD_NAMES = ('cd', 'chdir', 'pushd', 'set-location', 'sl', 'push-location')
+POP_NAMES = ('popd', 'pop-location')
+INTERPRETER = re.compile(r'(python[\d.]*|pythonw[\d.]*|py|node|nodejs|perl|ruby)(?:\.exe)?$', re.I)
+KWARG = re.compile(r'^(\w+)\s*=(?!=)\s*(.*)$', re.S)
+LITERAL = re.compile(r'''^[rRuUbB]{0,2}(?:'([^']*)'|"([^"]*)"|`([^`$]*)`)$''', re.S)    # a string with no f/format prefix and nothing computed
+
+
+def cut_pieces(command):
+    """[(piece, separator before, separator after)] of the command cut as shell_segments cuts it (outside quotes at `;` `&&` `||` `|` `&` and line ends); the
+    separators tell a pipeline stage (a `cd` there does not carry over) from a step in sequence."""
+    command = re.sub(r'\\\r?\n', '', command)
+    raw, current, quote, i = [], [], None, 0
+    while i < len(command):
+        char = command[i]
+        if quote:
+            current.append(char)
+            if char == '\\' and quote == '"' and i + 1 < len(command) and command[i + 1] in '"\\':
+                current.append(command[i + 1]); i += 1
+            elif char == quote: quote = None
+        elif char in '"\'': quote = char; current.append(char)
+        elif char in '|&' and ((current and current[-1] in '<>') or (char == '&' and command[i + 1:i + 2] == '>')):
+            current.append(char)                      # part of a redirect (`>&`, `>|`, `&>`, `&>>`), not a cut
+        elif char in ';|&\n':
+            sep = char
+            while i + 1 < len(command) and command[i + 1] in '|&' and char in '|&': i += 1; sep += command[i]
+            raw.append((''.join(current), sep)); current = []
+        else: current.append(char)
+        i += 1
+    raw.append((''.join(current), ''))
+    pieces, before = [], ''
+    for text, after in raw:
+        if text.strip(): pieces.append((text, before, after)); before = after
+        else: before += after
+    return pieces
+
+
+def heredoc_units(command):
+    """[(text, bodies)]: the command in chunks that end at a line holding here-documents, with their bodies (`<<WORD` to the line `WORD`) taken out of the text. A
+    body fed to a shell (`bash <<EOF`) is not taken out: it is shell text and its lines stay in the command. A `<<` with no closing line is left as written."""
+    lines, units, chunk, i = command.split('\n'), [], [], 0
+    while i < len(lines):
+        line = lines[i]
+        chunk.append(line)
+        i += 1
+        bodies, feeds_shell = [], SHELL_FEED.search(line) is not None
+        for m in HEREDOC.finditer(line):
+            word = m.group(2) or m.group(3) or m.group(4)
+            end = next((n for n in range(i, len(lines)) if (lines[n].strip('\t\r') if m.group(1) else lines[n].rstrip('\r')) == word), None)
+            if end is None or feeds_shell: break
+            bodies.append('\n'.join(lines[i:end]))
+            i = end + 1
+        if bodies:
+            units.append(('\n'.join(chunk), bodies))
+            chunk = []
+    if chunk: units.append(('\n'.join(chunk), []))
+    return units
+
+
+def is_absolute_text(path):
+    return re.match(r'^(?:[A-Za-z]:|/|\\\\|~)', path.strip().strip('"\'')) is not None
+
+
+def cd_target(words):
+    """The folder a `cd`-like command (its words, the command first) names: '' for none (the home folder), '-' for the previous one, else the word."""
+    rest, i = words[1:], 0
+    while i < len(rest):
+        word, low = rest[i], rest[i].lower()
+        if low in ('-path', '-literalpath') and i + 1 < len(rest): return rest[i + 1]
+        if re.match(r'-(?:path|literalpath):', low): return word.split(':', 1)[1]
+        if low == '--': return rest[i + 1] if i + 1 < len(rest) else ''
+        if low == '-stackname': i += 2; continue
+        if low == '/d' or (word.startswith('-') and word != '-'): i += 1; continue
+        return word
+    return ''
+
+
+def piped(separator):
+    return separator in ('|', '|&')
+
+
+def shell_effects(command, base, powershell=False, depth=0):
+    """(targets, places) of a shell command run in `base`. targets: [(raw path, directory in force or None when a `cd` could not be read)], every path the command
+    appears to write with the directory its own piece runs in: `cd DIR` / `pushd` / `Set-Location` (quoted or not, absolute or relative to the directory in force)
+    changes it for the pieces after it; a `cd` inside `( ... )` ends at the `)`, one in a pipeline stage or before `&` does not carry over. places: the folders a
+    `cd` goes to (the command runs there, like the cwd). A heredoc body is not shell text; the code an interpreter is given is read for file writes (code_writes)."""
+    targets, places = [], []
+    here, scopes, stack, previous = (Path(base) if base is not None else None), [], [], ''
+    for text, bodies in heredoc_units(command):
+        bodies = list(bodies)
+        for piece, before, after in cut_pieces(text):
+            stripped = piece.strip()
+            opens = len(stripped) - len(stripped.lstrip('('))
+            core = stripped[opens:].strip()
+            masked = masked_quotes(core)
+            run = len(core) - len(core.rstrip(')'))
+            closes = max(0, min(masked.count(')') - masked.count('('), run))
+            core = core[:len(core) - closes]
+            scopes += [here] * opens
+            words = [unquote(w) for w in TOKEN.findall(core)]
+            head, _ = command_head(list(words)) if words else ([], False)
+            name = os.path.basename(head[0].replace('\\', '/')).lower() if head else ''
+            name = name[:-4] if name.endswith('.exe') else name
+            mine = [bodies.pop(0) for _ in range(min(len(HEREDOC.findall(core)), len(bodies)))]
+            carries = not piped(before) and not piped(after) and after != '&'
+            if name in CD_NAMES:
+                target = cd_target(head)
+                new = None
+                try:
+                    if target == '': new = Path.home()
+                    elif target != '-' and not re.search(r'[$%`]', target) and (here is not None or is_absolute_text(target)): new = normalize(target, here or Path.cwd())
+                except (OSError, ValueError):
+                    new = None
+                if new is not None: places.append(new)
+                if name in ('pushd', 'push-location') and carries: stack.append(here)
+                if carries: here = new
+            elif name in POP_NAMES:
+                if carries: here = stack.pop() if stack else None
+            else:
+                targets += [(raw, here) for raw in all_targets(core, 3, powershell)]      # depth 3: the strings after an interpreter are read below, with the directory in force
+                kind = interpreter_kind(name)
+                if kind: targets += [(raw, here) for raw in code_writes(kind, '\n'.join([core, *mine] + ([previous] if piped(before) else [])))]
+                if depth < 3:
+                    for form in dict.fromkeys((core, re.sub(r'[`^]', '', core))):
+                        for m in QUOTED.finditer(form):
+                            cue = CUE.findall(re.split(r'[;&|\n]', form[:m.start()])[-1])
+                            if not cue: continue
+                            word = cue[-1].lower()
+                            inner = True if word.startswith(('powershell', 'pwsh')) else False if word.startswith(('bash', 'sh', 'zsh', 'dash', 'wsl', 'cmd')) else powershell
+                            more, there = shell_effects(m.group(1) or m.group(2), here, inner, depth + 1)
+                            targets += more
+                            places += there
+            previous = '\n'.join([core, *mine])
+            for _ in range(closes): here = scopes.pop() if scopes else here
+    return list(dict.fromkeys(targets)), places
+
+
+def interpreter_kind(name):
+    m = INTERPRETER.match(name)
+    if not m: return None
+    word = m.group(1).lower()
+    return 'python' if word.startswith(('py', 'python')) else 'node' if word.startswith('node') else word
+
+
+def call_args(text, start):
+    """The arguments (as text) of the call whose `(` is just before text[start]: cut at the commas outside brackets and strings, up to the closing `)`."""
+    args, depth, quote, current, i = [], 0, None, [], start
+    while i < len(text):
+        char = text[i]
+        if quote:
+            current.append(char)
+            if char == '\\' and i + 1 < len(text): current.append(text[i + 1]); i += 1
+            elif char == quote: quote = None
+        elif char in '"\'`': quote = char; current.append(char)
+        elif char in '([{': depth += 1; current.append(char)
+        elif char in ')]}':
+            if depth == 0: break
+            depth -= 1; current.append(char)
+        elif char == ',' and depth == 0: args.append(''.join(current).strip()); current = []
+        else: current.append(char)
+        i += 1
+    args.append(''.join(current).strip())
+    return [a for a in args if a], i + 1
+
+
+def args_at(text, end):
+    """The arguments of a call whose name ends at text[end], with or without brackets (Perl, Ruby): `unlink 'a', 'b';` reads up to the `;` or the line end."""
+    rest = text[end:]
+    if rest.lstrip().startswith('('): return call_args(text, end + len(rest) - len(rest.lstrip()) + 1)[0]
+    return call_args(re.split(r'[;\n]', rest, 1)[0] + ')', 0)[0]
+
+
+def literal(arg):
+    """The text of a string literal, else None (an f-string, a name, a sum of strings, a call)."""
+    m = LITERAL.match((arg or '').strip())
+    return next((g for g in m.groups() if g is not None), None) if m else None
+
+
+def path_of(arg):
+    value = literal(arg)
+    return value if value else CODE_PATH
+
+
+def writes_mode(mode):
+    """True for a mode that writes, False for one that only reads, None for a mode that is not a literal."""
+    value = literal(mode)
+    return None if value is None else bool(set('wax+') & set(value))
+
+
+def split_kwargs(args):
+    positional = [a for a in args if not KWARG.match(a)]
+    return positional, {m.group(1): m.group(2) for m in map(KWARG.match, args) if m}
+
+
+def code_writes(kind, text):
+    """The paths the code (python, node, perl or ruby) in `text` writes: the literal ones as written, CODE_PATH for a write whose path or mode is not a literal.
+    Reads are not writes. Code that is not a literal is not run, only read: a heuristic, as every other rule of this hook."""
+    text = text.replace('\\"', '"').replace("\\'", "'")        # the code sat in a shell string: its own quotes were escaped
+    found = []
+    if kind == 'python':
+        for m in re.finditer(r'(?<![\w.])(?:(?:io|codecs|builtins)\.)?open\s*\(', text):
+            positional, named = split_kwargs(call_args(text, m.end())[0])
+            path, mode = named.get('file', positional[0] if positional else None), named.get('mode', positional[1] if len(positional) > 1 else None)
+            if mode is None: continue                                  # open(path): a read
+            wrote = writes_mode(mode)
+            if wrote is None: found.append(CODE_PATH)
+            elif wrote: found.append(path_of(path))
+        covered = set()
+        for m in re.finditer(r'(?<![\w.])(?:pathlib\.)?Path\s*\(', text):
+            args, end = call_args(text, m.end())
+            rest = text[end:]
+            method = re.match(r'\s*\.\s*(write_text|write_bytes|touch|unlink|rmdir|mkdir|rename|replace|symlink_to|hardlink_to|open)\s*\(', rest)
+            line = rest.split('\n', 1)[0]
+            if method:
+                covered.add(end + method.start(1))
+                margs = call_args(rest, method.end())[0]
+                if method.group(1) == 'open':
+                    positional, named = split_kwargs(margs)
+                    wrote = writes_mode(named.get('mode', positional[0] if positional else "'r'"))
+                    if wrote is not False: found.append(path_of(args[0]) if len(args) == 1 and wrote else CODE_PATH)
+                    continue
+                found.append(path_of(args[0]) if len(args) == 1 else CODE_PATH)
+                if method.group(1) in ('rename', 'replace', 'symlink_to', 'hardlink_to') and margs: found.append(path_of(margs[0]))
+            elif re.match(r'\s*(?:/|\.\s*(?:parent|parents|joinpath|with_name|with_suffix|with_stem|resolve|expanduser|absolute|home)\b)', rest) \
+                    and re.search(r'\.\s*(?:write_text|write_bytes|touch|unlink|rmdir|mkdir|rename|replace)\s*\(', line):
+                found.append(CODE_PATH)
+        for m in re.finditer(r'\.\s*(write_text|write_bytes)\s*\(', text):
+            if m.start(1) not in covered: found.append(CODE_PATH)       # a variable that holds a Path: where it points is not in the text
+        for m in re.finditer(r'(?<![\w.])(shutil|os)\.(\w+)\s*\(', text):
+            module, name = m.group(1), m.group(2)
+            args = call_args(text, m.end())[0]
+            if module == 'shutil' and name in ('copy', 'copy2', 'copyfile', 'copytree'): wanted = args[1:2] or ['?']
+            elif (module, name) in (('shutil', 'move'), ('os', 'rename'), ('os', 'renames'), ('os', 'replace')): wanted = args[:2] or ['?']
+            elif module == 'os' and name in ('symlink', 'link'): wanted = args[1:2] or ['?']
+            elif (module, name) == ('shutil', 'rmtree') or (module == 'os' and name in ('remove', 'unlink', 'rmdir', 'removedirs', 'makedirs', 'mkdir', 'truncate')): wanted = args[:1] or ['?']
+            else: continue
+            found += [path_of(a) for a in wanted]
+    elif kind == 'node':
+        for m in re.finditer(r'\.\s*(writeFile\w*|appendFile\w*|rm\w*|unlink\w*|rename\w*|copyFile\w*|mkdir\w*|cp(?:Sync)?|createWriteStream)\s*\(', text):
+            args = call_args(text, m.end())[0]
+            both = m.group(1).startswith(('rename', 'copyFile', 'cp'))
+            found += [path_of(a) for a in (args[:2] if both else args[:1]) or ['?']]
+    elif kind == 'perl':
+        for m in re.finditer(r'(?<![\w$@%>])open\s*\(?\s*(?:my\s+)?[$\w]+\s*,\s*', text):
+            rest = text[m.end():]
+            spec = re.match(r'''(['"])([^'"]*)\1''', rest)
+            if not spec: found.append(CODE_PATH); continue
+            mode = re.match(r'\s*(\+?>>?|\+<)', spec.group(2))
+            if not mode: continue                                      # '<' and the pipe forms: a read
+            more = rest[spec.end():]
+            if re.match(r'\s*,', more):                                # three arguments: the file is the third
+                third = re.match(r'''\s*,\s*(['"])([^'"$@]*)\1''', more)
+                found.append(third.group(2) if third and third.group(2) else CODE_PATH)
+            else:
+                tail = spec.group(2)[mode.end():].strip()
+                found.append(tail or CODE_PATH)                        # two arguments: ">file"
+        for m in re.finditer(r'(?<![\w$@%>])(unlink|rename)\b', text):
+            found += [path_of(a) for a in args_at(text, m.end()) or ['?']]
+    elif kind == 'ruby':
+        for m in re.finditer(r'\b(File|IO|FileUtils)\.(\w+)', text):
+            owner, name = m.groups()
+            args = args_at(text, m.end())
+            if owner == 'FileUtils':
+                if name in ('pwd', 'cd', 'chdir', 'compare_file', 'identical?', 'uptodate?', 'cmp', 'compare_stream'): continue
+                wanted = args[-1:] if name in ('cp', 'copy', 'cp_r', 'copy_file', 'install', 'ln', 'ln_s', 'link', 'symlink') else args if name in ('mv', 'move') else args[:1]
+                found += [path_of(a) for a in wanted or ['?']]
+            elif name in ('write', 'binwrite', 'truncate') or (owner == 'File' and name in ('delete', 'unlink')):
+                found += [path_of(a) for a in (args if name in ('delete', 'unlink') else args[:1]) or ['?']]
+            elif owner == 'File' and name == 'rename': found += [path_of(a) for a in args[:2] or ['?']]
+            elif owner == 'File' and name == 'open' and len(args) > 1:
+                wrote = writes_mode(args[1])
+                if wrote is None or wrote: found.append(path_of(args[0]) if wrote else CODE_PATH)
+    return list(dict.fromkeys(found))
 
 
 def repo_of(path):
@@ -702,12 +996,16 @@ def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=Fal
         for item, how in items:
             if mentions(flat, item, how):
                 return 'protected', f'The command mentions {item}, which only the owner changes ({first or "?"} is not a read-only command).'
-    for raw in all_targets(command, powershell=powershell):
+    for raw, here in shell_effects(command, cwd, powershell)[0]:        # #25: each target with the directory its piece runs in (cd), heredoc bodies left out, interpreter code read
         if not_a_file(raw, powershell): continue
-        if re.search(r'[$%`]', raw):
+        if re.search(r'[$%`]', raw) or (here is None and not is_absolute_text(raw)):
             if limited and not refuse_unresolvable: continue
+            if raw == CODE_PATH:
+                return 'unresolvable_target', 'The code given to an interpreter in this command writes a path the hook cannot read (it is not a literal); write to a literal path inside the owned scope.'
+            if here is None and not re.search(r'[$%`]', raw):
+                return 'unresolvable_target', f'The command writes to "{raw}" after a `cd` the hook cannot resolve; cd to a literal folder, or write to an absolute path inside the owned scope.'
             return 'unresolvable_target', f'The command writes to "{raw}", a path the hook cannot resolve; write to a literal path inside the owned scope.'
-        target = normalize(raw, cwd)
+        target = normalize(raw, here or cwd)
         if limited and not inside_repo(root, target): continue
         verdict = judge_path(plan, root, target, 'The command writes there.')
         if verdict: return verdict
@@ -723,9 +1021,9 @@ def touches_repo(plan, root, event, base):
             return raw is not None and inside_repo(root, normalize(raw, base))
         if event.get('tool_name') in SHELL_TOOLS and isinstance(data.get('command'), str):
             powershell = event.get('tool_name') == 'PowerShell'
-            for raw in all_targets(data['command'], powershell=powershell):
-                if re.search(r'[$%`]', raw) or not_a_file(raw, powershell): continue
-                if inside_repo(root, normalize(raw, base)): return True
+            for raw, here in shell_effects(data['command'], base, powershell)[0]:
+                if re.search(r'[$%`]', raw) or not_a_file(raw, powershell) or (here is None and not is_absolute_text(raw)): continue
+                if inside_repo(root, normalize(raw, here or base)): return True
     except (OSError, ValueError):
         return True
     return False
@@ -753,15 +1051,19 @@ def _nearest_dir(path):
 def _shell_target_dirs(command, base):
     """The folders that hold the paths a shell command appears to write (all_targets, resolved against `base`; a target the hook cannot resolve is skipped
     here, judge_shell refuses it on its own)."""
-    found = []
-    for raw in all_targets(command):
-        if re.search(r'[$%`]', raw) or raw.casefold() in NULLS or raw.casefold().startswith(TEMP_VARS): continue
+    found, goes = [], []
+    targets, places = shell_effects(command, base)
+    for raw, here in targets:
+        if re.search(r'[$%`]', raw) or raw.casefold() in NULLS or raw.casefold().startswith(TEMP_VARS) or (here is None and not is_absolute_text(raw)): continue
         try:
-            folder = _nearest_dir(normalize(raw, base).parent)
+            folder = _nearest_dir(normalize(raw, here or base).parent)
         except (OSError, ValueError):
             continue
         if folder is not None and folder not in found: found.append(folder)
-    return found
+    for place in places:                       # #25: a folder a `cd` goes to is a place the command runs in, like the cwd
+        folder = _nearest_dir(place)
+        if folder is not None and folder not in goes: goes.append(folder)
+    return found, goes
 
 
 SESSION, CWD, LIMITED = 'session', 'cwd', 'limited'          # roles of a plan, strongest first: the session's, the plan of the repository of the cwd, another repository the call writes in
@@ -790,7 +1092,9 @@ def candidate_dirs(args, event):
     elif tool in SHELL_TOOLS:
         command = data.get('command')
         if cwd: places.append((cwd, CWD))
-        if isinstance(command, str): places += [(folder, LIMITED) for folder in _shell_target_dirs(command, cwd or os.environ.get('CLAUDE_PROJECT_DIR') or os.getcwd())]
+        if isinstance(command, str):
+            written, goes = _shell_target_dirs(command, cwd or os.environ.get('CLAUDE_PROJECT_DIR') or os.getcwd())
+            places += [(folder, CWD) for folder in goes] + [(folder, LIMITED) for folder in written]
     return places
 
 
@@ -894,12 +1198,35 @@ def govern(project_copy, root, copy):
     return cplan if not cbad else pplan, root, None, project_copy
 
 
+def has_project_hook(project):
+    """#25: does <project>/.claude/settings.local.json or settings.json hold a OneCrew PreToolUse hook (`onecrew hook check`, or the checkout form), not the user-scope one?"""
+    for name in ('settings.local.json', 'settings.json'):
+        try:
+            data = json.loads((Path(project) / '.claude' / name).read_text(encoding='utf-8-sig'))
+            entries = data['hooks']['PreToolUse']
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        for entry in entries if isinstance(entries, list) else []:
+            for handler in (entry.get('hooks') if isinstance(entry, dict) and isinstance(entry.get('hooks'), list) else []):
+                if not isinstance(handler, dict) or not isinstance(handler.get('command'), str): continue
+                args = handler.get('args')
+                words = [handler['command'], *args] if isinstance(args, list) else handler['command'].replace('"', ' ').split()
+                program = re.split(r'[\\/]', words[0].strip())[-1].casefold() if words else ''
+                if [str(w) for w in words[-2:]] == ['hook', 'check'] and (program in ('onecrew', 'onecrew.exe', 'onecrew.cmd') or any('onecrew.v2.hook_cli' in str(w) for w in words)):
+                    return True
+    return False
+
+
 def check(args):
     """Exit 2 when ANY plan that applies to the call blocks it. The plans are the session's (its project: judges the whole call) and the plans of the other
     repositories the call reaches (the repository that holds a path it writes; for a shell command also the one that holds its cwd), which judge only what
     the call does inside their own repository. A plan that is accepted, in log mode, only proposed or not there at all never lets through what another plan
     blocks. No plan anywhere: nothing to enforce."""
     event, bad_input = read_stdin()
+    user = getattr(args, 'scope', 'project') == 'user'
+    # #25: the user-scope hook decides exactly as the project hook; it writes the record only when the session's project has no OneCrew hook of its own
+    # (then that hook writes it), so one call gives one record
+    note_call(event, 'user' if user else 'project', quiet=user and has_project_hook(where.project_from_environment(event.get('cwd') if isinstance(event.get('cwd'), str) else None)))
     governed = [(govern(project_copy, project_root, copy), role) for project_copy, project_root, copy, role in locate_all(args, event)]
     # a path the hook cannot resolve (`$PWD/x`) is judged by the session's plan; when the session has no enforce plan of its own, the plan of the cwd judges it
     watched = any(plan is not None and role == SESSION and plan.get('mode') == 'enforce' and plan.get('status') in ('approved', 'stopped_with_report','closed')
@@ -962,6 +1289,7 @@ def judge_call(plan, root, bad_plan, source, event, bad_input, limited=False, re
 
 def prompt(args):
     event, _ = read_stdin()
+    note_call(event)                 # #25: the identity of an earlier call in this process must not leak into this record
     plan, root, bad, _ = governing(args, event)
     if plan is None or plan.get('status') not in ('approved', 'stopped_with_report'): return 0
     text = str(event.get('prompt') or '').casefold()
@@ -1044,6 +1372,7 @@ def owner_wait(milestone):
 
 def stop(args):
     event, _ = read_stdin()
+    note_call(event)
     plan, root, bad, _ = governing(args, event)
     if plan is None: return 0
     plan = refreshed(root, plan)
@@ -1102,6 +1431,7 @@ def stop(args):
 
 def session(args):
     event, _ = read_stdin()
+    note_call(event)
     plan, root, bad, _ = governing(args, event)
     if plan is None: return 0
     plan = refreshed(root, plan)
@@ -1144,7 +1474,7 @@ def sync(args):
                 skipped += 1
                 continue
             if conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind=? AND json_extract(payload,'$.spool_id')=?", (state['task_id'], kind, item['id'])).fetchone(): continue
-            plans.emit(ledger, conn, state['task_id'], kind, dict({k: item.get(k) for k in ('plan', 'revision', 'tool', 'rule', 'reason', 'subject', 'mode', 'session')},
+            plans.emit(ledger, conn, state['task_id'], kind, dict({k: item.get(k) for k in ('plan', 'revision', 'tool', 'rule', 'reason', 'subject', 'mode', 'session', 'agent_id', 'agent_type', 'tool_use_id', 'scope')},
                                                                    spool_id=item['id'], recorded_at=item.get('at')))
             added += 1
     return {'imported': added, 'skipped': skipped, 'lines': len(lines)}
@@ -1210,10 +1540,14 @@ def parser():
                        ('sync', 'Import violations.jsonl into the ledger.'), ('export', 'Re-export active-plan.json.')):
         p = verbs.add_parser(name, help=text)
         if name == 'export': p.add_argument('plan')
+        if name == 'check': p.add_argument('--scope', choices=['project', 'user'], default='project', help='user: the hook installed by `hook user install` (#25).')
     p = verbs.add_parser('mode', help='Owner only: log or enforce.'); p.add_argument('mode', choices=['log', 'enforce']); p.add_argument('--by', required=True)
     p.add_argument('--plan'); p.add_argument('--reference', required=True)
     p = verbs.add_parser('install', help='Print the hooks and permissions.deny settings (never edits a settings file).')
     p.add_argument('--print', dest='show', action='store_true', required=True)
+    p = verbs.add_parser('user', help='Owner only: install|status|uninstall the user-scope hook (#25).')
+    p.add_argument('action', choices=['install', 'status', 'uninstall'])
+    p.add_argument('--settings-file', type=Path); p.add_argument('--program', type=Path)
     return root
 
 
@@ -1223,6 +1557,9 @@ def main(argv=None):
     if args.group != 'hook': return 2
     if args.verb in ('check', 'prompt', 'stop', 'session'):
         return {'check': check, 'prompt': prompt, 'stop': stop, 'session': session}[args.verb](args)
+    if args.verb == 'user':                  # #25: no ledger, no project: a file of the user's own
+        from . import install
+        return install.user_hook(args.action, args.settings_file, args.program)
     from ..ledger import Ledger, LedgerError
     try:
         project = Path(args.project or os.environ.get('CLAUDE_PROJECT_DIR') or Path.cwd())

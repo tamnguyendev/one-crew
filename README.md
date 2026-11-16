@@ -71,6 +71,18 @@ Bạn thấy `0 FAIL` là đạt. Có FAIL thì đọc đúng dòng đó; bảng
 
 Sau đó **mở một phiên Claude Code MỚI trong repo.** Claude Code chỉ nạp hook lúc bắt đầu phiên, nên phiên đang mở từ trước sẽ không thấy hook.
 
+### Cài hook người dùng (một lần cho mỗi máy, bạn tự chạy trong terminal của mình)
+
+Hook của `init` nằm trong repo, nên phiên Claude Code mở **ngoài** repo (ví dụ ở một repo khác) và subagent của nó không bị hợp đồng của repo này xét khi ghi vào đây. Để chúng bị xét:
+
+```powershell
+& $OneCrew hook user install      # gỡ: hook user uninstall; xem: hook user status
+```
+
+Lệnh thêm đúng một mục PreToolUse vào `~/.claude/settings.json` (hoặc `$CLAUDE_CONFIG_DIR\settings.json`), giữ nguyên mọi thiết lập khác, sao `.bak` một lần, và từ chối chạy trong phiên AI. Sau đó mọi phiên Claude Code trên máy này, và subagent của chúng, bị plan của project đích xét khi dùng Edit/Write/MultiEdit/NotebookEdit/Bash/PowerShell để ghi vào project đang `enforce`; project không có plan chạy bình thường. `doctor` có dòng `user hook` cho biết đã cài chưa. Cần mở phiên Claude Code mới sau khi cài.
+
+Không bao phủ: công cụ AI khác, chương trình ghi file mà không qua các công cụ trên, và hook không phải sandbox của hệ điều hành. `cd "$BIEN"` và code interpreter ghi vào đường dẫn tính ra lúc chạy bị từ chối, nhưng chỉ ở nơi một plan đang canh. Nếu chương trình `onecrew` của hook bị xóa hay dời, mọi lần ghi bị chặn cho tới khi cài lại hoặc gỡ (`doctor` báo FAIL).
+
 ## 4. Việc đầu tiên, từ đầu đến cuối
 
 1. **Giao việc.** Trong phiên Claude Code mới, nói việc bạn muốn bằng lời. Ví dụ: "tạo file docs/xin-chao.md với đúng một dòng: Xin chao OneCrew".
