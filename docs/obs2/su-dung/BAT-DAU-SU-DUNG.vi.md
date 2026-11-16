@@ -1,3 +1,5 @@
+> **Lưu ý:** đây là hướng dẫn của bản 2.5.0.dev10 (luồng gói zip). Với bản hiện tại, đọc [README.md](../../../README.md) ở gốc repo.
+
 # Bắt đầu sử dụng OneCrew 2.5.0.dev10 (beta UI OBS-2)
 
 Điểm vào cho **repo chưa dùng OneCrew**. Repo đã dùng OneCrew thì đọc [Repo đang dùng OneCrew](REPO-DANG-DUNG-ONECREW.vi.md): ở đó chọn chỉ mở UI mới, hay nâng runtime.
