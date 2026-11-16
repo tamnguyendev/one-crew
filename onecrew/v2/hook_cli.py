@@ -198,7 +198,9 @@ def judge_path(plan, root, target, action):
 # ---- shell commands --------------------------------------------------------------------------------------------------------
 
 REDIRECT = re.compile(r'(?<![<>&-])\d?>>?(?![&>])\s*("[^"]*"|\'[^\']*\'|[^\s;|&<>()]+)')
-EVERY = ('rm', 'del', 'erase', 'rd', 'rmdir', 'ri', 'remove-item', 'mkdir', 'md', 'touch', 'tee')        # every plain word is a target
+# #12: the write redirects REDIRECT leaves out: `>|` (its target class stops at `|`), `&>`, `&>>` (its lookbehind), and `>&file` (but `>&1`, `>&2`, `>&-` copy a descriptor)
+REDIRECT_MORE = re.compile(r'(?:>\||&>>?|(?<![<>&])\d?>&(?!\s*(?:\d+|-)(?:\s|$)))\s*("[^"]*"|\'[^\']*\'|[^\s;|&<>()]+)')
+EVERY = ('rm', 'del', 'erase', 'rd', 'rmdir', 'ri', 'remove-item', 'mkdir', 'md', 'touch', 'tee', 'clear-content', 'clc')        # every plain word is a target
 FIRST = ('set-content', 'sc', 'add-content', 'ac', 'out-file', 'tee-object', 'new-item', 'ni', 'export-csv', 'export-clixml')   # the first one is
 COPY = ('cp', 'mv', 'copy', 'move', 'copy-item', 'cpi', 'move-item', 'mi', 'ren', 'rename', 'rename-item', 'rni')              # the last one is
 NAMED = ('-path', '-filepath', '-literalpath', '-destination', '-name')
@@ -210,6 +212,11 @@ SED_I = re.compile(r'\bsed\s+(?:-\w*i\w*|--in-place)\b[^|;&]*?\s("[^"]+"|\'[^\']
 # session makes with New-PSDrive is still read as a file; registry writes are left to the other rules.
 COMMON_VALUE = ('-erroraction', '-ea', '-warningaction', '-wa', '-informationaction', '-infa', '-errorvariable', '-ev', '-warningvariable', '-wv',
                 '-informationvariable', '-iv', '-outvariable', '-ov', '-outbuffer', '-ob', '-pipelinevariable', '-pv')
+# #12: a switch takes no value, so the word after it is still a target (`New-Item -ItemType File -Force x`)
+SWITCHES = ('-force', '-recurse', '-append', '-noclobber', '-nonewline', '-passthru', '-whatif', '-confirm', '-usetransaction', '-asbytestream',
+            '-notypeinformation', '-nonewline')
+# #12: sed with -i / --in-place anywhere among its options writes its file operands (`sed -E -i`, `sed -e ... -i f`); the options are read from the text as written
+SED_WORDS = re.compile(r'(?<![\w.-])sed(?=\s)([^;|&<>\n]*)', re.I)
 PSDRIVE = re.compile(r'^(?:(?:env|variable|function|alias|hkcu|hklm|cert|wsman):|(?:microsoft\.powershell\.(?:core|security)\\)?'
                      r'(?:environment|variable|function|alias|registry|certificate|wsman)::)', re.I)
 
@@ -244,6 +251,30 @@ def shell_targets(command, powershell=False):
     the value of a common parameter (-ErrorAction ...) is not a target."""
     masked = masked_quotes(command)
     found = [command[m.start(1):m.end(1)].strip('"\'') for m in REDIRECT.finditer(masked)]
+    found += [command[m.start(1):m.end(1)].strip('"\'') for m in REDIRECT_MORE.finditer(masked)]
+    for m in SED_WORDS.finditer(masked):
+        words = [w.strip('"\'') for w in re.findall(r'"[^"]*"|\'[^\']*\'|\S+', command[m.start(1):m.end(1)])]
+        in_place, script_given, files, i = False, False, [], 0
+        while i < len(words):
+            w = words[i]
+            if w == '--':
+                files += words[i + 1:]; break
+            if w.startswith('--'):
+                name = w.split('=')[0]
+                in_place = in_place or (len(name) >= 4 and '--in-place'.startswith(name))
+                if name in ('--expression', '--file') and '=' not in w: i += 1
+                script_given = script_given or name in ('--expression', '--file')
+            elif w.startswith('-') and len(w) > 1:
+                for n, letter in enumerate(w[1:]):         # a cluster ends at -i (the rest is its suffix) or at -e/-f (the rest, or the next word, is the script)
+                    if letter == 'i':
+                        in_place = True; break
+                    if letter in 'ef':
+                        script_given = True
+                        if n == len(w) - 2: i += 1
+                        break
+            else: files.append(w)
+            i += 1
+        if in_place: found += files if script_given else files[1:]
     for m in WRITERS.finditer(masked):
         cmd, words = m.group(1).lower(), re.findall(r'"[^"]*"|\'[^\']*\'|\S+', command[m.start(2):m.end(2)])
         if powershell:
@@ -253,7 +284,7 @@ def shell_targets(command, powershell=False):
         if cmd in EVERY: values = plain + named
         elif cmd in COPY: values = named[-1:] or plain[-1:]
         else:                                           # FIRST: -Value / -Encoding take a value, so only the first plain word counts
-            values = named[:1] or [w for i, w in enumerate(words) if not w.startswith('-') and not (i and words[i - 1].startswith('-'))][:1]
+            values = named[:1] or [w for i, w in enumerate(words) if not w.startswith('-') and not (i and words[i - 1].startswith('-') and words[i - 1].lower() not in SWITCHES)][:1]
         found += [v.strip('"\'') for v in values]
     for m in DOTNET.finditer(command):                  # the second argument is a path only for Copy / Move / Replace (WriteAllText takes the content)
         found += [g.strip('"\'') for g in ((m.group(2), m.group(3)) if m.group(1).lower() in ('copy', 'move', 'replace') else (m.group(2),)) if g]
@@ -290,7 +321,9 @@ def all_targets(command, depth=0, powershell=False):
 def not_a_file(raw, powershell):
     """A write target that is no file of any project: a null device, the temp folder, or (PowerShell) a built-in drive that is not a file system."""
     lowered = raw.casefold()
-    return lowered in NULLS or lowered.startswith(TEMP_VARS) or (powershell and PSDRIVE.match(raw) is not None)
+    # #12: a temp variable excuses only what stays inside it: a `..` component (as Windows reads it) makes the target an ordinary one
+    in_temp = lowered.startswith(TEMP_VARS) and not any(scratch_component(part) == '..' for part in re.split(r'[\\/]+', raw))
+    return lowered in NULLS or in_temp or (powershell and PSDRIVE.match(raw) is not None)
 
 
 def variants(command):
@@ -394,11 +427,157 @@ def without_scratch(flat):
     return ''.join(kept)
 
 
+# ---- #12: commands that throw away work nobody committed --------------------------------------------------------------------------------
+# These are read from the text, in the hook, and not as DEFAULT_BASH_DENY entries: an active plan exported by an older version carries the old list.
+SAFE_WAY = ' Safe ways: work in a separate `git worktree add <folder> <branch>`, or copy the file into `.onecrew/scratch/` and change the copy there.'
+TOKEN = re.compile(r'"[^"]*"|\'[^\']*\'|\S+')
+SUBSTITUTION = re.compile(r'\$\(|`|<\(|>\(')            # #12: a command inside a command: the segment is not read-only whatever its first word is
+INNER = re.compile(r'[$<>]\(([^()]*)\)|`([^`]*)`')
+PREFIXES = ('sudo', 'env', 'command', 'time', 'nohup', 'exec', 'xargs')
+GIT_VALUE = ('-c', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--config-env', '--exec-path')
+
+
+def command_texts(command, depth=0):
+    """The command and, up to 3 levels, the commands inside it: `$(...)`, backticks, `<(...)`, and a string that follows an interpreter (as all_targets)."""
+    texts = [command]
+    if depth >= 3: return texts
+    for m in INNER.finditer(command): texts += command_texts(m.group(1) or m.group(2) or '', depth + 1)
+    for m in QUOTED.finditer(command):
+        if CUE.findall(re.split(r'[;&|\n]', command[:m.start()])[-1]): texts += command_texts(m.group(1) or m.group(2), depth + 1)
+    return texts
+
+
+def parse_options(args, short_value='', long_value=()):
+    """(short letters, long names, plain words, words after `--`) of a git command's arguments. `-s X` / `--source X` take the next word."""
+    shorts, longs, plain, after, i = set(), [], [], [], 0
+    while i < len(args):
+        word = args[i]
+        if word == '--':
+            after = args[i + 1:]; break
+        if word.startswith('--'):
+            name = word.split('=')[0]
+            longs.append(name)
+            if '=' not in word and name in long_value: i += 1
+        elif word.startswith('-') and len(word) > 1:
+            for n, letter in enumerate(word[1:]):
+                shorts.add(letter)
+                if letter in short_value:
+                    if n == len(word) - 2: i += 1
+                    break
+        else: plain.append(word)
+        i += 1
+    return shorts, longs, plain, after
+
+
+def has_long(longs, full, shortest=4):
+    """git takes a unique prefix of a long option: `--fo` is `--force`."""
+    return any(len(name) >= shortest and full.startswith(name) for name in longs)
+
+
+def git_verdict(plan, root, here, words, limited):
+    """(rule, reason) for one git command (`words` start at the word after `git`), or None."""
+    i = 0
+    while i < len(words) and words[i].startswith('-'):
+        word = words[i]
+        if word == '-C' and i + 1 < len(words):
+            here = None if re.search(r'[$%`]', words[i + 1]) or here is None else normalize(words[i + 1], here); i += 1
+        elif word == '--work-tree' or word.startswith('--work-tree='): here = None; i += 1 if '=' not in word else 0
+        elif word in GIT_VALUE: i += 1
+        i += 1
+    if i >= len(words): return None
+    sub, args = words[i].lower(), words[i + 1:]
+    refuse = lambda why: ('git_discard', f'`git {sub}` {why} can throw away uncommitted work, and only the owned scope is yours to change.' + SAFE_WAY)
+
+    def paths_verdict(paths):
+        for raw in paths:
+            if here is None or re.search(r'[$%`]', raw):
+                return 'unresolvable_target', f'`git {sub}` names "{raw}", a path the hook cannot resolve; name a literal path inside the owned scope.' + SAFE_WAY
+            target = normalize(raw, here)
+            if limited and not inside_repo(root, target): continue
+            verdict = judge_path(plan, root, target, f'`git {sub}` would overwrite it with the committed version.')
+            if verdict: return verdict[0], verdict[1] + SAFE_WAY
+        return None
+
+    if sub == 'checkout':
+        shorts, longs, plain, after = parse_options(args, 'bB', ('--orphan', '--conflict', '--pathspec-from-file'))
+        if 'f' in shorts or has_long(longs, '--force'): return refuse('with force')
+        if has_long(longs, '--pathspec-from-file', 8): return refuse('with --pathspec-from-file')
+        paths = list(after)
+        if not after and not ({'b', 'B'} & shorts or has_long(longs, '--orphan')) and plain:
+            if here is None or re.search(r'[$%`]', plain[0]) or (here / plain[0]).exists(): paths = plain         # `checkout <path>`: a name that is a file here is a path, not a branch
+            elif len(plain) > 1: paths = plain[1:]                                # `checkout <tree-ish> <paths>`
+        if not paths and ('p' in shorts or has_long(longs, '--patch')): return refuse('--patch')
+        return paths_verdict(paths)
+    if sub == 'switch':
+        shorts, longs, plain, after = parse_options(args, 'cC', ('--create', '--force-create', '--orphan', '--conflict'))
+        if 'f' in shorts or has_long(longs, '--force') or has_long(longs, '--discard-changes'): return refuse('with force or --discard-changes')
+        return None
+    if sub == 'restore':
+        shorts, longs, plain, after = parse_options(args, 's', ('--source', '--conflict', '--pathspec-from-file'))
+        if ('S' in shorts or has_long(longs, '--staged')) and not ('W' in shorts or has_long(longs, '--worktree')): return None       # only unstages
+        if has_long(longs, '--pathspec-from-file', 8): return refuse('with --pathspec-from-file')
+        paths = after + plain
+        if not paths: return refuse('--patch') if 'p' in shorts or has_long(longs, '--patch') else None
+        return paths_verdict(paths)
+    if sub == 'stash':
+        action = args[0].lower() if args and not args[0].startswith('-') else 'push'       # a bare `git stash` or `git stash -u` is push
+        if action in ('list', 'show'): return None
+        if action not in ('push', 'save'): return refuse(action)
+        shorts, longs, plain, after = parse_options(args[1:] if args and not args[0].startswith('-') else args, 'm', ('--message', '--pathspec-from-file'))
+        paths = after + plain
+        if not paths or has_long(longs, '--pathspec-from-file', 8): return refuse('without explicit paths')
+        return paths_verdict(paths)
+    if sub == 'reset':
+        for word in args:
+            if word.startswith('--') and any(has_long([word.split('=')[0]], full) for full in ('--hard', '--merge', '--keep')): return refuse('with --hard, --merge or --keep')
+        return None
+    if sub == 'clean':
+        shorts, longs, plain, after = parse_options(args, 'e', ('--exclude',))
+        if ('f' in shorts or has_long(longs, '--force')) and not ('n' in shorts or has_long(longs, '--dry-run')): return refuse('with force')
+        return None
+    if sub == 'checkout-index':
+        shorts, longs, plain, after = parse_options(args)
+        return refuse('with force') if 'f' in shorts or has_long(longs, '--force') else None
+    if sub == 'read-tree':
+        shorts, longs, plain, after = parse_options(args)
+        return refuse('with -u') if 'u' in shorts else None
+    return None
+
+
+def discard_verdict(plan, root, cwd, command, limited=False):
+    """(rule, reason) when a command of the text (`cd` followed, `git -C` followed, `$(...)` and `bash -c '...'` read too) is a git form that throws away
+    uncommitted work outside the owned scope, or `rm` with recursive and force in any spelling; else None."""
+    for text in command_texts(command):
+        here = Path(cwd)
+        for segment in shell_segments(text):
+            words = [w[1:-1] if len(w) > 1 and w[0] == w[-1] and w[0] in '"\'' else w for w in TOKEN.findall(segment)]
+            while words and (words[0].lower() in PREFIXES or re.match(r'^\w+=', words[0])): words = words[1:]
+            if words: words[0] = words[0].lstrip('({')               # `(git stash)` and `{ git stash; }` run it too
+            if not words or not words[0]: continue
+            head = os.path.basename(words[0].replace('\\', '/')).lower()
+            if head in ('cd', 'pushd', 'chdir', 'set-location', 'sl'):
+                target = next((w for w in words[1:] if not w.startswith('-')), None)
+                if target and here is not None: here = None if re.search(r'[$%`]', target) else normalize(target, here)
+            elif head in ('git', 'git.exe', 'git.cmd'):
+                verdict = git_verdict(plan, root, here, words[1:], limited)
+                if verdict: return verdict
+            elif head == 'rm':
+                options = [w for w in words[1:words.index('--')] if w.startswith('-')] if '--' in words[1:] else [w for w in words[1:] if w.startswith('-')]
+                letters = ''.join(w[1:] for w in options if not w.startswith('--'))
+                recursive = bool(set('rR') & set(letters)) or any(has_long([w], '--recursive') for w in options)
+                force = 'f' in letters or any(has_long([w], '--force') for w in options)
+                if recursive and force:
+                    return 'bash_deny', 'rm with recursive and force (-rf in any spelling) is refused: remove a file with plain `rm <file>`, or work in a separate `git worktree add`, or in `.onecrew/scratch/`.'
+    return None
+
+
 def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=False, powershell=False):
     """The plan's verdict on a shell command. `limited` is a plan that is not the session's (it was reached through the cwd or through a path the command
     writes): the deny and mention rules apply, since the command runs there, but only the paths the command writes INSIDE that plan's repository are
     judged, and a path the hook cannot resolve is left to the session's plan, unless `refuse_unresolvable` (the plan of the cwd when the session has no
     enforce plan of its own: nothing else would look at it). `powershell`: the command comes from the PowerShell tool."""
+    verdict = discard_verdict(plan, root, cwd, command, limited)      # first: an older plan's deny list says `reset --hard` without the way out
+    if verdict: return verdict
     forms = variants(command)
     for entry in plan.get('bash_deny', []):
         for form in forms:
@@ -410,7 +589,7 @@ def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=Fal
              (where.REGISTRY, ''), ('.claude/settings', ''), ('.onecrew', 'whole'), ('onecrew/plans', 'start')]
     for segment in shell_segments(command):         # each segment on its own: `ls; python -c "...remove(registry)"` is not read-only because its first word is
         first = (re.findall(r'[\w.-]+', segment) or [''])[0].lower()
-        if first in READ_ONLY: continue
+        if first in READ_ONLY and not SUBSTITUTION.search(segment): continue      # #12: `cat $(...)` runs the command inside
         flat = ' '.join(without_scratch(_fold(form)) for form in variants(segment))       # each form on its own: a path never runs from one into the next
         for item, how in items:
             if mentions(flat, item, how):
