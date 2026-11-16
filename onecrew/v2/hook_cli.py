@@ -344,15 +344,23 @@ def variants(command):
     return [command, unquoted, unquoted.replace('\\', '')]
 
 
-def shell_segments(command):
-    """The command cut at `;`, `&&`, `||`, `|`, a lone `&` and line ends, outside quotes: a quoted string stays in the segment that holds it."""
-    command = re.sub(r'\\\r?\n', '', command)           # #12: a backslash before the line end joins the lines (`git \<newline>stash`)
+def shell_segments(command, powershell=False):
+    """The command cut at `;`, `&&`, `||`, `|`, a lone `&` and line ends, outside quotes: a quoted string stays in the segment that holds it.
+    #12: in bash (not PowerShell) an odd run of backslashes before the line end joins the lines (backslash, newline, then `git stash`), except inside single quotes; in
+    PowerShell a backslash is a path character: it joins nothing and does not escape a quote (a quoted path may end in one)."""
     parts, current, quote, i = [], [], None, 0
     while i < len(command):
         char = command[i]
+        if char == '\\' and not powershell and quote != "'":
+            run = len(command[i:]) - len(command[i:].lstrip('\\'))
+            end = re.match(r'\r?\n', command[i + run:])
+            if end:
+                current.append('\\' * (run - run % 2))                  # an even run is escaped backslashes: the line end stays a line end
+                i += run + (end.end() if run % 2 else 0)
+                continue
         if quote:
             current.append(char)
-            if char == '\\' and quote == '"' and i + 1 < len(command) and command[i + 1] in '"\\':
+            if char == '\\' and quote == '"' and not powershell and i + 1 < len(command) and command[i + 1] in '"\\':
                 current.append(command[i + 1]); i += 1
             elif char == quote: quote = None
         elif char in '"\'': quote = char; current.append(char)
@@ -454,7 +462,10 @@ WRAPPERS = {'sudo': ('-u', '-g', '-h', '-p', '-C', '-D', '-R', '-T', '-U'), 'env
 SHELL_WORDS = {'bash': (), 'sh': (), 'zsh': (), 'dash': (), 'ksh': (), 'cmd': (), 'powershell': ('-executionpolicy', '-ep', '-workingdirectory', '-wd'),
                'pwsh': ('-executionpolicy', '-ep', '-workingdirectory', '-wd'), 'wsl': ('-d', '-u', '--distribution', '--user', '--cd')}
 HEREDOC = re.compile(r'(?<!<)<<(?!<)(-?)[ \t]*(?:"([^"\n]+)"|\'([^\'\n]+)\'|\\?([\w.-]+))')
-SHELL_FEED = re.compile(r'(?<![\w.-])(?:bash|sh|zsh|dash|ksh|pwsh|powershell(?:\.exe)?)(?![\w.-])')
+# #12: the commands known to read a here-document as text; any other receiver keeps the body judged
+TEXT_READERS = {'cat', 'tee', 'sed', 'grep', 'egrep', 'fgrep', 'awk', 'gawk', 'wc', 'sort', 'uniq', 'head', 'tail', 'cut', 'tr', 'diff', 'patch', 'jq', 'echo', 'printf',
+                'read', 'mapfile', 'base64', 'less', 'more', 'fold', 'nl', 'xxd', 'od', 'iconv', 'python', 'python3', 'py', 'node', 'ruby', 'perl', 'php'}
+GIT_TEXT = {'commit', 'apply', 'am', 'tag', 'notes', 'hash-object', 'fast-import'}
 GIT_VALUE = ('-c', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--config-env', '--exec-path')
 
 
@@ -468,28 +479,66 @@ def command_texts(command, depth=0):
     return texts
 
 
-def without_heredocs(command):
-    """The command without the bodies of its here-documents (`<<WORD` to the line `WORD`): a body is text, not commands, unless the heredoc feeds a shell
-    (`bash <<EOF`). A `<<` that has no closing line is left as written."""
+def reads_as_text(line):
+    """Does every command on the line that holds a `<<` read the here-document as text (cat, tee, `git commit -F -`, an interpreter, sed, grep...)? Anything else
+    (bash.exe, `$SHELL`, cmd, `source /dev/stdin`, `eval "$(cat <<EOF`, an unknown command) may run the body, so the body stays judged. #12"""
+    for segment in shell_segments(line):
+        words = [w for w in TOKEN.findall(segment)]
+        while words and re.match(r'^\w+=', words[0]): words = words[1:]
+        if not words: return False
+        head = os.path.basename(unquote(words[0]).replace('\\', '/')).lower()
+        head = head[:-4] if head.endswith('.exe') else head
+        if head == 'git':
+            rest = [w for w in words[1:] if not w.startswith('-')]
+            if not rest or rest[0].lower() not in GIT_TEXT: return False
+        elif head not in TEXT_READERS: return False
+    return True
+
+
+def without_heredocs(command, powershell=False):
+    """The command without the bodies of its here-documents (`<<WORD` to the line `WORD`): a body is text, not commands, only when the command that receives it
+    is known to read it as text (reads_as_text). A `<<` that has no closing line is left as written. PowerShell has no here-document with `<<`."""
+    if powershell: return command
     lines, out, i = command.split('\n'), [], 0
     while i < len(lines):
         line = lines[i]
         out.append(line)
         i += 1
-        feeds_shell = SHELL_FEED.search(line) is not None
+        text_only = reads_as_text(line)
         for m in HEREDOC.finditer(line):
             word = m.group(2) or m.group(3) or m.group(4)
             end = next((n for n in range(i, len(lines)) if (lines[n].strip('\t\r') if m.group(1) else lines[n].rstrip('\r')) == word), None)
             if end is None: break
-            if feeds_shell: break
+            if not text_only: break
             i = end + 1
     return '\n'.join(out)
 
 
+REDIRECT_WORD = re.compile(r'^(?:\d+|\*)?(?:>>?|>&|<>?|&>>?|>\|)(.*)$', re.S)
+
+
+def without_redirects(words):
+    """The words without the redirects (`2>&1`, `>/dev/null`, `> file`, `*> $null`, `2>$null`): they are not git paths. The target is judged as a write elsewhere. #12"""
+    out, skip = [], False
+    for word in words:
+        if skip: skip = False; continue
+        m = REDIRECT_WORD.match(word) if word[:1] not in '"\'' else None
+        if m is None: out.append(word)
+        elif not m.group(1): skip = True
+    return out
+
+
+def valid_ref_name(name):
+    """git's rules for a branch name, enough to tell it from a path: no `:`, backslash, `..`, space or control or `~^?*[` character, no component that is empty or
+    starts with `.`, none ending in `.lock`, and no end in `/` or `.`."""
+    if not name or name.endswith(('/', '.')) or re.search(r'[:\\\s~^?*\[\x00-\x1f\x7f]|\.\.|@\{', name) or name == '@': return False
+    return all(part and not part.startswith('.') and not part.endswith('.lock') for part in name.split('/'))
+
+
 def local_branch(folder, name):
     """Is `name` a local branch of the repository that holds `folder`? Read from `.git/refs/heads` and `packed-refs` as files (a worktree's `.git` file points at its
-    gitdir, whose `commondir` holds the refs); no subprocess."""
-    if not name or name.startswith('-') or '..' in name or name.startswith(('/', '\\')): return False
+    gitdir, whose `commondir` holds the refs); no subprocess. #12: the name is compared as written (`./x`, `x/`, `x/.` and an absolute path are no branch names)."""
+    if name.startswith('-') or not valid_ref_name(name): return False
     try:
         gitdir = None
         for directory in (folder, *folder.parents):
@@ -502,7 +551,9 @@ def local_branch(folder, name):
         if gitdir is None: return False
         common = gitdir
         if (gitdir / 'commondir').is_file(): common = Path(os.path.join(gitdir, (gitdir / 'commondir').read_text(encoding='utf-8', errors='replace').strip()))
-        if (common / 'refs' / 'heads' / name).is_file(): return True
+        heads = os.path.join(common, 'refs', 'heads')
+        ref = os.path.join(heads, *name.split('/'))
+        if os.path.commonpath([os.path.abspath(heads), os.path.abspath(ref)]) == os.path.abspath(heads) and os.path.isfile(ref): return True
         packed = common / 'packed-refs'
         return packed.is_file() and any(line.strip().endswith(' refs/heads/' + name) for line in packed.read_text(encoding='utf-8', errors='replace').splitlines())
     except (OSError, ValueError):
@@ -641,7 +692,7 @@ def git_verdict(plan, root, here, words, limited, fed=False):
     return None
 
 
-def discard_verdict(plan, root, cwd, command, limited=False):
+def discard_verdict(plan, root, cwd, command, limited=False, powershell=False):
     """(rule, reason) when a command of the text (`cd` followed, `git -C` followed, `$(...)` and `bash -c '...'` read too) is a git form that throws away
     uncommitted work outside the owned scope, or `rm` with recursive and force in any spelling; else None."""
     def one(words, here, fed):
@@ -664,10 +715,10 @@ def discard_verdict(plan, root, cwd, command, limited=False):
                 return 'bash_deny', 'rm with recursive and force (-rf in any spelling) is refused: remove a file with plain `rm <file>`, or work in a separate `git worktree add`, or in `.onecrew/scratch/`.'
         return None
 
-    for text in command_texts(without_heredocs(command)):
+    for text in command_texts(without_heredocs(command, powershell)):
         here = Path(cwd)
-        for segment in shell_segments(text):
-            words = [unquote(w) for w in TOKEN.findall(segment)]
+        for segment in shell_segments(text, powershell):
+            words = [unquote(w) for w in without_redirects(TOKEN.findall(segment))]
             head_words, _ = command_head(list(words))
             if not head_words: continue
             if os.path.basename(head_words[0].replace('\\', '/')).lower() in ('cd', 'pushd', 'chdir', 'set-location', 'sl'):
@@ -684,7 +735,7 @@ def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=Fal
     writes): the deny and mention rules apply, since the command runs there, but only the paths the command writes INSIDE that plan's repository are
     judged, and a path the hook cannot resolve is left to the session's plan, unless `refuse_unresolvable` (the plan of the cwd when the session has no
     enforce plan of its own: nothing else would look at it). `powershell`: the command comes from the PowerShell tool."""
-    verdict = discard_verdict(plan, root, cwd, command, limited)      # first: an older plan's deny list says `reset --hard` without the way out
+    verdict = discard_verdict(plan, root, cwd, command, limited, powershell)      # first: an older plan's deny list says `reset --hard` without the way out
     if verdict: return verdict
     forms = variants(command)
     for entry in plan.get('bash_deny', []):
@@ -695,7 +746,7 @@ def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=Fal
                 return 'bash_deny', f'The command matches the deny rule "{entry[3:] if entry.startswith("re:") else entry}". Approval, acceptance, enforcement, push, tag and installs are the owner\'s. Ask the owner in chat.' + note
     items = [(_fold(plan.get('state_root', '')) + '/plans', ''), ('policy.json', ''), ('.sqlite', ''), ('active-plan.json', ''), ('violations.jsonl', ''), ('hook-state.json', ''),
              (where.REGISTRY, ''), ('.claude/settings', ''), ('.onecrew', 'whole'), ('onecrew/plans', 'start')]
-    for segment in shell_segments(command):         # each segment on its own: `ls; python -c "...remove(registry)"` is not read-only because its first word is
+    for segment in shell_segments(command, powershell):         # each segment on its own: `ls; python -c "...remove(registry)"` is not read-only because its first word is
         first = (re.findall(r'[\w.-]+', segment) or [''])[0].lower()
         if first in READ_ONLY and not SUBSTITUTION.search(segment): continue      # #12: `cat $(...)` runs the command inside
         flat = ' '.join(without_scratch(_fold(form)) for form in variants(segment))       # each form on its own: a path never runs from one into the next
