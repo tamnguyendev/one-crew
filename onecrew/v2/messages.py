@@ -26,6 +26,7 @@ TEXT = {
     'init.step_state': {'en': '  - use the state root {path}{note}', 'vi': '  - dùng sổ tại {path}{note}'},
     'init.step_rules': {'en': '  - write the owner rules to {path}', 'vi': '  - ghi quy tắc của chủ sở hữu vào {path}'},
     'init.step_config': {'en': '  - write {path} (state_root)', 'vi': '  - ghi {path} (state_root)'},
+    'init.step_ignore': {'en': '  - write {path} (git ignores the .onecrew folder)', 'vi': '  - ghi {path} (git bỏ qua thư mục .onecrew)'},
     'init.step_settings': {'en': '  - {verb} the hooks in {path}{bak}', 'vi': '  - {verb} hook trong {path}{bak}'},
     'init.verb_create': {'en': 'create', 'vi': 'tạo'},
     'init.verb_merge': {'en': 'merge', 'vi': 'gộp'},
@@ -58,8 +59,8 @@ TEXT = {
                                'vi': 'Claude CLI: đã thấy ({path}) nhưng chưa đăng nhập. Tự chạy `claude` để đăng nhập; init không tự đăng nhập hộ.'},
     'init.claude_unknown': {'en': 'Claude CLI: found ({path}); could not tell whether it is logged in ({why}).',
                             'vi': 'Claude CLI: đã thấy ({path}); không xác định được đã đăng nhập chưa ({why}).'},
-    'init.next': {'en': 'Next: onecrew doctor, then write your first contract (docs/README.en.md).', 'vi': 'Tiếp: onecrew doctor, rồi viết hợp đồng đầu tiên (docs/README.en.md).'},
-    'init.config_note': {'en': 'Note: .onecrew/config.json names a path on this machine; do not commit it.', 'vi': 'Lưu ý: .onecrew/config.json ghi đường dẫn của máy này; đừng commit nó.'},
+    'init.next': {'en': 'Next: onecrew doctor, then write your first contract (https://github.com/tamnguyendev/one-crew#readme).', 'vi': 'Tiếp: onecrew doctor, rồi viết hợp đồng đầu tiên (https://github.com/tamnguyendev/one-crew#readme).'},
+    'init.config_note': {'en': 'Note: .onecrew/config.json names a path on this machine; git ignores .onecrew/ through .onecrew/.gitignore, so it is not committed.', 'vi': 'Lưu ý: .onecrew/config.json ghi đường dẫn của máy này; git bỏ qua .onecrew/ nhờ .onecrew/.gitignore nên nó không bị commit.'},
     # ---- init: the project wiki (2.3-A1, WI-01..05)
     'init.step_wiki': {'en': '  - create the wiki skeleton in {path} ({files})', 'vi': '  - tạo khung wiki trong {path} ({files})'},
     'init.wiki_created': {'en': 'Wiki: {path} ({files} created); write your project knowledge there. `onecrew wiki pages` shows what OneCrew reads.',

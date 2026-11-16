@@ -442,7 +442,9 @@ def init(project=None, state_root=None, shared=False, yes=False, exe=None, ask=i
         return 2
     config = where.read_config(root)
     wanted_config = dict(config, state_root=str(state))
+    ignore_path = config_path.parent / '.gitignore'
     todo = {'state': not ledger.path.is_file(), 'rules': not rules_path.exists(), 'config': config != wanted_config,
+            'ignore': not ignore_path.exists(),
             'settings': merged != existing or not settings_path.exists(), 'wiki': wiki_step['action'] == 'create'}
     wiki_written, wiki_failed = [], None
     if any(todo.values()):
@@ -450,6 +452,7 @@ def init(project=None, state_root=None, shared=False, yes=False, exe=None, ask=i
         if todo['state']: say(t('init.step_state', path=state, note=t('init.note_exists') if state.exists() else t('init.note_new')))
         if todo['rules']: say(t('init.step_rules', path=rules_path))
         if todo['config']: say(t('init.step_config', path=config_path))
+        if todo['ignore']: say(t('init.step_ignore', path=ignore_path))
         if todo['settings']:
             say(t('init.step_settings', verb=t('init.verb_merge') if settings_path.exists() else t('init.verb_create'), path=settings_path,
                   bak=t('init.bak_note') if settings_path.exists() and not settings_path.with_name(settings_path.name + '.bak').exists() else ''))
@@ -468,6 +471,7 @@ def init(project=None, state_root=None, shared=False, yes=False, exe=None, ask=i
                 with ledger.transaction(write=True): pass                  # creates ledger.sqlite3 with its schema; an existing ledger is left alone
             if todo['rules']: advisor.init_rules(ledger, 'vi' if lang() == 'vi' else 'en')
         if todo['config']: write_text(config_path, dump(wanted_config))
+        if todo['ignore']: write_text(ignore_path, '*\n')
         if todo['settings']:
             backup = settings_path.with_name(settings_path.name + '.bak')
             if settings_path.exists() and not backup.exists(): shutil.copyfile(settings_path, backup)

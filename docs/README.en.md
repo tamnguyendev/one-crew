@@ -2,7 +2,7 @@
 
 OneCrew is a work contract for AI: the AI works only inside a plan the owner approved, every milestone needs an independent verdict, and only a human accepts the result.
 
-Current version: `2.5.0.dev28` (beta, prerelease), tested on Windows 10/11 only. Always install from a release tag, not from `main`. The full guide (in Vietnamese) is the root [README.md](../README.md).
+Current version: `2.5.0.dev29` (beta, prerelease), tested on Windows 10/11 only. Always install from a release tag, not from `main`. The full guide (in Vietnamese) is the root [README.md](../README.md).
 
 ## 1. Install (Windows, once per machine)
 
@@ -10,13 +10,13 @@ You need Python 3.10+ from python.org (not the Microsoft Store alias), git 2.40+
 
 ```powershell
 python -m venv D:\OneCrew\venv
-D:\OneCrew\venv\Scripts\python.exe -m pip install "git+https://github.com/tamnguyendev/one-crew.git@v2.5.0.dev28"
-D:\OneCrew\venv\Scripts\onecrew.exe --version      # onecrew 2.5.0.dev28
+D:\OneCrew\venv\Scripts\python.exe -m pip install "git+https://github.com/tamnguyendev/one-crew.git@v2.5.0.dev29"
+D:\OneCrew\venv\Scripts\onecrew.exe --version      # onecrew 2.5.0.dev29
 ```
 
 Keep the venv where it is: the hooks written into your repo call its `onecrew.exe`.
 
-Alternatives: download the release wheel `onecrew-2.5.0.dev28-py3-none-any.whl` and check it against `SHA256SUMS` (compare the hash with `Get-FileHash`, not the file name) before installing it with pip; or `git clone --branch v2.5.0.dev28 https://github.com/tamnguyendev/one-crew.git` and run `pip install .` in it. Linux and macOS are not tested.
+Alternatives: download the release wheel `onecrew-2.5.0.dev29-py3-none-any.whl` and check it against `SHA256SUMS` (compare the hash with `Get-FileHash`, not the file name) before installing it with pip; or `git clone --branch v2.5.0.dev29 https://github.com/tamnguyendev/one-crew.git` and run `pip install .` in it. Linux and macOS are not tested.
 
 ## 2. Set up a repo
 
@@ -28,7 +28,7 @@ onecrew --project <repo> --state-root <ledger-folder> init      # asks y/N
 
 `init` creates the ledger in the state root (keep it outside the repo), writes `plans/owner-rules.md`, records the state root in `<repo>\.onecrew\config.json`, merges the Claude Code hooks into `.claude\settings.local.json` (`--shared`: `settings.json`) and adds a small wiki skeleton under `docs\wiki\`. Your other hooks and permissions stay; a `.bak` copy is kept; running it again changes nothing. It checks the Claude CLI but never logs in for you (exit 1 if missing or logged out; the files are still written). Set `ONECREW_LANG=vi` for Vietnamese output.
 
-**Add `.onecrew/` to your `.gitignore`**: the config holds a path specific to your machine.
+`init` also writes `.onecrew/.gitignore`, so git ignores that folder (the config holds a path specific to your machine); your own `.gitignore` is not touched.
 
 ## 3. Check
 
