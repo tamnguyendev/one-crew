@@ -427,3 +427,59 @@ class AllStreamsRedirectsOfPowerShell(ShellBase):
     def test_the_redirect_target_of_all_streams_is_still_a_write(self):
         self.blocked('Get-Date *> other.txt', 'PowerShell', inside=True)
         self.allowed('Get-Date *> src\\a.txt', 'PowerShell', inside=True)
+
+
+class AMoveChangesItsSourceToo(ShellBase):
+    """FIX25B (Codex F1): `mv other.txt src/moved.txt` deletes other.txt: every source is judged, not only the destination."""
+    def test_a_source_outside_owned_is_refused_in_every_spelling(self):
+        self.each(['mv other.txt src/moved.txt', 'git mv other.txt src/moved-git.txt', 'mv -f other.txt README.md src/', 'mv -t src other.txt', 'mv --target-directory=src other.txt',
+                   'move other.txt src\\moved.txt', 'cd "' + self.af + '" && mv other.txt src/moved.txt', 'sh -c "mv other.txt src/x.txt"'], self.blocked, inside=True)
+        for command in ('Move-Item other.txt src\\moved.txt', 'Move-Item -Path other.txt -Destination src\\moved.txt', 'mi other.txt src\\moved.txt',
+                        'Rename-Item other.txt moved.txt', 'ren other.txt moved.txt'):
+            with self.subTest(command=command): self.blocked(command, 'PowerShell', inside=True)
+
+    def test_a_move_entirely_inside_owned_and_a_copy_still_pass(self):
+        self.project_copy(self.a, owned=('src/**',))
+        self.each(['mv src/a.txt src/new/a2.txt', 'git mv src/a.txt src/new/a3.txt', 'mv -f src/a.txt src/new/', 'cp other.txt src/copied.txt'], self.allowed, inside=True)
+        self.allowed('Move-Item src\\a.txt src\\new\\a4.txt', 'PowerShell', inside=True)
+
+    def test_a_copy_is_not_a_change_to_its_source(self):
+        self.project_copy(self.a, owned=('src/**',))
+        self.allowed('cp -r other.txt README.md src/', inside=True)
+        self.allowed('Copy-Item other.txt src\\c.txt', 'PowerShell', inside=True)
+
+
+class AFolderChangeInsideASubstitutionOrAHeredoc(ShellBase):
+    """FIX25B (Codex F2): where a git command runs when a `cd` sits in `$( )`, in a heredoc, or before a heredoc that is followed by a `popd`."""
+    def test_a_cd_inside_a_command_substitution_moves_the_inner_command(self):
+        self.each([f'x=$(cd "{self.af}" && git checkout -- other.txt)', f'echo $(cd "{self.af}" && git restore other.txt)', f'x=`cd "{self.af}" && git checkout -- other.txt`'],
+                  self.blocked)
+
+    def test_pushd_then_a_heredoc_body_runs_in_the_pushed_folder(self):
+        self.blocked(f'pushd "{self.af}" && bash <<\'EOF\' && popd{NL}git checkout -- other.txt{NL}EOF')
+        self.blocked(f'pushd "{self.af}"{NL}bash <<\'EOF\'{NL}git checkout -- other.txt{NL}EOF{NL}popd')
+
+    def test_a_cd_inside_a_child_shell_body_does_not_move_the_parent(self):
+        self.blocked(f'bash <<\'EOF\'{NL}cd src{NL}EOF{NL}git checkout -- other.txt', inside=True)
+        self.allowed(f'bash <<\'EOF\'{NL}cd src{NL}git checkout -- a.txt{NL}EOF', inside=True)
+
+    def test_the_line_after_a_body_that_changed_folder_runs_in_the_start_folder(self):
+        # the child shell went to A, the parent stayed in B (no plan there): the line after EOF is B's
+        self.allowed(f'bash <<\'EOF\'{NL}cd "{self.af}"{NL}EOF{NL}git checkout -- other.txt')
+
+    def test_a_substitution_that_only_reads_stays_allowed(self):
+        self.allowed(f'x=$(cd "{self.af}" && git status)')
+        self.allowed('x=$(cd src && git checkout -- a.txt)', inside=True)
+
+
+class AStarBeforeARedirectIsOnlyPowerShells(ShellBase):
+    """FIX25B (Codex F3): in Bash `rm -f *>/dev/null` is the glob `*` and a redirect; only PowerShell reads `*>` as one operator."""
+    def test_a_delete_with_a_glob_and_a_redirect_is_refused_in_bash(self):
+        self.each(['rm -f *>/dev/null 2>&1', 'rm -f * >/dev/null 2>&1', 'rm *>/dev/null', 'rm -f *>>log.txt'], self.blocked, inside=True)
+
+    def test_powershell_all_streams_redirects_still_pass(self):
+        self.allowed('Copy-Item ..\\B\\README.md src\\a.txt *> $null', 'PowerShell', inside=True)
+        self.allowed('Copy-Item ..\\B\\README.md src\\a.txt *>&1', 'PowerShell', inside=True)
+
+    def test_a_bash_redirect_after_a_star_is_still_read(self):
+        self.blocked('echo hi *>other.txt', inside=True)

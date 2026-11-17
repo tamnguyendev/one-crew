@@ -580,6 +580,15 @@ def program_runs_scope(program):
     return False, f'exit {done.returncode}: ' + ((done.stderr or done.stdout).decode('utf-8', errors='replace').strip().splitlines() or [''])[-1][:160]
 
 
+def _profile_form(path):
+    """FIX25B (Codex F4): one normal form for a settings file, so every spelling of the same file gets the same answer: without a `\\\\?\\` / `\\\\.\\` prefix
+    (`\\\\?\\UNC\\host\\share` is `\\\\host\\share`), resolved, and case-folded on Windows."""
+    text = str(path)
+    if text[:8].upper() == '\\\\?\\UNC\\': text = '\\\\' + text[8:]
+    elif text.startswith(('\\\\?\\', '\\\\.\\')): text = text[4:]
+    return os.path.normcase(os.path.realpath(text))
+
+
 def user_hook(verb, settings_file=None, program=None):
     """`onecrew hook user install|status|uninstall`. Exit code: 0 done (or nothing to do); 2 refused or nothing written (AI session on the user's own
     profile, bad settings file, no installed command)."""
@@ -599,8 +608,8 @@ def user_hook(verb, settings_file=None, program=None):
         return 0
     from .ownership import claude_session
     try:       # #25 (review P2-3): the owner's profile is ~/.claude/settings.json and, when CLAUDE_CONFIG_DIR is set, the settings.json of that folder
-        profiles = {os.path.normcase(os.path.realpath(p)) for p in (Path.home() / '.claude' / 'settings.json', user_settings_file())}
-        own = os.path.normcase(str(path)) in profiles
+        profiles = {_profile_form(p) for p in (Path.home() / '.claude' / 'settings.json', user_settings_file())}
+        own = _profile_form(path) in profiles
     except OSError:
         own = False
     if own and claude_session():

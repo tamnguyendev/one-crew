@@ -15,6 +15,7 @@ A plan in `stopped_with_report` blocks everything `check` governs: Edit/Write/Mu
 """
 import argparse
 import bisect
+import contextlib
 import datetime as dt
 import fnmatch
 import glob
@@ -141,6 +142,49 @@ def claim_call(folder, plan, tool_use_id):
     return True
 
 
+@contextlib.contextmanager
+def appending(lock_path, wait=10.0):
+    """FIX25B (Codex F5, decision D4): an OS lock (msvcrt.locking on Windows, fcntl.flock elsewhere) on a small lock file, held while a line is appended. The lock is
+    taken by polling for up to `wait` seconds; a lock that cannot be had in that time (or at all) is skipped, so a record is never lost to a stuck lock: a rare torn line is
+    better than none. The lock dies with the process, so a crashed hook leaves nothing behind."""
+    handle, locked = None, False
+    try:
+        handle = open(lock_path, 'a+b')
+        deadline = time.monotonic() + wait
+        while True:
+            try:
+                if os.name == 'nt':
+                    import msvcrt
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                locked = True
+                break
+            except OSError:
+                if time.monotonic() >= deadline: break
+                time.sleep(0.003)
+    except OSError:
+        pass
+    try:
+        yield
+    finally:
+        if handle is not None:
+            try:
+                if locked:
+                    if os.name == 'nt':
+                        import msvcrt
+                        handle.seek(0)
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+            handle.close()
+
+
 def record(project, plan, event, tool, reason, rule, subject='', session=None, mode=None):
     """Append to <project>/.onecrew/violations.jsonl (no ledger lock). Only when .onecrew/ exists: a repo without a plan stays untouched."""
     if CALL['quiet']: return
@@ -154,8 +198,10 @@ def record(project, plan, event, tool, reason, rule, subject='', session=None, m
     line = {'id': uuid.uuid4().hex, 'at': now(), 'event': event, 'tool': tool, 'rule': rule, 'reason': reason[:400], 'subject': subject[:300],
             'plan': (plan or {}).get('plan'), 'revision': (plan or {}).get('revision'), 'mode': mode or (plan or {}).get('mode'), 'session': session,
             'agent_id': CALL['agent_id'], 'agent_type': CALL['agent_type'], 'tool_use_id': CALL['tool_use_id'], 'scope': CALL['scope']}
+    data = (json.dumps(line, ensure_ascii=False) + '\n').encode('utf-8')
     try:
-        with (folder / 'violations.jsonl').open('a', encoding='utf-8') as stream: stream.write(json.dumps(line, ensure_ascii=False) + '\n')
+        with appending(folder / 'violations.lock'):       # FIX25B (Codex F5): one writer at a time; without it concurrent appends overwrote each other (344 of 360 lines)
+            with (folder / 'violations.jsonl').open('ab') as stream: stream.write(data)
     except OSError:
         pass
 
@@ -273,19 +319,24 @@ def judge_path(plan, root, target, action):
 # ---- shell commands --------------------------------------------------------------------------------------------------------
 
 # #12: a target is a whole shell word: quoted and unquoted parts joined (`"$TMPDIR"/../x` is one word, not `"$TMPDIR"`)
-REDIRECT = re.compile(r'(?<![<>&-])(?:\d|\*)?>>?(?![&>])[ \t]*((?:"[^"]*"|\'[^\']*\'|[^\s;|&<>()])+)')
+REDIRECT_PS = re.compile(r'(?<![<>&-])(?:\d|\*)?>>?(?![&>])[ \t]*((?:"[^"]*"|\'[^\']*\'|[^\s;|&<>()])+)')
+# FIX25B (Codex F3): the `*` stream prefix (`*>`, `*>>`, `*>&1`) is PowerShell's all-streams operator; in Bash `rm -f *>/dev/null` is the glob `*` and a redirect,
+# so the Bash forms have no `*` and the glob stays a word of its command.
+REDIRECT = re.compile(REDIRECT_PS.pattern.replace(r'(?:\d|\*)?', r'\d?'))
 # #12: the write redirects REDIRECT leaves out: `>|` (its target class stops at `|`), `&>`, `&>>` (its lookbehind), and `>&file` (but `>&1`, `>&2`, `>&-` copy a descriptor,
 # also when `;` `|` `&` `)` `<` `>` follows: `2>&1)`)
-REDIRECT_MORE = re.compile(r'(?:>\||&>>?|(?<![<>&])(?:\d|\*)?>&(?![ \t]*(?:\d+|-)(?![\w.])))[ \t]*((?:"[^"]*"|\'[^\']*\'|[^\s;|&<>()])+)')
+REDIRECT_MORE_PS = re.compile(r'(?:>\||&>>?|(?<![<>&])(?:\d|\*)?>&(?![ \t]*(?:\d+|-)(?![\w.])))[ \t]*((?:"[^"]*"|\'[^\']*\'|[^\s;|&<>()])+)')
+REDIRECT_MORE = re.compile(REDIRECT_MORE_PS.pattern.replace(r'(?:\d|\*)?', r'\d?'))
 EVERY = ('rm', 'del', 'erase', 'rd', 'rmdir', 'ri', 'remove-item', 'mkdir', 'md', 'touch', 'tee', 'clear-content', 'clc')        # every plain word is a target
 FIRST = ('set-content', 'sc', 'add-content', 'ac', 'out-file', 'tee-object', 'new-item', 'ni', 'export-csv', 'export-clixml')   # the first one is
 COPY = ('cp', 'mv', 'copy', 'move', 'copy-item', 'cpi', 'move-item', 'mi', 'ren', 'rename', 'rename-item', 'rni')              # the last one is
+MOVE = ('mv', 'move', 'move-item', 'mi', 'ren', 'rename', 'rename-item', 'rni')               # FIX25B (Codex F1): the ones of COPY that also change their source
 NAMED = ('-path', '-filepath', '-literalpath', '-destination', '-name')
 WORD = r'(?:"[^"]*"|\'[^\']*\'|[^\s;|&<>])+'            # #12: one shell word, its quoted and unquoted parts joined
 WORDS = re.compile(r'(?:"[^"]*"|\'[^\']*\'|\S)+')
 SEP = r'(?:[ \t]|\\\r?\n)+'          # #12: blanks between the words of a writer; a bare line end ends the command, a backslash-newline does not
 WRITERS = re.compile(r'(?:^|[\s;|&(])(' + '|'.join(re.escape(n) for n in sorted(EVERY + FIRST + COPY, key=len, reverse=True)) + r')(?=\s)'
-                     r'((?:' + SEP + r'(?:-\w+' + SEP + WORD + r'|-\w+|(?!-)' + WORD + r'))+)', re.I)   # a flag's value stops at ; | & < > (B1)
+                     r'((?:' + SEP + r'(?:--?[\w-]+(?:=' + WORD + r')?' + SEP + WORD + r'|--?[\w-]+(?:=' + WORD + r')?|(?!-)' + WORD + r'))+)', re.I)      # FIX25B (Codex F1): a long option (`--target-directory=src`) is one option, not the end of the arguments   # a flag's value stops at ; | & < > (B1)
 DOTNET = re.compile(r'\[(?:System\.)?IO\.(?:File|Directory)\]::(\w+)\(\s*("[^"]*"|\'[^\']*\'|[^,)\s]+)(?:\s*,\s*("[^"]*"|\'[^\']*\'|[^,)\s]+))?', re.I)
 # PowerShell only (beta report B1): the common parameters whose value is never a path, and the built-in drives that are not files. A drive the
 # session makes with New-PSDrive is still read as a file; registry writes are left to the other rules.
@@ -299,7 +350,8 @@ SED_WORDS = re.compile(r'(?<![\w.-])sed(?=\s)([^;|&<>\n]*)', re.I)
 FEEDERS = re.compile(r'(?<![\w.-])(?:xargs|parallel)(?![\w.-])', re.I)
 
 
-DESCRIPTOR_DUP = re.compile(r'(?<![<>&\w])(?:\d*|\*)[<>]&(?:\d+|-)(?![\w.])')      # #25 (final review P1-2): `*>&1` is PowerShell's all-streams duplication
+DESCRIPTOR_DUP_PS = re.compile(r'(?<![<>&\w])(?:\d*|\*)[<>]&(?:\d+|-)(?![\w.])')      # #25 (final review P1-2): `*>&1` is PowerShell's all-streams duplication
+DESCRIPTOR_DUP = re.compile(r'(?<![<>&\w])\d*[<>]&(?:\d+|-)(?![\w.])')               # FIX25B (Codex F3): no `*` in Bash
 
 
 def unquote(word):
@@ -399,9 +451,10 @@ def shell_targets(command, powershell=False):
     masked = masked_quotes(command, powershell)
     # #25 (review 3, P1-C): `2>&1`, `1>&2`, `>&-`, `0<&3` copy a descriptor; blanked before the writers read their words, so the `2` is no copy target
     blank = lambda m: ' ' * len(m.group(0))
-    command, masked = DESCRIPTOR_DUP.sub(blank, command), DESCRIPTOR_DUP.sub(blank, masked)
-    found = [unquote(command[m.start(1):m.end(1)]) for m in REDIRECT.finditer(masked)]
-    found += [unquote(command[m.start(1):m.end(1)]) for m in REDIRECT_MORE.finditer(masked)]
+    dup, redirect, more = (DESCRIPTOR_DUP_PS, REDIRECT_PS, REDIRECT_MORE_PS) if powershell else (DESCRIPTOR_DUP, REDIRECT, REDIRECT_MORE)
+    command, masked = dup.sub(blank, command), dup.sub(blank, masked)
+    found = [unquote(command[m.start(1):m.end(1)]) for m in redirect.finditer(masked)]
+    found += [unquote(command[m.start(1):m.end(1)]) for m in more.finditer(masked)]
     for m in SED_WORDS.finditer(masked):
         text = command[m.start(1):m.start(1) + len(masked[m.start(1):m.end(1)].rstrip())]      # #12: a comment after the options is masked blank, its words are no files
         if command[m.end(1):m.end(1) + 1] == '>' and re.search(r'(?:^|\s)\d+$', command[m.start(1):m.end(1)]): text = re.sub(r'(?:^|\s)\d+$', '', text)      # #12: `2>/dev/null` is a redirect, its `2` no file
@@ -433,9 +486,13 @@ def shell_targets(command, powershell=False):
         cmd, words = m.group(1).lower(), WORDS.findall(command[m.start(2):m.end(2)])
         if powershell:
             words = [w for i, w in enumerate(words) if not (i and words[i - 1].lower() in COMMON_VALUE)]
+        if cmd == 'rm' and '--cached' in words: continue            # FIX25B: `git rm --cached` only changes the index; the long-option reader below now sees past `--cached`
         named = [words[i + 1] for i, w in enumerate(words[:-1]) if w.lower() in NAMED]
         plain = [w for w in words if not w.startswith('-')]
         if cmd in EVERY: values = plain + named
+        elif cmd in MOVE:
+            # FIX25B (Codex F1): a move or rename takes its SOURCE away too, so every source and the destination are targets (`--target-directory=DIR` is one)
+            values = plain + named + [w.split('=', 1)[1] for w in words if w.lower().startswith('--target-directory=')]
         elif cmd in COPY: values = named[-1:] or plain[-1:]
         else:                                           # FIRST: -Value / -Encoding take a value, so only the first plain word counts
             values = named[:1] or [w for i, w in enumerate(words) if not w.startswith('-') and not (i and words[i - 1].startswith('-') and words[i - 1].lower() not in SWITCHES)][:1]
@@ -586,12 +643,12 @@ def cut_pieces(command):
     return pieces
 
 
-def heredoc_units(command):
+def heredoc_units(command, marked=False):
     """[(text, bodies)]: the command in chunks that end at a line holding here-documents, with their bodies (`<<WORD` to the line `WORD`) taken out of the text;
     `bodies` go to the interpreter scan. #25 merge with HOOK30 round 6: the same reading as without_heredocs (joined lines, strings, skips_body): a body its
     receiver may run is also a chunk of its own, judged as shell commands, and the `$(...)`/backticks of an unquoted text body too. A `<<` with no closing
-    line is left as written."""
-    if '<<' not in command: return [(command, [])]
+    line is left as written. FIX25B (Codex F2): `marked` adds a third value, True for a body that runs as a script (a child shell: its `cd` does not reach the text after it)."""
+    if '<<' not in command: return [(command, [], False)] if marked else [(command, [])]
     lines, units, chunk, i = command.split('\n'), [], [], 0
     while i < len(lines):
         start, logical, joined = i, lines[i], 0
@@ -622,11 +679,11 @@ def heredoc_units(command):
             elif m.group(4) and '\\' not in m.group(0): scripts += substitutions(body)
             i = end + 1
         if bodies:
-            units.append(('\n'.join(chunk), bodies))
-            units += [(script, []) for script in scripts]
+            units.append(('\n'.join(chunk), bodies, False))
+            units += [(script, [], True) for script in scripts]
             chunk = []
-    if chunk: units.append(('\n'.join(chunk), []))
-    return units
+    if chunk: units.append(('\n'.join(chunk), [], False))
+    return units if marked else [unit[:2] for unit in units]
 
 
 def is_absolute_text(path):
@@ -656,7 +713,7 @@ def redirect_split(core, powershell=False):
     program runs, so a redirect target is judged against the directory in force; the other targets (the program's own arguments) against the program's folder."""
     text = hide_escapes(core, powershell)
     masked = masked_quotes(text, powershell)
-    matches = [m for pattern in (REDIRECT, REDIRECT_MORE) for m in pattern.finditer(masked)]
+    matches = [m for pattern in ((REDIRECT_PS, REDIRECT_MORE_PS) if powershell else (REDIRECT, REDIRECT_MORE)) for m in pattern.finditer(masked)]
     found, rest = [show_escapes(unquote(text[m.start(1):m.end(1)])) for m in matches], list(text)
     for m in matches: rest[m.start():m.end()] = ' ' * (m.end() - m.start())      # the operator goes too, or the next word would read as its target
     return [f for f in found if f], ''.join(rest)            # the escapes stay hidden: the caller reads the text again as one Bash text
@@ -753,7 +810,17 @@ def shell_effects(command, base, powershell=False, depth=0):
     `cd` goes to (the command runs there, like the cwd). A heredoc body is not shell text; the code an interpreter is given is read for file writes (code_writes)."""
     targets, places = [], []
     here, scopes, stack, previous, exports = (Path(base) if base is not None else None), [], [], '', {}
-    for text, bodies in heredoc_units(command):
+    launch = [here]                                     # FIX25B (Codex F2): the folders in force in the chunk a heredoc body was launched from
+    for text, bodies, script in heredoc_units(command, True):
+        if script:
+            # a body that runs as a script is a child shell: it starts in a folder of its chunk (the one at its `<<` line; `pushd A && bash <<EOF && popd` has left A by the
+            # chunk's end, so every folder the chunk was in is tried, decision D3) and its `cd` does not reach the text after it
+            for folder in launch:
+                more, there = shell_effects(text, folder, powershell, depth + 1)
+                targets += more
+                places += there
+            continue
+        launch = []                                     # the folder after each piece, not the one the chunk started in (`cd src && bash <<EOF` launches in src)
         bodies = list(bodies)
         for piece, before, after in cut_pieces(text):
             stripped = piece.strip()
@@ -805,6 +872,14 @@ def shell_effects(command, base, powershell=False, depth=0):
                             places += there
             previous = '\n'.join([core, *mine])
             for _ in range(closes): here = scopes.pop() if scopes else here
+            if here not in launch: launch.append(here)
+        # FIX25B (Codex F2): `x=$(cd A && git checkout -- f)`: the commands inside `$( )` and backticks are read as shell too, in every folder the chunk was in
+        if depth < 3 and not powershell and ('$(' in text or '`' in text):
+            for inner in substitutions(text):
+                for folder in launch:
+                    more, there = shell_effects(inner, folder, powershell, depth + 1)
+                    targets += more
+                    places += there
     return list(dict.fromkeys(targets)), places
 
 
@@ -1217,6 +1292,27 @@ def substitutions(text):
     return found
 
 
+def without_substitutions(text):
+    """FIX25B (Codex F2): the text with its `$(...)` and backtick commands blanked (the commands inside run in a subshell and are read on their own, with their own `cd`): the
+    pieces of `x=$(cd src && git checkout -- a.txt)` are no commands of the outer shell."""
+    out, k, n = [], 0, len(text)
+    while k < n:
+        if text[k] == '\\':
+            out.append(text[k:k + 2]); k += 2
+        elif text.startswith('$(', k):
+            depth, j = 1, k + 2
+            while j < n and depth:
+                depth += (text[j] == '(') - (text[j] == ')')
+                j += 1
+            out.append('$x'); k = j
+        elif text[k] == '`':
+            j = text.find('`', k + 1)
+            out.append('$x'); k = n if j < 0 else j + 1
+        else:
+            out.append(text[k]); k += 1
+    return ''.join(out)
+
+
 def without_heredocs(command, powershell=False):
     """(the command without the bodies of its here-documents (`<<WORD` to the line `WORD`), the bodies that must still be judged). A body is text, not commands, only in
     the shapes skips_body knows; in any other shape it is a script, judged on its own (it is also kept out of the text, so a quote in it cannot hide the next command). A
@@ -1538,13 +1634,25 @@ def discard_verdict(plan, root, cwd, command, limited=False, powershell=False, s
     # (`cd A && bash <<EOF`) starts in the folder in force at its `<<` line; the texts nested in a chunk (`$(...)`, `bash -c '...'`) start in the folder the chunk ended in.
     start = Path(cwd)
     state = [start, start, [], [], [start], False]
-    for unit, _ in heredoc_units(command):
+    launch = [start]
+    for unit, _, script in heredoc_units(command, True):
         texts = command_texts(unit, 0, powershell)
-        verdict = walk(texts[0], state)
+        if script:
+            # FIX25B (Codex F2): a body that runs as a script is a child shell. It starts in a folder its chunk was in (`pushd A && bash <<EOF && popd` has left A by the chunk's
+            # end: every folder the chunk was in is tried, decision D3) and its `cd` does not reach the text after it, so the main state is not touched
+            for folder in launch:
+                for text in texts:
+                    verdict = walk(text, [folder, folder, [], [], [folder], False])
+                    if verdict: return verdict
+            continue
+        seen_before = len(state[4])
+        verdict = walk(without_substitutions(texts[0]) if not powershell else texts[0], state)
         if verdict: return verdict
-        folders = [state[0]] + [f for f in state[4] if f != state[0]] if state[5] else [state[0]]
+        # FIX25B (Codex F2): the folders the chunk entered and the one it ended in: where a body launched from it, and the text inside `$( )` / backticks
+        # (`x=$(cd A && git checkout -- f)`), may have run; the folder the chunk started in is not one of them unless it is where the chunk ended
+        launch = [f for f in dict.fromkeys([state[0], *state[4][seen_before:]]) if f is not None]
         for text in texts[1:]:
-            for folder in folders:
+            for folder in launch:
                 verdict = walk(text, [folder, folder, [], [], [folder], False])
                 if verdict: return verdict
     return None

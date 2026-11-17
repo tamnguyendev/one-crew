@@ -162,6 +162,29 @@ class UserHookLifecycle(UserHookBase):
             self.assertEqual(self.verb('install', path=lab)[0], 0)                     # (review P2-3: the profile of CLAUDE_CONFIG_DIR is the owner's too, so not self.settings)
             self.assertEqual(self.verb('status', path=own)[0], 0)
 
+    def test_every_spelling_of_the_profile_file_is_refused_in_an_ai_session(self):
+        # FIX25B (Codex F4): `\\?\` / `\\.\` prefix, other case and a `..` detour name the same file and get the same answer
+        own = self.home / '.claude' / 'settings.json'
+        own.write_text('{"theme": "light"}', encoding='utf-8')
+        plain = str(own)
+        spellings = [plain, plain.upper(), str(self.home / '.claude' / '..' / '.claude' / 'settings.json')]
+        if os.name == 'nt': spellings += ['\\\\?\\' + plain, '\\\\.\\' + plain, '\\\\?\\' + plain.upper()]
+        with patch.dict(os.environ, {'CLAUDECODE': '1', 'CLAUDE_CONFIG_DIR': ''}):
+            for spelling in spellings:
+                for verb in ('install', 'uninstall'):
+                    with self.subTest(spelling=spelling, verb=verb):
+                        code, out = self.verb(verb, path=spelling)
+                        self.assertEqual(code, 2, out)
+                        self.assertIn('refused', out)
+                        self.assertEqual(own.read_text(encoding='utf-8'), '{"theme": "light"}')
+            lab = self.base / 'lab-settings.json'
+            self.assertEqual(self.verb('install', path='\\\\?\\' + str(lab) if os.name == 'nt' else lab)[0], 0)     # another file through the same prefix is still allowed
+
+    def test_the_normal_form_drops_the_prefix_and_the_case(self):
+        form = install._profile_form
+        self.assertEqual(form('\\\\?\\C:\\Users\\X\\.claude\\settings.json'), form('c:\\users\\x\\.claude\\settings.json') if os.name == 'nt' else form('\\\\?\\C:\\Users\\X\\.claude\\settings.json'))
+        self.assertEqual(form('\\\\?\\UNC\\host\\share\\f.json'), form('\\\\host\\share\\f.json'))
+
     def test_the_owner_may_change_the_default_file_from_a_terminal_of_their_own(self):
         own = self.home / '.claude' / 'settings.json'
         with patch.dict(os.environ, {'CLAUDE_CONFIG_DIR': ''}):
@@ -429,6 +452,26 @@ class TwoHooksAtOnce(RecordsBase):
         self.assertFalse(hook_cli.claim_call(folder, {'plan': 'P'}, 'toolu_1'))
         self.assertTrue(hook_cli.claim_call(folder, {'plan': 'Q'}, 'toolu_1'))
         self.assertTrue(hook_cli.claim_call(folder, {'plan': 'P'}, 'toolu_2'))
+
+    def test_records_of_many_processes_at_once_lose_no_line(self):
+        # FIX25B (Codex F5): 6 processes x 30 distinct calls into one project: every line is there, valid, with its own id
+        import subprocess
+        folder = self.a / '.onecrew'
+        folder.mkdir(exist_ok=True)
+        code = ('import sys; from onecrew.v2 import hook_cli\n'
+                'project, worker = sys.argv[1], sys.argv[2]\n'
+                'for n in range(30):\n'
+                '    hook_cli.CALL.update(tool_use_id=f"toolu_{worker}_{n}", quiet=False)\n'
+                '    hook_cli.record(project, {"plan": "P", "revision": 1}, "block", "Write", "r", "outside_owned", subject="s")\n')
+        root = str(Path(hook_cli.__file__).resolve().parents[2])
+        env = dict(os.environ, PYTHONPATH=root)
+        procs = [subprocess.Popen([sys.executable, '-B', '-X', 'utf8', '-c', code, str(self.a), str(w)], env=env, cwd=root) for w in range(6)]
+        self.assertEqual([p.wait(timeout=120) for p in procs], [0] * 6)
+        lines = (folder / 'violations.jsonl').read_text(encoding='utf-8').splitlines()
+        items = [json.loads(line) for line in lines]
+        self.assertEqual(len(items), 180)
+        self.assertEqual(len({i['tool_use_id'] for i in items}), 180)
+        self.assertEqual(len({i['id'] for i in items}), 180)
 
     def test_the_marker_alone_decides_even_when_the_tail_of_the_log_shows_nothing(self):
         self.assertEqual(self.call(self.b, self.a / 'other.txt', 'user', tool_use_id='toolu_z')[0], 2)
