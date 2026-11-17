@@ -33,6 +33,9 @@ def _parser():
     a.add_argument('--timeline', type=int, default=200, help='Số sự kiện gần nhất (1-5000).')
     a = sub.add_parser('evidence', help='In một blob bằng chứng mà sự kiện của plan nêu (lọc bí mật, tối đa 64 KiB).')
     a.add_argument('plan'); a.add_argument('key'); a.add_argument('--all-projects', action='store_true')
+    a = sub.add_parser('background', help='Việc nền của host (subagent, lệnh shell nền) quan sát qua hook: thuộc kế hoạch nào, trạng thái, nguồn, điều CHƯA quan sát. Chỉ đọc.')
+    a.add_argument('--plan', help='Chỉ việc gắn với kế hoạch này.'); a.add_argument('--session', help='Chỉ phiên host này.'); a.add_argument('--json', action='store_true')
+    a.add_argument('--stale-minutes', type=int, default=30, help='Im lặng quá số phút này thì trạng thái là "chưa rõ" (không phải treo, không phải xong).')
     for verb in ('serve', 'open'):
         a = sub.add_parser(verb, help=('Chạy trang web local trong tiến trình này (Ctrl+C đóng trang, không dừng worker).' if verb == 'serve'
                                       else 'Mở trang web local trong trình duyệt mặc định (server chạy tách rời).'))
@@ -65,6 +68,12 @@ def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
     opts = _parser().parse_args(args)
     try:
+        if opts.command == 'background':              # reads <project>/.onecrew/background.jsonl only: no ledger, no write
+            from . import background
+            if not 1 <= opts.stale_minutes <= 10080: raise LedgerError('--stale-minutes: 1-10080.')
+            value = background.view(opts.project.resolve(), plan=opts.plan, session=opts.session, stale=opts.stale_minutes * 60)
+            print(json.dumps(tracking.outward(value), ensure_ascii=False, indent=1) if opts.json else background.render(tracking.outward(value)), end='')
+            return 0
         state_root, project_id = _state_root(opts)
         if opts.command == 'list':
             value = tracking.overview(state_root, project_id=None if opts.all_projects else project_id)

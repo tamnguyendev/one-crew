@@ -2222,10 +2222,35 @@ def owner_wait(milestone):
     return None
 
 
+def note_background(event, root, plan):
+    """BG-A: remember what a hook payload says about background work (subagents, background shell commands) in <project>/.onecrew/background.jsonl. It only
+    records; it never answers, blocks or raises, and a project without .onecrew/ is left alone."""
+    try:
+        if root is None: return None
+        from . import background
+        return background.note(event, root, plan, locker=appending)
+    except Exception:
+        return None
+
+
+def background_hook(args):
+    """`hook background`: PostToolUse (Agent|Task|Bash|PowerShell), SubagentStart, SubagentStop, SessionEnd -> background.jsonl. Not a gate: always exit 0."""
+    event, _ = read_stdin()
+    note_call(event)
+    try:
+        plan, root, _bad, _source = governing(args, event)
+    except Exception:
+        return 0
+    if plan is not None and _bad: plan = None          # an unreadable plan binds nothing
+    note_background(event, root, plan)
+    return 0
+
+
 def stop(args):
     event, _ = read_stdin()
     note_call(event)
     plan, root, bad, _ = governing(args, event)
+    note_background(event, root, None if bad else plan)       # BG-A: the PARENT turn ended; no child is finished by it
     if plan is None: return 0
     plan = refreshed(root, plan)
     session = event.get('session_id')
@@ -2285,6 +2310,7 @@ def session(args):
     event, _ = read_stdin()
     note_call(event)
     plan, root, bad, _ = governing(args, event)
+    note_background(event, root, None if bad else plan)       # BG-A: a SessionStart(resume) is the host reconnecting; it revives no child by itself
     if plan is None: return 0
     plan = refreshed(root, plan)
     budget = plan.get('budget') or {}
@@ -2336,16 +2362,21 @@ HOOK_EVENTS = (('PreToolUse', 'check', 15, 'Edit|Write|MultiEdit|NotebookEdit|Ba
                ('UserPromptSubmit', 'prompt', 10, None, 'continue'),                                         # prompt/stop hook must not lock the session
                ('Stop', 'stop', 30, None, 'continue'),
                ('SessionStart', 'session', 30, 'startup|resume|clear|compact', 'continue'))
+# BG-A (opt-in: `hook install --print --background`): the extra events that let OneCrew see background work. They never block and never fail a call.
+BACKGROUND_EVENTS = (('PostToolUse', 'background', 10, 'Agent|Task|Bash|PowerShell', 'continue'),
+                     ('SubagentStart', 'background', 10, None, 'continue'),
+                     ('SubagentStop', 'background', 10, None, 'continue'),
+                     ('SessionEnd', 'background', 5, None, 'continue'))
 OWNER_DENY = ('plan approve', 'plan accept', 'plan enforce', 'verdict record', 'hook mode', 'plan unknown close*owner', 'plan poc record*owner',
               'owner approve', 'owner accept', 'owner enforce', 'owner record', 'owner answer', 'question answer',
               'support confirm', 'support target add', 'support rollback', 'support cleanup*--v')    # owner-only entry points
 
 
-def build_settings(handler, state_root):
-    """{'hooks', 'permissions'}; handler(verb, timeout, fail) is the handler dict of one hook event."""
+def build_settings(handler, state_root, background=False):
+    """{'hooks', 'permissions'}; handler(verb, timeout, fail) is the handler dict of one hook event. `background`: also the BG-A observation events."""
     def entry(verb, timeout, matcher, fail):
         return dict({'matcher': matcher} if matcher else {}, hooks=[handler(verb, timeout, fail)])
-    return {'hooks': {event: [entry(verb, timeout, matcher, fail)] for event, verb, timeout, matcher, fail in HOOK_EVENTS},
+    return {'hooks': {event: [entry(verb, timeout, matcher, fail)] for event, verb, timeout, matcher, fail in HOOK_EVENTS + (BACKGROUND_EVENTS if background else ())},
             'permissions': {'deny': deny_rules(state_root)}}
 
 
@@ -2356,12 +2387,12 @@ def portable_settings(exe, state_root):
                           state_root)
 
 
-def settings(project, state_root, repo):
+def settings(project, state_root, repo, background=False):
     """The checkout form (`hook install --print` from onecrew_cli.py): this interpreter runs the checkout's hook_cli with explicit --project/--state-root."""
     code = f"import sys; sys.path.insert(0, {str(repo)!r}); from onecrew.v2.hook_cli import main; sys.exit(main(sys.argv[1:]))"
     return build_settings(lambda verb, timeout, fail: {'type': 'command', 'command': sys.executable,
                                                        'args': ['-c', code, '--project', str(project), '--state-root', str(state_root), 'hook', verb],
-                                                       'timeout': timeout, 'onFailure': fail}, state_root)
+                                                       'timeout': timeout, 'onFailure': fail}, state_root, background)
 
 
 def deny_rules(state_root):
@@ -2395,8 +2426,10 @@ def parser():
         if name == 'check': p.add_argument('--scope', choices=['project', 'user'], default='project', help='user: the hook installed by `hook user install` (#25).')
     p = verbs.add_parser('mode', help='Owner only: log or enforce.'); p.add_argument('mode', choices=['log', 'enforce']); p.add_argument('--by', required=True)
     p.add_argument('--plan'); p.add_argument('--reference', required=True)
+    verbs.add_parser('background', help='PostToolUse/SubagentStart/SubagentStop/SessionEnd: record background work (BG-A); never blocks.')
     p = verbs.add_parser('install', help='Print the hooks and permissions.deny settings (never edits a settings file).')
     p.add_argument('--print', dest='show', action='store_true', required=True)
+    p.add_argument('--background', action='store_true', help='BG-A: also print the hook events that record subagents and background commands.')
     p = verbs.add_parser('user', help='Owner only: install|status|uninstall the user-scope hook (#25).')
     p.add_argument('action', choices=['install', 'status', 'uninstall'])
     p.add_argument('--settings-file', type=Path); p.add_argument('--program', type=Path)
@@ -2407,8 +2440,8 @@ def main(argv=None):
     utf8_streams()          # before anything is printed, whichever way the hook was started (this module through `python -c`, or the installed `onecrew hook <verb>`)
     args = parser().parse_args(argv)
     if args.group != 'hook': return 2
-    if args.verb in ('check', 'prompt', 'stop', 'session'):
-        return {'check': check, 'prompt': prompt, 'stop': stop, 'session': session}[args.verb](args)
+    if args.verb in ('check', 'prompt', 'stop', 'session', 'background'):
+        return {'check': check, 'prompt': prompt, 'stop': stop, 'session': session, 'background': background_hook}[args.verb](args)
     if args.verb == 'user':                  # #25: no ledger, no project: a file of the user's own
         from . import install
         return install.user_hook(args.action, args.settings_file, args.program)
@@ -2419,7 +2452,7 @@ def main(argv=None):
         if args.verb == 'sync': out = sync(args)
         elif args.verb == 'install':
             repo = Path(__file__).resolve().parents[2]
-            out = settings(project.resolve(), Path(Ledger(project, state_root).state_root), repo)
+            out = settings(project.resolve(), Path(Ledger(project, state_root).state_root), repo, background=getattr(args, 'background', False))
         else:
             from . import active_plan
             from .plan import require_owner

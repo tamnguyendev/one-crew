@@ -32,7 +32,7 @@ from . import claude_cli, hook_cli, where
 from .messages import TEXT, lang, t
 
 EXE_NAMES = ('onecrew', 'onecrew.exe', 'onecrew.cmd')
-HOOK_VERBS = tuple(verb for _, verb, _, _, _ in hook_cli.HOOK_EVENTS)
+HOOK_VERBS = tuple(verb for _, verb, _, _, _ in hook_cli.HOOK_EVENTS) + ('background',)      # BG-A: `hook background` is ours too (opt-in events)
 LOGIN_TIMEOUT = 30
 
 
