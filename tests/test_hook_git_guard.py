@@ -474,6 +474,66 @@ class Round5Deny(GitGuardBase):
         self.blocked("bash <<'EOF'\ngit reset --hard\nEOF")
 
 
+class Round6Globs(GitGuardBase):
+    """P1-1: only an unquoted Bash glob is expanded on disk; any other glob is a pathspec that covers the whole fixed folder."""
+
+    def setUp(self):
+        super().setUp()
+        for rel in ('src/sub/b.txt', 'src/.env'):
+            (self.repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / rel).write_text('x\n', encoding='utf-8')
+
+    def test_a_quoted_glob_is_a_pathspec_over_the_whole_folder(self):
+        self.each(["git checkout -- 'src/*.txt'", "git restore 'src/*.txt'", "git restore -- 'src/*.txt'", "git restore --source=HEAD -- 'src/*.txt'",
+                   "git checkout HEAD -- 'src/*.txt'", "git stash push -- 'src/*.txt'", "git checkout -- 'src/**.txt'", "git checkout -- 'src/*'",
+                   "git restore '*.txt'"], self.blocked)
+
+    def test_every_powershell_glob_is_a_pathspec(self):
+        self.each(['git restore src/*.txt', 'git checkout -- src/*.txt', "git restore 'src/*.txt'"], self.blocked, tool='PowerShell')
+
+    def test_an_unquoted_bash_glob_is_what_the_shell_expands(self):
+        self.each(['git checkout -- src/*.txt', 'git restore src/*.txt', 'git restore src/a.t*'], self.allowed)
+
+    def test_a_glob_that_matches_no_file_is_a_pathspec(self):
+        self.blocked('git restore src/nomatch*.txt')
+
+
+class Round6Heredoc(GitGuardBase):
+    """P2-1 / P2-2 / P2-3 and P3 item 2 of review 5."""
+    COMMIT = "git commit -q --allow-empty -m \"$(cat <<'EOF'\nfix: x\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\""
+
+    def test_the_standard_commit_with_a_trailer_passes(self):
+        self.each([self.COMMIT, self.COMMIT.replace('\n', '\r\n'), "git add -A && " + self.COMMIT,
+                   "git commit -F - <<'EOF'\nfix: x\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF",
+                   "cat > src/a.txt <<'EOF'\n<div>\nhello\n</div>\nEOF", "cat > src/a.txt <<'EOF'\nif a > b:\n    pass\nEOF"], self.allowed)
+
+    def test_a_target_outside_owned_is_still_a_target(self):
+        self.each(["cat > other.txt <<'EOF'\nhello\nEOF", "cat <<'EOF' | bash\necho y > other.txt\nEOF"], self.blocked)
+
+    def test_the_closing_line_hands_the_text_on_by_a_continuation_or_process_substitution(self):
+        self.each(['echo "$(cat <<\'EOF\'\ngit stash\nEOF\n)" \\\n| bash', 'echo "$(cat <<\'EOF\'\ngit stash\nEOF\n)" \\\n  | bash',
+                   'echo "$(cat <<\'EOF\'\ngit stash\nEOF\n)" > >(bash)', 'echo "$(cat <<\'EOF\'\ngit stash\nEOF\n)" >(bash)',
+                   'printf \'%s\' "$(cat <<\'EOF\'\ngit stash\nEOF\n)" \\\n  | sh'], self.blocked)
+        self.each(['echo "$(cat <<\'EOF\'\ngit stash\nEOF\n)" \\\n  && git log --oneline -1', "git commit -q --allow-empty -m \"$(cat <<'EOF'\nfix\nEOF\n)\" 2>&1 | tail -5",
+                   "git commit -q --allow-empty -m \"$(cat <<'EOF'\nfix: `git stash` is refused\nEOF\n)\" 2>&1 | tail -5"], self.allowed)
+
+    def test_a_variable_store_is_not_a_text_reader(self):
+        self.each(['printf -v x \'%s\' "$(cat <<\'EOF\'\ngit stash\nEOF\n)"; eval "$x"', 'read -r x <<< "$(cat <<\'EOF\'\ngit stash\nEOF\n)"; eval "$x"',
+                   'for c in $(cat <<\'EOF\'\nstash\nEOF\n); do git $c; done', "read -r -d '' x <<'EOF'\ngit stash\nEOF\neval \"$x\"", 'git $c'], self.blocked)
+        self.allowed("printf '%s' \"$(cat <<'EOF'\ngit stash\nEOF\n)\" > src/a.txt")
+
+    def test_git_dash_c_and_gh_bodies_are_text(self):
+        self.each(["git -C . commit -q --allow-empty -m \"$(cat <<'EOF'\nfix: `git stash` is refused\nEOF\n)\"",
+                   "gh pr create --title x --body \"$(cat <<'EOF'\n## Summary\n- `git stash` without paths is refused\nEOF\n)\"",
+                   "gh issue comment 3 -b \"$(cat <<'EOF'\n`git stash`\nEOF\n)\""], self.allowed)
+
+
+class Round6Sed(GitGuardBase):
+    def test_a_file_named_2_is_a_target_but_a_stream_number_is_not(self):
+        self.blocked('sed -i s/a/b/ 2 >/dev/null')
+        self.allowed('sed -i s/a/b/ src/a.txt 2>/dev/null')
+
+
 class Round4Speed(unittest.TestCase):
     def test_a_long_run_of_backslashes_is_read_in_linear_time(self):
         import time

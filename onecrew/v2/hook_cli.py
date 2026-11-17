@@ -200,10 +200,10 @@ def judge_path(plan, root, target, action):
 # ---- shell commands --------------------------------------------------------------------------------------------------------
 
 # #12: a target is a whole shell word: quoted and unquoted parts joined (`"$TMPDIR"/../x` is one word, not `"$TMPDIR"`)
-REDIRECT = re.compile(r'(?<![<>&-])\d?>>?(?![&>])\s*((?:"[^"]*"|\'[^\']*\'|[^\s;|&<>()])+)')
+REDIRECT = re.compile(r'(?<![<>&-])\d?>>?(?![&>])[ \t]*((?:"[^"]*"|\'[^\']*\'|[^\s;|&<>()])+)')
 # #12: the write redirects REDIRECT leaves out: `>|` (its target class stops at `|`), `&>`, `&>>` (its lookbehind), and `>&file` (but `>&1`, `>&2`, `>&-` copy a descriptor,
 # also when `;` `|` `&` `)` `<` `>` follows: `2>&1)`)
-REDIRECT_MORE = re.compile(r'(?:>\||&>>?|(?<![<>&])\d?>&(?!\s*(?:\d+|-)(?![\w.])))\s*((?:"[^"]*"|\'[^\']*\'|[^\s;|&<>()])+)')
+REDIRECT_MORE = re.compile(r'(?:>\||&>>?|(?<![<>&])\d?>&(?![ \t]*(?:\d+|-)(?![\w.])))[ \t]*((?:"[^"]*"|\'[^\']*\'|[^\s;|&<>()])+)')
 EVERY = ('rm', 'del', 'erase', 'rd', 'rmdir', 'ri', 'remove-item', 'mkdir', 'md', 'touch', 'tee', 'clear-content', 'clc')        # every plain word is a target
 FIRST = ('set-content', 'sc', 'add-content', 'ac', 'out-file', 'tee-object', 'new-item', 'ni', 'export-csv', 'export-clixml')   # the first one is
 COPY = ('cp', 'mv', 'copy', 'move', 'copy-item', 'cpi', 'move-item', 'mi', 'ren', 'rename', 'rename-item', 'rni')              # the last one is
@@ -308,7 +308,7 @@ def shell_targets(command, powershell=False):
     found += [unquote(command[m.start(1):m.end(1)]) for m in REDIRECT_MORE.finditer(masked)]
     for m in SED_WORDS.finditer(masked):
         text = command[m.start(1):m.start(1) + len(masked[m.start(1):m.end(1)].rstrip())]      # #12: a comment after the options is masked blank, its words are no files
-        if command[m.end(1):m.end(1) + 1] == '>': text = re.sub(r'(?:^|\s)\d+$', '', text)      # #12: `2>/dev/null` is a redirect, its `2` no file
+        if command[m.end(1):m.end(1) + 1] == '>' and re.search(r'(?:^|\s)\d+$', command[m.start(1):m.end(1)]): text = re.sub(r'(?:^|\s)\d+$', '', text)      # #12: `2>/dev/null` is a redirect, its `2` no file
         words = [unquote(w) for w in WORDS.findall(text)]
         in_place, script_given, files, i = False, False, [], 0
         while i < len(words):
@@ -531,7 +531,7 @@ SHELL_WORDS = {'bash': (), 'sh': (), 'zsh': (), 'dash': (), 'ksh': (), 'cmd': ()
 HEREDOC = re.compile(r'(?<!<)<<(?!<)(-?)[ \t]*(?:"([^"\n]+)"|\'([^\'\n]+)\'|\\?([\w.-]+))')
 # #12: the commands known to read a here-document as text; any other receiver keeps the body judged
 TEXT_READERS = {'cat', 'tee', 'sed', 'grep', 'egrep', 'fgrep', 'awk', 'gawk', 'wc', 'sort', 'uniq', 'head', 'tail', 'cut', 'tr', 'diff', 'patch', 'jq', 'echo', 'printf',
-                'read', 'mapfile', 'base64', 'less', 'more', 'fold', 'nl', 'xxd', 'od', 'iconv', 'python', 'python3', 'py', 'node', 'ruby', 'perl', 'php'}
+                'base64', 'less', 'more', 'fold', 'nl', 'xxd', 'od', 'iconv', 'python', 'python3', 'py', 'node', 'ruby', 'perl', 'php'}
 GIT_TEXT = {'commit', 'apply', 'am', 'tag', 'notes', 'hash-object', 'fast-import'}
 GIT_VALUE = ('-c', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--config-env', '--exec-path')
 
@@ -562,8 +562,19 @@ def segment_reads_text(words):
     head = os.path.basename(unquote(words[0]).replace('\\', '/')).lower()
     head = head[:-4] if head.endswith('.exe') else head
     if head == 'git':
-        rest = [w for w in words[1:] if not w.startswith('-')]
+        rest, skip = [], False                                               # #12: the values of `-C <dir>` and `-c k=v` are not the sub-command
+        for w in words[1:]:
+            if skip: skip = False
+            elif w in GIT_VALUE or w == '-C': skip = True
+            elif not w.startswith('-'): rest.append(w)
         return bool(rest) and rest[0].lower() in GIT_TEXT
+    if head == 'gh':                                                         # #12: `gh pr create --body "$(cat <<'EOF'...)"`: the body is text
+        sub = []
+        for w in words[1:]:
+            if w.startswith('-'): break
+            sub.append(w.lower())
+        return sub[:2] in (['pr', 'create'], ['pr', 'edit'], ['pr', 'comment'], ['issue', 'create'], ['issue', 'comment'])
+    if head == 'printf' and any(w == '-v' or (w.startswith('-v') and not w.startswith('--')) for w in words[1:]): return False      # #12: `printf -v x` keeps the output in a variable
     return head in TEXT_READERS
 
 
@@ -627,10 +638,27 @@ def text_readers(commands):
 
 
 def closes_safely(lines, end):
-    """The line after the delimiter closes a `$(` group: `)` and an optional quote, then nothing, or redirects, `;`, `&&` and `||`; a pipe after it hands the output on."""
+    """The line after the delimiter closes a `$(` group: `)` and an optional quote, then (the line joined with its backslash-newline continuations) nothing, redirects to
+    plain files, `;`, `&&` or `||` and a command; a pipe hands the output on, so it is safe only into commands that all read text; `>(`, `<(` or anything else is not. #12"""
     if end + 1 >= len(lines): return False
-    close = re.match(r'^[ \t]*\)"?(.*)$', lines[end + 1].rstrip('\r'))
-    return close is not None and '|' not in close.group(1).replace('||', '')
+    k = end + 1
+    line = lines[k].rstrip('\r')
+    while (len(line) - len(line.rstrip('\\'))) % 2 and k + 1 < len(lines):
+        k += 1
+        line = line[:-1] + lines[k].rstrip('\r')
+    close = re.match(r'^[ \t]*\)"?(.*)$', line, re.S)
+    if close is None: return False
+    rest = close.group(1)
+    while True:                                                            # redirects to plain file names (or a descriptor copy)
+        redirect = re.match(r'[ \t]*(?:\d?>&\d+|(?:\d?>>?|&>>?|>\|)[ \t]*[^\s;|&<>()$`\'"\\]+)', rest)
+        if redirect is None: break
+        rest = rest[redirect.end():]
+    rest = rest.strip()
+    if not rest or rest.startswith((';', '&&', '||')): return True
+    if rest[0] == '|' and '<(' not in rest and '>(' not in rest:
+        commands = pipeline(' ' + rest.lstrip('|&'))
+        return bool(commands) and text_readers(commands)[0]
+    return False
 
 
 def skips_body(logical, m, info, commands, ends, readers, lines, end):
@@ -770,15 +798,29 @@ def path_word(word, here):
 
 
 def glob_names(word, here):
-    """The paths a git path word stands for: a glob is read from the files that exist (the shell, or git, expands it; `src/*.txt` is `src/a.txt`); a glob that
-    matches nothing, or too much, stays as written (it will be judged as a path outside the owned scope). #12"""
-    if here is None or not re.search(r'[*?\[]', word) or re.search(r'[$%`]', word): return [word]
-    try:
-        found = glob.glob(word, root_dir=str(here), recursive=True)
-        if '/' not in word and '\\' not in word: found += glob.glob('**/' + word, root_dir=str(here), recursive=True)
-    except (OSError, ValueError, TypeError):
-        return [word]
-    return list(dict.fromkeys(found)) if 0 < len(found) <= 500 else [word]
+    """The paths a git path word stands for. Only an unquoted Bash word (`expand`) is expanded against the files on disk, as bash does before git runs (`src/*.txt` is
+    `src/a.txt`). Any other glob (quoted, PowerShell, or matching no file) is a git pathspec, in which `*` matches `/` and dot files too: it covers the whole fixed folder
+    before the first glob character (`src/` for `src/*.txt`, the repository root for `*.txt`). #12"""
+    if here is None or word.startswith(':') or not re.search(r'[*?\[]', word) or re.search(r'[$%`]', word): return [word]
+    if getattr(word, 'expand', False):
+        try:
+            found = glob.glob(word, root_dir=str(here))
+        except (OSError, ValueError, TypeError):
+            found = []
+        if 0 < len(found) <= 500: return found
+    prefix = re.split(r'[*?\[]', word, 1)[0].replace('\\', '/')
+    return [prefix.rsplit('/', 1)[0] or '.' if '/' in prefix else '.']
+
+
+class Word(str):
+    """A shell word read from the text; `expand` is true for an unquoted Bash word (the shell expands its glob, not git). #12"""
+    expand = False
+
+
+def read_word(raw, powershell):
+    word = Word(unquote(raw))
+    word.expand = not powershell and not re.search(r'["\'\\]', raw)
+    return word
 
 
 def command_head(words):
@@ -849,8 +891,10 @@ def git_verdict(plan, root, here, words, limited, fed=False):
         elif word in GIT_VALUE: i += 1
         i += 1
     if i >= len(words): return None
+    if re.search(r'[$%`]', words[i]):                                      # #12: `git $c` runs a sub-command the line does not show
+        return 'unresolvable_target', f'`git {words[i]}` has a sub-command the hook cannot resolve; write the git command out.' + SAFE_WAY
     sub, args = words[i].lower(), words[i + 1:]
-    refuse = lambda why: ('git_discard', f'`git {sub}` {why} can throw away uncommitted work, and only the owned scope is yours to change.' + SAFE_WAY)
+    refuse =lambda why: ('git_discard', f'`git {sub}` {why} can throw away uncommitted work, and only the owned scope is yours to change.' + SAFE_WAY)
 
     def paths_verdict(paths):
         if fed and paths: return 'unresolvable_target', f'`git {sub}` gets its paths from xargs or find -exec, which the hook cannot read; name literal paths inside the owned scope.' + SAFE_WAY      # #12
@@ -940,7 +984,7 @@ def discard_verdict(plan, root, cwd, command, limited=False, powershell=False, s
     for text in command_texts(text, 0, powershell) + [t for body in bodies for t in command_texts(body, 0, powershell)]:
         here = Path(cwd)
         for segment in shell_segments(text, powershell):
-            words = [unquote(w) for w in without_redirects(TOKEN.findall(segment))]
+            words = [read_word(w, powershell) for w in without_redirects(TOKEN.findall(segment))]
             head_words, _ = command_head(list(words))
             if not head_words: continue
             if os.path.basename(head_words[0].replace('\\', '/')).lower() in ('cd', 'pushd', 'chdir', 'set-location', 'sl'):
@@ -976,7 +1020,7 @@ def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=Fal
         for item, how in items:
             if mentions(flat, item, how):
                 return 'protected', f'The command mentions {item}, which only the owner changes ({first or "?"} is not a read-only command).'
-    for raw in all_targets(command, powershell=powershell):
+    for raw in all_targets('\n'.join([split[0]] + split[1]), powershell=powershell):      # #12: the same text as the deny rules: a body a text reader takes is no write target
         if not_a_file(raw, powershell): continue
         if re.search(r'[$%`]', raw):
             if limited and not refuse_unresolvable: continue
