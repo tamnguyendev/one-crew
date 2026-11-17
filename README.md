@@ -1,147 +1,137 @@
 # OneCrew
 
-OneCrew là **hợp đồng làm việc cho AI** trong Claude Code:
+**Give AI a clear scope. Track the work. Check the result before accepting it.**
 
-- AI chỉ sửa những gì nằm trong hợp đồng bạn đã duyệt. Hook của Claude Code chặn mọi thay đổi ra ngoài.
-- Mỗi mốc của việc được kiểm độc lập (lệnh kiểm hoặc người review riêng), có biên nhận ghi vào sổ.
-- Chỉ bạn duyệt và nghiệm thu, trong terminal của bạn. Các lệnh đó bị từ chối nếu chạy trong phiên AI.
+OneCrew is a local workflow tool for people who delegate work to AI assistants. It adds work contracts, verification records, project knowledge, and a progress dashboard to Claude Code, so you can see what was agreed, what was checked, and what needs your decision.
 
-**Bản hiện tại: `2.5.0.dev28`, bản beta (prerelease)**, đã thử trên Windows 10/11. Chưa phải bản ổn định. Ghi chú phát hành và các bản khác: trang [Releases](https://github.com/tamnguyendev/one-crew/releases).
+[Get started](docs/GETTING-STARTED.en.md) · [Releases](https://github.com/tamnguyendev/one-crew/releases) · [Report an issue](https://github.com/tamnguyendev/one-crew/issues) · [Limitations](#current-limitations)
 
-> **Luôn cài theo tag phát hành** (ví dụ `v2.5.0.dev28`), như các lệnh bên dưới, để có đúng bản đã được kiểm. Nhánh `main` có thể có thay đổi chưa phát hành.
+> **Beta:** this guide targets the published **`2.5.0.dev28`** tracking release, tested on Windows. The separate `2.5.0.dev28+mrr.4` release adds experimental multi-repository reading; it does **not** include the dev28 tracking-list changes. Choose a release explicitly rather than installing from `main`.
 
-## Cần có
+## Why OneCrew?
 
-- Windows 10/11 với PowerShell 5.1 trở lên. Linux và macOS chưa được thử.
-- Python 3.10 trở lên, bản cài từ python.org. Gõ `py -0p` để xem các bản đã cài. Đừng dùng alias `python` của Microsoft Store.
-- Git 2.40 trở lên, có trong PATH.
-- Claude Code CLI, đã đăng nhập.
-- Repo bạn muốn đặt dưới hợp đồng phải là một repo Git có ít nhất một commit.
+When an AI says “I'm working on it” or “done,” you still need to know:
 
-## 1. Cài OneCrew (một lần cho mỗi máy)
+- What did we agree to build, and what changed since then?
+- What is running, waiting for a check, or waiting for me?
+- Which output was checked, by what method, and against which version?
+- What failed, what was fixed, and what still needs verification?
+- What context and lessons can the next task reuse?
 
-Dán vào PowerShell. Sửa hai đường dẫn đầu cho máy của bạn:
+OneCrew records these as plans, events, and evidence in a local ledger. Its dashboard reads those records so you can follow a task beyond a chat summary.
 
-```powershell
-$Python  = "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe"
-$Venv    = "D:\OneCrew\venv"
-& $Python -m venv $Venv
-& "$Venv\Scripts\python.exe" -m pip install "git+https://github.com/tamnguyendev/one-crew.git@v2.5.0.dev28"
-$OneCrew = "$Venv\Scripts\onecrew.exe"
-& $OneCrew --version
-```
+Use it when a task needs explicit scope, checkable outputs, or a handoff you can inspect later. For a one-off question with no work to track, the setup may be unnecessary. OneCrew works alongside your assistant; it does not replace the assistant or automatically turn every chat or subagent into a tracked task.
 
-Bạn thấy `onecrew 2.5.0.dev28` là đạt.
+## What you can do
 
-**Giữ venv ở nguyên chỗ.** Hook trong repo gọi thẳng `$Venv\Scripts\onecrew.exe`; xóa hay chuyển venv thì hook hỏng.
+These capabilities are included in the dev28 tracking release. Their availability does not mean every host, provider, or workflow has been tested end to end.
 
-Hai cách cài khác, kết quả như nhau:
-- **Tải wheel:** tải file `.whl` và `SHA256SUMS` ở trang Releases. So SHA256 bằng `Get-FileHash`, rồi chạy `pip install <file .whl>`. GitHub có thể đổi dấu `+` trong tên file, nên hãy so mã băm, đừng so tên.
-- **Clone mã nguồn:** `git clone --branch v2.5.0.dev28 https://github.com/tamnguyendev/one-crew.git`, rồi chạy `pip install .` trong thư mục vừa clone.
-
-## 2. Gắn OneCrew vào một repo
-
-```powershell
-$env:ONECREW_LANG = 'vi'
-$DuAn = "D:\du an\repo cua toi"
-$So   = "D:\OneCrew\so"
-& $OneCrew --project $DuAn --state-root $So init
-```
-
-`$So` là **sổ** (state root), nơi OneCrew lưu hợp đồng, kết quả kiểm và lần duyệt. Đặt sổ ngoài repo. Nhiều repo có thể dùng chung một sổ.
-
-`init` liệt kê những gì sẽ ghi rồi hỏi `Tiếp tục? [y/N]`. Bạn gõ `y`. Lệnh ghi các file sau:
-
-| File | Là gì |
+| Capability | What it gives you |
 |---|---|
-| `$So\ledger.sqlite3`, `$So\plans\owner-rules.md` | Sổ và quy tắc của bạn. Nếu đã có thì giữ nguyên. |
-| `$DuAn\.onecrew\config.json` | Đường dẫn sổ trên máy này. **Đừng commit**: thêm `.onecrew/` vào `.gitignore`. |
-| `$DuAn\.claude\settings.local.json` | Hook của Claude Code. Hook và quyền đang có được giữ, bản cũ được sao ra `.bak`. Thêm `--shared` nếu muốn ghi vào `settings.json` dùng chung với nhóm. |
-| `$DuAn\docs\wiki\` | Khung wiki của project, 3 file. |
+| **Agree on the work first** | Versioned plans with the goal, expected outputs, editable paths, milestones, and limits. Review the proposed solution before authorizing work. |
+| **Keep work within its scope** | Claude Code hooks check supported tool operations against an enforced plan and record refusals. Coverage has limits; this is not an OS sandbox. |
+| **Track progress locally** | A browser dashboard with task lists, project/status filters, decisions needing your attention, and a timeline of recorded activity. |
+| **Follow solution changes** | Inspect the recorded solution and revisions, with before/after information where the ledger contains it. |
+| **Separate output from verification** | See generated outputs, milestone results, and evidence. A generated file or successful model response is not automatically an accepted result. |
+| **Follow test and repair cycles** | Link findings, repairs, and rechecks through the existing workflow. The UI displays recorded cycles; it cannot reconstruct activity that was never recorded. |
+| **Reuse project knowledge** | Initialize a project wiki, retrieve relevant context, and record or withdraw knowledge with supporting evidence. This is external memory, not model training. |
+| **Resume with context** | Use continuation and handoff records to carry task state and relevant knowledge forward. Reopening a chat alone does not reconnect it automatically. |
+| **Report problems** | Collect local diagnostic information through `support` commands and review it before sharing. |
+| **Keep acceptance explicit** | Owner commands separate approval and final acceptance from AI execution and checking. They are refused when detected inside an AI session. |
 
-Chạy lại `init` không đổi thêm gì.
+### A typical task
 
-## 3. Kiểm
+For example: **“Fix the login error, keep the existing API, and show that the failing case now passes.”**
 
-```powershell
-& $OneCrew --project $DuAn --state-root $So doctor
+```mermaid
+flowchart LR
+    A[Agree on goal and scope] --> B[Owner approves plan]
+    B --> C[AI works within the plan]
+    C --> D[Check the result]
+    D -->|Findings| E[Repair within the grant]
+    E --> D
+    D -->|Required checks pass| F[Owner accepts the output]
 ```
 
-Bạn thấy `0 FAIL` là đạt. Có FAIL thì đọc đúng dòng đó; bảng ở mục 6 có cách xử lý.
+The owner approves the work, the assistant implements it, and configured command checks or reviewers produce evidence. Routine work inside the grant does not require a new approval for each edit. A material change outside that grant needs a new decision.
 
-Sau đó **mở một phiên Claude Code MỚI trong repo.** Claude Code chỉ nạp hook lúc bắt đầu phiên, nên phiên đang mở từ trước sẽ không thấy hook.
+This workflow also fits documentation and source-analysis tasks: define the expected output and choose an appropriate check. The quickstart uses a small documentation task so you can learn the workflow before applying it to production code.
 
-## 4. Việc đầu tiên, từ đầu đến cuối
+## Start here
 
-1. **Giao việc.** Trong phiên Claude Code mới, nói việc bạn muốn bằng lời. Ví dụ: "tạo file docs/xin-chao.md với đúng một dòng: Xin chao OneCrew".
-2. **AI viết hợp đồng, kiểm rồi đề xuất.** Hợp đồng ghi mục tiêu, file được sửa, đầu ra và cách kiểm từng mốc. Hợp đồng mẫu cho đúng việc trên: [docs/obs2/su-dung/mau-hop-dong.json](docs/obs2/su-dung/mau-hop-dong.json).
-   ```powershell
-   & $OneCrew --project $DuAn --state-root $So plan lint --file hop-dong.json --author <model id>
-   & $OneCrew --project $DuAn --state-root $So plan propose xin-chao --file hop-dong.json --author <model id>
-   ```
-   Đạt khi `lint: clean` và `"status": "proposed"`. Dòng `[note …]` chỉ là ghi chú.
-3. **Bạn duyệt**, trong terminal của bạn:
-   ```powershell
-   & $OneCrew --project $DuAn --state-root $So owner approve xin-chao --reference "<vì sao bạn duyệt>" --human
-   & $OneCrew --project $DuAn --state-root $So owner enforce xin-chao --human
-   ```
-   `--human` chỉ để kết quả in ra dễ đọc, thay vì JSON. Từ lúc `enforce`, hook chặn mọi thay đổi ra ngoài hợp đồng. Trong phạm vi đã duyệt, AI làm hết việc mà không cần bạn duyệt lại từng bước.
-4. **AI làm việc, rồi kiểm từng mốc.**
-   ```powershell
-   & $OneCrew --project $DuAn --state-root $So verdict run --plan xin-chao --milestone M1
-   & $OneCrew --project $DuAn --state-root $So plan report xin-chao
-   ```
-5. **Bạn thử kết quả, rồi nghiệm thu**, trong terminal của bạn. Mã artifact lấy từ `verdict artifact`; mã này phải trùng với mã của mốc đã đạt trong `plan report`.
-   ```powershell
-   & $OneCrew --project $DuAn --state-root $So verdict artifact --plan xin-chao
-   & $OneCrew --project $DuAn --state-root $So owner accept xin-chao --artifact-sha <mã> --reference "<đã thử gì>" --human
-   ```
+**Requirements:** Windows 10/11, PowerShell 5.1+, Python 3.10+, Git 2.40+, and a working Claude Code CLI login. The project must be a Git repository with at least one commit. Linux and macOS are not verified by this guide.
 
-Sau `owner accept`, có lúc màn hình báo "Chưa xác nhận được kết quả" dù sổ đã ghi xong. Hãy chạy `plan show xin-chao` để xem lại trước khi chạy lệnh lần nữa.
+The [English getting-started guide](docs/GETTING-STARTED.en.md) walks through downloading a verified wheel, installing it into a separate venv, connecting a disposable project, completing a first task, and opening the dashboard.
 
-## 5. Xem tiến độ trên trình duyệt
+**Follow that guide from step 1.** It is the single installation path for this README. At the end, you will have a greeting file checked by a command, a recorded result, and a task visible in the dashboard. The demo does not claim to validate a real-model reviewer or every hook path.
+
+**Already using OneCrew?** Do not replace a shared runtime while tasks are active. Read [upgrading an existing project](docs/GETTING-STARTED.en.md#upgrading-an-existing-project) first. Successful installation does not prove existing plans and consumers can safely switch runtimes.
+
+## What the dashboard tells you
+
+With the variables from the getting-started guide:
 
 ```powershell
-& $OneCrew --project $DuAn --state-root $So track open
+& $OneCrew --project $Project --state-root $State track open
 ```
 
-Lệnh mở một trang web chỉ đọc trên máy bạn, ở `127.0.0.1`. Trang có danh sách mọi việc trong sổ, việc chờ bạn duyệt, kết quả kiểm từng mốc và lịch sử. Trang không chạy lệnh nào, và đóng trang không dừng việc AI đang làm. Hướng dẫn: [DANH-SACH-CONG-VIEC.vi.md](docs/obs2/su-dung/DANH-SACH-CONG-VIEC.vi.md).
+The local viewer helps answer **what is happening, what changed, what was checked, and who needs to act next**. It shows recorded tasks, not every Claude conversation on your machine. A connected page means it can read its data source; it does not mean the work has passed verification.
 
-## 6. Lỗi thường gặp
+The page is read-only. Where a validated owner command is available, you can copy it and run it in your own terminal. Opening evidence is not approval; closing the page does not stop a worker. Missing evidence or timing data means unknown, not zero work or success.
 
-| Gặp | Làm gì |
+## How it fits together
+
+| Component | Responsibility |
 |---|---|
-| `requires a different Python` khi chạy `pip install` | Python cũ hơn 3.10. Chọn bản khác trong `py -0p`, rồi tạo lại venv. |
-| `init` thoát với mã 2: "No git repository found" | `$DuAn` chưa phải repo Git hoặc chưa có commit. Chạy `git init` **trong chính repo đó** rồi commit một lần. Đừng `git init` thư mục cha chứa nhiều repo. |
-| `init` thoát với mã 1 | Đã ghi xong, nhưng Claude CLI chưa có hoặc chưa đăng nhập. |
-| `doctor` báo hook FAIL "stale" | Venv đã bị xóa hay chuyển chỗ. Tạo lại venv ở đúng `$Venv`, hoặc chạy lại `init`. |
-| `plan lint` báo `[target_path] … does not exist` | `target.paths` trong hợp đồng phải là file hoặc thư mục đang có. |
-| `owner … refused: … AI tool session` | Lệnh của chủ đã bị chạy trong phiên AI. Mở terminal riêng của bạn và chạy lại ở đó. |
-| Hook không chặn gì | Phiên Claude Code được mở trước `init`/`enforce`, hoặc chưa có hợp đồng nào được `enforce`. Mở phiên mới. |
+| **Your assistant** | Discusses the solution, prepares the plan, and performs authorized work. |
+| **Project hooks** | Inspect supported tool calls in connected Claude Code sessions. |
+| **Workflow and verifiers** | Run configured checks and record results associated with the work being checked. |
+| **Local ledger** | Stores plans, decisions, events, and verification references in your state directory. |
+| **Project wiki** | Holds reusable context and lessons; it does not grant permissions or replace evidence. |
+| **Dashboard** | Presents recorded progress and evidence without approving or executing work. |
+| **You** | Set the scope, decide matters outside the grant, and accept the result. |
 
-Các lỗi đã biết khác: [LOI-DA-BIET.vi.md](docs/obs2/su-dung/LOI-DA-BIET.vi.md).
+The ledger and dashboard are local. Model-backed work still uses the provider and credentials you configure; relevant task context may be sent to that provider. OneCrew is not an offline model or a cloud account-wide monitoring service.
 
-## 7. Nâng bản, gỡ
+## Release and integration status
 
-- **Nâng bản:** cài bản mới vào một venv mới, rồi chạy lại `init` để hook trỏ sang venv đó. Venv cũ cứ giữ, phòng khi cần quay lại. Repo đã dùng OneCrew từ trước thì đọc [REPO-DANG-DUNG-ONECREW.vi.md](docs/obs2/su-dung/REPO-DANG-DUNG-ONECREW.vi.md).
-- **Gỡ:**
-  - xóa các mục OneCrew khỏi `.claude\settings.local.json`, hoặc khôi phục file `.bak`;
-  - xóa thư mục `.onecrew` trong repo;
-  - xóa venv.
+| Area | Status |
+|---|---|
+| Contracts, wiki/context, verification, findings, diagnostics, and tracking UI | Included in the **dev28 tracking beta** described here. |
+| Reading multiple repositories in one task (MR-R) | **Separate experimental release:** [dev28-mrr.4](https://github.com/tamnguyendev/one-crew/releases/tag/v2.5.0.dev28-mrr.4). Read-only source use, not arbitrary multi-repo editing; its release notes report no real-model trial. |
+| Claude Code plugin (CP-1) | Separate from the Python wheel. Do not assume installing this release installs a marketplace plugin. |
+| User-level hook coverage and shell-parser hardening | Follow [issue #25](https://github.com/tamnguyendev/one-crew/issues/25) and [issue #12](https://github.com/tamnguyendev/one-crew/issues/12). Unreleased fixes are not part of dev28. |
+| Other assistant hosts and providers | Support depends on the adapter and workflow. Claude Code hook behavior is not a guarantee of equivalent protection in another host. |
 
-  Sổ là của bạn: giữ hay xóa tùy bạn.
+For version-specific evidence and limitations, use the [release notes](https://github.com/tamnguyendev/one-crew/releases), not a feature name or passing test count alone.
 
-## Giới hạn của bản beta
+## Current limitations
 
-- Mới thử trên Windows. Linux và macOS chưa chạy thật.
-- `budget.max_calls` trong hợp đồng **không** được đếm cho phiên Claude Code làm việc dưới hook. Con số này chỉ được tính cho các lượt OneCrew tự chạy.
-- Mọi test tự động dùng Claude giả. Lời khuyên và review bằng model thật mới chạy thử ở phạm vi nhỏ.
-- Khi gửi góp ý, **đừng gửi** `ledger.sqlite3`, thư mục sổ, key, token hay file `.env`. Lệnh `onecrew support report` tạo gói chẩn đoán đã lọc bí mật.
+- **Hooks are not a security boundary.** They cover supported operations in connected sessions. External processes, sessions outside the configured project, and shell forms the parser does not understand may escape that coverage. Do not use this beta to contain untrusted code.
+- **Installation is not enforcement.** `doctor` checks configuration; a proposed plan is not an enforced plan. Verify hook behavior in a disposable project before relying on it.
+- **Tracking is based on recorded events.** OneCrew does not expose hidden model reasoning or automatically capture every subagent action, token, or tool call.
+- **Budgets depend on the execution path.** Contract `max_calls` applies to calls managed by OneCrew; it does not meter every call made by a Claude Code session under hooks.
+- **Checks have a cost.** Repository snapshots and environment checks can be expensive on large trees. This beta does not guarantee shorter development time or complete test coverage.
+- **Provider validation is limited.** Mechanical checks and fixtures do not prove a real-provider workflow. Check the evidence for the release and adapter you use.
+- **Language coverage is incomplete.** This README and the getting-started guide are in English, but the dashboard is primarily Vietnamese. The guide includes a label glossary; setting `ONECREW_LANG=en` does not translate the whole product. Many release notes and detailed guides remain Vietnamese.
 
-## Tài liệu thêm
+The [known-issues list](docs/obs2/su-dung/LOI-DA-BIET.vi.md) contains additional version-specific details (Vietnamese).
 
-- [docs/README.en.md](docs/README.en.md): bản tiếng Anh một trang.
-- [docs/CHANGELOG.md](docs/CHANGELOG.md): thay đổi qua từng bản.
-- [docs/v2-core.vi.md](docs/v2-core.vi.md): những gì có trong gói cài và cách hợp đồng v2 hoạt động.
-- [examples/owner-rules.vi.md](examples/owner-rules.vi.md): mẫu quy tắc của chủ.
-- [docs/LICH-SU.vi.md](docs/LICH-SU.vi.md): README cũ, gồm kiến trúc revision 2–9 và luồng `job`/`work` của bản v1. Luồng v1 chỉ chạy từ checkout qua `onecrew_cli.py`, không có trong gói cài.
+## Documentation
+
+- [Getting started](docs/GETTING-STARTED.en.md) — installation, first task, troubleshooting, upgrades, and removal.
+- [Changelog](docs/CHANGELOG.md) — release history.
+- [English first-task template](examples/hello-onecrew.template.json) — schema-v2 sample with a content check; fill its provenance before proposing it.
+- [Core and package boundaries](docs/v2-core.vi.md) — detailed reference, Vietnamese.
+- [Tracking guide](docs/obs2/su-dung/DANH-SACH-CONG-VIEC.vi.md) — detailed UI guide, Vietnamese.
+- [Historical architecture](docs/LICH-SU.vi.md) — earlier v1 workflows. Checkout-only `job`/`work`/`delivery` commands are not the installed v2 quickstart.
+
+## Feedback and contributions
+
+Useful contributions include reproducible bugs, clearer onboarding, platform validation, and focused fixes with counterexamples.
+
+Before starting a substantial change, check the [open issues](https://github.com/tamnguyendev/one-crew/issues) for related work. For a bug, include the installed version, OS, exact command or UI action, expected and actual behavior, and a minimal reproduction. Distinguish a simulated test from a real assistant session.
+
+Do not post credentials, private source, raw ledgers, or full assistant transcripts. Inspect diagnostic bundles before sharing, even when redaction has run. For a code change, describe the affected behavior and run relevant checks; unrelated full-suite runs are not evidence for the specific bug.
+
+**License status:** no license file is included in this repository snapshot. Licensing terms need to be clarified by the maintainer; this README does not declare an open-source license.
