@@ -1,0 +1,53 @@
+{
+  "schema_version": 2,
+  "title": "First task: create a greeting document",
+  "size": "S",
+  "origin": {
+    "by": "owner",
+    "at": "REPLACE_WITH_ACTUAL_REQUEST_TIMESTAMP",
+    "quote": "REPLACE_WITH_ACTUAL_USER_REQUEST"
+  },
+  "presentation": {
+    "request": "Create one greeting document in this demo project.",
+    "user_sees": ["A new document contains the line Hello OneCrew."],
+    "acceptance_steps": ["Open the document and read the greeting.", "Confirm that the content check passed."],
+    "not_doing": "No changes to other project files."
+  },
+  "understanding": {
+    "restated_goal": "Create docs/hello-onecrew.md with the single line Hello OneCrew, optionally followed by one final newline.",
+    "target": {"repo": ".", "ref": "HEAD", "paths": ["docs"]},
+    "assumptions": [],
+    "confidence": "high",
+    "unknowns": [],
+    "no_unknowns_because": "The task creates one new file with specified text in the docs directory created by init."
+  },
+  "preconditions": [
+    {"id": "P1", "check": "ref_resolves", "args": {"repo": ".", "ref": "HEAD"}, "why": "The project needs an initial commit."}
+  ],
+  "output": ["docs/hello-onecrew.md contains only Hello OneCrew and an optional final newline."],
+  "scope": {"owned": ["docs/hello-onecrew.md"]},
+  "non_goals": ["Changing any other project file"],
+  "items": [
+    {"id": "I1", "title": "Create the greeting document", "tier": "must", "milestone": "M1", "source": "origin"}
+  ],
+  "decisions": [],
+  "milestones": [
+    {
+      "id": "M1",
+      "title": "The greeting document has the expected content",
+      "covers": ["O1"],
+      "mode": "once",
+      "max_repairs": 1,
+      "verifier": {
+        "type": "command",
+        "config": {
+          "argv": ["powershell", "-NoProfile", "-Command", "$ErrorActionPreference = 'Stop'; try { $p = Join-Path (Get-Location).Path 'docs/hello-onecrew.md'; $t = [System.IO.File]::ReadAllText($p); if ($t -ceq 'Hello OneCrew' -or $t -ceq \"Hello OneCrew`n\" -or $t -ceq \"Hello OneCrew`r`n\") { Write-Output 'PASS: greeting content matches'; exit 0 }; Write-Output 'FAIL: unexpected greeting content'; exit 1 } catch { Write-Output 'FAIL: greeting file could not be read'; exit 1 }"],
+          "max_minutes": 2
+        }
+      }
+    }
+  ],
+  "budget": {"max_calls": 20, "time": 30},
+  "attention": {"questions": 1},
+  "profile_version": null
+}
