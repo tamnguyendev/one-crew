@@ -534,6 +534,26 @@ class Round6Sed(GitGuardBase):
         self.allowed('sed -i s/a/b/ src/a.txt 2>/dev/null')
 
 
+class Round7FolderStack(GitGuardBase):
+    """P2-1 of review 6: an unquoted glob is expanded in the folder the shell is really in: `( ... )`, `popd` and `cd -` bring it back."""
+
+    def test_the_folder_comes_back_after_a_subshell_popd_or_cd_dash(self):
+        self.each(['(cd src && ls) && git restore *.txt', '(cd src && ls); git checkout -- *.txt', 'cd src && ls; cd - && git checkout -- *.txt',
+                   'pushd src && ls && popd && git checkout -- *.txt', 'pushd src >/dev/null; ls; popd >/dev/null; git restore *.txt',
+                   'cd src && ls; cd .. && git checkout -- *.txt', 'git checkout -- *.txt', 'cd src && git checkout -- ../*.txt'], self.blocked)
+
+    def test_a_glob_inside_the_folder_that_matches_only_owned_files_stays_allowed(self):
+        self.each(['cd src && git restore *.txt', 'cd src && git checkout -- ../src/*.txt', '(cd src && git restore *.txt)', 'pushd src && git restore *.txt && popd'], self.allowed)
+
+    def test_an_untracked_folder_is_tried_everywhere(self):
+        self.each(['cd src; popd; git restore *.txt', 'cd; git restore *.txt', 'cd src && cd ~ && git restore *.txt'], self.blocked)
+
+    def test_a_dev29_export_gets_the_same_answers(self):
+        self.old = False
+        self.each(['(cd src && ls) && git restore *.txt', 'pushd src && ls && popd && git checkout -- *.txt'], self.blocked)
+        self.allowed('cd src && git restore *.txt')
+
+
 class Round4Speed(unittest.TestCase):
     def test_a_long_run_of_backslashes_is_read_in_linear_time(self):
         import time

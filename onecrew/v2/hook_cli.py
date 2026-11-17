@@ -849,7 +849,10 @@ def command_head(words):
                 flag, words = words[0], words[1:]
                 if flag.lower() in SHELL_WORDS[name] and words: words = words[1:]
         else: break
-    if words and words[-1].count(')') > words[-1].count('('): words[-1] = words[-1].rstrip(')')       # `(git stash)`
+    if words and words[-1].count(')') > words[-1].count('('):                                  # `(git stash)`
+        trimmed = Word(words[-1].rstrip(')'))
+        trimmed.expand = getattr(words[-1], 'expand', False)                                      # #12: the glob rule follows the word
+        words[-1] = trimmed
     return [w for w in words if w], fed
 
 
@@ -982,17 +985,35 @@ def discard_verdict(plan, root, cwd, command, limited=False, powershell=False, s
 
     text, bodies = split if split is not None else without_heredocs(command, powershell)
     for text in command_texts(text, 0, powershell) + [t for body in bodies for t in command_texts(body, 0, powershell)]:
-        here = Path(cwd)
+        # #12: the folder the shell is in decides what an unquoted glob expands to. `( ... )` gives the folder back when it closes, `pushd`/`popd` push and pop, `cd -`
+        # goes to the previous folder. When the hook cannot tell for sure, every folder the command may be in (the start and each one entered) is tried: any hit refuses.
+        here = previous = Path(cwd)
+        pushed, groups, seen, unsure = [], [], [here], False
         for segment in shell_segments(text, powershell):
             words = [read_word(w, powershell) for w in without_redirects(TOKEN.findall(segment))]
             head_words, _ = command_head(list(words))
-            if not head_words: continue
-            if os.path.basename(head_words[0].replace('\\', '/')).lower() in ('cd', 'pushd', 'chdir', 'set-location', 'sl'):
-                target = next((w for w in head_words[1:] if not w.startswith('-')), None)
-                if target and here is not None: here = None if re.search(r'[$%`]', target) else normalize(target, here)
-                continue
-            verdict = one(words, here, False)
-            if verdict: return verdict
+            stripped = segment.strip()
+            if not powershell: groups += [(here, previous)] * (len(stripped) - len(stripped.lstrip('(')))
+            name = os.path.basename(head_words[0].replace('\\', '/')).lower() if head_words else ''
+            if name in ('cd', 'pushd', 'popd', 'chdir', 'set-location', 'sl'):
+                target = next((w for w in head_words[1:] if not w.startswith('-') or w == '-'), None)
+                before = here
+                if name == 'popd':
+                    if pushed: here = pushed.pop()
+                    else: unsure = True
+                elif here is None or target is None or target.startswith('~'): here, unsure = None, True
+                elif target == '-': here = previous
+                elif re.search(r'[$%`]', target): here = None
+                else: here = normalize(target, here)
+                if name == 'pushd': pushed.append(before)
+                if here != before: previous = before
+                if here is not None and here not in seen: seen.append(here)
+            elif head_words:
+                for folder in ([here] + [f for f in seen if f != here]) if unsure else [here]:
+                    verdict = one(words, folder, False)
+                    if verdict: return verdict
+            if not powershell:
+                for _ in range(min(max(0, stripped.count(')') - stripped.count('(')), len(groups))): here, previous = groups.pop()
     return None
 
 
