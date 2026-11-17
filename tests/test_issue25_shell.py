@@ -590,3 +590,20 @@ class ABashPipelineStageIsAChildShell(ShellBase):
     def test_a_powershell_background_job_does_not_move_the_session(self):
         self.blocked('Set-Location src & git checkout -- other.txt', 'PowerShell', inside=True)
         self.allowed('& { Set-Location src }; git checkout -- a.txt', 'PowerShell', inside=True)
+
+
+class ABackgroundListLeavesTheFolderUnsure(ShellBase):
+    """FIX25F (Codex P1 on bd63367): `&` sends the whole list before it to the background (`cd src && true & git checkout -- other.txt` checks out at the top),
+    so a `cd` in a command with a background job leaves the folder unsure: what follows is judged before and after the `cd`; a plain list keeps the `cd`."""
+    def setUp(self):
+        super().setUp()
+        self.project_copy(self.a, owned=('src/**',))
+
+    def test_a_cd_in_a_background_list_does_not_let_the_outside_file_through(self):
+        self.each(['cd src && true & git checkout -- other.txt', 'cd src && true & git restore other.txt', 'cd src && true & echo LOST > other.txt',
+                   'cd src || true & git checkout -- other.txt', 'pushd src && true & git checkout -- other.txt', '{ cd src; true; } & git checkout -- other.txt'],
+                  self.blocked, inside=True)
+
+    def test_a_list_without_a_background_job_keeps_its_cd(self):
+        self.each(['cd src && true; git checkout -- a.txt', 'cd src 2>&1 && git checkout -- a.txt'], self.allowed, inside=True)
+        self.allowed('Set-Location src; git checkout -- a.txt', 'PowerShell', inside=True)

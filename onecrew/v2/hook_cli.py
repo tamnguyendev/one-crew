@@ -857,6 +857,7 @@ def shell_effects(command, base, powershell=False, depth=0):
             continue
         spans, steps, launch = chunk_folders(text, here, powershell)      # FIX25C (Codex R1): where each `$( )` and each here-document body of the chunk starts
         bodies = list(bodies)
+        jobs = any(after == '&' for _, _, after in cut_pieces(text))      # FIX25F (Codex P1 on bd63367): a `cd` in a command that sends a list to the background
         for piece, before, after in cut_pieces(text):
             stripped = piece.strip()
             opens = len(stripped) - len(stripped.lstrip('('))
@@ -886,7 +887,7 @@ def shell_effects(command, base, powershell=False, depth=0):
                     new = None
                 if new is not None: places.append(new)
                 if name in ('pushd', 'push-location') and carries: stack.append(here)
-                if carries: here = new
+                if carries: here = None if jobs and new != here else new      # FIX25F: the list may have run in the background: the folder is unknown
             elif name in POP_NAMES:
                 if carries: here = stack.pop() if stack else None
             else:
@@ -1625,7 +1626,12 @@ def folder_steps(text, state, powershell=False):
     in these folders: a `cd` later in the command does not move it. #12: `( ... )` gives the folder back when it closes, `pushd`/`popd` push and pop, `cd -` goes
     to the previous folder; when the hook cannot tell for sure, every folder the command may be in (the start and each one entered) is a candidate."""
     begin, after_pipe = 0, False
-    for segment, op, cut in shell_segments(text, powershell, detail=True):
+    steps = shell_segments(text, powershell, detail=True)
+    # FIX25F (Codex P1 on bd63367): `&` sends the whole list before it to the background (`cd src && true & git checkout -- f`, `{ cd src; } &`), not only the
+    # segment next to it. When the command sends anything to the background, every `cd` it holds leaves the folder unsure: what follows is judged in the
+    # folder before AND after the `cd` (any hit refuses), and shell_effects treats a relative write after it as unresolvable.
+    jobs = any(op == '&' and part.strip() and text[cut - 2:cut - 1] not in ('>', '<') and text[cut:cut + 1] != '>' for part, op, cut in steps)
+    for segment, op, cut in steps:
         start, begin = begin, cut
         # FIX25E (Codex P1 on 6acc82a): in bash every stage of a pipeline is a child shell and so is a command sent to the background (`&`, not the `&` of
         # `2>&1` or `&>`): its `cd` does not move the commands after it (`cd src | cat; git checkout -- f` runs the checkout where the command was). PowerShell
@@ -1662,6 +1668,9 @@ def folder_steps(text, state, powershell=False):
             if name == 'pushd': pushed.append(before)
             if here != before: previous = before
             if here is not None and here not in seen: seen.append(here)
+            if jobs and here != before:
+                unsure = True
+                if before is not None and before not in seen: seen.append(before)
         if not powershell:
             for _ in range(min(max(0, stripped.count(')') - stripped.count('(')), len(groups))): here, previous = groups.pop()
         state[:] = [here, previous, pushed, groups, seen, unsure]
