@@ -12,6 +12,9 @@ Rules (each is a test in tests/test_dev31_resources.py):
 - A holder that cannot get the resource is recorded as a waiter (visible in `status`), and gets it when `claim` is called again with
   the same claim id after the holders are gone. Nothing fails silently and nothing is retried in the background.
 - `until` is advice for people, not a release: a lease past `until` whose holder process is alive stays held ("expired, holder alive").
+- The claim id is not a credential by itself (`status` shows it): renewing a claim, retrying as a waiter and `release` must come from the
+  holder's own process (pid -> identity incl. creation time must equal the stored one); a mismatch changes nothing.
+- A renewal asks for the mode already held; a different mode is refused (release and claim again). Every answer states the mode.
 - A lease is released only by the holder's explicit `release`, or by `reconcile` after the holder's process death is confirmed (same
   identity probe as the supervisor: pid + creation time). An unknown probe (other machine, no access) never releases.
 It builds on the control layer's pieces (process identity/probe, durable atomic write) and adds no ledger, engine or scheduler."""
@@ -35,7 +38,7 @@ MODES = ('write', 'read')
 ALIASES = {'exclusive': 'write', 'heavy': 'write', 'light': 'read', 'shared': 'read'}
 DEFAULT_TTL = 3600
 LOCK_WAIT = 10.0
-LOCK_STALE = 30.0
+LOCK_UNREADABLE_STALE = 300.0   # a lock with no readable owner token is stolen only after this long (a live owner is never judged by age)
 
 
 class Unmanaged(LedgerError):
@@ -83,20 +86,51 @@ class Leases:
         self._identity = identity_fn or identity
 
     # --- storage ---------------------------------------------------------------------------------------------------------
+    def _owner_token(self):
+        try: ident = self._identity(os.getpid())
+        except Exception: ident = None
+        return {'pid': os.getpid(), 'identity': ident, 'nonce': uuid.uuid4().hex}
+
+    @staticmethod
+    def _read_token(lock):
+        try:
+            token = json.loads(lock.read_text(encoding='utf-8'))
+            return token if isinstance(token, dict) and 'nonce' in token else None
+        except (OSError, ValueError): return None
+
+    def _lock_is_stale(self, lock):
+        """Stale only when its owner process is confirmed dead, or the file carries no readable owner and is very old."""
+        token = self._read_token(lock)
+        if token is None:
+            try: return time.time() - lock.stat().st_mtime > LOCK_UNREADABLE_STALE, None
+            except OSError: return False, None
+        try: dead = token.get('identity') is not None and self._probe(token['identity']) == 'dead'
+        except Exception: dead = False
+        return dead, token
+
     @contextlib.contextmanager
     def _locked(self):
         lock = self.base / 'leases.lock'
+        mine = self._owner_token(); payload = json.dumps(mine).encode('utf-8')
         deadline = time.monotonic() + LOCK_WAIT
         while True:
             try:
-                os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)); break
+                fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                try: os.write(fd, payload)
+                except BaseException:
+                    os.close(fd); lock.unlink(missing_ok=True); raise
+                os.close(fd); break
             except FileExistsError:
                 with contextlib.suppress(OSError):
-                    if time.time() - lock.stat().st_mtime > LOCK_STALE: lock.unlink()
+                    stale, seen = self._lock_is_stale(lock)
+                    # unlink only the very lock that was judged stale (a lock another caller just created is left alone)
+                    if stale and self._read_token(lock) == seen: lock.unlink()
                 if time.monotonic() >= deadline: raise LedgerError('The lease store is busy; nothing was changed, try again.')
                 time.sleep(.02)
         try: yield
-        finally: lock.unlink(missing_ok=True)
+        finally:
+            with contextlib.suppress(OSError):
+                if self._read_token(lock) == mine: lock.unlink()    # never delete a lock that is someone else's now
 
     def _load(self):
         path = self.base / 'leases.json'
@@ -156,6 +190,15 @@ class Leases:
         else: state = 'expired_holder_unknown' if expired else 'held_holder_unknown'
         return proc, state
 
+    def _require_holder(self, row, pid, what):
+        """The claim id is not a credential: the caller's process identity must equal the stored one."""
+        try: mine = self._identity(os.getpid() if pid is None else int(pid))
+        except Exception as error:
+            raise LedgerError(f'{what} refused: the caller process identity cannot be read ({type(error).__name__}); nothing was changed.')
+        if mine != row.get('identity'):
+            raise LedgerError(f'{what} refused: {row["claim"]} belongs to another process (pid {row["identity"].get("pid")}); '
+                              'only its own process may renew or release it. Nothing was changed.')
+
     # --- reconcile (the only release without the holder's word) -----------------------------------------------------------
     def _reconcile(self, key, entry):
         changed = False
@@ -195,12 +238,20 @@ class Leases:
             claim_id = claim_id or 'LS-' + uuid.uuid4().hex[:12]
             mine = next((r for r in entry['holders'] if r['claim'] == claim_id), None)
             if mine:
+                self._require_holder(mine, pid, 'Renewal')
+                if mine['mode'] != mode:
+                    raise LedgerError(f'Renewal refused: {claim_id} holds {key!r} as {mine["mode"]} and {mode} was asked; '
+                                      'release it and claim again. Nothing was changed.')
                 mine['until'] = (self.clock() + dt.timedelta(seconds=ttl)).isoformat(); mine['ttl'] = ttl   # renewal by the holder
-                self._save(data); return {'status': 'granted', 'claim': claim_id, 'resource': key, 'until': mine['until']}
+                self._save(data); return {'status': 'granted', 'claim': claim_id, 'resource': key, 'mode': mine['mode'], 'until': mine['until']}
             queued = next((r for r in entry['waiters'] if r['claim'] == claim_id), None)
             if queued:
+                self._require_holder(queued, pid, 'Retry')
+                if queued['mode'] != mode:
+                    raise LedgerError(f'Retry refused: {claim_id} waits for {key!r} as {queued["mode"]} and {mode} was asked; '
+                                      'withdraw it and claim again. Nothing was changed.')
                 self._save(data)
-                return {'status': 'waiting', 'claim': claim_id, 'resource': key, 'position': entry['waiters'].index(queued) + 1,
+                return {'status': 'waiting', 'claim': claim_id, 'resource': key, 'mode': queued['mode'], 'position': entry['waiters'].index(queued) + 1,
                         'held_by': [self._who(h) for h in entry['holders']]}
             pid = os.getpid() if pid is None else int(pid)
             row = {'claim': claim_id, 'mode': mode, 'session': session, 'plan': plan,
@@ -209,22 +260,23 @@ class Leases:
             if not entry['waiters'] and _compatible(mode, entry['holders']):
                 row['since'] = self.clock().isoformat(); row['until'] = (self.clock() + dt.timedelta(seconds=ttl)).isoformat()
                 entry['holders'].append(row); self._log('claimed', key, claim=claim_id, session=session, plan=plan, mode=mode, pid=pid)
-                result = {'status': 'granted', 'claim': claim_id, 'resource': key, 'until': row['until']}
+                result = {'status': 'granted', 'claim': claim_id, 'resource': key, 'mode': mode, 'until': row['until']}
             else:
                 entry['waiters'].append(row); self._log('waiting', key, claim=claim_id, session=session, plan=plan, mode=mode, pid=pid)
-                result = {'status': 'waiting', 'claim': claim_id, 'resource': key, 'position': len(entry['waiters']),
+                result = {'status': 'waiting', 'claim': claim_id, 'resource': key, 'mode': mode, 'position': len(entry['waiters']),
                           'held_by': [self._who(h) for h in entry['holders']]}
             self._save(data)
             return result
 
-    def release(self, resource, claim_id):
-        """The holder's explicit release (or a waiter withdrawing). Anyone else is refused; expiry never releases."""
+    def release(self, resource, claim_id, pid):
+        """The holder's explicit release (or a waiter withdrawing), from the holder's own process (`pid`). Anyone else is refused; expiry never releases."""
         key = self._key(resource)
         with self._locked():
             data = self._load(); entry = data['resources'].get(key) or {'holders': [], 'waiters': []}
             for who, label in (('holders', 'released'), ('waiters', 'withdrawn')):
                 row = next((r for r in entry[who] if r['claim'] == claim_id), None)
                 if row:
+                    self._require_holder(row, pid, 'Release')
                     entry[who].remove(row); self._log(label, key, claim=claim_id, session=row.get('session'), plan=row.get('plan'))
                     self._reconcile(key, entry); data['resources'][key] = entry; self._save(data)
                     return {'status': label, 'claim': claim_id}
@@ -262,6 +314,7 @@ def main(argv=None):
     c.add_argument('--plan'); c.add_argument('--state-root'); c.add_argument('--pid', type=int, required=True, help='the process that does the work')
     c.add_argument('--ttl', type=int, default=DEFAULT_TTL); c.add_argument('--claim')
     r = sub.add_parser('release'); r.add_argument('resource'); r.add_argument('claim')
+    r.add_argument('--pid', type=int, required=True, help='the holder process (must be the one that claimed)')
     sub.add_parser('reconcile')
     args = parser.parse_args(argv)
     leases = Leases(args.home)
@@ -271,7 +324,7 @@ def main(argv=None):
         elif args.cmd == 'claim':
             result = leases.claim(args.resource, mode=args.mode, session=args.session, plan=args.plan, state_root=args.state_root,
                                   pid=args.pid, ttl=args.ttl, claim_id=args.claim)
-        elif args.cmd == 'release': result = leases.release(args.resource, args.claim)
+        elif args.cmd == 'release': result = leases.release(args.resource, args.claim, args.pid)
         else: result = {'changed': leases.reconcile()}
     except LedgerError as error:
         print(json.dumps({'error': str(error)}, ensure_ascii=False)); return 2
