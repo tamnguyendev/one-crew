@@ -346,3 +346,29 @@ class ScratchThroughTheExtendedPrefix(ShellBase):
         self.assertEqual(hook_cli.plain_form('\\\\?\\D:\\x\\y'), Path('D:\\x\\y'))
         self.assertEqual(hook_cli.plain_form('\\\\.\\D:\\x'), Path('D:\\x'))
         self.assertEqual(hook_cli.plain_form(Path('D:\\x')), Path('D:\\x'))
+
+
+class StreamDuplications(ShellBase):
+    """#25 (review 3, P1-C): `2>&1` copies a descriptor; its `2` is no copy target."""
+    COPIERS = ('cp ../B/README.md other.txt', 'mv ../B/README.md other.txt', 'Copy-Item ../B/README.md other.txt', 'Move-Item ../B/README.md other.txt')
+
+    def test_a_copy_into_a_project_is_judged_with_a_duplication_at_the_end(self):
+        for tail in ('2>&1', '1>&2', '>/dev/null 2>&1', '2>&1 >/dev/null'):
+            for cmd in self.COPIERS:
+                with self.subTest(cmd=cmd, tail=tail):
+                    self.blocked(f'cd "{self.af}" && {cmd} {tail}')
+                    self.blocked(f'{cmd} {tail}', inside=True)
+
+    def test_an_owned_copy_with_a_duplication_is_allowed_in_the_project(self):
+        for tail in ('2>&1', '1>&2', '>/dev/null 2>&1'):
+            for cmd in ('cp ../B/README.md src/a.txt', 'Copy-Item ../B/README.md src/a.txt'):
+                with self.subTest(cmd=cmd, tail=tail): self.allowed(f'{cmd} {tail}', inside=True)
+
+    def test_a_duplication_before_the_arguments_and_closing_forms(self):
+        self.blocked('cp 2>&1 ../B/README.md other.txt', inside=True)
+        self.blocked('rm other.txt 2>&-', inside=True)
+        self.allowed('cp ../B/README.md src/a.txt 0<&3', inside=True)
+
+    def test_a_real_redirect_to_a_file_still_counts(self):
+        self.blocked('cp ../B/README.md src/a.txt 2>&1 > other.txt', inside=True)
+        self.blocked('echo hi >&other.txt', inside=True)

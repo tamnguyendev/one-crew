@@ -299,6 +299,9 @@ SED_WORDS = re.compile(r'(?<![\w.-])sed(?=\s)([^;|&<>\n]*)', re.I)
 FEEDERS = re.compile(r'(?<![\w.-])(?:xargs|parallel)(?![\w.-])', re.I)
 
 
+DESCRIPTOR_DUP = re.compile(r'(?<![<>&\w])\d*[<>]&(?:\d+|-)(?![\w.])')
+
+
 def unquote(word):
     """The shell word without its quote marks (`"$TMPDIR"/x` is `$TMPDIR/x`)."""
     return re.sub(r'["\']', '', word)
@@ -394,6 +397,9 @@ def shell_targets(command, powershell=False):
     the value of a common parameter (-ErrorAction ...) is not a target."""
     command = hide_escapes(command, powershell)
     masked = masked_quotes(command, powershell)
+    # #25 (review 3, P1-C): `2>&1`, `1>&2`, `>&-`, `0<&3` copy a descriptor; blanked before the writers read their words, so the `2` is no copy target
+    blank = lambda m: ' ' * len(m.group(0))
+    command, masked = DESCRIPTOR_DUP.sub(blank, command), DESCRIPTOR_DUP.sub(blank, masked)
     found = [unquote(command[m.start(1):m.end(1)]) for m in REDIRECT.finditer(masked)]
     found += [unquote(command[m.start(1):m.end(1)]) for m in REDIRECT_MORE.finditer(masked)]
     for m in SED_WORDS.finditer(masked):
