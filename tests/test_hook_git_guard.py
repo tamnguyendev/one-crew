@@ -1,0 +1,569 @@
+"""HOOK30 (#12): the hook refuses git forms that throw away uncommitted work outside the owned scope, and closes the holes found in the issue review:
+temp variable with `..`, a read-only command that wraps a command substitution, `>|` `&>` `&>>` `>&file`, `sed -i` anywhere, Clear-Content,
+New-Item -Force, and `rm` with recursive + force in any spelling. Nothing here runs a command: the hook only reads the text."""
+import unittest
+
+from tests.test_v2_trust_fixes import HookBase
+
+OLD_DENY = ['rm -rf', r're:\b(git\s+)?(reset\s+--hard|clean\s+-[a-z]*f)']      # the deny list a plan exported by dev29 carries
+OWNED = 'src/a.txt'
+
+
+class GitGuardBase(HookBase):
+    def setUp(self):
+        super().setUp()
+        for rel in ('other.txt', 'README.md', OWNED):
+            (self.repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / rel).write_text('x\n', encoding='utf-8')
+        self.old = True
+
+    def document(self, project, **kw):
+        doc = super().document(project, owned=(OWNED,), **kw)
+        doc['bash_deny'] = list(OLD_DENY) if self.old else []
+        return doc
+
+    def ask(self, command, tool='Bash', cwd=None):
+        self.project_copy(self.repo)
+        return self.check(tool, project=self.repo, cwd=cwd, command=command)
+
+    def blocked(self, command, tool='Bash', way_out=False, cwd=None):
+        code, err = self.ask(command, tool, cwd)
+        self.assertEqual(code, 2, f'{command!r} should be blocked: {err}')
+        if way_out: self.assertTrue('git worktree' in err and '.onecrew/scratch' in err, f'{command!r}: no safe way out in {err}')
+        return err
+
+    def allowed(self, command, tool='Bash', cwd=None):
+        code, err = self.ask(command, tool, cwd)
+        self.assertEqual(code, 0, f'{command!r} should be allowed: {err}')
+
+    def each(self, commands, method, **kw):
+        for command in commands:
+            with self.subTest(command=command), self.subTest(old_export=self.old):
+                method(command, **kw)
+
+
+class GitPathForms(GitGuardBase):
+    def test_checkout_with_paths_is_judged_per_path(self):
+        self.each(['git checkout -- other.txt', 'git checkout HEAD -- other.txt', 'git checkout other.txt', 'git checkout .', 'git checkout -- .',
+                   'git checkout HEAD~1 other.txt'], self.blocked)
+
+    def test_checkout_of_an_owned_path_or_a_branch_stays_allowed(self):
+        self.each(['git checkout -- src/a.txt', 'git checkout feature', 'git checkout -b topic', 'git checkout -b topic feature', 'git checkout -'], self.allowed)
+
+    def test_restore_is_judged_per_path_except_when_it_only_unstages(self):
+        self.each(['git restore other.txt', 'git restore --source=HEAD~1 other.txt', 'git restore -s HEAD~1 other.txt', 'git restore .', 'git restore -SW other.txt',
+                   'git restore --worktree other.txt', 'git restore -p'], self.blocked)
+        self.each(['git restore src/a.txt', 'git restore --staged other.txt', 'git restore -S other.txt'], self.allowed)
+
+    def test_stash_with_paths_is_judged_per_path(self):
+        self.blocked('git stash push other.txt')
+        self.blocked('git stash push -m wip other.txt src/a.txt')
+        self.allowed('git stash push src/a.txt')
+        self.allowed('git stash push -m wip src/a.txt')
+
+    def test_git_dash_c_exe_and_the_cd_before_it_are_followed(self):
+        self.each(['git -C . checkout -- other.txt', 'git.exe checkout -- other.txt', 'cd src && git restore ../other.txt', 'git status; git restore other.txt',
+                   'git diff | cat; git checkout -- other.txt', 'sudo git restore other.txt', '(git restore other.txt)'], self.blocked)
+        self.allowed('cd src && git restore a.txt')
+        self.allowed('git -C src restore a.txt')
+
+    def test_a_path_that_cannot_be_read_is_refused(self):
+        self.each(['git checkout -- $F', 'git restore "$F"', 'git checkout $F'], self.blocked)
+
+    def test_powershell_gets_the_same_verdicts(self):
+        for command in ('git checkout -- other.txt', 'git restore other.txt', 'git stash', 'git reset --hard'):
+            with self.subTest(command=command): self.blocked(command, 'PowerShell')
+        for command in ('git status', 'git restore src/a.txt'):
+            with self.subTest(command=command): self.allowed(command, 'PowerShell')
+
+    def test_commands_inside_substitutions_and_interpreter_strings_are_read(self):
+        self.each(['echo $(git stash)', 'echo `git restore other.txt`', "bash -c 'git checkout -f'", 'powershell -c "git stash drop"'], self.blocked)
+
+
+class GitAlwaysRefused(GitGuardBase):
+    def test_forced_checkout_and_switch_name_a_safe_way(self):
+        self.each(['git checkout -f', 'git checkout -f main', 'git checkout --force main', 'git checkout -fb x', 'git switch -f main', 'git switch --force main',
+                   'git switch --discard-changes main', 'git checkout -p'], self.blocked, way_out=True)
+
+    def test_every_stash_form_but_list_show_and_owned_paths_is_refused(self):
+        self.each(['git stash', 'git stash -u', 'git stash push', 'git stash save wip', 'git stash drop', 'git stash clear', 'git stash pop', 'git stash apply',
+                   'git stash branch x', 'git status && git stash'], self.blocked, way_out=True)
+        self.each(['git stash list', 'git stash show', 'git stash show -p'], self.allowed)
+
+    def test_reset_hard_merge_keep_anywhere_on_the_line(self):
+        self.each(['git reset --hard', 'git reset -q --hard', 'git reset --hard HEAD~1', 'git reset HEAD~1 --hard', 'git reset --merge', 'git reset --keep HEAD~1'],
+                  self.blocked, way_out=True)
+        self.each(['git reset', 'git reset --soft HEAD~1', 'git reset --mixed', 'git reset src/a.txt', 'git reset -q HEAD -- other.txt'], self.allowed)
+
+    def test_clean_with_force_anywhere_unless_dry_run(self):
+        self.each(['git clean -f', 'git clean -fd', 'git clean -d -f', 'git clean --force', 'git clean -x -d -f', 'git clean -e keep -f'], self.blocked, way_out=True)
+        self.each(['git clean -n', 'git clean -n -d', 'git clean --dry-run -d'], self.allowed)
+        self.old = False                                       # `-fn` is a dry run; only the old deny list (clean -f... as text) still blocks it
+        self.allowed('git clean -fn')
+
+    def test_checkout_index_force_and_read_tree_update(self):
+        self.each(['git checkout-index -f -a', 'git checkout-index --force -a', 'git read-tree -u --reset HEAD', 'git read-tree -mu HEAD'], self.blocked, way_out=True)
+        self.each(['git checkout-index -a', 'git read-tree HEAD'], self.allowed)
+
+    def test_everyday_git_stays_allowed(self):
+        self.each(['git status', 'git status --short', 'git diff', 'git log --oneline -3', 'git add src/a.txt', 'git commit -m "fix a"', 'git switch feature',
+                   'git switch -c topic2', 'git worktree add ../wt-x feature', 'git branch -d topic', 'git commit -m "docs: stash and checkout -f notes"'], self.allowed)
+
+    def test_an_active_plan_exported_by_a_newer_version_gets_the_same_verdicts(self):
+        self.old = False
+        self.blocked('git reset --hard', way_out=True)
+        self.blocked('git checkout -- other.txt')
+        self.allowed('git checkout -- src/a.txt')
+
+
+class TempVariableEscape(GitGuardBase):
+    def test_dotdot_after_a_temp_variable_is_an_ordinary_target(self):
+        self.each(['echo x > $TMPDIR/../other.txt', 'cp README.md $TEMP/../x.txt', 'echo x > $TMPDIR/a/../../other.txt', 'rm -r -f $TMPDIR/..'], self.blocked)
+        self.blocked('Remove-Item $env:TEMP\\.. -Recurse -Force', 'PowerShell')
+        self.blocked('Set-Content %TEMP%\\..\\x.txt y', 'PowerShell')
+
+    def test_a_file_inside_the_temp_variable_stays_allowed(self):
+        self.each(['echo x > $TMPDIR/f.txt', 'echo x > $TEMP/sub/f.txt', 'cp README.md $TMPDIR/copy.txt'], self.allowed)
+
+
+class ReadOnlyWrapper(GitGuardBase):
+    def test_a_substitution_in_a_read_only_segment_is_judged(self):
+        sub = f"python -c \"import shutil; shutil.copy('README.md', '{self.state.as_posix()}/plans/x.md')\""
+        self.each([f'cat $({sub})', f'cat `{sub}`', f'cat <({sub})', f'ls >({sub})'], self.blocked)
+
+    def test_a_plain_read_only_command_stays_read_only(self):
+        self.each([f'cat {self.state.as_posix()}/plans/owner-rules.md', 'cat README.md', 'ls -la'], self.allowed)
+
+    def test_a_write_inside_a_read_only_substitution_is_a_write(self):
+        self.blocked('cat $(cp README.md other.txt)')
+
+
+class RedirectsAndInPlaceEdits(GitGuardBase):
+    def test_every_write_redirect_form_is_a_write(self):
+        self.each(['echo x >| other.txt', 'echo x &> other.txt', 'echo x &>> other.txt', 'echo x >& other.txt', 'echo x > other.txt'], self.blocked)
+
+    def test_descriptor_copies_and_owned_targets_stay_allowed(self):
+        self.each(['echo x >&2', 'echo x >&1', 'echo x 2>&1', 'echo x > /dev/null', 'echo x > src/a.txt', 'echo x >| src/a.txt', 'echo x &> src/a.txt'], self.allowed)
+
+    def test_sed_in_place_in_any_position_writes_its_file_operands(self):
+        self.each(["sed -E -i 's/a/b/' other.txt", "sed -e 's/a/b/' -i other.txt", "sed -i.bak 's/a/b/' other.txt", "sed --in-place 's/a/b/' other.txt",
+                   "sed -n -i -e 's/a/b/' other.txt README.md", "sed -Ei 's/a/b/' other.txt"], self.blocked)
+        self.each(["sed -n 1p README.md", "sed -i 's/a/b/' src/a.txt", "sed -E -i 's/a/b/' src/a.txt", "sed -e 's/a/b/' README.md"], self.allowed)
+
+    def test_powershell_clear_content_and_new_item_force_name_their_path(self):
+        self.each(['Clear-Content other.txt', 'New-Item -ItemType File -Force other.txt', 'New-Item -Force -ItemType File -Path other.txt'], self.blocked, tool='PowerShell')
+        self.each(['Clear-Content src/a.txt', 'New-Item -ItemType File -Force src/a.txt', 'Set-Content src/a.txt x', 'Get-Content README.md'], self.allowed, tool='PowerShell')
+
+
+class RemoveRecursiveForce(GitGuardBase):
+    def test_rm_recursive_and_force_in_any_spelling_is_refused(self):
+        self.old = False                                       # the new export no longer relies on the substring rule alone
+        self.each(['rm -rf src/a.txt', 'rm -fr src/a.txt', 'rm -r -f src/a.txt', 'rm -Rf src/a.txt', 'rm --recursive --force src/a.txt', 'rm -f -R src/a.txt',
+                   'sudo rm -fR src/a.txt', 'bash -c "rm -r -f src/a.txt"'], self.blocked)
+
+    def test_plain_rm_of_an_owned_file_stays_allowed(self):
+        self.each(['rm src/a.txt', 'rm -f src/a.txt', 'rm -r src/a.txt', 'git commit -m "rm notes"'], self.allowed)
+
+    def test_plain_rm_outside_owned_is_still_refused_by_the_path_rule(self):
+        self.blocked('rm other.txt')
+
+
+class Round2Wrappers(GitGuardBase):
+    """Revision 2 (#12 review P1-1): git is found behind shell keywords, brackets, wrappers with their flags, eval, cmd /c, powershell -Command, wsl, and `\\` line joins."""
+    def test_git_after_shell_keywords_and_brackets(self):
+        self.each(['if ! git diff --quiet; then git stash; fi', 'for f in other.txt; do git checkout -- "$f"; done', 'if true; then :; else git restore .; fi',
+                   '! git stash', '( git stash )', '{ git stash; }', 'while true; do git stash; done'], self.blocked)
+        self.each(['if true; then git status; fi', '( git status )', 'if true; then git checkout -- src/a.txt; fi'], self.allowed)
+
+    def test_git_after_wrappers_with_their_flags(self):
+        self.each(['env -i git stash', 'sudo -E git stash', 'timeout 60 git stash', 'nice -n 5 git checkout -- other.txt', 'sudo -u root git restore other.txt',
+                   'eval git stash', 'wsl git stash', 'wsl -e git stash'], self.blocked)
+        self.each(['timeout 60 git status', 'nice -n 5 git checkout -- src/a.txt', 'env -i git diff'], self.allowed)
+
+    def test_cmd_and_powershell_command_forms(self):
+        for command in ('cmd /c git stash', 'powershell -Command git stash', 'pwsh -NoProfile -Command git restore other.txt'):
+            with self.subTest(command=command): self.blocked(command, 'PowerShell')
+        self.allowed('cmd /c git status', 'PowerShell')
+
+    def test_a_backslash_line_end_joins_the_command(self):
+        self.each(['git \\\nstash', 'git \\\n  checkout -- other.txt'], self.blocked)
+        self.allowed('git \\\n  status')
+
+
+class Round2Fed(GitGuardBase):
+    def test_paths_that_arrive_through_xargs_or_find_exec_are_refused(self):
+        self.each(['git diff --name-only | xargs git restore', 'git ls-files -m | xargs -n1 git checkout --', 'echo other.txt | xargs git checkout --',
+                   'find . -name other.txt -exec git checkout -- {} +', 'find . -exec git restore {} \\;'], self.blocked)
+
+    def test_xargs_with_a_harmless_command_stays_allowed(self):
+        self.each(['git ls-files | xargs cat', 'git diff --name-only | xargs git add', 'find . -name "*.py" -exec cat {} +'], self.allowed)
+
+    def test_stash_save_is_always_refused_and_push_with_owned_paths_allowed(self):
+        self.each(['git stash save src/a.txt', 'git stash save -- src/a.txt', 'git stash save'], self.blocked, way_out=True)
+        self.each(['git stash push -- src/a.txt', 'git stash -- src/a.txt'], self.allowed)
+
+
+class Round2Words(GitGuardBase):
+    def test_a_quoted_temp_variable_with_dotdot_outside_the_quotes_escapes_nothing(self):
+        self.each(['echo x > "$TMPDIR"/../other.txt', 'cp README.md "$TEMP"/../x.txt', 'rm -r "$TMPDIR"/..', 'echo x > "${TMPDIR}"/../../other.txt'], self.blocked)
+        self.allowed('echo x > "$TMPDIR"/f.txt')
+
+    def test_a_longer_variable_name_is_not_the_temp_folder(self):
+        self.each(['echo x > $TEMPDIR_X/other.txt', 'echo x > $TMPDIR_OLD/f'], self.blocked)
+        self.each(['echo x > $TMPDIR/f.txt', 'echo x > ${TMPDIR}/f.txt'], self.allowed)
+
+    def test_duplicating_a_stream_is_no_file(self):
+        self.each(['echo error >&2; exit 1', 'out=$(git status 2>&1); echo "$out"', 'x=$(git rev-parse HEAD 2>&1)', 'git log 2>&1|head -5', '(echo err >&2)',
+                   'git stash list >&2;'], self.allowed)
+        self.each(['$out = git log -1 2>&1; $out', 'git rev-parse HEAD 2>&1;'], self.allowed, tool='PowerShell')
+        self.blocked('echo x >& other.txt')
+
+    def test_the_stream_number_before_a_redirect_is_not_a_sed_file(self):
+        self.allowed("sed -i 's/a/b/' src/a.txt 2>/dev/null")
+        self.blocked("sed -i 's/a/b/' other.txt 2>/dev/null")
+
+
+class Round2Heredoc(GitGuardBase):
+    def test_a_heredoc_body_is_text(self):
+        self.each(["cat > src/a.txt <<'EOF'\nTo undo a change:\ngit checkout -- other.txt\nEOF",
+                   "git commit -F - <<'EOF'\nhook: refuse discards\n\ngit stash is refused now\nEOF",
+                   "git commit -m \"$(cat <<'EOF'\nhook: refuse discards\n\ngit checkout -- . is refused\nEOF\n)\"",
+                   "cat > .onecrew/scratch/undo.sh <<'EOF'\ngit stash\nEOF", "cat <<-EOF > src/a.txt\n\tgit stash\n\tEOF"], self.allowed)
+
+    def test_a_heredoc_that_feeds_a_shell_is_judged(self):
+        self.each(["bash <<'EOF'\ngit stash\nEOF", "sh <<'EOF'\ngit checkout -- other.txt\nEOF"], self.blocked)
+
+    def test_a_command_after_the_heredoc_is_still_judged(self):
+        self.blocked("cat <<'EOF' > src/a.txt\ntext\nEOF\ngit stash")
+
+
+class Round2Branch(GitGuardBase):
+    def setUp(self):
+        super().setUp()
+        heads = self.repo / '.git' / 'refs' / 'heads'
+        heads.mkdir(parents=True)
+        (heads / 'docs').write_text('0' * 40 + '\n')
+        (heads / 'feature').write_text('0' * 40 + '\n')
+        (self.repo / 'docs').mkdir()
+        (self.repo / 'docs' / 'n.md').write_text('n\n', encoding='utf-8')
+
+    def test_a_branch_with_the_name_of_a_folder_is_a_branch_switch(self):
+        self.each(['git checkout docs', 'git checkout feature', 'git checkout docs --'], self.allowed)
+
+    def test_a_path_is_still_a_path(self):
+        self.each(['git checkout -- docs', 'git checkout other.txt', 'git checkout feature other.txt'], self.blocked)
+
+    def test_a_packed_branch_is_a_branch(self):
+        (self.repo / '.git' / 'packed-refs').write_text('# pack-refs\n' + '0' * 40 + ' refs/heads/packed\n')
+        (self.repo / 'packed').mkdir()
+        self.allowed('git checkout packed')
+
+    def test_the_branch_is_read_even_when_the_directory_is_unknown(self):
+        self.allowed('cd "$CLAUDE_PROJECT_DIR" && git checkout feature')
+
+
+class Round3Branch(Round2Branch):
+    """P1-A: a path is not a branch name, however it is written."""
+
+    def test_an_absolute_path_is_a_path(self):
+        here = self.repo.as_posix()
+        self.each([f'git checkout {here}/other.txt', f'git checkout {here}/docs', f'git checkout "{here}/other.txt"', f'cd docs && git checkout {here}/other.txt',
+                   f'git -C docs checkout {here}/other.txt'], self.blocked)
+        self.blocked(f'git checkout {str(self.repo)}\\other.txt', tool='PowerShell')
+
+    def test_a_dotted_or_slashed_name_is_a_path(self):
+        self.each(['git checkout docs/', 'git checkout docs/.', 'git checkout ./docs'], self.blocked)
+
+    def test_a_valid_branch_name_is_still_a_branch(self):
+        self.each(['git checkout docs', 'git checkout feature'], self.allowed)
+
+
+class Round3Heredoc(GitGuardBase):
+    """P1-B: a heredoc body is text only when the receiver is known to read it as text."""
+
+    def test_an_unknown_receiver_keeps_the_body_judged(self):
+        self.each(["cat <<'EOF' | bash.exe\ngit stash\nEOF", "cat <<'EOF' | sh.exe\ngit stash\nEOF", "cat <<'EOF' | pwsh.exe -Command -\ngit stash\nEOF",
+                   "cat <<'EOF' | $SHELL\ngit stash\nEOF", "source /dev/stdin <<'EOF'\ngit stash\nEOF", ". /dev/stdin <<'EOF'\ngit checkout -- other.txt\nEOF",
+                   "eval \"$(cat <<'EOF'\ngit stash\nEOF\n)\"", "cat <<'EOF' | cmd\ngit stash\nEOF", "frobnicate <<'EOF'\ngit stash\nEOF"], self.blocked)
+
+    def test_a_known_text_receiver_skips_the_body(self):
+        self.each(["tee .onecrew/scratch/n.txt <<'EOF'\ngit stash\nEOF", "python - <<'EOF'\nprint('git stash')\nEOF", "git apply <<'EOF'\ngit stash\nEOF",
+                   "cat <<'EOF' | grep stash\ngit stash\nEOF"], self.allowed)
+
+
+class Round3Join(GitGuardBase):
+    """P1-C: backslash-newline joins lines in bash only, with an odd number of backslashes."""
+
+    def test_powershell_path_ending_in_a_backslash_joins_nothing(self):
+        self.each(['Set-Location D:\\OneCrewRuns\\\ngit stash', 'Write-Output C:\\\ngit checkout -- other.txt', 'Get-ChildItem .\\\ngit restore .', 'ls \\\ngit stash',
+                   '$d = "C:\\tmp\\"\ngit stash'], self.blocked, tool='PowerShell')
+
+    def test_an_even_run_of_backslashes_joins_nothing_in_bash(self):
+        self.blocked('echo a\\\\\ngit stash')
+
+    def test_an_odd_run_still_joins_in_bash(self):
+        self.blocked('git \\\nstash')
+        self.blocked('git checkout -- \\\nother.txt')
+        self.allowed('git checkout -- \\\nsrc/a.txt')
+
+
+class Round3Redirects(Round2Branch):
+    """P2-A: redirect words are not git paths; their targets are still judged as writes."""
+
+    def test_a_branch_switch_or_owned_path_with_a_redirect_is_allowed(self):
+        self.each(['git checkout feature 2>&1', 'git checkout feature >/dev/null 2>&1', 'git checkout feature > /dev/null', 'git checkout -q feature 2>/dev/null',
+                   'git checkout -- src/a.txt 2>&1', 'git restore src/a.txt 2>/dev/null', 'git stash push -- src/a.txt 2>&1 | tail -1',
+                   'git checkout feature 2>&1 | tail -2', 'git checkout HEAD~1 2>&1', 'git checkout nobranch 2>/dev/null || git checkout -b nobranch'], self.allowed)
+
+    def test_powershell_redirects_are_not_paths(self):
+        self.each(['git checkout feature *> $null', 'git checkout feature 2>$null', 'git checkout feature 2>&1 | Out-Null'], self.allowed, tool='PowerShell')
+
+    def test_a_redirect_does_not_hide_a_discard_or_a_write(self):
+        self.each(['git checkout -- other.txt 2>&1', 'git restore other.txt 2>/dev/null', 'git checkout feature > other.txt', 'git stash 2>&1'], self.blocked)
+
+
+class Round4Heredoc(GitGuardBase):
+    """P1-1, P2-1, P2-2: the receiver of the body is the command right before `<<`, inside the innermost open group."""
+    BT = chr(96)
+
+    def test_a_shell_inside_a_group_keeps_the_body_judged(self):
+        self.each(['echo "$(bash <<\'EOF\'\ngit stash\nEOF\n)"', 'echo "$(sh <<EOF\ngit stash\nEOF\n)"', 'printf \'%s\' "$(bash <<\'EOF\'\ngit checkout -- other.txt\nEOF\n)"',
+                   'git commit -q --allow-empty -m "$(sh <<\'EOF\'\ngit stash\nEOF\n)"', f"echo {self.BT}bash <<'EOF'\ngit stash\nEOF\n{self.BT}",
+                   "diff <(bash <<'EOF'\ngit stash\nEOF\n) /dev/null", "cat <<'EOF' > >(bash)\ngit stash\nEOF", "tee >(bash) <<'EOF'\ngit stash\nEOF",
+                   "cat <<'EOF' | tee >(sh) >/dev/null\ngit stash\nEOF"], self.blocked)
+
+    def test_a_commit_message_read_by_cat_is_still_text(self):
+        self.allowed("git commit -m \"$(cat <<'EOF'\nhook: git stash is refused\nEOF\n)\"")
+        self.blocked("x=$(cat <<'EOF'\ngit stash\nEOF\n)")      # round 5: an assignment keeps the text for a later `eval "$x"`, so it is no safe shape
+
+    def test_an_unquoted_delimiter_still_runs_substitutions_in_the_body(self):
+        self.each(['cat <<EOF\n$(git stash)\nEOF', f'cat <<EOF\n{self.BT}git stash{self.BT}\nEOF', 'git commit -q --allow-empty -F - <<EOF\nmsg $(git checkout -- other.txt)\nEOF',
+                   'cat > src/a.txt <<EOF\n$(git checkout -- other.txt)\nEOF'], self.blocked)
+        self.each(["cat <<'EOF'\n$(git stash)\nEOF", 'cat <<\\EOF\n$(git stash)\nEOF', 'cat <<EOF\nplain git stash text\nEOF'], self.allowed)
+
+    def test_a_continued_opening_line_is_joined_before_the_receiver_is_read(self):
+        self.blocked("cat <<'EOF' \\\n| bash\ngit stash\nEOF")
+
+
+class Round4Comments(GitGuardBase):
+    """P1-2: a comment is no command and its quote marks open nothing; `\\'` is a plain character in bash."""
+
+    def test_an_odd_quote_in_a_comment_hides_nothing(self):
+        self.each(["# Undo my test change, it's not needed\ngit checkout -- other.txt", "git status  # what's changed?\ngit stash", "# Let's start clean\ngit reset --hard",
+                   "# don't\ngit clean -fd", "# restore what we don't need\ngit checkout -- other.txt", '# step 1: it"s ok\ngit restore other.txt'], self.blocked)
+        self.blocked("# it's PowerShell\ngit checkout -- other.txt", tool='PowerShell')
+
+    def test_an_escaped_quote_in_bash_opens_nothing(self):
+        self.blocked("echo Don\\'t\ngit checkout -- other.txt")
+
+    def test_comment_text_is_no_command_and_no_write(self):
+        self.each(['# git stash\nls', 'git status # > other.txt', 'echo a#b'], self.allowed)
+        self.each(['echo ${#PATH}; git stash', 'echo a;#c\ngit stash'], self.blocked)
+
+
+class Round4Sed(GitGuardBase):
+    """P2-3: the quote-masked sed words find the files; a `;` or `\\|` inside the script is no file."""
+
+    def test_sed_in_place_with_a_script_holding_separators_on_an_owned_file(self):
+        self.each(["sed -i 's/a/b/; s/c/d/' src/a.txt", "sed -i 's/a\\|b/c/' src/a.txt", "sed -i -E 's/(a|b)/c/' src/a.txt",
+                   "sed -i 's/x/y/; s/p/q/' src/a.txt && grep -n y src/a.txt"], self.allowed)
+        self.blocked("sed -i 's/a/b/; s/c/d/' other.txt")
+
+
+class Round4Paths(Round2Branch):
+    """P1-3: a Git Bash path (/d/...) is a path, not a branch name."""
+
+    def test_a_git_bash_path_is_a_path(self):
+        posix = self.repo.as_posix()
+        gb = '/' + posix[0].lower() + posix[2:]
+        self.each([f'git checkout {gb}/other.txt', f'git checkout {gb}/docs', f'git checkout HEAD {gb}/other.txt'], self.blocked)
+        self.allowed(f'git checkout -- {gb}/src/a.txt')
+
+
+class Round5Heredoc(GitGuardBase):
+    """P1-1: a body is text only in two safe shapes; P2-3: unquoted bodies keep nested substitutions."""
+    BT = '`'
+
+    def test_the_output_of_a_group_that_runs_is_judged(self):
+        self.each(['echo "$(cat <<\'EOF\'\ngit stash\nEOF\n)" | bash', 'echo "$(cat <<\'EOF\'\ngit checkout -- other.txt\nEOF\n)" | sh -s',
+                   "echo $(cat <<'EOF'\ngit stash\nEOF\n) | sh", "(cat <<'EOF'\ngit stash\nEOF\n) | bash",
+                   f"{self.BT}cat <<'EOF'\ngit stash\nEOF\n{self.BT}", f"cd src; {self.BT}cat <<'EOF'\ngit stash\nEOF\n{self.BT}",
+                   f"{self.BT}cat <<'EOF'{self.BT}\ngit stash\nEOF", f"{self.BT}cat <<'EOF'{self.BT} >/dev/null\ngit stash\nEOF",
+                   "x=$(cat <<'EOF'\ngit stash\nEOF\n); eval \"$x\""], self.blocked)
+
+    def test_quotes_and_parens_before_the_mark_make_the_group_unsafe(self):
+        self.each(['echo "$(echo ")" ; bash <<\'EOF\'\ngit stash\nEOF\n)"', 'echo "$(echo \'x)\'; bash <<\'EOF\'\ngit stash\nEOF\n)"',
+                   'cat <<\'EOF\' | grep -v "x\ny" | bash\ngit stash\nEOF', 'tee <<\'EOF\' "x\n" | bash\ngit stash\nEOF'], self.blocked)
+
+    def test_the_safe_shapes_stay_allowed(self):
+        self.each(["git commit -m \"$(cat <<'EOF'\nfix: git stash and git reset --hard are refused\n\ngit stash\nEOF\n)\"",
+                   "printf '%s' \"$(cat <<'EOF'\ngit stash\nEOF\n)\" > src/a.txt", "git commit -F - <<'EOF'\nmsg\n\ngit checkout -- .\nEOF",
+                   "git commit -F - <<'EOF' && git log --oneline -1\nmsg\n\ngit stash\nEOF", "cat > src/a.txt <<'EOF' && git add src/a.txt\ngit stash\nEOF",
+                   "cat <<'EOF' | tee src/a.txt\ngit stash\nEOF"], self.allowed)
+
+    def test_a_pipe_after_the_group_closes_hands_the_text_on(self):
+        self.blocked("git commit -m \"$(cat <<'EOF'\ngit stash\nEOF\n)\" | bash")
+        self.blocked("cat <<'EOF' | bash\ngit stash\nEOF")
+        self.allowed("cat <<'EOF' > src/a.txt\ngit stash\nEOF")
+
+    def test_nested_substitutions_in_an_unquoted_body_are_judged(self):
+        self.each(['cat <<EOF\n$(git stash && echo "$(date)")\nEOF', 'cat <<EOF\n$( (git stash) )\nEOF', 'cat <<EOF\n$(\ngit stash\n)\nEOF'], self.blocked)
+        self.each(['cat <<EOF\ntoday is $(date)\nEOF', 'cat <<EOF\n\\$(git stash)\nEOF'], self.allowed)
+
+    def test_many_heredocs_on_one_line_are_read_in_one_pass(self):
+        import time
+        from onecrew.v2 import hook_cli
+        command = 'cat ' + ' '.join(f'<<A{n}' for n in range(3000)) + '\n' + '\n'.join(f'x\nA{n}' for n in range(3000))
+        started = time.monotonic()
+        hook_cli.without_heredocs(command)
+        self.assertLess(time.monotonic() - started, 3)
+
+
+class Round5Checkout(GitGuardBase):
+    """P1-2: a glob or a pathspec magic word after `git checkout` is a path."""
+
+    def test_globs_and_pathspecs_are_paths(self):
+        self.each(['git checkout *.txt', 'git checkout *', 'git checkout o*', 'git checkout other.tx?', "git checkout '*.txt'", "git checkout 'other.*'",
+                   'git checkout [o]ther.txt', 'git checkout ./*.txt', "git checkout ':(top)other.txt'", "git checkout ':!src'", 'git checkout :/other.txt',
+                   'git checkout ~+/other.txt'], self.blocked)
+        self.blocked('git checkout *.txt', 'PowerShell')
+
+    def test_revisions_and_owned_globs_stay_allowed(self):
+        self.each(['git checkout HEAD~1', 'git checkout main^', 'git checkout @{-1}', 'git checkout feature', 'git checkout src/*.txt'], self.allowed)
+        self.allowed('git checkout HEAD~1', 'PowerShell')
+
+
+class Round5Comments(GitGuardBase):
+    """P2-1 / P2-2: where a comment starts, and that its text is no write target."""
+
+    def test_an_escaped_space_before_the_hash_is_no_comment(self):
+        self.each(['echo \\ #; git stash', 'echo a\\ #b; git stash', 'echo x \\ #; echo y > other.txt'], self.blocked)
+
+    def test_a_comment_starts_after_a_paren_and_in_powershell_after_braces_and_blocks(self):
+        self.blocked("(git status)#don't\ngit stash")
+        self.blocked("(git status)#don't\ngit stash", 'PowerShell')
+        self.blocked("if ($true) {# don't\ngit stash\n}", 'PowerShell')
+        self.blocked('<# note #> git stash', 'PowerShell')
+        self.blocked('<# x #> Set-Content other.txt y', 'PowerShell')
+        self.blocked("echo Don`'t\ngit checkout -- other.txt", 'PowerShell')
+
+    def test_comment_text_is_no_target_but_the_target_before_it_is(self):
+        self.each(["rm src/a.txt # don't need it", 'touch src/a.txt # refresh', 'cp README.md src/a.txt # copy', 'mkdir -p .onecrew/scratch/x # tmp',
+                   'sed -i s/a/b/ src/a.txt # x', 'touch src/a.txt  # create it\ngit status', 'touch src/a.txt\ngit status'], self.allowed)
+        self.each(['touch other.txt # refresh', 'sed -i s/a/b/ other.txt # x'], self.blocked)
+
+
+class Round5Sed(GitGuardBase):
+    """P2-4: sed -i behind xargs or parallel gets its files from stdin."""
+
+    def test_sed_in_place_behind_xargs_is_refused(self):
+        self.each(['grep -l . other.txt | xargs sed -i d', 'ls other.txt | xargs sed -i -e d', "find . -name other.txt | xargs sed -i 's/W/X/'",
+                   'xargs -a list.txt sed -i d', 'ls | parallel sed -i d'], self.blocked)
+        self.allowed("sed -i 's/a/b/' src/a.txt")
+
+
+class Round5Powershell(GitGuardBase):
+    def test_a_here_string_run_by_invoke_expression_is_judged(self):
+        self.blocked("@'\ngit stash\n'@ | Invoke-Expression", 'PowerShell')
+        self.allowed('git commit -q --allow-empty -m @"\nfix: git stash refused\n"@', 'PowerShell')
+
+
+class Round5Deny(GitGuardBase):
+    def test_the_old_deny_list_does_not_read_a_commit_message_a_text_reader_takes(self):
+        self.allowed("git commit -F - <<'EOF'\nhook: git reset --hard is refused\nEOF")
+        self.blocked("bash <<'EOF'\ngit reset --hard\nEOF")
+
+
+class Round6Globs(GitGuardBase):
+    """P1-1: only an unquoted Bash glob is expanded on disk; any other glob is a pathspec that covers the whole fixed folder."""
+
+    def setUp(self):
+        super().setUp()
+        for rel in ('src/sub/b.txt', 'src/.env'):
+            (self.repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / rel).write_text('x\n', encoding='utf-8')
+
+    def test_a_quoted_glob_is_a_pathspec_over_the_whole_folder(self):
+        self.each(["git checkout -- 'src/*.txt'", "git restore 'src/*.txt'", "git restore -- 'src/*.txt'", "git restore --source=HEAD -- 'src/*.txt'",
+                   "git checkout HEAD -- 'src/*.txt'", "git stash push -- 'src/*.txt'", "git checkout -- 'src/**.txt'", "git checkout -- 'src/*'",
+                   "git restore '*.txt'"], self.blocked)
+
+    def test_every_powershell_glob_is_a_pathspec(self):
+        self.each(['git restore src/*.txt', 'git checkout -- src/*.txt', "git restore 'src/*.txt'"], self.blocked, tool='PowerShell')
+
+    def test_an_unquoted_bash_glob_is_what_the_shell_expands(self):
+        self.each(['git checkout -- src/*.txt', 'git restore src/*.txt', 'git restore src/a.t*'], self.allowed)
+
+    def test_a_glob_that_matches_no_file_is_a_pathspec(self):
+        self.blocked('git restore src/nomatch*.txt')
+
+
+class Round6Heredoc(GitGuardBase):
+    """P2-1 / P2-2 / P2-3 and P3 item 2 of review 5."""
+    COMMIT = "git commit -q --allow-empty -m \"$(cat <<'EOF'\nfix: x\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\""
+
+    def test_the_standard_commit_with_a_trailer_passes(self):
+        self.each([self.COMMIT, self.COMMIT.replace('\n', '\r\n'), "git add -A && " + self.COMMIT,
+                   "git commit -F - <<'EOF'\nfix: x\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF",
+                   "cat > src/a.txt <<'EOF'\n<div>\nhello\n</div>\nEOF", "cat > src/a.txt <<'EOF'\nif a > b:\n    pass\nEOF"], self.allowed)
+
+    def test_a_target_outside_owned_is_still_a_target(self):
+        self.each(["cat > other.txt <<'EOF'\nhello\nEOF", "cat <<'EOF' | bash\necho y > other.txt\nEOF"], self.blocked)
+
+    def test_the_closing_line_hands_the_text_on_by_a_continuation_or_process_substitution(self):
+        self.each(['echo "$(cat <<\'EOF\'\ngit stash\nEOF\n)" \\\n| bash', 'echo "$(cat <<\'EOF\'\ngit stash\nEOF\n)" \\\n  | bash',
+                   'echo "$(cat <<\'EOF\'\ngit stash\nEOF\n)" > >(bash)', 'echo "$(cat <<\'EOF\'\ngit stash\nEOF\n)" >(bash)',
+                   'printf \'%s\' "$(cat <<\'EOF\'\ngit stash\nEOF\n)" \\\n  | sh'], self.blocked)
+        self.each(['echo "$(cat <<\'EOF\'\ngit stash\nEOF\n)" \\\n  && git log --oneline -1', "git commit -q --allow-empty -m \"$(cat <<'EOF'\nfix\nEOF\n)\" 2>&1 | tail -5",
+                   "git commit -q --allow-empty -m \"$(cat <<'EOF'\nfix: `git stash` is refused\nEOF\n)\" 2>&1 | tail -5"], self.allowed)
+
+    def test_a_variable_store_is_not_a_text_reader(self):
+        self.each(['printf -v x \'%s\' "$(cat <<\'EOF\'\ngit stash\nEOF\n)"; eval "$x"', 'read -r x <<< "$(cat <<\'EOF\'\ngit stash\nEOF\n)"; eval "$x"',
+                   'for c in $(cat <<\'EOF\'\nstash\nEOF\n); do git $c; done', "read -r -d '' x <<'EOF'\ngit stash\nEOF\neval \"$x\"", 'git $c'], self.blocked)
+        self.allowed("printf '%s' \"$(cat <<'EOF'\ngit stash\nEOF\n)\" > src/a.txt")
+
+    def test_git_dash_c_and_gh_bodies_are_text(self):
+        self.each(["git -C . commit -q --allow-empty -m \"$(cat <<'EOF'\nfix: `git stash` is refused\nEOF\n)\"",
+                   "gh pr create --title x --body \"$(cat <<'EOF'\n## Summary\n- `git stash` without paths is refused\nEOF\n)\"",
+                   "gh issue comment 3 -b \"$(cat <<'EOF'\n`git stash`\nEOF\n)\""], self.allowed)
+
+
+class Round6Sed(GitGuardBase):
+    def test_a_file_named_2_is_a_target_but_a_stream_number_is_not(self):
+        self.blocked('sed -i s/a/b/ 2 >/dev/null')
+        self.allowed('sed -i s/a/b/ src/a.txt 2>/dev/null')
+
+
+class Round7FolderStack(GitGuardBase):
+    """P2-1 of review 6: an unquoted glob is expanded in the folder the shell is really in: `( ... )`, `popd` and `cd -` bring it back."""
+
+    def test_the_folder_comes_back_after_a_subshell_popd_or_cd_dash(self):
+        self.each(['(cd src && ls) && git restore *.txt', '(cd src && ls); git checkout -- *.txt', 'cd src && ls; cd - && git checkout -- *.txt',
+                   'pushd src && ls && popd && git checkout -- *.txt', 'pushd src >/dev/null; ls; popd >/dev/null; git restore *.txt',
+                   'cd src && ls; cd .. && git checkout -- *.txt', 'git checkout -- *.txt', 'cd src && git checkout -- ../*.txt'], self.blocked)
+
+    def test_a_glob_inside_the_folder_that_matches_only_owned_files_stays_allowed(self):
+        self.each(['cd src && git restore *.txt', 'cd src && git checkout -- ../src/*.txt', '(cd src && git restore *.txt)', 'pushd src && git restore *.txt && popd'], self.allowed)
+
+    def test_an_untracked_folder_is_tried_everywhere(self):
+        self.each(['cd src; popd; git restore *.txt', 'cd; git restore *.txt', 'cd src && cd ~ && git restore *.txt'], self.blocked)
+
+    def test_a_dev29_export_gets_the_same_answers(self):
+        self.old = False
+        self.each(['(cd src && ls) && git restore *.txt', 'pushd src && ls && popd && git checkout -- *.txt'], self.blocked)
+        self.allowed('cd src && git restore *.txt')
+
+
+class Round4Speed(unittest.TestCase):
+    def test_a_long_run_of_backslashes_is_read_in_linear_time(self):
+        import time
+        from onecrew.v2 import hook_cli
+        for command in ('\\' * 200000, 'echo ' + '\\' * 200001 + "'x"):
+            started = time.monotonic()
+            hook_cli.shell_segments(command)
+            hook_cli.masked_quotes(command)
+            self.assertLess(time.monotonic() - started, 3)
+
+
+if __name__ == '__main__':
+    unittest.main()

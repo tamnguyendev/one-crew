@@ -99,6 +99,12 @@ def in_ai_session():
     return any(name in os.environ for name in AI_MARKERS) or started_by_check()
 
 
+def claude_session():
+    """#25: any Claude Code marker (CLAUDECODE, which an IDE terminal of the owner also has, or CLAUDE_CODE_CHILD_SESSION) or a refused-owner process: the cases where
+    changing the owner's own Claude Code profile (`hook user install|uninstall` on ~/.claude/settings.json) is refused."""
+    return any(name in os.environ for name in ('CLAUDECODE', *AI_MARKERS)) or owner_refused()
+
+
 def owner_refused():
     """dev25: the one test of every refusal of an owner verb: an AI session (in_ai_session) or a process that declares a non-owner actor (P1.c).
     Kept apart from in_ai_session, which also decides how an ordinary decision is attributed (decisions.record), so a worker that records its own

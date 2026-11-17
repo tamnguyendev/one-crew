@@ -442,7 +442,9 @@ def init(project=None, state_root=None, shared=False, yes=False, exe=None, ask=i
         return 2
     config = where.read_config(root)
     wanted_config = dict(config, state_root=str(state))
+    ignore_path = config_path.parent / '.gitignore'
     todo = {'state': not ledger.path.is_file(), 'rules': not rules_path.exists(), 'config': config != wanted_config,
+            'ignore': not ignore_path.exists(),
             'settings': merged != existing or not settings_path.exists(), 'wiki': wiki_step['action'] == 'create'}
     wiki_written, wiki_failed = [], None
     if any(todo.values()):
@@ -450,6 +452,7 @@ def init(project=None, state_root=None, shared=False, yes=False, exe=None, ask=i
         if todo['state']: say(t('init.step_state', path=state, note=t('init.note_exists') if state.exists() else t('init.note_new')))
         if todo['rules']: say(t('init.step_rules', path=rules_path))
         if todo['config']: say(t('init.step_config', path=config_path))
+        if todo['ignore']: say(t('init.step_ignore', path=ignore_path))
         if todo['settings']:
             say(t('init.step_settings', verb=t('init.verb_merge') if settings_path.exists() else t('init.verb_create'), path=settings_path,
                   bak=t('init.bak_note') if settings_path.exists() and not settings_path.with_name(settings_path.name + '.bak').exists() else ''))
@@ -468,6 +471,7 @@ def init(project=None, state_root=None, shared=False, yes=False, exe=None, ask=i
                 with ledger.transaction(write=True): pass                  # creates ledger.sqlite3 with its schema; an existing ledger is left alone
             if todo['rules']: advisor.init_rules(ledger, 'vi' if lang() == 'vi' else 'en')
         if todo['config']: write_text(config_path, dump(wanted_config))
+        if todo['ignore']: write_text(ignore_path, '*\n')
         if todo['settings']:
             backup = settings_path.with_name(settings_path.name + '.bak')
             if settings_path.exists() and not backup.exists(): shutil.copyfile(settings_path, backup)
@@ -517,6 +521,180 @@ def check_hooks(root, state, exe):
         bad = next((r for r in results if r[0] == level), None)
         if bad: return bad
     return 'PASS', ' / '.join(detail for _, detail in results)
+
+
+# ---- #25: the user-scope hook ------------------------------------------------------------------------------------------------
+# One PreToolUse entry in the user's own Claude Code settings: a session opened outside an enforced project, and its subagents, then ask that project's
+# plan (hook_cli.check --scope user). Only this entry is ours there: no other event, no permissions; every other key and hook stays as it was.
+
+USER_MATCHER = 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell'
+USER_ARGS = ['hook', 'check', '--scope', 'user']
+
+
+def user_settings_file(env=None):
+    """$CLAUDE_CONFIG_DIR/settings.json when that is set (and not empty), else ~/.claude/settings.json."""
+    folder = (os.environ if env is None else env).get('CLAUDE_CONFIG_DIR')
+    return Path(folder) / 'settings.json' if folder else Path.home() / '.claude' / 'settings.json'
+
+
+def is_user_hook(handler):
+    """The handler `hook user install` writes: an onecrew executable with exactly the arguments `hook check --scope user`."""
+    if not isinstance(handler, dict) or handler.get('type', 'command') != 'command': return False
+    command = handler.get('command')
+    return isinstance(command, str) and handler.get('args') == USER_ARGS and re.split(r'[\\/]', command.strip())[-1].casefold() in EXE_NAMES
+
+
+def user_handlers(settings):
+    """[handler, ...] of the user-scope hook in a settings dict (PreToolUse entries only)."""
+    entries = (settings.get('hooks') or {}).get('PreToolUse') if isinstance(settings.get('hooks'), dict) else None
+    return [h for e in (entries if isinstance(entries, list) else []) if isinstance(e, dict) and isinstance(e.get('hooks'), list) for h in e['hooks'] if is_user_hook(h)]
+
+
+def program_found(program):
+    return bool(program) and (Path(program).is_file() or shutil.which(program) is not None)
+
+
+def program_why_not(exe):
+    """#25 (review P2-1): None when `exe` can be the program of the user hook, else the key of the reason (messages.py): it exists, it is named like onecrew
+    (else `status` and `uninstall` would not know the entry), and it answers `--version`."""
+    if not Path(exe).is_file(): return 'user.why_missing'
+    if Path(exe).name.casefold() not in EXE_NAMES: return 'user.why_name'
+    try:
+        done = subprocess.run([str(exe), '--version'], capture_output=True, timeout=30, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return 'user.why_version'
+    if done.returncode != 0: return 'user.why_version'
+    return None if program_runs_scope(exe)[0] else 'user.why_scope'        # #25 (review 2, P3-2): the doctor's check, before anything is written
+
+
+def program_runs_scope(program):
+    """#25 (review P2-7): (ok, why) of the hook's own program asked what Claude Code asks it: `hook check --scope user` with an empty event, started in a folder
+    no plan governs. A OneCrew from before #25 refuses `--scope` (exit 2), which Claude Code reads as 'blocked' for every call."""
+    env = {k: v for k, v in os.environ.items() if k not in ('CLAUDE_PROJECT_DIR', 'CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION')}
+    try:
+        with tempfile.TemporaryDirectory() as folder:
+            done = subprocess.run([str(program), *USER_ARGS], input=b'{}', capture_output=True, timeout=30, cwd=folder, env=env)
+    except (OSError, subprocess.SubprocessError) as error:
+        return False, f'{type(error).__name__}'
+    if done.returncode == 0: return True, ''
+    return False, f'exit {done.returncode}: ' + ((done.stderr or done.stdout).decode('utf-8', errors='replace').strip().splitlines() or [''])[-1][:160]
+
+
+def _profile_form(path):
+    """FIX25B (Codex F4): one normal form for a settings file, so every spelling of the same file gets the same answer: without a `\\\\?\\` / `\\\\.\\` prefix
+    (`\\\\?\\UNC\\host\\share` is `\\\\host\\share`), resolved, and case-folded on Windows."""
+    text = str(path)
+    if text[:8].upper() == '\\\\?\\UNC\\': text = '\\\\' + text[8:]
+    elif text.startswith(('\\\\?\\', '\\\\.\\')): text = text[4:]
+    return os.path.normcase(os.path.realpath(text))
+
+
+def user_hook(verb, settings_file=None, program=None):
+    """`onecrew hook user install|status|uninstall`. Exit code: 0 done (or nothing to do); 2 refused or nothing written (AI session on the user's own
+    profile, bad settings file, no installed command)."""
+    shown_path = Path(settings_file) if settings_file else user_settings_file()
+    path = Path(os.path.realpath(shown_path))              # #25 (review P2-2): a settings file that is a symlink is read and written through the link; the link stays
+    if verb != 'status' and os.path.islink(shown_path):    # #25 (review 2, P3-3): a link that loops or points nowhere is refused, never replaced by a file
+        try:
+            path = Path(os.path.realpath(shown_path, strict=True))
+        except (OSError, RuntimeError):
+            say(t('user.link_broken', path=shown_path))
+            return 2
+    data, bad = read_settings(path)
+    if verb == 'status':
+        handlers = user_handlers(data or {})
+        shown = handlers[0]['command'] if handlers else (str(installed_exe()) if installed_exe() else None)
+        print(json.dumps({'configured': bool(handlers), 'settings_file': str(shown_path), 'program': shown, 'program_found': program_found(shown), 'error': bad}, ensure_ascii=False, indent=2))
+        return 0
+    from .ownership import claude_session
+    try:       # #25 (review P2-3): the owner's profile is ~/.claude/settings.json and, when CLAUDE_CONFIG_DIR is set, the settings.json of that folder
+        profiles = {_profile_form(p) for p in (Path.home() / '.claude' / 'settings.json', user_settings_file())}
+        own = _profile_form(path) in profiles
+    except OSError:
+        own = False
+    if own and claude_session():
+        say(t('user.refused', path=shown_path, verb=verb))
+        return 2
+    if bad:
+        say(t('init.bad_settings', reason=bad))
+        return 2
+    exe = None
+    if verb == 'install':
+        exe = Path(program).resolve() if program else installed_exe()
+        if exe is None:
+            say(t('user.no_exe'))
+            return 2
+        why = program_why_not(exe)
+        if why:
+            say(t('user.bad_program', program=exe, why=t(why)))
+            return 2
+    merged = copy.deepcopy(data)
+    try:
+        hooks = merged.setdefault('hooks', {}) if verb == 'install' else merged.get('hooks', {})
+        if not isinstance(hooks, dict): raise SettingsShape('hooks', 'object')
+        entries = hooks.get('PreToolUse', [])
+        if not isinstance(entries, list): raise SettingsShape('hooks.PreToolUse', 'list')
+    except SettingsShape as error:
+        say(t('init.bad_settings', reason=t('settings.shape', path=path, field=error.key, expected=t('shape.' + error.expected))))
+        return 2
+    kept = []
+    for entry in entries:                                           # drop every user-scope handler; the entry goes with it when it held nothing else
+        handlers = entry.get('hooks') if isinstance(entry, dict) and isinstance(entry.get('hooks'), list) else None
+        if handlers is None or not any(is_user_hook(h) for h in handlers):
+            kept.append(entry)
+            continue
+        rest = [h for h in handlers if not is_user_hook(h)]
+        if rest: kept.append(dict(entry, hooks=rest))
+    if verb == 'install':
+        entry = {'matcher': USER_MATCHER, 'hooks': [{'type': 'command', 'command': str(exe), 'args': list(USER_ARGS), 'timeout': 15, 'onFailure': 'block'}]}
+        place = next((i for i, e in enumerate(entries) if isinstance(e, dict) and any(is_user_hook(h) for h in e.get('hooks') or [] if isinstance(h, dict))), len(kept))
+        hooks['PreToolUse'] = kept[:place] + [entry] + kept[place:]
+    else:
+        if hooks.get('PreToolUse') is not None: hooks['PreToolUse'] = kept
+        if not kept: hooks.pop('PreToolUse', None)
+        if not hooks: merged.pop('hooks', None)
+    if merged == data:
+        say(t('user.unchanged' if verb == 'install' else 'user.absent', path=shown_path))
+        return 0
+    backup = path.with_name(path.name + '.bak')            # next to the target, so the link and its copy never part
+    try:
+        if path.exists() and not backup.exists(): shutil.copyfile(path, backup)
+        write_text(path, dump(merged))
+    except OSError as error:
+        say(t('user.write_failed', path=shown_path, code=type(error).__name__))
+        return 2
+    say(t('user.installed', path=shown_path, program=exe, bak=backup if backup.exists() else '-') if verb == 'install' else t('user.removed', path=shown_path))
+    return 0
+
+
+def check_user_hook():
+    """(level, detail) of the user-scope hook in the user's settings (CLAUDE_CONFIG_DIR, else the home folder), read the way `hook user status` reads it."""
+    path = user_settings_file()
+    data, bad = read_settings(path)
+    if bad: return 'WARN', t('doctor.user_bad', reason=bad)
+    handlers = user_handlers(data or {})
+    if not handlers: return 'WARN', t('doctor.user_none')
+    gone = next((h['command'] for h in handlers if not program_found(h['command'])), None)
+    if gone: return 'FAIL', t('doctor.user_stale', path=path, command=gone)
+    for handler in handlers:                           # #25 (review P2-7): the program is there; does it answer what Claude Code asks it?
+        ok, why = program_runs_scope(handler['command'])
+        if not ok: return 'FAIL', t('doctor.user_old', path=path, command=handler['command'], why=why)
+    return 'PASS', t('doctor.user_ok', path=path)
+
+
+def last_user_call(root):
+    """The newest record of <root>/.onecrew/violations.jsonl with scope user (as a dict), or None."""
+    try:
+        lines = (Path(root) / '.onecrew' / 'violations.jsonl').read_text(encoding='utf-8', errors='replace').splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        try:
+            item = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(item, dict) and item.get('scope') == 'user': return item
+    return None
 
 
 def doctor_facts(project=None, state_root=None, exe=None, claude=claude_status):
@@ -575,6 +753,11 @@ def doctor_facts(project=None, state_root=None, exe=None, claude=claude_status):
             plan, bad = hook_cli.load_plan(plan_file)
             if bad: add('FAIL', 'doctor.plan', t('doctor.plan_bad', why=bad.split(':')[0]))
             else: add('PASS', 'doctor.plan', t('doctor.plan_ok', name=plan.get('plan'), revision=plan.get('revision'), mode=plan.get('mode')))
+    level, detail = check_user_hook()                                  # #25
+    add(level, 'doctor.user', detail)
+    if root is not None:
+        seen = last_user_call(root)
+        add('PASS', 'doctor.user_calls', t('doctor.user_seen', at=seen.get('at'), session=seen.get('session')) if seen else t('doctor.user_unseen'))
     return lines
 
 
