@@ -273,10 +273,10 @@ def judge_path(plan, root, target, action):
 # ---- shell commands --------------------------------------------------------------------------------------------------------
 
 # #12: a target is a whole shell word: quoted and unquoted parts joined (`"$TMPDIR"/../x` is one word, not `"$TMPDIR"`)
-REDIRECT = re.compile(r'(?<![<>&-])\d?>>?(?![&>])[ \t]*((?:"[^"]*"|\'[^\']*\'|[^\s;|&<>()])+)')
+REDIRECT = re.compile(r'(?<![<>&-])(?:\d|\*)?>>?(?![&>])[ \t]*((?:"[^"]*"|\'[^\']*\'|[^\s;|&<>()])+)')
 # #12: the write redirects REDIRECT leaves out: `>|` (its target class stops at `|`), `&>`, `&>>` (its lookbehind), and `>&file` (but `>&1`, `>&2`, `>&-` copy a descriptor,
 # also when `;` `|` `&` `)` `<` `>` follows: `2>&1)`)
-REDIRECT_MORE = re.compile(r'(?:>\||&>>?|(?<![<>&])\d?>&(?![ \t]*(?:\d+|-)(?![\w.])))[ \t]*((?:"[^"]*"|\'[^\']*\'|[^\s;|&<>()])+)')
+REDIRECT_MORE = re.compile(r'(?:>\||&>>?|(?<![<>&])(?:\d|\*)?>&(?![ \t]*(?:\d+|-)(?![\w.])))[ \t]*((?:"[^"]*"|\'[^\']*\'|[^\s;|&<>()])+)')
 EVERY = ('rm', 'del', 'erase', 'rd', 'rmdir', 'ri', 'remove-item', 'mkdir', 'md', 'touch', 'tee', 'clear-content', 'clc')        # every plain word is a target
 FIRST = ('set-content', 'sc', 'add-content', 'ac', 'out-file', 'tee-object', 'new-item', 'ni', 'export-csv', 'export-clixml')   # the first one is
 COPY = ('cp', 'mv', 'copy', 'move', 'copy-item', 'cpi', 'move-item', 'mi', 'ren', 'rename', 'rename-item', 'rni')              # the last one is
@@ -299,7 +299,7 @@ SED_WORDS = re.compile(r'(?<![\w.-])sed(?=\s)([^;|&<>\n]*)', re.I)
 FEEDERS = re.compile(r'(?<![\w.-])(?:xargs|parallel)(?![\w.-])', re.I)
 
 
-DESCRIPTOR_DUP = re.compile(r'(?<![<>&\w])\d*[<>]&(?:\d+|-)(?![\w.])')
+DESCRIPTOR_DUP = re.compile(r'(?<![<>&\w])(?:\d*|\*)[<>]&(?:\d+|-)(?![\w.])')      # #25 (final review P1-2): `*>&1` is PowerShell's all-streams duplication
 
 
 def unquote(word):
@@ -1497,12 +1497,10 @@ def discard_verdict(plan, root, cwd, command, limited=False, powershell=False, s
                 return 'bash_deny', 'rm with recursive and force (-rf in any spelling) is refused: remove a file with plain `rm <file>`, or work in a separate `git worktree add`, or in `.onecrew/scratch/`.'
         return None
 
-    text, bodies = split if split is not None else without_heredocs(command, powershell)
-    for text in command_texts(text, 0, powershell) + [t for body in bodies for t in command_texts(body, 0, powershell)]:
+    def walk(text, state):
         # #12: the folder the shell is in decides what an unquoted glob expands to. `( ... )` gives the folder back when it closes, `pushd`/`popd` push and pop, `cd -`
         # goes to the previous folder. When the hook cannot tell for sure, every folder the command may be in (the start and each one entered) is tried: any hit refuses.
-        here = previous = Path(cwd)
-        pushed, groups, seen, unsure = [], [], [here], False
+        here, previous, pushed, groups, seen, unsure = state
         for segment in shell_segments(text, powershell):
             words = []
             for raw in without_redirects(TOKEN.findall(hide_escapes(segment, powershell))):      # #25: `cd du\ an\ A` is one word
@@ -1533,6 +1531,22 @@ def discard_verdict(plan, root, cwd, command, limited=False, powershell=False, s
             if head_words: exports.update(git_exports(words, segment, powershell))      # #25: `export GIT_WORK_TREE=...` holds for the commands after it
             if not powershell:
                 for _ in range(min(max(0, stripped.count(')') - stripped.count('(')), len(groups))): here, previous = groups.pop()
+        state[:] = [here, previous, pushed, groups, seen, unsure]
+        return None
+
+    # #25 (final review P1-1): the command is walked in the chunks of heredoc_units (as shell_effects does) with ONE folder state, so a body that may run as shell
+    # (`cd A && bash <<EOF`) starts in the folder in force at its `<<` line; the texts nested in a chunk (`$(...)`, `bash -c '...'`) start in the folder the chunk ended in.
+    start = Path(cwd)
+    state = [start, start, [], [], [start], False]
+    for unit, _ in heredoc_units(command):
+        texts = command_texts(unit, 0, powershell)
+        verdict = walk(texts[0], state)
+        if verdict: return verdict
+        folders = [state[0]] + [f for f in state[4] if f != state[0]] if state[5] else [state[0]]
+        for text in texts[1:]:
+            for folder in folders:
+                verdict = walk(text, [folder, folder, [], [], [folder], False])
+                if verdict: return verdict
     return None
 
 

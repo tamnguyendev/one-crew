@@ -372,3 +372,58 @@ class StreamDuplications(ShellBase):
     def test_a_real_redirect_to_a_file_still_counts(self):
         self.blocked('cp ../B/README.md src/a.txt 2>&1 > other.txt', inside=True)
         self.blocked('echo hi >&other.txt', inside=True)
+
+
+class AHeredocBodyStartsWhereTheCdLeftOff(ShellBase):
+    """#25 (final review P1-1): a body a shell may run is judged in the folder in force at its `<<` line."""
+    def body(self, git, head='bash', delim="<<'EOF'", cd=None):
+        return f'cd "{cd or self.af}" && {head} {delim}{NL}{git}{NL}EOF'
+
+    def test_a_git_form_that_throws_work_away_in_a_body_after_cd_is_refused_from_b(self):
+        for git in ('git checkout -- other.txt', 'git restore other.txt', 'git checkout HEAD -- other.txt', 'git checkout -- *.txt', 'git checkout -- .',
+                    'git checkout .', 'git restore docs/', 'git checkout other.txt', 'git stash push -- other.txt', 'git -C . checkout -- other.txt',
+                    'set -e' + NL + 'git status' + NL + 'git checkout -- other.txt'):
+            with self.subTest(git=git): self.blocked(self.body(git))
+
+    def test_every_receiver_of_the_body_counts(self):
+        for head, delim in (('sh', '<<EOF'), ('bash -s', "<<'EOF'"), ('bash', '<<"EOF"')):
+            with self.subTest(head=head): self.blocked(self.body('git checkout -- other.txt', head, delim))
+        self.blocked(f'cd "{self.af}" && cat <<\'EOF\' | bash{NL}git checkout -- other.txt{NL}EOF')
+        self.blocked(f'cd "{self.af}"; bash <<\'EOF\'{NL}git restore other.txt{NL}EOF')
+        self.blocked(self.body('git checkout -- other.txt', delim="<<'EOF' 2>&1"))
+
+    def test_an_owned_path_in_the_body_is_allowed(self):
+        self.allowed(self.body('git checkout -- src/a.txt'))
+        self.allowed(self.body('git status; git diff'))
+
+    def test_in_the_project_a_body_after_cd_to_a_subfolder_is_read_there(self):
+        self.allowed(f'cd src && bash <<\'EOF\'{NL}git checkout -- a.txt{NL}EOF', inside=True)
+        self.allowed(f'cd src && bash <<\'EOF\'{NL}git checkout -- *.txt{NL}EOF', inside=True)
+        self.blocked(f'cd src && bash <<\'EOF\'{NL}git checkout -- ../other.txt{NL}EOF', inside=True)
+        self.blocked(f'bash <<\'EOF\'{NL}git checkout -- other.txt{NL}EOF', inside=True)
+
+    def test_a_cd_inside_the_body_still_counts(self):
+        self.blocked(f'bash <<\'EOF\'{NL}cd "{self.af}" && git checkout -- other.txt{NL}EOF')
+
+    def test_a_nested_string_after_cd_is_read_in_that_folder(self):
+        self.blocked(f'cd "{self.af}" && bash -c "git checkout -- other.txt"')
+        self.blocked(f"cd \"{self.af}\" && sh -c 'git restore other.txt'")
+
+
+class AllStreamsRedirectsOfPowerShell(ShellBase):
+    """#25 (final review P1-2): `*>`, `*>>`, `*>&1` are one operator; the `*` is no copy target."""
+    def test_a_copy_into_a_project_with_all_streams_redirected_is_judged(self):
+        for tail in ('*> $null', '*>$null', '*>&1', '*> log.txt', '-Force *>&1 | Out-String', '*>> log.txt'):
+            for cmd in ('Copy-Item notes.txt', 'Move-Item notes.txt', 'cp notes.txt'):
+                with self.subTest(cmd=cmd, tail=tail):
+                    self.blocked(f'{cmd} "{self.a}\\other.txt" {tail}', 'PowerShell')
+
+    def test_in_the_project_the_reason_names_the_file_and_an_owned_copy_passes(self):
+        err = self.blocked('Copy-Item ..\\B\\notes.txt other.txt *> $null', 'PowerShell', inside=True)
+        self.assertIn('other.txt', err)
+        self.allowed('Copy-Item ..\\B\\README.md src\\a.txt *>&1', 'PowerShell', inside=True)
+        self.allowed('Copy-Item ..\\B\\README.md src\\a.txt *> $null', 'PowerShell', inside=True)
+
+    def test_the_redirect_target_of_all_streams_is_still_a_write(self):
+        self.blocked('Get-Date *> other.txt', 'PowerShell', inside=True)
+        self.allowed('Get-Date *> src\\a.txt', 'PowerShell', inside=True)
