@@ -1,43 +1,43 @@
 <#
 .SYNOPSIS
-  Owner verb: switch the hook of a plan to enforce (hook mode enforce --by owner) so it blocks instead of only logging.
-  Typed AFTER approve.ps1 (plan approve, then hook mode enforce --plan <name>).
+  Owner verb: switch the hook mode of a plan, enforce (block) or log (onecrew owner enforce).
 .DESCRIPTION
-  Type this in the owner's OWN terminal, not in an AI session: the CLI refuses it when CLAUDE_CODE_CHILD_SESSION is set, and (2.5.0.dev25) inside a process a OneCrew check started.
-  Only calls onecrew_cli.py; --by is always owner. Prints the mode line, exits non-zero on a missing plan or a refusal.
-  -Mode log goes back to logging only. The separate state-root gate (plan enforce on|off) is not done here.
-  Defaults for -Project (the repo holding this script), -StateRoot and -Python are for THIS machine: override them
-  with parameters on another machine or another account. The working directory is restored when the script ends.
+  Run this in the owner's OWN terminal, not in an AI session: the script and the CLI both refuse inside one.
+  Calls the installed OneCrew (default: the 2.5.0.dev30 runtime of this machine), then reads the exported active plan
+  (<project>\.onecrew\active-plan.json, the file the hooks read) and reports what it holds.
+  -Project: the repository of the plan (default: the current folder). -StateRoot: the ledger (default: the real one of this machine).
+  -MachineDir: for the OneCrew development ledger, the folder holding local\ and roaming\ (sets LOCALAPPDATA/APPDATA for the call only).
+  Exit 0 = the hooks now read the plan in that mode; 1 = refused or not exported; 2 = run inside an AI session.
 .EXAMPLE
-  .\scripts\owner\enforce.ps1 -Plan v21-handover -Reference "chu so huu 20/10: chan that"
+  .\scripts\owner\enforce.ps1 -Plan hello-onecrew
+.EXAMPLE
+  .\scripts\owner\enforce.ps1 -Plan hello-onecrew -Mode log -Reference "owner: watch only while testing"
 #>
 param(
     [Parameter(Mandatory)][string]$Plan,
-    [Parameter(Mandatory)][string]$Reference,
-    [string]$Project = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path,                                   # default: the repo of this script
-    [string]$StateRoot = 'D:\OneCrewRuns\state-v2-real',                                                        # default of this machine: override elsewhere
-    [string]$Python = 'D:\TamNT\Workspace\9.VMAgent\onecrew\.venv\Scripts\python.exe',                          # default of this machine: override elsewhere
-    [ValidateSet('enforce', 'log')][string]$Mode = 'enforce'
+    [ValidateSet('enforce', 'log')][string]$Mode = 'enforce',
+    [string]$Reference = '',
+    [string]$Project = (Get-Location).Path,
+    [string]$StateRoot = 'D:\TamNT\Workspace\11.OneCrew\state-v2-real',
+    [string]$OneCrew = 'D:\OneCrewRuns\runtime-dev30\Scripts\onecrew.exe',
+    [string]$MachineDir = ''
 )
 $ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$cli = Join-Path $repo 'onecrew_cli.py'
-$exitCode = 0
-Push-Location -LiteralPath $repo
+if ($env:CLAUDE_CODE_CHILD_SESSION -or $env:CLAUDECODE) { Write-Host 'KHONG DAT: dang o trong phien AI; mo terminal rieng cua ban roi chay lai.' -ForegroundColor Red; exit 2 }
+foreach ($path in @($OneCrew, $Project, $StateRoot)) { if (-not (Test-Path -LiteralPath $path)) { Write-Host ('KHONG DAT: khong tim thay ' + $path) -ForegroundColor Red; exit 1 } }
+$saved = @($env:LOCALAPPDATA, $env:APPDATA)
+if ($MachineDir) { $env:LOCALAPPDATA = Join-Path $MachineDir 'local'; $env:APPDATA = Join-Path $MachineDir 'roaming' }
 try {
-    foreach ($path in @($Python, $cli, $StateRoot)) {
-        if (-not (Test-Path -LiteralPath $path)) { [Console]::Error.WriteLine("Khong tim thay: $path"); exit 1 }
+    $cliArgs = @('--project', $Project, '--state-root', $StateRoot, 'owner', 'enforce', $Plan, '--mode', $Mode, '--human')
+    if ($Reference) { $cliArgs += @('--reference', $Reference) }
+    & $OneCrew @cliArgs | Out-Host
+    $file = Join-Path $Project '.onecrew\active-plan.json'
+    $active = $null
+    if (Test-Path -LiteralPath $file) { try { $active = Get-Content -Raw -Encoding UTF8 -LiteralPath $file | ConvertFrom-Json } catch { $active = $null } }
+    if ($active -and $active.plan -eq $Plan -and $active.mode -eq $Mode) {
+        Write-Host ('DAT: hook cua ' + $Project + ' doc ' + $Plan + ' ban ' + $active.revision + ', che do ' + $Mode + '.') -ForegroundColor Green; exit 0
     }
-    $null = & $Python -X utf8 $cli --project $Project --state-root $StateRoot plan show $Plan
-    if ($LASTEXITCODE -ne 0) { [Console]::Error.WriteLine("Plan '$Plan' khong ton tai trong $StateRoot (hoac CLI tu choi doc no)."); exit 1 }
-
-    $out = & $Python -X utf8 $cli --project $Project --state-root $StateRoot hook mode $Mode --by owner --reference $Reference --plan $Plan
-    $code = $LASTEXITCODE
-    $lines = $out | Select-String '"mode"|"exported"|"error"|refus'
-    $lines
-    if ($code -ne 0) { [Console]::Error.WriteLine("CLI tu choi (exit $code): hook mode $Mode cho plan $Plan"); exit $code }
-    if (-not $lines) { [Console]::Error.WriteLine("CLI exit 0 nhung khong co dong mode; kiem tra bang: hook install --print / plan show $Plan") }
+    $seen = if ($active) { $active.plan + ' / ' + $active.mode } else { 'khong co tep' }
+    Write-Host ('KHONG DAT: tep plan cua hook la ' + $seen + ' (xem dong loi o tren).') -ForegroundColor Red; exit 1
 }
-finally { Pop-Location }
-exit $exitCode
+finally { $env:LOCALAPPDATA, $env:APPDATA = $saved }

@@ -36,13 +36,13 @@ R1 chỉ build DEBUG khi đang phát triển, RELEASE là bước giao riêng sa
 ## 5. Động từ chỉ chủ sở hữu được gõ
 `owner approve`, `owner accept`, `owner enforce`, `owner record`, `owner answer`, cùng `hook mode` và `hook user`. Phiên AI bị từ chối: CLI nhận ra phiên AI (biến `CLAUDE_CODE_CHILD_SESSION`), tiến trình do bộ kiểm hay lệnh tiền điều kiện của OneCrew khởi chạy (`ONECREW_VERIFIER`), và tiến trình khai `ONECREW_ACTOR` không phải `user|owner`; đây vẫn là lớp mềm, xem LOI-DA-BIET. Đúng bất biến 5–6: người viết hợp đồng không tự duyệt, AI không tự nghiệm thu.
 - Chủ sở hữu gõ trong terminal của chính mình; thêm `--human` để đọc được. `--human` có lúc báo "Chưa xác nhận được kết quả" dù sổ đã ghi: đọc lại `plan show` trước khi chạy lại.
-- Các script mẫu trong `scripts/owner/` là của bản cũ và chưa cập nhật cho 2.5: không dùng; người điều phối soạn script riêng cho từng lần duyệt.
+- Script ngắn cho bốn động từ, trong `scripts/owner/`: `approve.ps1` (duyệt), `enforce.ps1` (bật giám sát hay chỉ ghi), `record.ps1` (ghi kết quả một mốc thủ công kèm tệp biên nhận), `accept.ps1` (nghiệm thu trên artifact đã kiểm). Mỗi script gọi `onecrew owner …` của runtime dev30, mặc định sổ thật và dự án là thư mục đang đứng (`-Project`, `-StateRoot`, `-OneCrew` để đổi; `-MachineDir D:\OneCrewRuns\onecrew-development\machine` cho sổ phát triển), rồi đọc lại sổ và báo ĐẠT/KHÔNG ĐẠT theo sổ; trong phiên AI thì dừng, không ghi gì. Hướng dẫn và ví dụ ở đầu mỗi script. Với từng việc, người điều phối vẫn có thể soạn script riêng ghim bản và sha.
 
 ## 6. Phát triển chính OneCrew
 - Chỗ làm việc: worktree `D:\TamNT\Workspace\11.OneCrew\wf-dev30` (nhánh `claude/dev30`, tách từ `main` = 2.5.0.dev30), đã `onecrew init` vào sổ phát triển; hook giám sát chạy runtime dev30 đã phát hành, không chạy mã đang sửa.
 - Thư mục `D:\TamNT\Workspace\11.OneCrew\onecrew` giữ nhánh `main`. Các worktree cũ đã gỡ ngày 18/11/2026; thay đổi dở của chúng lưu ở `D:\OneCrewRuns\luu-tru-worktree-20261118`.
 - Phát hành: commit phát hành đổi version, dựng wheel một lần, chủ chạy script phát hành (push, tag, prerelease); AI không push hay tag.
-- Việc đang chờ: chặn `pkill`/`killall` và `perl -i` trong hook; chạy lại bước 3–5 của `docs/GETTING-STARTED.en.md` trên dev30; cập nhật các script trong `scripts/owner/`.
+- Việc đang chờ: chặn `pkill`/`killall` và `perl -i` trong hook; chạy lại bước 3–5 của `docs/GETTING-STARTED.en.md` trên dev30.
 
 ## 7. Đổi tài khoản / đổi máy: chép gì
 - **Hai sổ** nguyên thư mục: sổ thật `D:\TamNT\Workspace\11.OneCrew\state-v2-real` và sổ phát triển `D:\OneCrewRuns\onecrew-development\state` — mất sổ là mất lịch sử, hợp đồng và biên lai.
