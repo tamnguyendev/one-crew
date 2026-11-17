@@ -402,6 +402,91 @@ class OneRecordByToolUseId(RecordsBase):
         self.assertEqual(len(self.records()), 4)
 
 
+class TwoHooksAtOnce(RecordsBase):
+    """Review 2 P2-A: Claude Code starts the project hook and the user hook of one call at the same time; a marker created with O_EXCL decides who writes."""
+
+    def test_only_one_of_many_simultaneous_claims_wins(self):
+        import threading
+        folder = self.a / '.onecrew'
+        folder.mkdir(exist_ok=True)
+        plan, wins, gate = {'plan': 'P'}, [], threading.Barrier(16)
+
+        def go():
+            gate.wait()
+            wins.append(hook_cli.claim_call(folder, plan, 'toolu_race'))
+        threads = [threading.Thread(target=go) for _ in range(16)]
+        for t in threads: t.start()
+        for t in threads: t.join()
+        self.assertEqual(wins.count(True), 1)
+        self.assertTrue((folder / 'calls' / 'toolu_race.P').is_file())
+
+    def test_a_call_without_an_id_always_claims_and_another_plan_or_id_is_its_own_claim(self):
+        folder = self.a / '.onecrew'
+        folder.mkdir(exist_ok=True)
+        self.assertTrue(hook_cli.claim_call(folder, {'plan': 'P'}, None))
+        self.assertTrue(hook_cli.claim_call(folder, {'plan': 'P'}, None))
+        self.assertTrue(hook_cli.claim_call(folder, {'plan': 'P'}, 'toolu_1'))
+        self.assertFalse(hook_cli.claim_call(folder, {'plan': 'P'}, 'toolu_1'))
+        self.assertTrue(hook_cli.claim_call(folder, {'plan': 'Q'}, 'toolu_1'))
+        self.assertTrue(hook_cli.claim_call(folder, {'plan': 'P'}, 'toolu_2'))
+
+    def test_the_marker_alone_decides_even_when_the_tail_of_the_log_shows_nothing(self):
+        self.assertEqual(self.call(self.b, self.a / 'other.txt', 'user', tool_use_id='toolu_z')[0], 2)
+        self.assertEqual(len(self.records()), 1)
+        (self.a / '.onecrew' / 'violations.jsonl').unlink()                # the winner's line is not there (yet): only the marker says who is first
+        code, _ = self.call(self.b, self.a / 'other.txt', 'project', tool_use_id='toolu_z')
+        self.assertEqual(code, 2)                                          # still blocked: the claim only decides who records
+        self.assertEqual(self.records(), [])
+
+    def test_the_user_hook_stays_quiet_when_the_project_hook_runs_the_same_program(self):
+        program = os.path.normcase(os.path.realpath(str(self.exe)))
+        self.put(self.b / '.claude' / 'settings.local.json', {'hooks': {'PreToolUse': [{'matcher': 'Write', 'hooks': [
+            {'type': 'command', 'command': str(self.exe), 'args': ['hook', 'check']}]}]}})
+        self.assertTrue(hook_cli.has_project_hook(self.b, program))
+        self.assertFalse(hook_cli.has_project_hook(self.b, os.path.normcase(str(self.base / 'elsewhere' / 'onecrew.exe'))))
+
+
+class InstallSafetyRound2(UserHookBase):
+    """Review 2 P3-2 (a program that answers --version but not `hook check --scope user`) and P3-3 (a symlink that loops or points nowhere)."""
+
+    def test_install_refuses_an_old_program_that_answers_version_only(self):
+        self.seed()
+        before = self.settings.read_bytes()
+        old = self.stub(self.base / 'old')
+        with patch.object(install, 'program_runs_scope', return_value=(False, 'exit 2: unrecognized arguments')):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out): code = hook_cli.main(['hook', 'user', 'install', '--settings-file', str(self.settings), '--program', str(old)])
+        self.assertEqual(code, 2, out.getvalue())
+        self.assertIn('--scope user', out.getvalue())
+        self.assertEqual(self.settings.read_bytes(), before)
+        self.assertFalse(self.settings.with_name('settings.json.bak').exists())
+
+    def test_a_dangling_symlink_is_refused_and_left_as_it_is(self):
+        link = self.base / 'dangling.json'
+        try:
+            os.symlink(self.base / 'nowhere' / 'settings.json', link)
+        except (OSError, NotImplementedError):
+            self.skipTest('symlinks are not permitted on this machine')
+        for verb in ('install', 'uninstall'):
+            with self.subTest(verb=verb):
+                code, out = self.verb(verb, path=link)
+                self.assertEqual(code, 2, out)
+                self.assertTrue(link.is_symlink())
+                self.assertFalse((self.base / 'nowhere').exists())
+
+    def test_a_looping_symlink_is_refused_and_not_replaced_by_a_file(self):
+        one, two = self.base / 'loopA.json', self.base / 'loopB.json'
+        try:
+            os.symlink(two, one)
+            os.symlink(one, two)
+        except (OSError, NotImplementedError):
+            self.skipTest('symlinks are not permitted on this machine')
+        code, out = self.verb('install', path=one)
+        self.assertEqual(code, 2, out)
+        self.assertTrue(one.is_symlink() and two.is_symlink())
+        self.assertFalse(one.with_name('loopA.json.bak').exists())
+
+
 class SyncCarriesTheIdentity(Fixture):
     def test_hook_sync_writes_the_identity_fields_into_the_ledger_events(self):
         self.approved('P1', plan_json(scope={'owned': ['a.txt']}))

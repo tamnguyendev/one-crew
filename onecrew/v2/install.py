@@ -563,7 +563,8 @@ def program_why_not(exe):
         done = subprocess.run([str(exe), '--version'], capture_output=True, timeout=30, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.SubprocessError):
         return 'user.why_version'
-    return None if done.returncode == 0 else 'user.why_version'
+    if done.returncode != 0: return 'user.why_version'
+    return None if program_runs_scope(exe)[0] else 'user.why_scope'        # #25 (review 2, P3-2): the doctor's check, before anything is written
 
 
 def program_runs_scope(program):
@@ -584,6 +585,12 @@ def user_hook(verb, settings_file=None, program=None):
     profile, bad settings file, no installed command)."""
     shown_path = Path(settings_file) if settings_file else user_settings_file()
     path = Path(os.path.realpath(shown_path))              # #25 (review P2-2): a settings file that is a symlink is read and written through the link; the link stays
+    if verb != 'status' and os.path.islink(shown_path):    # #25 (review 2, P3-3): a link that loops or points nowhere is refused, never replaced by a file
+        try:
+            path = Path(os.path.realpath(shown_path, strict=True))
+        except (OSError, RuntimeError):
+            say(t('user.link_broken', path=shown_path))
+            return 2
     data, bad = read_settings(path)
     if verb == 'status':
         handlers = user_handlers(data or {})

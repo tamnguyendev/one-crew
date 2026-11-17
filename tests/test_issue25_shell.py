@@ -232,6 +232,51 @@ class WhereAGitCommandRuns(ShellBase):
         self.allowed('git -C . status', inside=True)
 
 
+class TheProgramsOwnFolder(ShellBase):
+    """Review 2 (P1-A, P1-B, P2-B): the targets taken from a program's arguments resolve against the folder that program runs in (`git -C`, `--work-tree`,
+    `env -C`); a redirect is opened by the shell, so it resolves against the directory in force. GIT_WORK_TREE / GIT_DIR count as the flags."""
+
+    def test_git_rm_and_mv_through_c_are_judged_like_in_a(self):
+        self.each([f'git -C "{self.af}" rm other.txt', f'git -C "{self.af}" rm -f README.md', f'git -C "{self.af}" mv src/a.txt other2.txt',
+                   f'git --work-tree="{self.af}" --git-dir="{self.af}/.git" rm other.txt'], self.blocked)
+        self.blocked(f"git -C '{self.a}' rm other.txt", 'PowerShell')
+        self.blocked('git rm other.txt', inside=True)
+
+    def test_owned_and_cached_removals_stay_allowed(self):
+        self.each([f'git -C "{self.af}" rm src/a.txt', f'git -C "{self.af}" rm --cached other.txt', f'git -C "{self.af}" status'], self.allowed)
+
+    def test_a_redirect_after_env_c_is_the_shells_own(self):
+        self.allowed(f'env -C "{self.af}" echo hi > notes2.txt')
+        self.allowed(f'env -C "{self.af}" cat other.txt > copy.txt')
+        self.blocked(f'env -C "{self.af}/src" echo hi > "../other.txt"', inside=True)
+        self.blocked(f'env -C src/new echo hi > other.txt', inside=True)
+
+    def test_a_redirect_after_git_c_is_the_shells_own_too(self):
+        self.allowed(f'git -C "{self.af}" status > notes2.txt')
+        self.blocked(f'git -C ../B status > "{self.af}/other.txt"')
+
+    def test_the_programs_arguments_after_env_c_are_in_its_folder(self):
+        self.blocked(f'env -C "{self.af}" touch other.txt')
+        self.allowed(f'env -C "{self.af}" touch src/a.txt')
+
+    def test_git_work_tree_and_git_dir_in_front_of_git(self):
+        self.each([f'GIT_WORK_TREE="{self.af}" GIT_DIR="{self.af}/.git" git checkout -- other.txt', f'GIT_DIR="{self.af}/.git" GIT_WORK_TREE="{self.af}" git reset --hard',
+                   f'GIT_WORK_TREE={self.af.replace(" ", chr(92) + " ")} git rm other.txt', f'export GIT_DIR="{self.af}/.git" GIT_WORK_TREE="{self.af}"; git checkout -- other.txt',
+                   f'export GIT_WORK_TREE="{self.af}"\ngit rm other.txt'], self.blocked)
+
+    def test_git_dir_alone_writes_in_the_session_folder(self):
+        self.allowed(f'GIT_DIR="{self.af}/.git" git status')
+        self.allowed(f'git --git-dir="{self.af}/.git" checkout -- other.txt')
+
+    def test_powershell_env_assignments_count_too(self):
+        self.blocked(f"$env:GIT_DIR='{self.a}\\.git'; $env:GIT_WORK_TREE='{self.a}'; git checkout -- other.txt", 'PowerShell')
+        self.blocked(f"$env:GIT_WORK_TREE = '{self.a}'\ngit rm other.txt", 'PowerShell')
+
+    def test_an_unreadable_work_tree_leaves_relative_arguments_unresolvable(self):
+        self.blocked('GIT_WORK_TREE="$X" git rm other.txt', inside=True)
+        self.blocked('git -C "$X" rm other.txt', inside=True)
+
+
 class EscapedSpaces(ShellBase):
     """Review P1-2: in Bash `du\\ an\\ A` is one word (cd targets and write targets); PowerShell has no such escape."""
 

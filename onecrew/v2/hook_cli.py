@@ -22,6 +22,7 @@ import posixpath
 import re
 import sys
 import tempfile
+import time
 import uuid
 from pathlib import Path
 
@@ -115,6 +116,29 @@ def already_recorded(project, plan, tool_use_id):
     return False
 
 
+def claim_call(folder, plan, tool_use_id):
+    """#25 (review 2, P2-A): True when this process may write the line of the call. The project hook and the user hook of one call run at the same time, so
+    reading the tail is not enough: whoever creates `.onecrew/calls/<tool_use_id>.<plan>` first (O_CREAT | O_EXCL) writes, the other gets FileExistsError and
+    does not. A call without a tool_use_id always records. Claims older than a day are removed (best effort) so the folder stays small."""
+    if not tool_use_id: return True
+    calls = Path(folder) / 'calls'
+    name = re.sub(r'[^\w.-]', '_', f'{tool_use_id}.{(plan or {}).get("plan")}')[:150]
+    try:
+        calls.mkdir(exist_ok=True)
+        os.close(os.open(str(calls / name), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    except FileExistsError:
+        return False
+    except OSError:
+        return True                  # no marker possible: record (a double line is better than none)
+    try:
+        limit = time.time() - 86400
+        for old in calls.iterdir():
+            if old.stat().st_mtime < limit: old.unlink()
+    except OSError:
+        pass
+    return True
+
+
 def record(project, plan, event, tool, reason, rule, subject='', session=None, mode=None):
     """Append to <project>/.onecrew/violations.jsonl (no ledger lock). Only when .onecrew/ exists: a repo without a plan stays untouched."""
     if CALL['quiet']: return
@@ -124,6 +148,7 @@ def record(project, plan, event, tool, reason, rule, subject='', session=None, m
         folder.mkdir(exist_ok=True)                      # a plan governs this project, so the record goes in even if .onecrew/ was deleted
     except OSError:
         return
+    if rule != 'plan_restored' and not claim_call(folder, plan, CALL['tool_use_id']): return        # #25 (review 2, P2-A): the other hook of this call got there first
     line = {'id': uuid.uuid4().hex, 'at': now(), 'event': event, 'tool': tool, 'rule': rule, 'reason': reason[:400], 'subject': subject[:300],
             'plan': (plan or {}).get('plan'), 'revision': (plan or {}).get('revision'), 'mode': mode or (plan or {}).get('mode'), 'session': session,
             'agent_id': CALL['agent_id'], 'agent_type': CALL['agent_type'], 'tool_use_id': CALL['tool_use_id'], 'scope': CALL['scope']}
@@ -561,7 +586,36 @@ def piped(separator):
     return separator in ('|', '|&')
 
 
-def reach_places(words, here):
+def redirect_split(core, powershell=False):
+    """#25 (review 2, P1-A/P2-B): (targets of the redirects in `core`, `core` with those targets blanked). The shell opens a redirect in its own folder, before the
+    program runs, so a redirect target is judged against the directory in force; the other targets (the program's own arguments) against the program's folder."""
+    text = hide_escapes(core, powershell)
+    masked = masked_quotes(text, powershell)
+    matches = [m for pattern in (REDIRECT, REDIRECT_MORE) for m in pattern.finditer(masked)]
+    found, rest = [show_escapes(unquote(text[m.start(1):m.end(1)])) for m in matches], list(text)
+    for m in matches: rest[m.start():m.end()] = ' ' * (m.end() - m.start())      # the operator goes too, or the next word would read as its target
+    return [f for f in found if f], ''.join(rest)            # the escapes stay hidden: the caller reads the text again as one Bash text
+
+
+GIT_ENV = ('GIT_WORK_TREE', 'GIT_DIR')
+PS_ENV = re.compile(r'^\$env:(GIT_WORK_TREE|GIT_DIR)\s*=\s*(.+?)\s*$', re.I | re.S)
+
+
+def git_exports(words, core, powershell):
+    """#25 (review 2, P1-B): {name: raw value} of the GIT_WORK_TREE / GIT_DIR a piece sets for the pieces after it: `export NAME=value ...` (Bash) or
+    `$env:NAME = 'value'` (PowerShell)."""
+    if powershell:
+        m = PS_ENV.match(core.strip())
+        return {m.group(1).upper(): unquote(m.group(2))} if m else {}
+    head, _ = command_head(list(words)) if words else ([], False)
+    if not head or head[0] != 'export': return {}
+    return {w.split('=', 1)[0]: w.split('=', 1)[1] for w in head[1:] if w.split('=', 1)[0] in GIT_ENV and '=' in w}
+
+
+UNREADABLE = False       # a folder the hook cannot resolve (`git -C "$X"`): the program's own targets are unresolvable
+
+
+def reach_places(words, here, exports=None, flags_own=True):
     """#25 (review P1-1): ([folders], folder or None) a command runs in besides the directory in force: `git -C DIR` (repeatable, each relative to the one before),
     `git --work-tree[=]DIR`, `git --git-dir[=]DIR` (the folder that holds that `.git`), and `env -C DIR` / `--chdir[=]DIR`. Only the command itself is read (after
     wrappers and assignments), so a word `git` in an argument is nothing. The second value is the folder of `env -C` (the command's own piece runs there)."""
@@ -592,21 +646,38 @@ def reach_places(words, here):
                     if folder is not None: found.append(folder); env_dir = current = folder
                 j += 2 if word in ('-C', '--chdir', '-u', '-S') else 1
         elif name == 'git' and i == start:
-            j, folder = i + 1, current
+            j, folder, tree, git_dir, moved = i + 1, current, None, None, False
             while j < len(words) and words[j].startswith('-'):
                 word = words[j]
                 if word == '-C' and j + 1 < len(words):
-                    folder = resolve(words[j + 1], folder)
+                    folder, moved = resolve(words[j + 1], folder), True
                     if folder is not None: found.append(folder)
                     j += 1
                 elif word.split('=')[0] in ('--work-tree', '--git-dir'):
                     value = word.split('=', 1)[1] if '=' in word else words[j + 1] if j + 1 < len(words) else ''
                     where_ = resolve(value, folder) if value else None
-                    if where_ is not None and word.startswith('--git-dir') and where_.name.casefold() == '.git': where_ = where_.parent
+                    if word.startswith('--git-dir'):
+                        git_dir = value
+                        if where_ is not None and where_.name.casefold() == '.git': where_ = where_.parent
+                    else: tree = where_ if where_ is not None else UNREADABLE       # #25 (review 2): the program's own paths are relative to the work tree
                     if where_ is not None: found.append(where_)
                     j += 0 if '=' in word else 1
                 elif word in GIT_VALUE: j += 1
                 j += 1
+            if not flags_own: tree, moved = None, False          # discard_verdict: git_verdict reads -C / --work-tree itself; only the variables are new
+            assigned = dict(exports or {})                    # #25 (review 2, P1-B): GIT_WORK_TREE=DIR / GIT_DIR=X before git (or exported earlier) act as the flags
+            for word in words[:start]:
+                if '=' in word and word.split('=', 1)[0] in GIT_ENV: assigned[word.split('=', 1)[0]] = word.split('=', 1)[1]
+            if tree is None and assigned.get('GIT_WORK_TREE'):
+                where_ = resolve(assigned['GIT_WORK_TREE'], folder)
+                tree = where_ if where_ is not None else UNREADABLE
+                if where_ is not None: found.append(where_)
+            if git_dir is None and assigned.get('GIT_DIR'):
+                where_ = resolve(assigned['GIT_DIR'], folder)
+                if where_ is not None and where_.name.casefold() == '.git': where_ = where_.parent
+                if where_ is not None: found.append(where_)
+            if tree is not None: env_dir = tree
+            elif moved: env_dir = folder if folder is not None else UNREADABLE
     return found, env_dir
 
 
@@ -616,7 +687,7 @@ def shell_effects(command, base, powershell=False, depth=0):
     changes it for the pieces after it; a `cd` inside `( ... )` ends at the `)`, one in a pipeline stage or before `&` does not carry over. places: the folders a
     `cd` goes to (the command runs there, like the cwd). A heredoc body is not shell text; the code an interpreter is given is read for file writes (code_writes)."""
     targets, places = [], []
-    here, scopes, stack, previous = (Path(base) if base is not None else None), [], [], ''
+    here, scopes, stack, previous, exports = (Path(base) if base is not None else None), [], [], '', {}
     for text, bodies in heredoc_units(command):
         bodies = list(bodies)
         for piece, before, after in cut_pieces(text):
@@ -630,9 +701,10 @@ def shell_effects(command, base, powershell=False, depth=0):
             scopes += [here] * opens
             words = [show_escapes(unquote(w)) for w in (WORDS if powershell else BASH_WORDS).findall(hide_escapes(core, powershell))]
             head, _ = command_head(list(words)) if words else ([], False)
-            reached = reach_places(words, here)        # #25 (review P1-1): `git -C DIR`, `--work-tree`, `--git-dir`, `env -C DIR` run in DIR
+            reached = reach_places(words, here, exports)        # #25 (review P1-1): `git -C DIR`, `--work-tree`, `--git-dir`, `env -C DIR` run in DIR
             places += reached[0]
-            piece_here = reached[1] if reached[1] is not None else here
+            piece_here = here if reached[1] is None else None if reached[1] is UNREADABLE else reached[1]
+            exports.update(git_exports(words, core, powershell))
             name = os.path.basename(head[0].replace('\\', '/')).lower() if head else ''
             name = name[:-4] if name.endswith('.exe') else name
             mine = [bodies.pop(0) for _ in range(min(len(HEREDOC.findall(core)), len(bodies)))]
@@ -651,7 +723,9 @@ def shell_effects(command, base, powershell=False, depth=0):
             elif name in POP_NAMES:
                 if carries: here = stack.pop() if stack else None
             else:
-                targets += [(raw, piece_here) for raw in all_targets(core, 3, powershell)]      # depth 3: the strings after an interpreter are read below, with the directory in force
+                redirects, arguments = redirect_split(core, powershell)       # #25 (review 2): a redirect is opened by the shell (here), the program's arguments live in its own folder
+                targets += [(raw, here) for raw in redirects]
+                targets += [(raw, piece_here) for raw in all_targets(arguments, 3, powershell)]      # depth 3: the strings after an interpreter are read below, with the directory in force
                 kind = interpreter_kind(name)
                 if kind: targets += [(raw, piece_here) for raw in code_writes(kind, '\n'.join([core, *mine] + ([previous] if piped(before) else [])))]
                 if depth < 3:
@@ -1180,9 +1254,12 @@ def git_verdict(plan, root, here, words, limited, fed=False):
 def discard_verdict(plan, root, cwd, command, limited=False, powershell=False):
     """(rule, reason) when a command of the text (`cd` followed, `git -C` followed, `$(...)` and `bash -c '...'` read too) is a git form that throws away
     uncommitted work outside the owned scope, or `rm` with recursive and force in any spelling; else None."""
+    exports = {}
+
     def one(words, here, fed):
-        env_dir = reach_places(words, here)[1] if words else None        # #25: `env -C DIR git ...` runs git in DIR
-        if env_dir is not None: here = env_dir
+        env_dir = reach_places(words, here, exports, False)[1] if words else None        # #25: `env -C DIR git ...` and GIT_WORK_TREE=DIR run git in DIR
+        if env_dir is UNREADABLE: here = None
+        elif env_dir is not None: here = env_dir
         words, wrapped = command_head(words)
         fed = fed or wrapped
         if not words: return None
@@ -1214,6 +1291,7 @@ def discard_verdict(plan, root, cwd, command, limited=False, powershell=False):
                 continue
             verdict = one(words, here, False)
             if verdict: return verdict
+            exports.update(git_exports(words, segment, powershell))
     return None
 
 
@@ -1292,11 +1370,11 @@ def _nearest_dir(path):
     return None
 
 
-def _shell_target_dirs(command, base):
+def _shell_target_dirs(command, base, powershell=False):
     """The folders that hold the paths a shell command appears to write (all_targets, resolved against `base`; a target the hook cannot resolve is skipped
     here, judge_shell refuses it on its own)."""
     found, goes = [], []
-    targets, places = shell_effects(command, base)
+    targets, places = shell_effects(command, base, powershell)       # #25 (review 2): PowerShell text is read as PowerShell here too ($env: assignments, no `\ ` escape)
     for raw, here in targets:
         if re.search(r'[$%`]', raw) or raw.casefold() in NULLS or raw.casefold().startswith(TEMP_VARS) or (here is None and not is_absolute_text(raw)): continue
         try:
@@ -1337,7 +1415,7 @@ def candidate_dirs(args, event):
         command = data.get('command')
         if cwd: places.append((cwd, CWD))
         if isinstance(command, str):
-            written, goes = _shell_target_dirs(command, cwd or os.environ.get('CLAUDE_PROJECT_DIR') or os.getcwd())
+            written, goes = _shell_target_dirs(command, cwd or os.environ.get('CLAUDE_PROJECT_DIR') or os.getcwd(), tool == 'PowerShell')
             places += [(folder, CWD) for folder in goes] + [(folder, LIMITED) for folder in written]
     return places
 
@@ -1442,8 +1520,9 @@ def govern(project_copy, root, copy):
     return cplan if not cbad else pplan, root, None, project_copy
 
 
-def has_project_hook(project):
-    """#25: does <project>/.claude/settings.local.json or settings.json hold a OneCrew PreToolUse hook (`onecrew hook check`, or the checkout form), not the user-scope one?"""
+def has_project_hook(project, same=None):
+    """#25: does <project>/.claude/settings.local.json or settings.json hold a OneCrew PreToolUse hook (`onecrew hook check`, or the checkout form), not the user-scope one?
+    `same` (a program path): only a hook that runs that very program counts."""
     for name in ('settings.local.json', 'settings.json'):
         try:
             data = json.loads((Path(project) / '.claude' / name).read_text(encoding='utf-8-sig'))
@@ -1456,6 +1535,7 @@ def has_project_hook(project):
                 args = handler.get('args')
                 words = [handler['command'], *args] if isinstance(args, list) else handler['command'].replace('"', ' ').split()
                 program = re.split(r'[\\/]', words[0].strip())[-1].casefold() if words else ''
+                if same is not None and os.path.normcase(os.path.realpath(str(words[0]).strip('"'))) != same: continue
                 if [str(w) for w in words[-2:]] == ['hook', 'check'] and (program in ('onecrew', 'onecrew.exe', 'onecrew.cmd') or any('onecrew.v2.hook_cli' in str(w) for w in words)):
                     return True
     return False
@@ -1473,7 +1553,10 @@ def check(args):
     # #25 (review P2-4): the record() of a call with a tool_use_id is written once whoever comes first; the guess from the settings files stays only for a payload
     # that has no tool_use_id (nothing else can tell the two hooks' lines apart then)
     no_id = not (isinstance(event.get('tool_use_id'), str) and event.get('tool_use_id'))
-    note_call(event, 'user' if user else 'project', quiet=user and no_id and has_project_hook(where.project_from_environment(event.get('cwd') if isinstance(event.get('cwd'), str) else None)))
+    # #25 (review 2, P2-A): also quiet, with an id, when the project hook runs this very program (the two run at once; claim_call settles the rest)
+    session_project = where.project_from_environment(event.get('cwd') if isinstance(event.get('cwd'), str) else None) if user else None
+    same = os.path.normcase(os.path.realpath(sys.argv[0])) if user and sys.argv and sys.argv[0] else None
+    note_call(event, 'user' if user else 'project', quiet=user and (has_project_hook(session_project, same) if not no_id else has_project_hook(session_project)))
     governed = [(govern(project_copy, project_root, copy), role) for project_copy, project_root, copy, role in locate_all(args, event)]
     # a path the hook cannot resolve (`$PWD/x`) is judged by the session's plan; when the session has no enforce plan of its own, the plan of the cwd judges it
     watched = any(plan is not None and role == SESSION and plan.get('mode') == 'enforce' and plan.get('status') in ('approved', 'stopped_with_report','closed')
