@@ -530,3 +530,38 @@ class ARenameGivesANewNameInTheSourcesFolder(ShellBase):
         for command in ('Rename-Item other.txt b.txt', 'Rename-Item -Path other.txt -NewName b.txt', 'Rename-Item src/a.txt ../x.txt', 'Rename-Item src/a.txt ..\\x.txt',
                         'ren other.txt src\\b.txt', 'Move-Item other.txt src/b.txt'):
             with self.subTest(command=command): self.blocked(command, 'PowerShell', inside=True)
+
+
+class APowerShellSubexpressionMovesTheSession(ShellBase):
+    """FIX25D (Codex C1 on 7781c08): in PowerShell the location belongs to the session, so a Set-Location inside `$( )` (or a pipeline stage, an `iex` string)
+    moves every command after it; a bash `$( )` is a child shell and does not."""
+    def setUp(self):
+        super().setUp()
+        self.project_copy(self.a, owned=('src/**',))
+
+    def at(self, folder, command, tool='PowerShell'):
+        return self.check(tool, project=self.a, cwd=folder, command=command)
+
+    def test_a_location_change_inside_a_subexpression_moves_what_follows(self):
+        for command in ('$x = $(Set-Location ..); git checkout -- other.txt', '$x = $(cd ..; Write-Output done); git checkout -- other.txt',
+                        '$x = $(Set-Location ..); Set-Content other.txt LOST', '$x = $(Write-Output $(Set-Location ..)); git checkout -- other.txt',
+                        '$x = "$(Set-Location ..) $(git checkout -- other.txt)"', 'Set-Location .. | Out-Null; Set-Content other.txt LOST',
+                        "iex 'Set-Location ..'; git checkout -- other.txt", '& { Set-Location .. }; git checkout -- other.txt'):
+            with self.subTest(command=command):
+                code, err = self.at(self.a / 'src', command)
+                self.assertEqual(code, 2, f'{command!r} should be blocked: {err}')
+
+    def test_the_same_moves_into_owned_pass_and_a_quoted_subexpression_is_text(self):
+        for folder, command in ((self.a, '$x = $(Set-Location src); git checkout -- a.txt'), (self.a, '$x = $(Set-Location src); Set-Content a.txt NEW'),
+                                (self.a, '$x = $(cd src; git checkout -- a.txt)'), (self.a / 'src', "Write-Output '$(Set-Location ..)'; git checkout -- a.txt")):
+            with self.subTest(command=command):
+                code, err = self.at(folder, command)
+                self.assertEqual(code, 0, f'{command!r} should be allowed: {err}')
+        code, err = self.at(self.a, "Write-Output '$(Set-Location src)'; git checkout -- other.txt")
+        self.assertEqual(code, 2, err)
+
+    def test_bash_keeps_its_child_shell(self):
+        code, err = self.at(self.a / 'src', 'x=$(cd ..); git checkout -- a.txt', 'Bash')
+        self.assertEqual(code, 0, err)
+        code, err = self.at(self.a, 'x=$(cd src); git checkout -- other.txt', 'Bash')
+        self.assertEqual(code, 2, err)

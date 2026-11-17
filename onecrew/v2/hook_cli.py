@@ -875,7 +875,7 @@ def shell_effects(command, base, powershell=False, depth=0):
             name = os.path.basename(head[0].replace('\\', '/')).lower() if head else ''
             name = name[:-4] if name.endswith('.exe') else name
             mine = [bodies.pop(0) for _ in range(min(len(HEREDOC.findall(core)), len(bodies)))]
-            carries = not piped(before) and not piped(after) and after != '&'
+            carries = after != '&' if powershell else not piped(before) and not piped(after) and after != '&'      # FIX25D: a PowerShell pipeline runs in the session
             if name in CD_NAMES:
                 target = cd_target(head)
                 new = None
@@ -905,6 +905,7 @@ def shell_effects(command, base, powershell=False, depth=0):
                             more, there = shell_effects(inner_text, piece_here, inner, depth + 1)
                             targets += more
                             places += there
+            if powershell and name not in CD_NAMES and name not in POP_NAMES and carries: here = ps_after(core, here)      # FIX25D (Codex C1): `$x = $(Set-Location ..)`
             previous = '\n'.join([core, *mine])
             for _ in range(closes): here = scopes.pop() if scopes else here
         # FIX25B/FIX25C (Codex F2, R1): the commands inside `$( )` and backticks are read as shell too, each in the folders in force when its segment starts
@@ -1660,6 +1661,36 @@ def folder_steps(text, state, powershell=False):
         state[:] = [here, previous, pushed, groups, seen, unsure]
 
 
+
+# FIX25D (Codex C1 on 7781c08): a PowerShell location change the hook cannot follow step by step: in a script block `{ }`, a group `( )`, after `&`, `.`,
+# or `=` (`& { Set-Location .. }`, `(cd ..)`, `$x = Set-Location ..`). LOCATION_WORD only decides whether ps_after has anything to read.
+LOCATION = re.compile(r'(?:[{(=&]|(?:^|\s)\.\s)\s*(?:cd|chdir|sl|set-location|pushd|push-location|popd|pop-location)(?=[\s;})]|$)', re.I)
+LOCATION_WORD = re.compile(r'(?<![\w-])(?:cd|chdir|sl|set-location|pushd|push-location|popd|pop-location)(?![\w-])', re.I)
+
+
+def ps_after(text, here, depth=0):
+    """FIX25D (Codex C1): the PowerShell location after `text` runs from `here`; None when the hook cannot tell. In PowerShell the location belongs to the
+    session: a `Set-Location`/`cd` inside `$( )` moves every command after it (`$x = $(Set-Location ..); git checkout -- f` runs the checkout one folder
+    up), unlike a bash `$( )`, a child shell. A `$( )` inside '...' is text. A change the hook cannot follow (LOCATION, a `$( )` more than 3 levels
+    deep, a folder that is not a literal) gives None, and what comes after is judged as after an unreadable cd (a relative path is refused)."""
+    if here is None: return None
+    spans = substitution_spans(text, True)
+    if not spans and not LOCATION_WORD.search(text): return here
+    lit = masked_quotes(text, True)
+    state = [here, here, [], [], [here], False]
+    for begin, end, segment, _, _, _, _ in folder_steps(hollow(text, spans), state, True):
+        cur = state[0]
+        for start, _, inner in spans:
+            if begin <= start < end and lit[start:start + 1] == '$':
+                cur = ps_after(inner, cur, depth + 1) if depth < 3 else None
+        if LOCATION.search(masked_quotes(segment, True)): cur = None
+        if cur != state[0]:
+            state[1], state[0] = state[0], cur
+            if cur is None: state[5] = True
+            elif cur not in state[4]: state[4].append(cur)
+    return None if state[5] else state[0]
+
+
 def chunk_folders(text, start, powershell=False):
     """FIX25C (Codex R1), for shell_effects: (the `$( )`/backtick spans of a chunk, [(begin, end, folders)] of its segments, the folders its here-document bodies
     are launched in: those in force when a segment holding a `<<` starts, or every folder the chunk may be in when none is found)."""
@@ -1705,8 +1736,10 @@ def discard_verdict(plan, root, cwd, command, limited=False, powershell=False, s
         # FIX25C (Codex R1): each segment is judged in the folders in force when it starts, and so is every text that runs while it runs (`$( )`, backticks,
         # `<( )`, a string given to `bash -c`): `x=$(git checkout -- f); cd src` runs the checkout where the command started, `x=$(cd A && git checkout -- f)`
         # runs it in A. `launches` collects the folders of the segments holding a `<<`: their here-document bodies start there.
+        # FIX25D (Codex C1): PowerShell is hollowed too; a PowerShell `$( )` runs in the session, so the location it leaves is carried on by ps_after below
         spans = substitution_spans(text, powershell)
-        body = text if powershell else hollow(text, spans)       # bash: `$( )` is a child shell, its `cd` does not reach the segments after it
+        body = hollow(text, spans)       # bash: `$( )` is a child shell, its `cd` does not reach the segments after it
+        literal = masked_quotes(text, True) if powershell else ''
         # the other texts a shell runs (`bash -c '...'`, `@'...'@ | iex`, `<( )`) are found in the WHOLE text, since their cue may sit in another segment
         # (`| Invoke-Expression`), and each is read in the folders of the segment it starts in; one the hook cannot place is read in every segment's folders
         others = []
@@ -1715,15 +1748,34 @@ def discard_verdict(plan, root, cwd, command, limited=False, powershell=False, s
                 places = [m.start() for m in re.finditer(re.escape(t), body)] if t.strip() else []
                 others += [(at, t) for at in places] or [(-1, t)]
         for begin, end, segment, words, head_words, moves, folders in folder_steps(body, state, powershell):
+            judge = folders
             if depth < 3:
-                inner = [t for s, _, t in spans if begin <= s < end] + [t for at, t in others if begin <= at < end or at < 0]
-                for t in dict.fromkeys(inner):
-                    for folder in folders:
+                cur = list(folders)
+                for s, _, t in [span for span in spans if begin <= span[0] < end]:
+                    for folder in cur:
                         verdict = walk(t, [folder, folder, [], [], [folder], False], depth + 1)
                         if verdict: return verdict
+                    if powershell and literal[s:s + 1] == '$': cur = list(dict.fromkeys(ps_after(t, f) for f in cur))      # FIX25D: the next one starts there
+                for t in dict.fromkeys(t for at, t in others if begin <= at < end or at < 0):
+                    for folder in cur:
+                        verdict = walk(t, [folder, folder, [], [], [folder], False], depth + 1)
+                        if verdict: return verdict
+                        if powershell and ps_after(t, folder) != folder: cur = [None]      # FIX25D: an `iex` string (or a child) that moves: not followed
+            if powershell and not moves and depth < 3:
+                # FIX25D (Codex C1): the command of the segment runs after its `$( )`, and the commands after it run where the segment left the session
+                judge = [None] if cur == [None] else list(dict.fromkeys(ps_after(text[begin:end], f) for f in folders))      # from the start of the segment: its `$( )` in order
+                if judge != folders:
+                    here = state[0]
+                    if len(judge) == 1 and not state[5]:
+                        state[1], state[0] = here, judge[0]
+                        if judge[0] is None: state[5] = True
+                    else:
+                        state[5] = True
+                        state[0] = None if None in judge else judge[0]
+                    state[4].extend(f for f in judge if f is not None and f not in state[4])
             if launches is not None and HEREDOC.search(segment): launches.extend(f for f in folders if f not in launches)
             if head_words and not moves:
-                for folder in folders:
+                for folder in judge:
                     verdict = one(words, folder, False)
                     if verdict: return verdict
             if head_words: exports.update(git_exports(words, segment, powershell))      # #25: `export GIT_WORK_TREE=...` holds for the commands after it
