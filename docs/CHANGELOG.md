@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## v2.5.0.dev30 (18/11/2026): hook người dùng (#25), chặn lệnh git làm mất việc (HOOK30, #12), các bản vá theo 5 vòng review của Codex; chủ nghiệm thu FIX25B trên sổ phát triển 18/11
+
+- **#25, hook người dùng:** `onecrew hook user install` cài một hook PreToolUse vào hồ sơ Claude Code của người dùng. Mọi phiên trên máy, kể cả phiên mở ngoài dự án và subagent, bị plan của dự án đích xét khi ghi vào một dự án đang enforce. Dự án không có plan không bị ảnh hưởng. Gỡ: `hook user uninstall` (trả settings về như cũ, có bản `.bak`). Trong phiên AI, lệnh cài/gỡ trên hồ sơ người dùng bị từ chối, với mọi cách viết đường dẫn của cùng tệp.
+- **HOOK30 (#12):** chặn các dạng git làm mất thay đổi chưa commit ngoài owned (`checkout -- f`, `restore`, `stash`, `reset --hard`, `clean -f`, ...), kể cả khi lệnh nằm sau `cd`, trong `$( )`, backtick, `bash -c`, thân heredoc.
+- **Thư mục của từng lệnh (FIX25B–F):**
+  - `$( )`, backtick, `bash -c` và thân heredoc được xét ở thư mục lúc chúng chạy; một `cd` đứng sau không dời chúng.
+  - `$( )` của PowerShell dời cả phiên; của Bash là shell con.
+  - `cd` trong một tầng pipeline Bash không dời shell cha.
+  - Lệnh có chạy nền (`&`) cho thư mục "không chắc": được xét ở mọi thư mục có thể, nên chỉ chặn nhiều hơn.
+- **Đổi tên/di chuyển:** `mv`/`git mv`/`Move-Item`/`Rename-Item` xét cả nguồn lẫn đích; tên mới của `Rename-Item`/`ren` nằm trong thư mục của nguồn.
+- **Khác:** `*>` chỉ là toán tử của PowerShell; bản ghi chặn ghi dưới khoá tệp, nên không mất dòng khi nhiều subagent chạy song song.
+- **init (dev29):** tệp ignore ghi trong thư mục của chính nó; gợi ý cuối trỏ tới README trên GitHub.
+- **Kiểm:** M1 test, M2 đủ bảng HOOK30 665 ca và 43 check #25, M3 E2E thật (5 phiên Claude Code, Sonnet 5.5, có subagent), M4 Codex review 5 vòng; vòng cuối không còn P1/P2. Probe 78 ca trên wheel. Chưa chạy toàn gate.
+- **Hoãn sang bản sau:** chặn `pkill`/`killall` và `perl -i`.
+
 ## v2.5.0.dev25 (11–12/11/2026) — hai P1 của review Fable 5.2 trên dev24; chủ duyệt thiết kế 11/11 ("A") — LOCAL, chưa tag/push/phát hành
 
 - **P1-1, đã GIẢM, CHƯA ĐÓNG: bộ kiểm chạy hộ không còn là đường vô ý để lấy quyết định của chủ.**

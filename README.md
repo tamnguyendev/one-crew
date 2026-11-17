@@ -6,9 +6,9 @@ OneCrew là **hợp đồng làm việc cho AI** trong Claude Code:
 - Mỗi mốc của việc được kiểm độc lập (lệnh kiểm hoặc người review riêng), có biên nhận ghi vào sổ.
 - Chỉ bạn duyệt và nghiệm thu, trong terminal của bạn. Các lệnh đó bị từ chối nếu chạy trong phiên AI.
 
-**Bản hiện tại: `2.5.0.dev29`, bản beta (prerelease)**, đã thử trên Windows 10/11. Chưa phải bản ổn định. Ghi chú phát hành và các bản khác: trang [Releases](https://github.com/tamnguyendev/one-crew/releases).
+**Bản hiện tại: `2.5.0.dev30`, bản beta (prerelease)**, đã thử trên Windows 10/11. Chưa phải bản ổn định. Ghi chú phát hành và các bản khác: trang [Releases](https://github.com/tamnguyendev/one-crew/releases).
 
-> **Luôn cài theo tag phát hành** (ví dụ `v2.5.0.dev29`), như các lệnh bên dưới, để có đúng bản đã được kiểm. Nhánh `main` có thể có thay đổi chưa phát hành.
+> **Luôn cài theo tag phát hành** (ví dụ `v2.5.0.dev30`), như các lệnh bên dưới, để có đúng bản đã được kiểm. Nhánh `main` có thể có thay đổi chưa phát hành.
 
 ## Cần có
 
@@ -26,18 +26,18 @@ Dán vào PowerShell. Sửa hai đường dẫn đầu cho máy của bạn:
 $Python  = "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe"
 $Venv    = "D:\OneCrew\venv"
 & $Python -m venv $Venv
-& "$Venv\Scripts\python.exe" -m pip install "git+https://github.com/tamnguyendev/one-crew.git@v2.5.0.dev29"
+& "$Venv\Scripts\python.exe" -m pip install "git+https://github.com/tamnguyendev/one-crew.git@v2.5.0.dev30"
 $OneCrew = "$Venv\Scripts\onecrew.exe"
 & $OneCrew --version
 ```
 
-Bạn thấy `onecrew 2.5.0.dev29` là đạt.
+Bạn thấy `onecrew 2.5.0.dev30` là đạt.
 
 **Giữ venv ở nguyên chỗ.** Hook trong repo gọi thẳng `$Venv\Scripts\onecrew.exe`; xóa hay chuyển venv thì hook hỏng.
 
 Hai cách cài khác, kết quả như nhau:
 - **Tải wheel:** tải file `.whl` và `SHA256SUMS` ở trang Releases. So SHA256 bằng `Get-FileHash`, rồi chạy `pip install <file .whl>`. GitHub có thể đổi dấu `+` trong tên file, nên hãy so mã băm, đừng so tên.
-- **Clone mã nguồn:** `git clone --branch v2.5.0.dev29 https://github.com/tamnguyendev/one-crew.git`, rồi chạy `pip install .` trong thư mục vừa clone.
+- **Clone mã nguồn:** `git clone --branch v2.5.0.dev30 https://github.com/tamnguyendev/one-crew.git`, rồi chạy `pip install .` trong thư mục vừa clone.
 
 ## 2. Gắn OneCrew vào một repo
 

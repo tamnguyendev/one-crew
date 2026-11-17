@@ -2,7 +2,7 @@
 
 OneCrew is a work contract for AI: the AI works only inside a plan the owner approved, every milestone needs an independent verdict, and only a human accepts the result.
 
-Current version: `2.5.0.dev29` (beta, prerelease), tested on Windows 10/11 only. Always install from a release tag, not from `main`. The full guide (in Vietnamese) is the root [README.md](../README.md).
+Current version: `2.5.0.dev30` (beta, prerelease), tested on Windows 10/11 only. Always install from a release tag, not from `main`. The full guide (in Vietnamese) is the root [README.md](../README.md).
 
 ## 1. Install (Windows, once per machine)
 
@@ -10,13 +10,13 @@ You need Python 3.10+ from python.org (not the Microsoft Store alias), git 2.40+
 
 ```powershell
 python -m venv D:\OneCrew\venv
-D:\OneCrew\venv\Scripts\python.exe -m pip install "git+https://github.com/tamnguyendev/one-crew.git@v2.5.0.dev29"
-D:\OneCrew\venv\Scripts\onecrew.exe --version      # onecrew 2.5.0.dev29
+D:\OneCrew\venv\Scripts\python.exe -m pip install "git+https://github.com/tamnguyendev/one-crew.git@v2.5.0.dev30"
+D:\OneCrew\venv\Scripts\onecrew.exe --version      # onecrew 2.5.0.dev30
 ```
 
 Keep the venv where it is: the hooks written into your repo call its `onecrew.exe`.
 
-Alternatives: download the release wheel `onecrew-2.5.0.dev29-py3-none-any.whl` and check it against `SHA256SUMS` (compare the hash with `Get-FileHash`, not the file name) before installing it with pip; or `git clone --branch v2.5.0.dev29 https://github.com/tamnguyendev/one-crew.git` and run `pip install .` in it. Linux and macOS are not tested.
+Alternatives: download the release wheel `onecrew-2.5.0.dev30-py3-none-any.whl` and check it against `SHA256SUMS` (compare the hash with `Get-FileHash`, not the file name) before installing it with pip; or `git clone --branch v2.5.0.dev30 https://github.com/tamnguyendev/one-crew.git` and run `pip install .` in it. Linux and macOS are not tested.
 
 ## 2. Set up a repo
 
