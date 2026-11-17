@@ -586,3 +586,7 @@ class ABashPipelineStageIsAChildShell(ShellBase):
                 code, err = self.check('Bash', project=self.a, cwd=self.a / 'src', command=command)
                 self.assertEqual(code, 2, err)
         self.each(['cd src 2>&1; git checkout -- a.txt', 'cd src && git checkout -- a.txt'], self.allowed, inside=True)
+
+    def test_a_powershell_background_job_does_not_move_the_session(self):
+        self.blocked('Set-Location src & git checkout -- other.txt', 'PowerShell', inside=True)
+        self.allowed('& { Set-Location src }; git checkout -- a.txt', 'PowerShell', inside=True)

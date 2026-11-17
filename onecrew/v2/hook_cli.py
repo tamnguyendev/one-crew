@@ -1629,9 +1629,9 @@ def folder_steps(text, state, powershell=False):
         start, begin = begin, cut
         # FIX25E (Codex P1 on 6acc82a): in bash every stage of a pipeline is a child shell and so is a command sent to the background (`&`, not the `&` of
         # `2>&1` or `&>`): its `cd` does not move the commands after it (`cd src | cat; git checkout -- f` runs the checkout where the command was). PowerShell
-        # runs a pipeline in the session (FIX25D), so there it does.
+        # runs a pipeline in the session (FIX25D), so there it does; its `&` job does not.
         background = op == '&' and text[cut - 2:cut - 1] not in ('>', '<') and text[cut:cut + 1] != '>'
-        stage = not powershell and (after_pipe or op in ('|', '|&') or background)
+        stage = background or (not powershell and (after_pipe or op in ('|', '|&')))      # PowerShell 7 `cmd &` is a background job too (shell_effects: carries)
         after_pipe = op in ('|', '|&')
         if not segment.strip(): continue
         here, previous, pushed, groups, seen, unsure = state
