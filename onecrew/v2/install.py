@@ -554,27 +554,64 @@ def program_found(program):
     return bool(program) and (Path(program).is_file() or shutil.which(program) is not None)
 
 
+def program_why_not(exe):
+    """#25 (review P2-1): None when `exe` can be the program of the user hook, else the key of the reason (messages.py): it exists, it is named like onecrew
+    (else `status` and `uninstall` would not know the entry), and it answers `--version`."""
+    if not Path(exe).is_file(): return 'user.why_missing'
+    if Path(exe).name.casefold() not in EXE_NAMES: return 'user.why_name'
+    try:
+        done = subprocess.run([str(exe), '--version'], capture_output=True, timeout=30, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return 'user.why_version'
+    return None if done.returncode == 0 else 'user.why_version'
+
+
+def program_runs_scope(program):
+    """#25 (review P2-7): (ok, why) of the hook's own program asked what Claude Code asks it: `hook check --scope user` with an empty event, started in a folder
+    no plan governs. A OneCrew from before #25 refuses `--scope` (exit 2), which Claude Code reads as 'blocked' for every call."""
+    env = {k: v for k, v in os.environ.items() if k not in ('CLAUDE_PROJECT_DIR', 'CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION')}
+    try:
+        with tempfile.TemporaryDirectory() as folder:
+            done = subprocess.run([str(program), *USER_ARGS], input=b'{}', capture_output=True, timeout=30, cwd=folder, env=env)
+    except (OSError, subprocess.SubprocessError) as error:
+        return False, f'{type(error).__name__}'
+    if done.returncode == 0: return True, ''
+    return False, f'exit {done.returncode}: ' + ((done.stderr or done.stdout).decode('utf-8', errors='replace').strip().splitlines() or [''])[-1][:160]
+
+
 def user_hook(verb, settings_file=None, program=None):
     """`onecrew hook user install|status|uninstall`. Exit code: 0 done (or nothing to do); 2 refused or nothing written (AI session on the user's own
     profile, bad settings file, no installed command)."""
-    path = Path(settings_file) if settings_file else user_settings_file()
+    shown_path = Path(settings_file) if settings_file else user_settings_file()
+    path = Path(os.path.realpath(shown_path))              # #25 (review P2-2): a settings file that is a symlink is read and written through the link; the link stays
     data, bad = read_settings(path)
     if verb == 'status':
         handlers = user_handlers(data or {})
         shown = handlers[0]['command'] if handlers else (str(installed_exe()) if installed_exe() else None)
-        print(json.dumps({'configured': bool(handlers), 'settings_file': str(path), 'program': shown, 'program_found': program_found(shown), 'error': bad}, ensure_ascii=False, indent=2))
+        print(json.dumps({'configured': bool(handlers), 'settings_file': str(shown_path), 'program': shown, 'program_found': program_found(shown), 'error': bad}, ensure_ascii=False, indent=2))
         return 0
     from .ownership import claude_session
-    try:
-        own = os.path.normcase(str(path.resolve())) == os.path.normcase(str((Path.home() / '.claude' / 'settings.json').resolve()))
+    try:       # #25 (review P2-3): the owner's profile is ~/.claude/settings.json and, when CLAUDE_CONFIG_DIR is set, the settings.json of that folder
+        profiles = {os.path.normcase(os.path.realpath(p)) for p in (Path.home() / '.claude' / 'settings.json', user_settings_file())}
+        own = os.path.normcase(str(path)) in profiles
     except OSError:
         own = False
     if own and claude_session():
-        say(t('user.refused', path=path, verb=verb))
+        say(t('user.refused', path=shown_path, verb=verb))
         return 2
     if bad:
         say(t('init.bad_settings', reason=bad))
         return 2
+    exe = None
+    if verb == 'install':
+        exe = Path(program).resolve() if program else installed_exe()
+        if exe is None:
+            say(t('user.no_exe'))
+            return 2
+        why = program_why_not(exe)
+        if why:
+            say(t('user.bad_program', program=exe, why=t(why)))
+            return 2
     merged = copy.deepcopy(data)
     try:
         hooks = merged.setdefault('hooks', {}) if verb == 'install' else merged.get('hooks', {})
@@ -593,10 +630,6 @@ def user_hook(verb, settings_file=None, program=None):
         rest = [h for h in handlers if not is_user_hook(h)]
         if rest: kept.append(dict(entry, hooks=rest))
     if verb == 'install':
-        exe = Path(program).resolve() if program else installed_exe()
-        if exe is None:
-            say(t('user.no_exe'))
-            return 2
         entry = {'matcher': USER_MATCHER, 'hooks': [{'type': 'command', 'command': str(exe), 'args': list(USER_ARGS), 'timeout': 15, 'onFailure': 'block'}]}
         place = next((i for i, e in enumerate(entries) if isinstance(e, dict) and any(is_user_hook(h) for h in e.get('hooks') or [] if isinstance(h, dict))), len(kept))
         hooks['PreToolUse'] = kept[:place] + [entry] + kept[place:]
@@ -605,12 +638,16 @@ def user_hook(verb, settings_file=None, program=None):
         if not kept: hooks.pop('PreToolUse', None)
         if not hooks: merged.pop('hooks', None)
     if merged == data:
-        say(t('user.unchanged' if verb == 'install' else 'user.absent', path=path))
+        say(t('user.unchanged' if verb == 'install' else 'user.absent', path=shown_path))
         return 0
-    backup = path.with_name(path.name + '.bak')
-    if path.exists() and not backup.exists(): shutil.copyfile(path, backup)
-    write_text(path, dump(merged))
-    say(t('user.installed', path=path, program=exe, bak=backup if path.exists() and backup.exists() else '-') if verb == 'install' else t('user.removed', path=path))
+    backup = path.with_name(path.name + '.bak')            # next to the target, so the link and its copy never part
+    try:
+        if path.exists() and not backup.exists(): shutil.copyfile(path, backup)
+        write_text(path, dump(merged))
+    except OSError as error:
+        say(t('user.write_failed', path=shown_path, code=type(error).__name__))
+        return 2
+    say(t('user.installed', path=shown_path, program=exe, bak=backup if backup.exists() else '-') if verb == 'install' else t('user.removed', path=shown_path))
     return 0
 
 
@@ -623,6 +660,9 @@ def check_user_hook():
     if not handlers: return 'WARN', t('doctor.user_none')
     gone = next((h['command'] for h in handlers if not program_found(h['command'])), None)
     if gone: return 'FAIL', t('doctor.user_stale', path=path, command=gone)
+    for handler in handlers:                           # #25 (review P2-7): the program is there; does it answer what Claude Code asks it?
+        ok, why = program_runs_scope(handler['command'])
+        if not ok: return 'FAIL', t('doctor.user_old', path=path, command=handler['command'], why=why)
     return 'PASS', t('doctor.user_ok', path=path)
 
 

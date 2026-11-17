@@ -204,3 +204,100 @@ class InterpreterCode(ShellBase):
     def test_powershell_pipes_a_here_string_to_the_interpreter(self):
         self.blocked(f"@'{NL}open('other.txt', 'w'){NL}'@ | python -", 'PowerShell', inside=True)
         self.allowed(f"@'{NL}print(1){NL}'@ | python -", 'PowerShell', inside=True)
+
+
+class WhereAGitCommandRuns(ShellBase):
+    """Review P1-1: `git -C DIR`, `--work-tree`, `--git-dir` and `env -C DIR` run in DIR: that folder's plan judges the call, with HOOK30's git rules."""
+
+    def test_git_c_into_a_from_b_is_judged_by_the_plan_of_a(self):
+        self.each([f'git -C "{self.af}" checkout -- other.txt', f'git -C "{self.af}" restore other.txt', f'git -C "{self.af}" reset --hard', f'git -C "{self.af}" clean -fdx',
+                   f'git -C "{self.af}" stash', f'git -C ../"du an A" checkout -- other.txt', f'git -C .. -C "du an A" checkout -- other.txt',
+                   f'git --git-dir="{self.af}/.git" --work-tree="{self.af}" checkout -- other.txt', f'git --work-tree "{self.af}" checkout -- other.txt'], self.blocked)
+
+    def test_reading_and_owned_work_through_git_c_stay_allowed(self):
+        self.each([f'git -C "{self.af}" status', f'git -C "{self.af}" diff', f'git -C "{self.af}" log --oneline', f'git -C "{self.af}" checkout -- src/a.txt',
+                   f'git --git-dir="{self.af}/.git" status'], self.allowed)
+
+    def test_env_c_runs_the_command_in_that_folder(self):
+        self.blocked(f'env -C "{self.af}" sh -c "echo hi > other.txt"')
+        self.blocked(f'env -C "{self.af}" git checkout -- other.txt')
+        self.allowed(f'env -C "{self.af}" git status')
+        self.allowed('env -C "../B" sh -c "echo hi > other.txt"')
+
+    def test_a_git_in_the_arguments_of_another_command_is_nothing(self):
+        self.allowed(f'echo git -C "{self.af}" checkout other.txt')
+
+    def test_git_c_into_a_from_a_is_still_judged_as_before(self):
+        self.blocked(f'git -C "{self.af}" reset --hard', inside=True)
+        self.allowed('git -C . status', inside=True)
+
+
+class EscapedSpaces(ShellBase):
+    """Review P1-2: in Bash `du\\ an\\ A` is one word (cd targets and write targets); PowerShell has no such escape."""
+
+    def esc(self, path):
+        return path.replace(' ', '\\ ')
+
+    def test_cd_to_a_folder_whose_spaces_are_escaped(self):
+        e = self.esc(self.af)
+        self.each([f'cd {e} && echo hi > other.txt', f'cd {e} && git checkout -- other.txt', f'cd {e} && sed -i "s/x/y/" other.txt', f'cd {e}{NL}rm other.txt',
+                   'cd ../du\\ an\\ A && echo hi > other.txt'], self.blocked)
+        self.allowed(f'cd {e} && echo hi > src/a.txt')
+        self.allowed(f'cd {e} && cat other.txt')
+
+    def test_write_targets_with_escaped_spaces(self):
+        e = self.esc(self.af)
+        self.each([f'echo hi > {e}/other.txt', f'cp notes.txt {e}/other.txt', f'tee {e}/other.txt', f'touch {e}/other.txt', f'mv x {e}/other.txt', f'rm {e}/other.txt'], self.blocked)
+        self.allowed(f'echo hi > {e}/src/a.txt')
+
+    def test_a_backslash_that_is_a_path_separator_is_left_alone(self):
+        self.blocked(f'echo hi > "{self.a}\\other.txt"')
+        self.allowed(f'echo hi > {self.b}\\out.txt')
+
+
+class ANestedStringWithEscapedQuotes(ShellBase):
+    """Review P2-5: the string after `sh -c` / `bash -c` is read to its real end and unescaped."""
+
+    def test_escaped_quotes_inside_the_string(self):
+        self.each([f'sh -c "cd \\"{self.af}\\" && echo hi > other.txt"', f'bash -c "cd \\"{self.af}\\" && git checkout -- other.txt"',
+                   f'sh -c "echo hi > \\"{self.af}/other.txt\\""'], self.blocked)
+        self.allowed(f'sh -c "cd \\"{self.af}\\" && echo hi > src/a.txt"')
+        self.allowed(f'sh -c "echo hi > \\"{str(self.b).replace(chr(92), "/")}/out.txt\\""')
+
+    def test_single_and_plain_forms_still_work(self):
+        self.blocked(f"bash -c 'cd \"{self.af}\" && echo hi > other.txt'")
+        self.blocked(f'bash -c "cd \'{self.af}\' && echo hi > other.txt"')
+
+    def test_inside_a_the_reason_names_the_file_not_a_cut_string(self):
+        err = self.blocked('sh -c "echo hi > \\"other.txt\\""', inside=True)
+        self.assertIn('other.txt', err)
+
+
+class ScratchThroughTheExtendedPrefix(ShellBase):
+    """Review P2-6: a `\\\\?\\` path is not trimmed by Windows, so `.onecrew.` is another folder, not scratch."""
+
+    def write(self, path, inside=False):
+        session = self.a if inside else self.b
+        return self.check('Write', path, project=session, cwd=session)
+
+    def test_the_extended_prefix_is_not_a_way_into_a_folder_that_only_looks_like_scratch(self):
+        for inside in (False, True):
+            code, err = self.write('\\\\?\\' + str(self.a) + '\\.onecrew.\\scratch\\x.txt', inside)
+            self.assertEqual(code, 2, (inside, err))
+
+    def test_scratch_itself_and_the_plain_windows_forms_stay_allowed(self):
+        for inside in (False, True):
+            for path in (str(self.a / '.onecrew' / 'scratch' / 'x.txt'), '\\\\?\\' + str(self.a / '.onecrew' / 'scratch' / 'x.txt')):
+                with self.subTest(path=path, inside=inside):
+                    code, err = self.write(path, inside)
+                    self.assertEqual(code, 0, err)
+        code, err = self.write(str(self.a) + '\\.onecrew\\scratch .\\x.txt', True)
+        self.assertEqual(code, 0, err)
+
+    def test_the_plain_form_of_a_prefixed_path_is_the_same_path(self):
+        from pathlib import Path
+
+        from onecrew.v2 import hook_cli
+        self.assertEqual(hook_cli.plain_form('\\\\?\\D:\\x\\y'), Path('D:\\x\\y'))
+        self.assertEqual(hook_cli.plain_form('\\\\.\\D:\\x'), Path('D:\\x'))
+        self.assertEqual(hook_cli.plain_form(Path('D:\\x')), Path('D:\\x'))

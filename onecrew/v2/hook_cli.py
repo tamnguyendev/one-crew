@@ -93,9 +93,32 @@ def note_call(event, scope='project', quiet=False):
         CALL[key] = value if isinstance(value, str) and value else None
 
 
+def already_recorded(project, plan, tool_use_id):
+    """#25 (review P2-4): is there a line for this tool_use_id and plan in the tail of violations.jsonl? (The project hook and the user hook of one call both reach
+    record(); the one that comes second adds nothing. A payload with no tool_use_id is never matched.)"""
+    if not tool_use_id: return False
+    path = Path(project) / '.onecrew' / 'violations.jsonl'
+    try:
+        with path.open('rb') as stream:
+            stream.seek(0, os.SEEK_END)
+            stream.seek(max(0, stream.tell() - 65536))
+            tail = stream.read().decode('utf-8', errors='replace').splitlines()
+    except OSError:
+        return False
+    name = (plan or {}).get('plan')
+    for line in tail[-200:]:
+        try:
+            item = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(item, dict) and item.get('tool_use_id') == tool_use_id and item.get('plan') == name and item.get('rule') != 'plan_restored': return True
+    return False
+
+
 def record(project, plan, event, tool, reason, rule, subject='', session=None, mode=None):
     """Append to <project>/.onecrew/violations.jsonl (no ledger lock). Only when .onecrew/ exists: a repo without a plan stays untouched."""
     if CALL['quiet']: return
+    if rule != 'plan_restored' and already_recorded(project, plan, CALL['tool_use_id']): return        # #25 (review P2-4): one call, one record
     folder = Path(project) / '.onecrew'
     try:
         folder.mkdir(exist_ok=True)                      # a plan governs this project, so the record goes in even if .onecrew/ was deleted
@@ -185,12 +208,21 @@ def holds_current(root, plan):
                          f'Run `onecrew hook export {plan.get("plan")}` to refresh it.')
 
 
+def plain_form(path):
+    """#25: the path without a `\\\\?\\` or `\\\\.\\` prefix (`\\\\?\\UNC\\host\\share` is `\\\\host\\share`)."""
+    text = str(path)
+    if text[:8].upper() == '\\\\?\\UNC\\': return Path('\\\\' + text[8:])
+    return Path(text[4:]) if text.startswith(('\\\\?\\', '\\\\.\\')) else Path(path)
+
+
 def judge_path(plan, root, target, action):
     """(rule, reason) when this plan forbids writing to `target`, else None."""
+    verbatim = str(target).startswith(('\\\\?\\', '\\\\.\\'))        # #25 (review P2-6): Win32 trims trailing dots and spaces of a component, a `\\?\` path is not trimmed
+    root, target = plain_form(root), plain_form(target)            # the same form on both sides, so a prefix on one never hides a path from `relative`
     rel = relative(target, root)
     scratch = [normalize(s, root) if not os.path.isabs(s) else Path(s).resolve() for s in plan.get('scratch', [])]
     # #25: interpreter code now reaches judge_path with literal paths; a path Windows reads as inside scratch (`.onecrew/scratch ./x`) stays excused
-    if rel is not None and (under(rel, '.onecrew/scratch') or (_fold(rel).startswith('.onecrew') and stays_in_scratch(_fold(rel)))): return None
+    if rel is not None and (under(rel, '.onecrew/scratch') or (not verbatim and _fold(rel).startswith('.onecrew') and stays_in_scratch(_fold(rel)))): return None
     home =Path.home().resolve() / '.claude'
     guarded = [normalize(p, root) for p in plan.get('protected', [])] + [home / 'settings.json', home / 'settings.local.json', where.registry_file().resolve()]      # the registry: the owner's pointer to the state root
     for item in guarded:
@@ -241,6 +273,22 @@ SED_WORDS = re.compile(r'(?<![\w.-])sed(?=\s)([^;|&<>\n]*)', re.I)
 def unquote(word):
     """The shell word without its quote marks (`"$TMPDIR"/x` is `$TMPDIR/x`)."""
     return re.sub(r'["\']', '', word)
+
+
+# #25 (review P1-2): in Bash a backslash before a space keeps the word whole (`du\ an\ A`). The escape is hidden as two control characters of the same length
+# before the text is read and put back as a plain space after, so no quote or comment reader has to change; PowerShell has no such escape.
+ESCAPED = re.compile(r'(?<!\\)((?:\\\\)*)\\([ \t])')
+HIDDEN = '\x01'
+
+
+def hide_escapes(text, powershell=False):
+    return text if powershell or '\\' not in text else ESCAPED.sub(lambda m: m.group(1) + HIDDEN + ('\x02' if m.group(2) == ' ' else '\x03'), text)
+
+
+def show_escapes(text):
+    return text.replace(HIDDEN + '\x02', ' ').replace(HIDDEN + '\x03', '\t') if HIDDEN in text else text
+
+
 PSDRIVE = re.compile(r'^(?:(?:env|variable|function|alias|hkcu|hklm|cert|wsman):|(?:microsoft\.powershell\.(?:core|security)\\)?'
                      r'(?:environment|variable|function|alias|registry|certificate|wsman)::)', re.I)
 
@@ -294,6 +342,7 @@ def shell_targets(command, powershell=False):
     """Paths a shell command text appears to write. Heuristic: redirects, tee/Set-Content/sc/ac/Out-File/Tee-Object/cp/mv/rm/ri..., [IO.File]::, sed -i.
     Redirects and writers are found outside quoted strings (masked_quotes); their targets are read from the command as written. In PowerShell
     the value of a common parameter (-ErrorAction ...) is not a target."""
+    command = hide_escapes(command, powershell)
     masked = masked_quotes(command, powershell)
     found = [unquote(command[m.start(1):m.end(1)]) for m in REDIRECT.finditer(masked)]
     found += [unquote(command[m.start(1):m.end(1)]) for m in REDIRECT_MORE.finditer(masked)]
@@ -335,10 +384,19 @@ def shell_targets(command, powershell=False):
         found += [unquote(v) for v in values]
     for m in DOTNET.finditer(command):                  # the second argument is a path only for Copy / Move / Replace (WriteAllText takes the content)
         found += [g.strip('"\'') for g in ((m.group(2), m.group(3)) if m.group(1).lower() in ('copy', 'move', 'replace') else (m.group(2),)) if g]
-    return [f for f in found if f]
+    return [show_escapes(f) for f in found if f]
 
 
 QUOTED = re.compile(r"\"([^\"]{3,})\"|'([^']{3,})'")
+BASH_WORDS = re.compile(r'(?:"(?:[^"\\]|\\.)*"|\'[^\']*\'|\\.|\S)+', re.S)      # #25: WORDS for Bash, where a double-quoted string may hold `\"` and a `\"` outside quotes is no quote
+BASH_QUOTED = re.compile(r"\"((?:[^\"\\]|\\.){3,})\"|'([^']{3,})'", re.S)
+
+
+def nested_strings(text, powershell=False):
+    """#25 (review P2-5): [(start, string)] of the quoted parts of `text`. In Bash a double-quoted string may hold `\\"` and `\\\\`: it is read to its real end and
+    unescaped (`sh -c "cd \\"A\\" && echo hi > x"` is `cd "A" && echo hi > x`); PowerShell keeps the plain reader."""
+    if powershell: return [(m.start(), m.group(1) or m.group(2)) for m in QUOTED.finditer(text)]
+    return [(m.start(), re.sub(r'\\(["\\$`])', r'\1', m.group(1)) if m.group(1) is not None else m.group(2)) for m in BASH_QUOTED.finditer(text)]
 
 
 CUE = re.compile(r'\b(?:iex|invoke-expression|powershell(?:\.exe)?|pwsh|cmd(?:\.exe)?|bash|sh|zsh|dash|eval|invoke-command|start-process|wsl)\b', re.I)
@@ -355,12 +413,12 @@ def all_targets(command, depth=0, powershell=False):
     if cleaned != command: found += shell_targets(cleaned, powershell)
     if depth < 3:
         for text in dict.fromkeys((command, cleaned)):
-            for m in QUOTED.finditer(text):
-                cue = CUE.findall(re.split(r'[;&|\n]', text[:m.start()])[-1])
+            for start, inner_text in nested_strings(text, powershell):
+                cue = CUE.findall(re.split(r'[;&|\n]', text[:start])[-1])
                 if cue:
                     word = cue[-1].lower()
                     inner = True if word.startswith(('powershell', 'pwsh')) else False if word.startswith(('bash', 'sh', 'zsh', 'dash', 'wsl', 'cmd')) else powershell
-                    found += all_targets(m.group(1) or m.group(2), depth + 1, inner)
+                    found += all_targets(inner_text, depth + 1, inner)
     return list(dict.fromkeys(found))
 
 
@@ -503,6 +561,55 @@ def piped(separator):
     return separator in ('|', '|&')
 
 
+def reach_places(words, here):
+    """#25 (review P1-1): ([folders], folder or None) a command runs in besides the directory in force: `git -C DIR` (repeatable, each relative to the one before),
+    `git --work-tree[=]DIR`, `git --git-dir[=]DIR` (the folder that holds that `.git`), and `env -C DIR` / `--chdir[=]DIR`. Only the command itself is read (after
+    wrappers and assignments), so a word `git` in an argument is nothing. The second value is the folder of `env -C` (the command's own piece runs there)."""
+    head, _ = command_head(list(words)) if words else ([], False)
+    start, found, env_dir, current = len(words) - len(head), [], None, here
+
+    def resolve(raw, base):
+        if re.search(r'[$%`]', raw) or (base is None and not is_absolute_text(raw)): return None
+        try:
+            return normalize(raw, base or Path.cwd())
+        except (OSError, ValueError):
+            return None
+
+    def program(word):
+        name = os.path.basename(word.replace('\\', '/')).lower()
+        return name[:-4] if name.endswith('.exe') else name
+
+    for i in range(start + 1):
+        if i >= len(words): break
+        name = program(words[i])
+        if name == 'env':
+            j = i + 1
+            while j < len(words) and words[j].startswith('-') and len(words[j]) > 1:
+                word = words[j]
+                value = word.split('=', 1)[1] if word.startswith('--chdir=') else words[j + 1] if word in ('-C', '--chdir') and j + 1 < len(words) else None
+                if value is not None:
+                    folder = resolve(value, current)
+                    if folder is not None: found.append(folder); env_dir = current = folder
+                j += 2 if word in ('-C', '--chdir', '-u', '-S') else 1
+        elif name == 'git' and i == start:
+            j, folder = i + 1, current
+            while j < len(words) and words[j].startswith('-'):
+                word = words[j]
+                if word == '-C' and j + 1 < len(words):
+                    folder = resolve(words[j + 1], folder)
+                    if folder is not None: found.append(folder)
+                    j += 1
+                elif word.split('=')[0] in ('--work-tree', '--git-dir'):
+                    value = word.split('=', 1)[1] if '=' in word else words[j + 1] if j + 1 < len(words) else ''
+                    where_ = resolve(value, folder) if value else None
+                    if where_ is not None and word.startswith('--git-dir') and where_.name.casefold() == '.git': where_ = where_.parent
+                    if where_ is not None: found.append(where_)
+                    j += 0 if '=' in word else 1
+                elif word in GIT_VALUE: j += 1
+                j += 1
+    return found, env_dir
+
+
 def shell_effects(command, base, powershell=False, depth=0):
     """(targets, places) of a shell command run in `base`. targets: [(raw path, directory in force or None when a `cd` could not be read)], every path the command
     appears to write with the directory its own piece runs in: `cd DIR` / `pushd` / `Set-Location` (quoted or not, absolute or relative to the directory in force)
@@ -521,8 +628,11 @@ def shell_effects(command, base, powershell=False, depth=0):
             closes = max(0, min(masked.count(')') - masked.count('('), run))
             core = core[:len(core) - closes]
             scopes += [here] * opens
-            words = [unquote(w) for w in TOKEN.findall(core)]
+            words = [show_escapes(unquote(w)) for w in (WORDS if powershell else BASH_WORDS).findall(hide_escapes(core, powershell))]
             head, _ = command_head(list(words)) if words else ([], False)
+            reached = reach_places(words, here)        # #25 (review P1-1): `git -C DIR`, `--work-tree`, `--git-dir`, `env -C DIR` run in DIR
+            places += reached[0]
+            piece_here = reached[1] if reached[1] is not None else here
             name = os.path.basename(head[0].replace('\\', '/')).lower() if head else ''
             name = name[:-4] if name.endswith('.exe') else name
             mine = [bodies.pop(0) for _ in range(min(len(HEREDOC.findall(core)), len(bodies)))]
@@ -541,17 +651,17 @@ def shell_effects(command, base, powershell=False, depth=0):
             elif name in POP_NAMES:
                 if carries: here = stack.pop() if stack else None
             else:
-                targets += [(raw, here) for raw in all_targets(core, 3, powershell)]      # depth 3: the strings after an interpreter are read below, with the directory in force
+                targets += [(raw, piece_here) for raw in all_targets(core, 3, powershell)]      # depth 3: the strings after an interpreter are read below, with the directory in force
                 kind = interpreter_kind(name)
-                if kind: targets += [(raw, here) for raw in code_writes(kind, '\n'.join([core, *mine] + ([previous] if piped(before) else [])))]
+                if kind: targets += [(raw, piece_here) for raw in code_writes(kind, '\n'.join([core, *mine] + ([previous] if piped(before) else [])))]
                 if depth < 3:
                     for form in dict.fromkeys((core, re.sub(r'[`^]', '', core))):
-                        for m in QUOTED.finditer(form):
-                            cue = CUE.findall(re.split(r'[;&|\n]', form[:m.start()])[-1])
+                        for start, inner_text in nested_strings(form, powershell):
+                            cue = CUE.findall(re.split(r'[;&|\n]', form[:start])[-1])
                             if not cue: continue
                             word = cue[-1].lower()
                             inner = True if word.startswith(('powershell', 'pwsh')) else False if word.startswith(('bash', 'sh', 'zsh', 'dash', 'wsl', 'cmd')) else powershell
-                            more, there = shell_effects(m.group(1) or m.group(2), here, inner, depth + 1)
+                            more, there = shell_effects(inner_text, piece_here, inner, depth + 1)
                             targets += more
                             places += there
             previous = '\n'.join([core, *mine])
@@ -800,6 +910,9 @@ def command_texts(command, depth=0):
     for m in INNER.finditer(command): texts += command_texts(m.group(1) or m.group(2) or '', depth + 1)
     for m in QUOTED.finditer(command):
         if CUE.findall(re.split(r'[;&|\n]', command[:m.start()])[-1]): texts += command_texts(m.group(1) or m.group(2), depth + 1)
+    if '\\"' in command:                                 # #25 (review P2-5): a Bash string with `\"` inside is read to its real end and unescaped
+        for start, inner in nested_strings(command):
+            if inner not in texts and CUE.findall(re.split(r'[;&|\n]', command[:start])[-1]): texts += command_texts(inner, depth + 1)
     return texts
 
 
@@ -1068,6 +1181,8 @@ def discard_verdict(plan, root, cwd, command, limited=False, powershell=False):
     """(rule, reason) when a command of the text (`cd` followed, `git -C` followed, `$(...)` and `bash -c '...'` read too) is a git form that throws away
     uncommitted work outside the owned scope, or `rm` with recursive and force in any spelling; else None."""
     def one(words, here, fed):
+        env_dir = reach_places(words, here)[1] if words else None        # #25: `env -C DIR git ...` runs git in DIR
+        if env_dir is not None: here = env_dir
         words, wrapped = command_head(words)
         fed = fed or wrapped
         if not words: return None
@@ -1090,7 +1205,7 @@ def discard_verdict(plan, root, cwd, command, limited=False, powershell=False):
     for text in command_texts(without_heredocs(command, powershell)):
         here = Path(cwd)
         for segment in shell_segments(text, powershell):
-            words = [unquote(w) for w in without_redirects(TOKEN.findall(segment))]
+            words = [show_escapes(unquote(w)) for w in without_redirects(TOKEN.findall(hide_escapes(segment, powershell)))]      # #25: `cd du\ an\ A` is one word
             head_words, _ = command_head(list(words))
             if not head_words: continue
             if os.path.basename(head_words[0].replace('\\', '/')).lower() in ('cd', 'pushd', 'chdir', 'set-location', 'sl'):
@@ -1355,7 +1470,10 @@ def check(args):
     user = getattr(args, 'scope', 'project') == 'user'
     # #25: the user-scope hook decides exactly as the project hook; it writes the record only when the session's project has no OneCrew hook of its own
     # (then that hook writes it), so one call gives one record
-    note_call(event, 'user' if user else 'project', quiet=user and has_project_hook(where.project_from_environment(event.get('cwd') if isinstance(event.get('cwd'), str) else None)))
+    # #25 (review P2-4): the record() of a call with a tool_use_id is written once whoever comes first; the guess from the settings files stays only for a payload
+    # that has no tool_use_id (nothing else can tell the two hooks' lines apart then)
+    no_id = not (isinstance(event.get('tool_use_id'), str) and event.get('tool_use_id'))
+    note_call(event, 'user' if user else 'project', quiet=user and no_id and has_project_hook(where.project_from_environment(event.get('cwd') if isinstance(event.get('cwd'), str) else None)))
     governed = [(govern(project_copy, project_root, copy), role) for project_copy, project_root, copy, role in locate_all(args, event)]
     # a path the hook cannot resolve (`$PWD/x`) is judged by the session's plan; when the session has no enforce plan of its own, the plan of the cwd judges it
     watched = any(plan is not None and role == SESSION and plan.get('mode') == 'enforce' and plan.get('status') in ('approved', 'stopped_with_report','closed')

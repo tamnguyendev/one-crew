@@ -30,9 +30,20 @@ class UserHookBase(HookBase):
         os.environ.update(HOME=str(self.home), USERPROFILE=str(self.home), CLAUDE_CONFIG_DIR=str(self.conf), APPDATA=str(self.base / 'roaming'),
                           LOCALAPPDATA=str(self.base / 'local'))
         self.settings = self.conf / 'settings.json'
-        self.exe = self.base / 'bin' / 'onecrew.exe'
-        self.exe.parent.mkdir()
-        self.exe.write_bytes(b'')
+        self.exe = self.stub(self.base / 'bin')
+
+    @staticmethod
+    def stub(folder, exit_code=0, name='onecrew'):
+        """A program that answers like onecrew does for `--version` and `hook check --scope user` (review P2-1/P2-7: install and doctor now run the program)."""
+        folder.mkdir(parents=True, exist_ok=True)
+        if os.name == 'nt':
+            program = folder / (name + '.cmd')
+            program.write_text(f'@exit /b {exit_code}\r\n', encoding='ascii')
+        else:
+            program = folder / name
+            program.write_text(f'#!/bin/sh\nexit {exit_code}\n', encoding='ascii')
+            program.chmod(0o755)
+        return program
 
     def seed(self, value=None, path=None):
         path = path or self.settings
@@ -146,8 +157,9 @@ class UserHookLifecycle(UserHookBase):
                     self.assertIn('refused', out.getvalue())
                     self.assertEqual(own.read_text(encoding='utf-8'), '{"theme": "light"}')
                     self.assertFalse(own.with_name('settings.json.bak').exists())
+        lab = self.base / 'lab-settings.json'
         with patch.dict(os.environ, {'CLAUDECODE': '1'}):                              # another file (a lab file) is allowed, and so is status
-            self.assertEqual(self.verb('install')[0], 0)
+            self.assertEqual(self.verb('install', path=lab)[0], 0)                     # (review P2-3: the profile of CLAUDE_CONFIG_DIR is the owner's too, so not self.settings)
             self.assertEqual(self.verb('status', path=own)[0], 0)
 
     def test_the_owner_may_change_the_default_file_from_a_terminal_of_their_own(self):
@@ -167,8 +179,8 @@ class UserHookLifecycle(UserHookBase):
                 self.verb('uninstall')
 
 
-class UserScopeRecords(UserHookBase):
-    """The same check over the same places; a record only when the session's project has no OneCrew hook of its own; who made the call is in the record."""
+class RecordsBase(UserHookBase):
+    """A is under an enforced plan; B and C have none. `call` runs one hook call; `records` reads A's violations.jsonl."""
 
     def setUp(self):
         super().setUp()
@@ -193,6 +205,10 @@ class UserScopeRecords(UserHookBase):
     def records(self, project=None):
         path = Path(project or self.a) / '.onecrew' / 'violations.jsonl'
         return [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()] if path.is_file() else []
+
+
+class UserScopeRecords(RecordsBase):
+    """The same check over the same places; a record only when the session's project has no OneCrew hook of its own; who made the call is in the record."""
 
     def test_a_session_opened_outside_is_judged_by_the_plan_of_the_project_it_writes_in(self):
         self.assertEqual(self.call(self.b, self.a / 'other.txt')[0], 2)
@@ -224,11 +240,11 @@ class UserScopeRecords(UserHookBase):
         self.put(self.a / '.claude' / 'settings.local.json', {'hooks': {'PreToolUse': [{'matcher': 'Write', 'hooks': [
             {'type': 'command', 'command': 'C:/venv/Scripts/onecrew.exe', 'args': ['hook', 'check']}]}]}})
         target = self.a / 'other.txt'
-        self.assertEqual(self.call(self.a, target, 'user')[0], 2)                    # the same decision ...
+        self.assertEqual(self.call(self.a, target, 'user', tool_use_id=None)[0], 2)  # the same decision ... (no tool_use_id: only the settings can tell)
         self.assertEqual(self.records(), [])                                         # ... and no record: the project hook writes it
-        self.assertEqual(self.call(self.a, target, 'project')[0], 2)
+        self.assertEqual(self.call(self.a, target, 'project', tool_use_id=None)[0], 2)
         self.assertEqual([r['scope'] for r in self.records()], ['project'])
-        self.assertEqual(self.call(self.b, target, 'user')[0], 2)                    # a session in B has no project hook: this one records
+        self.assertEqual(self.call(self.b, target, 'user', tool_use_id=None)[0], 2)  # a session in B has no project hook: this one records
         self.assertEqual([r['scope'] for r in self.records()], ['project', 'user'])
 
     def test_the_user_hook_in_the_settings_is_not_taken_for_a_project_hook(self):
@@ -293,6 +309,97 @@ class DoctorSaysWhetherTheUserHookIsThere(UserHookBase):
         detail = self.lines()['user hook calls'][1]
         self.assertIn('2026-11-17T05:06:07+00:00', detail)
         self.assertIn('S-new', detail)
+
+
+class InstallSafety(UserHookBase):
+    """Review of 058211a: P2-1 (the program), P2-2 (a symlinked settings file), P2-3 (the profile of CLAUDE_CONFIG_DIR), P2-7 (doctor runs the program)."""
+
+    def test_install_refuses_a_program_that_is_missing_misnamed_or_does_not_answer_version(self):
+        self.seed()
+        before = self.settings.read_bytes()
+        odd = self.stub(self.base / 'odd', name='not-onecrew')
+        broken = self.stub(self.base / 'broken', exit_code=3)
+        for program in (self.base / 'nowhere' / 'onecrew.exe', odd, broken):
+            with self.subTest(program=program.name):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out): code = hook_cli.main(['hook', 'user', 'install', '--settings-file', str(self.settings), '--program', str(program)])
+                self.assertEqual(code, 2, out.getvalue())
+                self.assertEqual(self.settings.read_bytes(), before)
+                self.assertFalse(self.settings.with_name('settings.json.bak').exists())
+        self.assertEqual(self.verb('install')[0], 0)
+
+    def test_a_settings_file_that_is_a_symlink_is_written_through_and_stays_a_link(self):
+        target = self.base / 'dotfiles' / 'settings.json'
+        self.seed(path=target)
+        link = self.base / 'link-settings.json'
+        try:
+            os.symlink(target, link)
+        except (OSError, NotImplementedError):
+            self.skipTest('symlinks are not permitted on this machine')
+        before = target.read_bytes()
+        self.assertEqual(self.verb('install', path=link)[0], 0)
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(len([h for e in self.data(target)['hooks']['PreToolUse'] for h in e['hooks'] if h.get('args')]), 1)
+        self.assertEqual(target.with_name('settings.json.bak').read_bytes(), before)           # the copy sits next to the target
+        self.assertFalse(link.with_name(link.name + '.bak').exists())
+        self.assertEqual(self.verb('uninstall', path=link)[0], 0)
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(self.data(target), SEED)
+
+    def test_an_ai_session_may_not_change_the_profile_of_claude_config_dir_either(self):
+        self.seed()
+        before = self.settings.read_bytes()
+        for verb in ('install', 'uninstall'):
+            with self.subTest(verb=verb), patch.dict(os.environ, {'CLAUDECODE': '1'}):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out): code = hook_cli.main(['hook', 'user', verb, '--program', str(self.exe)])      # the default file is that profile
+                self.assertEqual(code, 2)
+                self.assertIn('refused', out.getvalue())
+                self.assertEqual(self.settings.read_bytes(), before)
+        with patch.dict(os.environ, {'CLAUDECODE': '1'}):
+            self.assertEqual(self.verb('install', path=self.settings)[0], 2)                  # also when named with --settings-file
+
+    def test_doctor_fails_when_the_program_does_not_understand_the_scope_argument(self):
+        self.seed()
+        self.verb('install')
+        self.assertEqual(self.exe.stat().st_size > 0, True)
+        old = self.stub(self.base / 'old', exit_code=2)                                       # what a OneCrew from before #25 does with `--scope user`
+        data = self.data()
+        for entry in data['hooks']['PreToolUse']:
+            for handler in entry['hooks']:
+                if handler.get('args') == install.USER_ARGS: handler['command'] = str(old)
+        self.settings.write_text(json.dumps(data), encoding='utf-8')
+        level, name, detail = next(l for l in install.doctor_facts(self.repo, self.state, self.exe, claude=None) if l[1] == 'user hook')
+        self.assertEqual(level, 'FAIL')
+        self.assertIn('--scope user', detail)
+        self.assertIn('uninstall', detail)
+
+
+class OneRecordByToolUseId(RecordsBase):
+    """P2-4: one call gives one record by tool_use_id, whichever hook comes first and whatever the project's settings say."""
+
+    def test_the_second_hook_of_one_call_adds_no_line(self):
+        target = self.a / 'other.txt'
+        for first, second in (('project', 'user'), ('user', 'project')):
+            with self.subTest(first=first):
+                self.call(self.b, target, first, tool_use_id=f'toolu_{first}')
+                self.call(self.b, target, second, tool_use_id=f'toolu_{first}')
+        self.assertEqual(sorted(r['tool_use_id'] for r in self.records()), ['toolu_project', 'toolu_user'])
+        self.assertEqual(sorted(r['scope'] for r in self.records()), ['project', 'user'])     # the first one's scope stays
+
+    def test_an_old_project_hook_does_not_make_the_user_hook_lose_the_record(self):
+        self.put(self.b / '.claude' / 'settings.local.json', {'hooks': {'PreToolUse': [{'matcher': 'Write', 'hooks': [
+            {'type': 'command', 'command': 'C:/venv/Scripts/onecrew.exe', 'args': ['hook', 'check']}]}]}})
+        self.assertEqual(self.call(self.b, self.a / 'other.txt', 'user', tool_use_id='toolu_old')[0], 2)
+        self.assertEqual([r['scope'] for r in self.records()], ['user'])                      # the old hook never judged it, so nobody else would record it
+
+    def test_different_calls_and_a_call_without_an_id_are_all_recorded(self):
+        target = self.a / 'other.txt'
+        self.call(self.b, target, tool_use_id='toolu_x')
+        self.call(self.b, target, tool_use_id='toolu_y')
+        self.call(self.b, target, tool_use_id=None)
+        self.call(self.b, target, tool_use_id=None)
+        self.assertEqual(len(self.records()), 4)
 
 
 class SyncCarriesTheIdentity(Fixture):
