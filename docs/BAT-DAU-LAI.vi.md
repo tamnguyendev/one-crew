@@ -1,46 +1,52 @@
-# Bắt đầu lại OneCrew v2.1 (đổi tài khoản / đổi máy)
+# Bắt đầu lại OneCrew 2.5.0.dev30 (phiên mới / đổi tài khoản / đổi máy)
 
-## 1. OneCrew v2.1 là gì
+## 1. OneCrew là gì
 Hợp đồng công việc cho AI: AI chỉ làm trong một hợp đồng (plan) mà chủ sở hữu đã duyệt, mọi mốc phải có verdict độc lập, và chỉ con người nghiệm thu. Sáu bất biến cứng:
 1. Không có hợp đồng đã duyệt thì không chạy. 2. Ngoài phạm vi thì bị chặn. 3. Hết ngân sách thì dừng. 4. Mốc chưa có verdict thì không qua. 5. Tác giả không tự duyệt việc của mình. 6. Chỉ con người mới nghiệm thu.
 
-Có gì trong v2.1 và giới hạn: [CHANGELOG.md](CHANGELOG.md). Chi tiết: `v2-step0.vi.md`, `v2-reviewer.vi.md`, `v2-advisor.vi.md`, `v2-l2-hooks.vi.md`, `v2-report.vi.md`.
+Có gì trong từng bản và giới hạn: [CHANGELOG.md](CHANGELOG.md) và [ghi chú phát hành trên GitHub](https://github.com/tamnguyendev/one-crew/releases). Lỗi đã biết: [LOI-DA-BIET.vi.md](obs2/su-dung/LOI-DA-BIET.vi.md). Chi tiết thiết kế: `v2-step0.vi.md`, `v2-reviewer.vi.md`, `v2-advisor.vi.md`, `v2-l2-hooks.vi.md`, `v2-report.vi.md`.
 
-## 2. Sổ cái và hook nằm đâu
-- **State-root thật của máy này: `D:\OneCrewRuns\state-v2-real`** = `ledger.sqlite3` (sổ cái), `plans\` (hợp đồng, `owner-rules.md`, `policy.json`), `snapshots\blobs` (biên lai).
-- Trong mỗi project: `.claude/settings.json` (hook + `permissions.deny`, sinh bằng `hook install --print`) và `.onecrew/active-plan.json` (bản xuất của plan đang chạy, hook đọc file này).
-- Hook (PreToolUse, UserPromptSubmit, Stop, SessionStart) chặn ngoài phạm vi, nhắc, và không cho nói "xong" khi mốc thiếu verdict.
+## 2. Chương trình, sổ và hook nằm đâu (máy này)
+- **Chương trình:** `D:\OneCrewRuns\runtime-dev30\Scripts\onecrew.exe` — venv Python 3.13 cài wheel 2.5.0.dev30 đã phát hành (tag `v2.5.0.dev30`). Không xoá hay sửa venv này: hook người dùng chạy nó, và hook hỏng thì mọi lệnh của mọi phiên Claude trên máy bị chặn.
+- **Sổ thật:** `D:\TamNT\Workspace\11.OneCrew\state-v2-real` = `ledger.sqlite3` (sổ cái), `plans\` (hợp đồng, `owner-rules.md`), `snapshots\blobs` (biên lai). Các dự án thật (SRM, cts-port, PhòngKhám…) ghi vào sổ này; mỗi dự án có hook riêng chạy runtime của nó, nâng runtime cho dự án là một việc riêng.
+- **Sổ phát triển OneCrew:** `D:\OneCrewRuns\onecrew-development\state`, dùng cho các hợp đồng sửa chính OneCrew. Khi chạy lệnh cho sổ này, đặt `LOCALAPPDATA=D:\OneCrewRuns\onecrew-development\machine\local` và `APPDATA=D:\OneCrewRuns\onecrew-development\machine\roaming` để registry tách khỏi registry thật.
+- **Trong mỗi dự án:** `.onecrew/config.json` (sổ của dự án), `.onecrew/active-plan.json` (bản xuất của plan đang chạy, hook đọc file này), `.claude/settings.local.json` (hook dự án). Các tệp này do `onecrew init` ghi, git bỏ qua.
+- **Hook người dùng** (cài 18/11/2026): `~\.claude\settings.json` có hook PreToolUse trỏ tới runtime ở trên, cài bằng `hook user install`. Mọi phiên Claude Code trên máy, kể cả subagent và phiên mở ngoài dự án, bị plan của dự án đích xét khi ghi vào một dự án đang enforce. Xem trạng thái: `hook user status`. Gỡ: chủ chạy `D:\OneCrewRuns\trien-khai-25\go-hook-nguoi-dung-dev30.ps1`.
+- **Registry dự án:** `%LOCALAPPDATA%\OneCrew\hook-projects.json` (dự án → sổ); hook tự ghi dự án có `.onecrew/config.json` mà nó gặp.
 
 ## 3. Cách chạy
-Từ thư mục gốc repo (python của venv: `D:\TamNT\Workspace\9.VMAgent\onecrew\.venv\Scripts\python.exe`):
 ```
-<python> -X utf8 onecrew_cli.py --project <repo> --state-root <state-root> plan|verdict|hook ...
+D:\OneCrewRuns\runtime-dev30\Scripts\onecrew.exe --project <repo> --state-root <sổ> <nhóm> <lệnh> ...
 ```
-- `plan`: `propose, show, approve, accept, amend, precheck, unknown, poc, brainstorm, enforce, advise, rules (init|show), report, digest, lint`.
-- `verdict`: `run, record`. `hook`: `install --print, mode, check, prompt, stop, session, sync`.
-- Dán hook: `hook install --print` rồi chép kết quả vào `<repo>\.claude\settings.json` (lệnh chỉ in, không sửa file).
-- Reviewer và cố vấn gọi Claude CLI (`claude.exe`) không giao diện: phải đăng nhập `claude login` trên tài khoản đang dùng, nếu không `verdict run` (mốc reviewer) và `plan advise` sẽ lỗi.
-- Xem tình hình: `plan digest` (mỗi plan một dòng) và `plan report <tên>`.
+- Gắn một repo vào sổ: `onecrew init` (ghi `.onecrew/config.json`, hook dự án, khung wiki; hỏi trước khi ghi). Kiểm máy và repo: `onecrew doctor` (mỗi dòng PASS/WARN/FAIL).
+- Nhóm chính: `plan` (`lint`, `propose`, `show`, `advise`, `amend`, `report`, `digest`), `verdict` (`run`, `artifact`, `status`), `owner` (động từ của chủ, mục 5), `hook` (`check`, `export`, `user`), `track` (`open`: trang theo dõi), `wiki`. Xem hết: `onecrew --help` và `<nhóm> --help`.
+- Reviewer và cố vấn gọi Claude CLI (`claude.exe`) không giao diện: phải `claude login` trên tài khoản đang dùng, nếu không `verdict run` (mốc reviewer) và `plan advise` sẽ lỗi.
+- Xem tình hình: `plan digest` (mỗi plan một dòng), `plan report <tên>`, `track open`.
 
 ## 4. Quy trình một việc
 **Bước 0** (hỏi MỘT lần trước khi viết hợp đồng, mỗi điều chưa rõ kèm mặc định đề xuất): (a) đúng yêu cầu — làm nhiều hơn hay ít hơn lời chủ sở hữu? (b) phạm vi và file; (c) môi trường kiểm có giống thật không; (d) sản phẩm giao ở đâu (trong repo; ngoài repo cần người điều phối); (e) loại build theo vòng đời; (f) thay đổi giữa chừng có thể thấy trước (ghi thành `decisions`); (g) chủ sở hữu nghiệm thu thế nào (đường bấm).
 
-**Các bước:** bước 0 → viết hợp đồng JSON có `origin` (lời nguyên văn của chủ sở hữu), `decisions`, `items[].source`, trường trình bày → `plan lint --file <json> --author <model id>` → `plan propose <tên> --file <json> --author <model id>` → `plan advise <tên>` khi `decisions` không rỗng hoặc cỡ M/L → MỘT tin "Xin duyệt" → chủ sở hữu `approve` + `enforce` (terminal của họ) → phiên worker có hook → `verdict run --plan <tên> --milestone <Mx>` → `plan report` / `plan digest` → MỘT tin "Xin nghiệm thu" → chủ sở hữu `accept`.
+**Các bước:** bước 0 → viết hợp đồng JSON có `origin` (lời nguyên văn của chủ sở hữu), `decisions`, `items[].source`, trường trình bày bằng lời thường → `plan lint --file <json> --author <model id>` → `plan propose <tên> --file <json> --author <model id>` → `plan advise <tên>` khi `decisions` không rỗng hoặc cỡ M/L → MỘT tin "Xin duyệt" → chủ sở hữu chạy `owner approve` + `owner enforce` (script `.ps1` do người điều phối soạn, ghim bản và sha) → làm việc dưới hook → `verdict run --plan <tên> --milestone <Mx>` → `plan report` / `plan digest` → MỘT tin "Xin nghiệm thu" → chủ sở hữu `owner record` (mốc thủ công) và `owner accept`.
 
-**Sáu quy tắc của chủ sở hữu** (file đầy đủ: `<state-root>\plans\owner-rules.md`, mẫu: `examples/owner-rules.vi.md`):
+**Sáu quy tắc của chủ sở hữu** (file đầy đủ: `<sổ>\plans\owner-rules.md`, mẫu: `examples/owner-rules.vi.md`):
 R1 chỉ build DEBUG khi đang phát triển, RELEASE là bước giao riêng sau khi test đạt và chủ sở hữu thử trên thiết bị thật; R2 đúng hai tin mỗi việc; R3 mọi sản phẩm bàn giao đi qua một hợp đồng v2; R4 chẩn đoán chỉ đọc dưới ~5 lệnh và động từ của chủ sở hữu nằm ngoài v2 nhưng phải có log; R5 việc khác ngoài v2 cần chủ sở hữu đồng ý trước; R6 không "Xin nghiệm thu" tính năng giao diện khi chưa chạy trên thiết bị thật.
 
 **Hai tin duy nhất**, mỗi tin theo 5 mục: *Yêu cầu / Người dùng sẽ thấy / Cách bạn nghiệm thu / Không làm / Rủi ro*, cộng "Quyết định của tôi mà bạn chưa yêu cầu" và dòng của cố vấn. Lựa chọn trả lời là câu đầy đủ, kèm hệ quả. Tối đa 6 dòng cho báo cáo.
 
 ## 5. Động từ chỉ chủ sở hữu được gõ
-`plan approve`, `plan accept`, `plan enforce on|off` / `hook mode`, `verdict record --by owner`, `plan unknown close --by owner` (và `plan poc record --by owner`). Phiên AI bị từ chối (biến `CLAUDE_CODE_CHILD_SESSION`; từ 2.5.0.dev25 cả tiến trình do bộ kiểm hay lệnh tiền điều kiện của OneCrew khởi chạy, `ONECREW_VERIFIER`, trên sổ ngoài thư mục tạm, và tiến trình khai `ONECREW_ACTOR` không phải `user|owner`; vẫn là lớp mềm, xem `LOI-DA-BIET.vi.md`) và `permissions.deny` cùng hook cũng chặn chữ của các lệnh này: đúng bất biến 5–6 — người viết hợp đồng không tự duyệt, AI không tự nghiệm thu. Chủ sở hữu gõ trong terminal của chính mình; mẫu có sẵn ở `scripts/owner/`: `approve.ps1`, `enforce.ps1` (hook mode), `accept.ps1`, `record.ps1` (tham số: `-Plan -Reference [-ArtifactSha] [-StateRoot] [-Python]`; `--by owner` luôn cố định). Cổng `plan enforce on|off` của cả state-root gõ tay.
+`owner approve`, `owner accept`, `owner enforce`, `owner record`, `owner answer`, cùng `hook mode` và `hook user`. Phiên AI bị từ chối: CLI nhận ra phiên AI (biến `CLAUDE_CODE_CHILD_SESSION`), tiến trình do bộ kiểm hay lệnh tiền điều kiện của OneCrew khởi chạy (`ONECREW_VERIFIER`), và tiến trình khai `ONECREW_ACTOR` không phải `user|owner`; đây vẫn là lớp mềm, xem LOI-DA-BIET. Đúng bất biến 5–6: người viết hợp đồng không tự duyệt, AI không tự nghiệm thu.
+- Chủ sở hữu gõ trong terminal của chính mình; thêm `--human` để đọc được. `--human` có lúc báo "Chưa xác nhận được kết quả" dù sổ đã ghi: đọc lại `plan show` trước khi chạy lại.
+- Các script mẫu trong `scripts/owner/` là của bản cũ và chưa cập nhật cho 2.5: không dùng; người điều phối soạn script riêng cho từng lần duyệt.
 
-## 6. Giới hạn đã biết và 11b
-Danh sách đầy đủ ở [CHANGELOG.md](CHANGELOG.md) và `v2-parking-lot.vi.md`. **11b (việc kế tiếp):** sự kiện `verdict.run_started` cho hook Stop; kho quy tắc hai tầng (lõi theo chuẩn, theo từng project); waiver; contingency; ma trận thẩm quyền A/B/C với đường nhanh cho việc XS chỉ đọc; cố vấn theo loại quyết định; thiết kế phải được duyệt trước khi viết code.
+## 6. Phát triển chính OneCrew
+- Chỗ làm việc: worktree `D:\TamNT\Workspace\11.OneCrew\wf-dev30` (nhánh `claude/dev30`, tách từ `main` = 2.5.0.dev30), đã `onecrew init` vào sổ phát triển; hook giám sát chạy runtime dev30 đã phát hành, không chạy mã đang sửa.
+- Thư mục `D:\TamNT\Workspace\11.OneCrew\onecrew` giữ nhánh `main`. Các worktree cũ đã gỡ ngày 18/11/2026; thay đổi dở của chúng lưu ở `D:\OneCrewRuns\luu-tru-worktree-20261118`.
+- Phát hành: commit phát hành đổi version, dựng wheel một lần, chủ chạy script phát hành (push, tag, prerelease); AI không push hay tag.
+- Việc đang chờ: chặn `pkill`/`killall` và `perl -i` trong hook; chạy lại bước 3–5 của `docs/GETTING-STARTED.en.md` trên dev30; cập nhật các script trong `scripts/owner/`.
 
 ## 7. Đổi tài khoản / đổi máy: chép gì
-- **State-root** `D:\OneCrewRuns\state-v2-real` nguyên thư mục (sổ cái, hợp đồng, quy tắc, biên lai) — mất nó là mất toàn bộ lịch sử và plan đã duyệt.
-- **Repo** (nhánh `claude/v2-ai-work-contract-5af485`, đã có tag v2.1.0 trên máy cũ) và `outputs\onecrew-as-qc\` (đặc biệt `v2-real\*.ps1`, `memory-backup-20261020`).
-- **Bộ nhớ Claude**: khôi phục từ `outputs\onecrew-as-qc\memory-backup-20261020` vào thư mục memory của project trong `~\.claude\projects\`.
-- Máy mới: tạo lại venv, chạy `claude login`, chạy `hook install --print` với đường dẫn mới và dán vào `.claude/settings.json`; đường dẫn máy cũ nằm trong plan đã duyệt/`active-plan.json` (trường `project`, `state_root`), nên đổi đường dẫn nghĩa là chủ sở hữu duyệt lại plan đang mở.
+- **Hai sổ** nguyên thư mục: sổ thật `D:\TamNT\Workspace\11.OneCrew\state-v2-real` và sổ phát triển `D:\OneCrewRuns\onecrew-development\state` — mất sổ là mất lịch sử, hợp đồng và biên lai.
+- **Mã nguồn:** clone `https://github.com/tamnguyendev/one-crew` (nhánh `main`, tag `v2.5.0.dev30`). **Wiki dùng chung:** `D:\TamNT\Workspace\11.OneCrew\outputs\onecrew-as-qc\wiki`.
+- **Bộ nhớ Claude:** thư mục memory của project trong `~\.claude\projects\`.
+- Máy mới: tải wheel từ trang phát hành, kiểm SHA256 với `SHA256SUMS`, tạo venv và cài wheel; chạy `claude login`; `onecrew init` cho từng dự án; `hook user install` nếu muốn hook người dùng. Đường dẫn máy cũ nằm trong plan đã duyệt và `active-plan.json` (trường `project`, `state_root`), nên đổi đường dẫn nghĩa là chủ sở hữu duyệt lại plan đang mở.
 - Phiên mới của Claude: đọc `CLAUDE.md` ở gốc repo, rồi `plan digest`.
