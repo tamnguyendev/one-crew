@@ -569,19 +569,33 @@ def node_request(ledger, selector, nid, execution=None, conn=None):
         authority=contract.get('authority', {}), budget=contract['budget'], inputs=None, execution=execution)
 
 
+def _paid_reviewer_fail(ledger, receipt):
+    """True only when the published node receipt holds a check row that FAILED with a candidate-reviewer-check proof: a reviewer really ran
+    and judged fail. The node-level execution method is not evidence of that (it says `reviewer` as soon as ANY check is a reviewer one)."""
+    store = Snapshots(ledger.state_root)
+    try:
+        rows = json.loads(store.read_blob(receipt)).get('observed', {}).get('checks', [])
+        for row in rows:
+            if not isinstance(row, dict) or row.get('result') != 'fail' or not row.get('evidence'): continue
+            proof = json.loads(store.read_blob(row['evidence']))
+            if isinstance(proof, dict) and proof.get('kind') == 'candidate-reviewer-check': return True
+    except (OSError, ValueError, TypeError, AttributeError, LedgerError):
+        return False
+    return False
+
+
 def _judged_fail(ledger, conn, root, nid, request, subject):
     """The run that already published a FAIL for this very check of the node's current artifact/generation, or None. A fail is a known
     judgement of this input: asking the same reviewer the same question again is a duplicate call and a second charge, not a retry.
-    Only a check whose reviewer is a metered model call is held to this: a command or adapter re-run spends nothing, and existing flows
-    re-verify an unchanged candidate with a focused order. 'Same check' = same subject (node, generation, artifact, internal revision)
+    Only a fail that holds a paid reviewer judgement (a check row that ran a reviewer and returned fail) is held to this: a command or adapter
+    fail, a blocked or never-called reviewer and an OUT-check fail re-run for free (settled reviewer passes are reused), as before. 'Same check' = same subject (node, generation, artifact, internal revision)
     and the whole request identity except `facts`, which carry workflow state that the failure itself changed (the finding it opened).
     An inconclusive result (provider error, timeout) is not a judgement and stays retryable; another artifact, criterion, revision,
     scope or environment differs here and is a new request."""
-    execution = request['identity'].get('execution')
-    if not isinstance(execution, dict) or execution.get('method') != 'reviewer': return None     # only a metered reviewer: re-running a command costs no call
     record = engine.state(ledger, root['selector'], conn)['nodes'][nid]
     receipt = record.get('verification_receipt')
     if record.get('verification_result') != 'fail' or not receipt: return None
+    if not _paid_reviewer_fail(ledger, receipt): return None     # a command-only fail, a blocked or never-called reviewer, an OUT-check fail: a re-run costs no call
     same = lambda identity: {k: v for k, v in identity.items() if k != 'facts'}
     for run in _runs(conn, root['task_id']).values():
         finished = run['finished'] or {}

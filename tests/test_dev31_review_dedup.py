@@ -473,6 +473,45 @@ class ReviewerCalls(CandidateReviewerFixture):
                 with self.assertRaises(LedgerError): self.check()
         self.assertEqual((len(calls), self.charged() - before), (1, 1))
 
+    def _flaky_command_first(self):
+        real, state = command.expected_result, {'n': 0}
+        def flaky(receipt):
+            state['n'] += 1
+            return 'fail' if state['n'] == 1 else real(receipt)
+        return flaky
+
+    def test_mixed_node_command_only_fail_can_be_rerun_with_no_extra_reviewer_call(self):
+        """F1: node = command M1 + reviewer M2. M1 fails once, the reviewer passes. The fail holds no paid reviewer judgement, so a second
+        verify of the same artifact is allowed, reuses the settled reviewer pass and spends no reviewer call."""
+        self.produce()
+        calls = []
+        with patch.object(reviewer, 'call', side_effect=self.fake_call(calls)), \
+             patch.object(command, 'expected_result', side_effect=self._flaky_command_first()):
+            first = self.check()
+            self.assertEqual(first['result'], 'fail')
+            rows = {r['id']: r['result'] for r in first['observed']['checks']}
+            self.assertEqual(rows['M1'], 'fail')
+            self.assertNotEqual(rows.get('M2'), 'fail')
+            calls_after_first = len(calls)
+            again = self.check()
+        self.assertEqual(again['result'], 'pass')
+        self.assertEqual(len(calls), calls_after_first, 'the re-run must not ask the reviewer again')
+
+    def test_mixed_node_command_fail_with_blocked_reviewer_is_still_rerunnable(self):
+        """F1: when the failing command blocks the reviewer row (never called), the fail is no reviewer judgement either."""
+        self.produce()
+        calls = []
+        with patch.object(reviewer, 'call', side_effect=self.fake_call(calls)), \
+             patch.object(command, 'expected_result', side_effect=self._flaky_command_first()):
+            first = self.check()
+            blocked = [r for r in first['observed']['checks'] if r['result'] == 'blocked']
+            paid_fail = [r for r in first['observed']['checks'] if r['result'] == 'fail' and r['id'] != 'M1']
+            self.assertFalse(paid_fail)
+            self.assertEqual(first['result'], 'fail', blocked)
+            self.assertFalse(review_dispatch._paid_reviewer_fail(self.ledger, self.engine.state(self.ledger, 'P1')['nodes']['C']['verification_receipt']))
+            again = self.check()
+        self.assertEqual(again['result'], 'pass')
+
     def test_crash_reconcile_result_issued_but_not_published_completes_without_a_second_call(self):
         self.produce()
         before, calls = self.charged(), []
