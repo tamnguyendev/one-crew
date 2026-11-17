@@ -1707,9 +1707,16 @@ def discard_verdict(plan, root, cwd, command, limited=False, powershell=False, s
         # runs it in A. `launches` collects the folders of the segments holding a `<<`: their here-document bodies start there.
         spans = substitution_spans(text, powershell)
         body = text if powershell else hollow(text, spans)       # bash: `$( )` is a child shell, its `cd` does not reach the segments after it
+        # the other texts a shell runs (`bash -c '...'`, `@'...'@ | iex`, `<( )`) are found in the WHOLE text, since their cue may sit in another segment
+        # (`| Invoke-Expression`), and each is read in the folders of the segment it starts in; one the hook cannot place is read in every segment's folders
+        others = []
+        if depth < 3:
+            for t in dict.fromkeys(command_texts(body, 2, powershell)[1:]):
+                places = [m.start() for m in re.finditer(re.escape(t), body)] if t.strip() else []
+                others += [(at, t) for at in places] or [(-1, t)]
         for begin, end, segment, words, head_words, moves, folders in folder_steps(body, state, powershell):
             if depth < 3:
-                inner = [t for s, _, t in spans if begin <= s < end] + command_texts(segment, 2, powershell)[1:]
+                inner = [t for s, _, t in spans if begin <= s < end] + [t for at, t in others if begin <= at < end or at < 0]
                 for t in dict.fromkeys(inner):
                     for folder in folders:
                         verdict = walk(t, [folder, folder, [], [], [folder], False], depth + 1)
