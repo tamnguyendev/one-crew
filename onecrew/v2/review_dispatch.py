@@ -569,6 +569,28 @@ def node_request(ledger, selector, nid, execution=None, conn=None):
         authority=contract.get('authority', {}), budget=contract['budget'], inputs=None, execution=execution)
 
 
+def _judged_fail(ledger, conn, root, nid, request, subject):
+    """The run that already published a FAIL for this very check of the node's current artifact/generation, or None. A fail is a known
+    judgement of this input: asking the same reviewer the same question again is a duplicate call and a second charge, not a retry.
+    Only a check whose reviewer is a metered model call is held to this: a command or adapter re-run spends nothing, and existing flows
+    re-verify an unchanged candidate with a focused order. 'Same check' = same subject (node, generation, artifact, internal revision)
+    and the whole request identity except `facts`, which carry workflow state that the failure itself changed (the finding it opened).
+    An inconclusive result (provider error, timeout) is not a judgement and stays retryable; another artifact, criterion, revision,
+    scope or environment differs here and is a new request."""
+    execution = request['identity'].get('execution')
+    if not isinstance(execution, dict) or execution.get('method') != 'reviewer': return None     # only a metered reviewer: re-running a command costs no call
+    record = engine.state(ledger, root['selector'], conn)['nodes'][nid]
+    receipt = record.get('verification_receipt')
+    if record.get('verification_result') != 'fail' or not receipt: return None
+    same = lambda identity: {k: v for k, v in identity.items() if k != 'facts'}
+    for run in _runs(conn, root['task_id']).values():
+        finished = run['finished'] or {}
+        if (run.get('check') == CHECK_NODE and finished.get('outcome') == 'published' and finished.get('receipt') == receipt
+                and run.get('subject') == subject and same(run['request']['identity']) == same(request['identity'])):
+            return run['run_id']
+    return None
+
+
 def claim_node_check(ledger, selector, nid, *, execution, door, expected):
     """engine.verify's claim: the request is computed from the facts read inside the same write transaction as the claim. `expected` is the
     (artifact, generation) the caller decided on: another door may have published or moved the node since, and that is not a new request."""
@@ -578,6 +600,10 @@ def claim_node_check(ledger, selector, nid, *, execution, door, expected):
             raise LedgerError('The node changed before its check was claimed (another door may have finished it); nothing was dispatched.')
         subject = {'node': nid, 'generation': facts['generation'], 'artifact': facts['artifact'],
                    'internal_revision': facts['internal_revision']}
+        judged = _judged_fail(ledger, conn, root, nid, request, subject)
+        if judged:
+            raise LedgerError(f'This very check (request {request["id"][:20]}) already judged node {nid} on this artifact as failed in run {judged}; '
+                              'nothing was dispatched and no reviewer was asked again. Repair the output, or change the check or its environment, to ask a new question.')
         # the same allowance as the tools fence (engine._claim_tools): twice the node cap, the first check still has its own deadlines
         return claim_check(ledger, root['selector'], request, door=door, subject=subject, check=CHECK_NODE,
                            deadline=check_deadline(item['execution_cap_seconds'], len(item['checks']),
