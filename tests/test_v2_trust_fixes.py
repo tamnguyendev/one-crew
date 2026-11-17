@@ -344,13 +344,14 @@ class HookEveryPlanJudges(HookBase):
         passes = ['.onecrew/scratch/x', '.onecrew/scratch/', '.onecrew\\scratch\\x', '.onecrew/scratch/a/../b', '.onecrew-old', '.onecrew.bak', '.onecrewx/y', '11.OneCrew/x', 'my.onecrew/x']
         for protected in ((), ('.onecrew/',)):                                          # with the mention rule alone, and with the folder also in the plan's protected list
             project = self.plan_repo(self.base / f'prot{len(protected)}', protected=protected)
+            owns_all = self.plan_repo(self.base / f'protall{len(protected)}', protected=protected, owned=('**',))
             for template in self.OUT_OF_THE_BUILT_IN_DENY:
                 for name in names:
                     with self.subTest(protected=len(protected), blocked=name, command=template[:16]):
                         self.assertEqual(self.check('Bash', project=project, command=template.format(x=name))[0], 2)
-                for name in passes:
+                for name in passes:     # #25: interpreter code writing a literal path outside owned is now judged, so the plan owns everything here: only the mention rule can block
                     with self.subTest(protected=len(protected), passes=name, command=template[:16]):
-                        self.assertEqual(self.check('Bash', project=project, command=template.format(x=name))[0], 0)
+                        self.assertEqual(self.check('Bash', project=owns_all, command=template.format(x=name))[0], 0)
 
     def test_scratch_is_exempt_only_for_a_path_that_stays_under_it(self):
         for text, kept in (('.onecrew/scratch/x', False), ('.onecrew/scratch', False), ('x/.onecrew/scratch/y/z', False), ('.onecrew/scratch/../scratch/x', False),

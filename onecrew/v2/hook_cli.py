@@ -189,8 +189,9 @@ def judge_path(plan, root, target, action):
     """(rule, reason) when this plan forbids writing to `target`, else None."""
     rel = relative(target, root)
     scratch = [normalize(s, root) if not os.path.isabs(s) else Path(s).resolve() for s in plan.get('scratch', [])]
-    if rel is not None and under(rel, '.onecrew/scratch'): return None
-    home = Path.home().resolve() / '.claude'
+    # #25: interpreter code now reaches judge_path with literal paths; a path Windows reads as inside scratch (`.onecrew/scratch ./x`) stays excused
+    if rel is not None and (under(rel, '.onecrew/scratch') or (_fold(rel).startswith('.onecrew') and stays_in_scratch(_fold(rel)))): return None
+    home =Path.home().resolve() / '.claude'
     guarded = [normalize(p, root) for p in plan.get('protected', [])] + [home / 'settings.json', home / 'settings.local.json', where.registry_file().resolve()]      # the registry: the owner's pointer to the state root
     for item in guarded:
         if target == item or item in target.parents:
