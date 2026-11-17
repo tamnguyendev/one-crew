@@ -26,6 +26,8 @@ $ErrorActionPreference = 'Stop'
 if ($env:CLAUDE_CODE_CHILD_SESSION -or $env:CLAUDECODE) { Write-Host 'KHONG DAT: dang o trong phien AI; mo terminal rieng cua ban roi chay lai.' -ForegroundColor Red; exit 2 }
 foreach ($path in @($OneCrew, $Project, $StateRoot)) { if (-not (Test-Path -LiteralPath $path)) { Write-Host ('KHONG DAT: khong tim thay ' + $path) -ForegroundColor Red; exit 1 } }
 $saved = @($env:LOCALAPPDATA, $env:APPDATA)
+$savedEncoding = [Console]::OutputEncoding      # ENC30: OneCrew writes UTF-8; read it as UTF-8 while it runs, give the console its own code page back after
+try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }
 if ($MachineDir) { $env:LOCALAPPDATA = Join-Path $MachineDir 'local'; $env:APPDATA = Join-Path $MachineDir 'roaming' }
 try {
     $cliArgs = @('--project', $Project, '--state-root', $StateRoot, 'owner', 'enforce', $Plan, '--mode', $Mode, '--human')
@@ -40,4 +42,4 @@ try {
     $seen = if ($active) { $active.plan + ' / ' + $active.mode } else { 'khong co tep' }
     Write-Host ('KHONG DAT: tep plan cua hook la ' + $seen + ' (xem dong loi o tren).') -ForegroundColor Red; exit 1
 }
-finally { $env:LOCALAPPDATA, $env:APPDATA = $saved }
+finally { $env:LOCALAPPDATA, $env:APPDATA = $saved; try { [Console]::OutputEncoding = $savedEncoding } catch { } }

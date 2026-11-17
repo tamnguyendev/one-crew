@@ -31,6 +31,8 @@ foreach ($path in @($OneCrew, $Project, $StateRoot, $ReceiptFile)) { if (-not (T
 $receipt = (Resolve-Path -LiteralPath $ReceiptFile).Path
 $receiptSha = (Get-FileHash -LiteralPath $receipt -Algorithm SHA256).Hash.ToLower()
 $saved = @($env:LOCALAPPDATA, $env:APPDATA)
+$savedEncoding = [Console]::OutputEncoding      # ENC30: OneCrew writes UTF-8; read it as UTF-8 while it runs, give the console its own code page back after
+try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }
 if ($MachineDir) { $env:LOCALAPPDATA = Join-Path $MachineDir 'local'; $env:APPDATA = Join-Path $MachineDir 'roaming' }
 try {
     $base = @('--project', $Project, '--state-root', $StateRoot)
@@ -43,4 +45,4 @@ try {
     }
     Write-Host ('KHONG DAT: so khong co verdict ' + $Milestone + ' = ' + $Result + ' voi receipt nay (xem dong loi o tren).') -ForegroundColor Red; exit 1
 }
-finally { $env:LOCALAPPDATA, $env:APPDATA = $saved }
+finally { $env:LOCALAPPDATA, $env:APPDATA = $saved; try { [Console]::OutputEncoding = $savedEncoding } catch { } }
