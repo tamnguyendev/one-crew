@@ -483,3 +483,50 @@ class AStarBeforeARedirectIsOnlyPowerShells(ShellBase):
 
     def test_a_bash_redirect_after_a_star_is_still_read(self):
         self.blocked('echo hi *>other.txt', inside=True)
+
+
+class AChildCommandRunsWhereItStarts(ShellBase):
+    """FIX25C (Codex R1 on 7b255e0): a `$( )`, backtick, `bash -c` string or heredoc body runs when its own segment runs, in the folder in force then: a `cd`
+    LATER in the command does not move it (before the fix the hook judged it in the folder after that `cd`, let these through and refused the owned ones)."""
+    def setUp(self):
+        super().setUp()
+        self.project_copy(self.a, owned=('src/**',))
+
+    def from_src(self, command, tool='Bash'):
+        return self.check(tool, project=self.a, cwd=self.a / 'src', command=command)
+
+    def test_a_child_command_before_a_cd_runs_in_the_start_folder(self):
+        self.each(['x=$(git checkout -- other.txt); cd src', 'echo "$(git checkout -- other.txt)" && cd src', f"bash <<'EOF' && cd src{NL}git checkout -- other.txt{NL}EOF",
+                   'x=`git checkout -- other.txt`; cd src', "bash -c 'git checkout -- other.txt' && cd src", 'x=$(echo lost > other.txt); cd src',
+                   f"bash <<'EOF' && cd src{NL}echo lost > other.txt{NL}EOF"], self.blocked, inside=True)
+        self.blocked('$x = $(git checkout -- other.txt); Set-Location src', 'PowerShell', inside=True)
+
+    def test_the_same_forms_on_the_owned_file_from_src_pass(self):
+        for command, tool in (('x=$(git checkout -- a.txt); cd ..', 'Bash'), (f"bash <<'EOF' && cd ..{NL}git checkout -- a.txt{NL}EOF", 'Bash'),
+                              ('x=`git checkout -- a.txt`; cd ..', 'Bash'), ('x=$(echo new > a.txt); cd ..', 'Bash'),
+                              ('$x = $(git checkout -- a.txt); Set-Location ..', 'PowerShell')):
+            with self.subTest(command=command):
+                code, err = self.from_src(command, tool)
+                self.assertEqual(code, 0, f'{command!r} should be allowed: {err}')
+
+    def test_a_cd_before_the_child_still_moves_it(self):
+        self.each(['cd src && x=$(git checkout -- a.txt)', f"cd src && bash <<'EOF'{NL}git checkout -- a.txt{NL}EOF",
+                   f"pushd src && bash <<'EOF' && popd{NL}git checkout -- a.txt{NL}EOF"], self.allowed, inside=True)
+        self.each([f"cd src && bash <<'EOF'{NL}cd ..{NL}git checkout -- other.txt{NL}EOF", 'cd src && x=$(cd .. && git checkout -- other.txt)'], self.blocked, inside=True)
+
+
+class ARenameGivesANewNameInTheSourcesFolder(ShellBase):
+    """FIX25C (Codex R2 on 7b255e0): `Rename-Item src/a.txt b.txt` makes src/b.txt, not b.txt where the shell is; a rename of a file outside owned or out of it is refused."""
+    def setUp(self):
+        super().setUp()
+        self.project_copy(self.a, owned=('src/**',))
+
+    def test_a_rename_inside_owned_passes_in_every_spelling(self):
+        for command in ('Rename-Item src/a.txt b.txt', 'Rename-Item src\\a.txt b.txt', 'Rename-Item -Path src/a.txt -NewName b.txt',
+                        'Rename-Item -LiteralPath "src/a.txt" -NewName:b.txt', 'Rename-Item -NewName b.txt -Path src/a.txt', 'ren src\\a.txt b.txt', 'rni src/a.txt b.txt -Force'):
+            with self.subTest(command=command): self.allowed(command, 'PowerShell', inside=True)
+
+    def test_a_rename_out_of_owned_or_of_a_file_outside_is_refused(self):
+        for command in ('Rename-Item other.txt b.txt', 'Rename-Item -Path other.txt -NewName b.txt', 'Rename-Item src/a.txt ../x.txt', 'Rename-Item src/a.txt ..\\x.txt',
+                        'ren other.txt src\\b.txt', 'Move-Item other.txt src/b.txt'):
+            with self.subTest(command=command): self.blocked(command, 'PowerShell', inside=True)

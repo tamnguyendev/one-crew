@@ -331,6 +331,7 @@ EVERY = ('rm', 'del', 'erase', 'rd', 'rmdir', 'ri', 'remove-item', 'mkdir', 'md'
 FIRST = ('set-content', 'sc', 'add-content', 'ac', 'out-file', 'tee-object', 'new-item', 'ni', 'export-csv', 'export-clixml')   # the first one is
 COPY = ('cp', 'mv', 'copy', 'move', 'copy-item', 'cpi', 'move-item', 'mi', 'ren', 'rename', 'rename-item', 'rni')              # the last one is
 MOVE = ('mv', 'move', 'move-item', 'mi', 'ren', 'rename', 'rename-item', 'rni')               # FIX25B (Codex F1): the ones of COPY that also change their source
+RENAME = ('ren', 'rename', 'rename-item', 'rni')               # FIX25C (Codex R2): the ones of MOVE whose second word is a new name in the source's own folder
 NAMED = ('-path', '-filepath', '-literalpath', '-destination', '-name')
 WORD = r'(?:"[^"]*"|\'[^\']*\'|[^\s;|&<>])+'            # #12: one shell word, its quoted and unquoted parts joined
 WORDS = re.compile(r'(?:"[^"]*"|\'[^\']*\'|\S)+')
@@ -490,6 +491,7 @@ def shell_targets(command, powershell=False):
         named = [words[i + 1] for i, w in enumerate(words[:-1]) if w.lower() in NAMED]
         plain = [w for w in words if not w.startswith('-')]
         if cmd in EVERY: values = plain + named
+        elif cmd in RENAME: values = rename_targets(words)
         elif cmd in MOVE:
             # FIX25B (Codex F1): a move or rename takes its SOURCE away too, so every source and the destination are targets (`--target-directory=DIR` is one)
             values = plain + named + [w.split('=', 1)[1] for w in words if w.lower().startswith('--target-directory=')]
@@ -500,6 +502,39 @@ def shell_targets(command, powershell=False):
     for m in DOTNET.finditer(command):                  # the second argument is a path only for Copy / Move / Replace (WriteAllText takes the content)
         found += [g.strip('"\'') for g in ((m.group(2), m.group(3)) if m.group(1).lower() in ('copy', 'move', 'replace') else (m.group(2),)) if g]
     return [show_escapes(f) for f in found if f]
+
+
+
+def rename_targets(words):
+    """FIX25C (Codex R2): the targets of `Rename-Item` / `ren` (their aliases too): the item renamed (-Path / -LiteralPath / the first plain word) and the new
+    name (-NewName / the next plain word) in the item's OWN folder: `Rename-Item src/a.txt b.txt` makes src/b.txt, not b.txt where the shell is. A new name
+    that holds a folder is also kept as written, and any other plain word is a target as before: the hook does not guess, it may only refuse more."""
+    sources, names, rest, i = [], [], [], 0
+    while i < len(words):
+        word = words[i]
+        low = word.lower()
+        if low.startswith('-') and len(low) > 1:
+            option, colon, value = low.partition(':')
+            kind = 'name' if '-newname'.startswith(option) and len(option) > 1 else \
+                'path' if option in ('-lp', '-pspath') or ('-literalpath'.startswith(option) and len(option) > 1) or ('-path'.startswith(option) and len(option) > 3) else None
+            if kind and colon: (names if kind == 'name' else sources).append(word.partition(':')[2])
+            elif kind and i + 1 < len(words):
+                (names if kind == 'name' else sources).append(words[i + 1])
+                i += 1
+            i += 1
+            continue
+        rest.append(word)
+        i += 1
+    if not sources and rest: sources.append(rest.pop(0))
+    if not names and rest: names.append(rest.pop(0))
+    values = sources + rest
+    for name in names:
+        bare = unquote(name)
+        if re.search(r'[/\\]', bare): values.append(name)
+        for source in sources:
+            folder = unquote(source).rstrip('/\\')
+            values.append(folder[:max(folder.rfind('/'), folder.rfind('\\')) + 1] + bare)
+    return values
 
 
 QUOTED = re.compile(r"\"([^\"]{3,})\"|'([^']{3,})'")
@@ -813,14 +848,14 @@ def shell_effects(command, base, powershell=False, depth=0):
     launch = [here]                                     # FIX25B (Codex F2): the folders in force in the chunk a heredoc body was launched from
     for text, bodies, script in heredoc_units(command, True):
         if script:
-            # a body that runs as a script is a child shell: it starts in a folder of its chunk (the one at its `<<` line; `pushd A && bash <<EOF && popd` has left A by the
-            # chunk's end, so every folder the chunk was in is tried, decision D3) and its `cd` does not reach the text after it
+            # a body that runs as a script is a child shell: it starts in the folders in force when the segment holding its `<<` starts (FIX25C, Codex R1:
+            # `pushd A && bash <<EOF && popd` in A, `bash <<EOF && cd src` where the command was) and its `cd` does not reach the text after it
             for folder in launch:
                 more, there = shell_effects(text, folder, powershell, depth + 1)
                 targets += more
                 places += there
             continue
-        launch = []                                     # the folder after each piece, not the one the chunk started in (`cd src && bash <<EOF` launches in src)
+        spans, steps, launch = chunk_folders(text, here, powershell)      # FIX25C (Codex R1): where each `$( )` and each here-document body of the chunk starts
         bodies = list(bodies)
         for piece, before, after in cut_pieces(text):
             stripped = piece.strip()
@@ -872,11 +907,12 @@ def shell_effects(command, base, powershell=False, depth=0):
                             places += there
             previous = '\n'.join([core, *mine])
             for _ in range(closes): here = scopes.pop() if scopes else here
-            if here not in launch: launch.append(here)
-        # FIX25B (Codex F2): `x=$(cd A && git checkout -- f)`: the commands inside `$( )` and backticks are read as shell too, in every folder the chunk was in
-        if depth < 3 and not powershell and ('$(' in text or '`' in text):
-            for inner in substitutions(text):
-                for folder in launch:
+        # FIX25B/FIX25C (Codex F2, R1): the commands inside `$( )` and backticks are read as shell too, each in the folders in force when its segment starts
+        # (`x=$(cd A && git checkout -- f)` in A, `x=$(echo > f); cd src` where the command was)
+        if depth < 3 and not powershell:
+            every = launch + [f for _, _, many in steps for f in many if f not in launch]
+            for start, _, inner in spans:
+                for folder in next((many for begin, end, many in steps if begin <= start < end), every):
                     more, there = shell_effects(inner, folder, powershell, depth + 1)
                     targets += more
                     places += there
@@ -1292,25 +1328,38 @@ def substitutions(text):
     return found
 
 
-def without_substitutions(text):
-    """FIX25B (Codex F2): the text with its `$(...)` and backtick commands blanked (the commands inside run in a subshell and are read on their own, with their own `cd`): the
-    pieces of `x=$(cd src && git checkout -- a.txt)` are no commands of the outer shell."""
-    out, k, n = [], 0, len(text)
-    while k < n:
-        if text[k] == '\\':
-            out.append(text[k:k + 2]); k += 2
+def substitution_spans(text, powershell=False):
+    r"""FIX25C (Codex R1): [(start, end, command)] of the top-level `$(...)` (parentheses balanced, quotes ignored) and, in bash, backtick commands of a text;
+    `\$(` in bash and `` `$( `` in PowerShell are text. Nested ones are inside `command`, read when it is read."""
+    spans, k, n = [], 0, len(text)
+    while k < n and len(spans) < 200:
+        if text[k] == ('`' if powershell else '\\'):
+            k += 2
         elif text.startswith('$(', k):
             depth, j = 1, k + 2
             while j < n and depth:
                 depth += (text[j] == '(') - (text[j] == ')')
                 j += 1
-            out.append('$x'); k = j
-        elif text[k] == '`':
+            spans.append((k, j, text[k + 2:j - 1 if depth == 0 else n]))
+            k = j
+        elif text[k] == '`' and not powershell:
             j = text.find('`', k + 1)
-            out.append('$x'); k = n if j < 0 else j + 1
+            end = n if j < 0 else j + 1
+            spans.append((k, end, text[k + 1:n if j < 0 else j]))
+            k = end
         else:
-            out.append(text[k]); k += 1
-    return ''.join(out)
+            k += 1
+    return spans
+
+
+def hollow(text, spans):
+    """FIX25B/FIX25C (Codex F2, R1): the text with each span blanked to a variable of the same length (`$____`): the commands inside `$( )` run in a child shell and
+    are read on their own, with their own `cd`; the offsets stay, so each one is matched to the segment that runs it."""
+    out, last = [], 0
+    for start, end, _ in spans:
+        out += [text[last:start], '$' + '_' * (end - start - 1)]
+        last = end
+    return ''.join(out) + text[last:]
 
 
 def without_heredocs(command, powershell=False):
@@ -1565,6 +1614,65 @@ def git_verdict(plan, root, here, words, limited, fed=False):
     return None
 
 
+CD_WORDS = ('cd', 'pushd', 'popd', 'chdir', 'set-location', 'sl')
+
+
+def folder_steps(text, state, powershell=False):
+    """FIX25C (Codex R1): the segments of a shell text (cut as shell_segments cuts it) with the folders the shell may be in when each one STARTS. Yields
+    (begin, end, segment, words, head words, is a cd, folders), then applies the segment's `cd`/`pushd`/`popd`/`( )` to `state` = [here, previous, pushed,
+    groups, seen, unsure] (read again after the yield). What runs while a segment runs (its `$( )`, a here-document body it launches, a `bash -c` string) runs
+    in these folders: a `cd` later in the command does not move it. #12: `( ... )` gives the folder back when it closes, `pushd`/`popd` push and pop, `cd -` goes
+    to the previous folder; when the hook cannot tell for sure, every folder the command may be in (the start and each one entered) is a candidate."""
+    begin = 0
+    for segment, _, cut in shell_segments(text, powershell, detail=True):
+        start, begin = begin, cut
+        if not segment.strip(): continue
+        here, previous, pushed, groups, seen, unsure = state
+        words = []
+        for raw in without_redirects(TOKEN.findall(hide_escapes(segment, powershell))):      # #25: `cd du\ an\ A` is one word
+            word = read_word(raw, powershell)
+            shown = Word(show_escapes(word)); shown.expand = word.expand and HIDDEN not in raw
+            words.append(shown)
+        head_words, _ = command_head(list(words))
+        stripped = segment.strip()
+        if not powershell: groups += [(here, previous)] * (len(stripped) - len(stripped.lstrip('(')))
+        name = os.path.basename(head_words[0].replace('\\', '/')).lower() if head_words else ''
+        moves = name in CD_WORDS
+        folders = ([here] + [f for f in seen if f != here]) if unsure else [here]
+        state[:] = [here, previous, pushed, groups, seen, unsure]
+        yield start, cut, segment, words, head_words, moves, folders
+        here, previous, pushed, groups, seen, unsure = state
+        if moves:
+            target = next((w for w in head_words[1:] if not w.startswith('-') or w == '-'), None)
+            before = here
+            if name == 'popd':
+                if pushed: here = pushed.pop()
+                else: unsure = True
+            elif here is None or target is None or target.startswith('~'): here, unsure = None, True
+            elif target == '-': here = previous
+            elif re.search(r'[$%`]', target): here = None
+            else: here = normalize(target, here)
+            if name == 'pushd': pushed.append(before)
+            if here != before: previous = before
+            if here is not None and here not in seen: seen.append(here)
+        if not powershell:
+            for _ in range(min(max(0, stripped.count(')') - stripped.count('(')), len(groups))): here, previous = groups.pop()
+        state[:] = [here, previous, pushed, groups, seen, unsure]
+
+
+def chunk_folders(text, start, powershell=False):
+    """FIX25C (Codex R1), for shell_effects: (the `$( )`/backtick spans of a chunk, [(begin, end, folders)] of its segments, the folders its here-document bodies
+    are launched in: those in force when a segment holding a `<<` starts, or every folder the chunk may be in when none is found)."""
+    spans = substitution_spans(text, powershell)
+    state = [start, start, [], [], [start], False]
+    steps, launch = [], []
+    for begin, end, segment, _, _, _, folders in folder_steps(text if powershell else hollow(text, spans), state, powershell):
+        steps.append((begin, end, folders))
+        if HEREDOC.search(segment): launch += [f for f in folders if f not in launch]
+    if not launch: launch = list(dict.fromkeys([start, *(f for _, _, many in steps for f in many), state[0]]))
+    return spans, steps, launch
+
+
 def discard_verdict(plan, root, cwd, command, limited=False, powershell=False, split=None):
     """(rule, reason) when a command of the text (`cd` followed, `git -C` followed, `$(...)` and `bash -c '...'` read too) is a git form that throws away
     uncommitted work outside the owned scope, or `rm` with recursive and force in any spelling; else None."""
@@ -1593,68 +1701,44 @@ def discard_verdict(plan, root, cwd, command, limited=False, powershell=False, s
                 return 'bash_deny', 'rm with recursive and force (-rf in any spelling) is refused: remove a file with plain `rm <file>`, or work in a separate `git worktree add`, or in `.onecrew/scratch/`.'
         return None
 
-    def walk(text, state):
-        # #12: the folder the shell is in decides what an unquoted glob expands to. `( ... )` gives the folder back when it closes, `pushd`/`popd` push and pop, `cd -`
-        # goes to the previous folder. When the hook cannot tell for sure, every folder the command may be in (the start and each one entered) is tried: any hit refuses.
-        here, previous, pushed, groups, seen, unsure = state
-        for segment in shell_segments(text, powershell):
-            words = []
-            for raw in without_redirects(TOKEN.findall(hide_escapes(segment, powershell))):      # #25: `cd du\ an\ A` is one word
-                word = read_word(raw, powershell)
-                shown = Word(show_escapes(word)); shown.expand = word.expand and HIDDEN not in raw
-                words.append(shown)
-            head_words, _ = command_head(list(words))
-            stripped = segment.strip()
-            if not powershell: groups += [(here, previous)] * (len(stripped) - len(stripped.lstrip('(')))
-            name = os.path.basename(head_words[0].replace('\\', '/')).lower() if head_words else ''
-            if name in ('cd', 'pushd', 'popd', 'chdir', 'set-location', 'sl'):
-                target = next((w for w in head_words[1:] if not w.startswith('-') or w == '-'), None)
-                before = here
-                if name == 'popd':
-                    if pushed: here = pushed.pop()
-                    else: unsure = True
-                elif here is None or target is None or target.startswith('~'): here, unsure = None, True
-                elif target == '-': here = previous
-                elif re.search(r'[$%`]', target): here = None
-                else: here = normalize(target, here)
-                if name == 'pushd': pushed.append(before)
-                if here != before: previous = before
-                if here is not None and here not in seen: seen.append(here)
-            elif head_words:
-                for folder in ([here] + [f for f in seen if f != here]) if unsure else [here]:
+    def walk(text, state, depth=0, launches=None):
+        # FIX25C (Codex R1): each segment is judged in the folders in force when it starts, and so is every text that runs while it runs (`$( )`, backticks,
+        # `<( )`, a string given to `bash -c`): `x=$(git checkout -- f); cd src` runs the checkout where the command started, `x=$(cd A && git checkout -- f)`
+        # runs it in A. `launches` collects the folders of the segments holding a `<<`: their here-document bodies start there.
+        spans = substitution_spans(text, powershell)
+        body = text if powershell else hollow(text, spans)       # bash: `$( )` is a child shell, its `cd` does not reach the segments after it
+        for begin, end, segment, words, head_words, moves, folders in folder_steps(body, state, powershell):
+            if depth < 3:
+                inner = [t for s, _, t in spans if begin <= s < end] + command_texts(segment, 2, powershell)[1:]
+                for t in dict.fromkeys(inner):
+                    for folder in folders:
+                        verdict = walk(t, [folder, folder, [], [], [folder], False], depth + 1)
+                        if verdict: return verdict
+            if launches is not None and HEREDOC.search(segment): launches.extend(f for f in folders if f not in launches)
+            if head_words and not moves:
+                for folder in folders:
                     verdict = one(words, folder, False)
                     if verdict: return verdict
             if head_words: exports.update(git_exports(words, segment, powershell))      # #25: `export GIT_WORK_TREE=...` holds for the commands after it
-            if not powershell:
-                for _ in range(min(max(0, stripped.count(')') - stripped.count('(')), len(groups))): here, previous = groups.pop()
-        state[:] = [here, previous, pushed, groups, seen, unsure]
         return None
 
-    # #25 (final review P1-1): the command is walked in the chunks of heredoc_units (as shell_effects does) with ONE folder state, so a body that may run as shell
-    # (`cd A && bash <<EOF`) starts in the folder in force at its `<<` line; the texts nested in a chunk (`$(...)`, `bash -c '...'`) start in the folder the chunk ended in.
+    # #25 (final review P1-1): the command is walked in the chunks of heredoc_units (as shell_effects does) with ONE folder state.
     start = Path(cwd)
     state = [start, start, [], [], [start], False]
-    launch = [start]
+    launches = [start]
     for unit, _, script in heredoc_units(command, True):
-        texts = command_texts(unit, 0, powershell)
         if script:
-            # FIX25B (Codex F2): a body that runs as a script is a child shell. It starts in a folder its chunk was in (`pushd A && bash <<EOF && popd` has left A by the chunk's
-            # end: every folder the chunk was in is tried, decision D3) and its `cd` does not reach the text after it, so the main state is not touched
-            for folder in launch:
-                for text in texts:
-                    verdict = walk(text, [folder, folder, [], [], [folder], False])
-                    if verdict: return verdict
-            continue
-        seen_before = len(state[4])
-        verdict = walk(without_substitutions(texts[0]) if not powershell else texts[0], state)
-        if verdict: return verdict
-        # FIX25B (Codex F2): the folders the chunk entered and the one it ended in: where a body launched from it, and the text inside `$( )` / backticks
-        # (`x=$(cd A && git checkout -- f)`), may have run; the folder the chunk started in is not one of them unless it is where the chunk ended
-        launch = [f for f in dict.fromkeys([state[0], *state[4][seen_before:]]) if f is not None]
-        for text in texts[1:]:
-            for folder in launch:
-                verdict = walk(text, [folder, folder, [], [], [folder], False])
+            # FIX25B/FIX25C (Codex F2, R1): a body that runs as a script is a child shell started by the segment holding its `<<`, in the folders in force when that
+            # segment starts (`pushd A && bash <<EOF && popd` runs it in A, `bash <<EOF && cd src` where the command was); its `cd` does not reach the text after it
+            for folder in launches:
+                verdict = walk(unit, [folder, folder, [], [], [folder], False])
                 if verdict: return verdict
+            continue
+        before = [state[0], *state[4]]
+        launches = []
+        verdict = walk(unit, state, 0, launches)
+        if verdict: return verdict
+        if not launches: launches = list(dict.fromkeys([*before, state[0], *state[4]]))      # no `<<` segment found: every folder the chunk may be in
     return None
 
 
