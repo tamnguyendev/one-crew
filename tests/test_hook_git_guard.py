@@ -322,5 +322,73 @@ class Round3Redirects(Round2Branch):
         self.each(['git checkout -- other.txt 2>&1', 'git restore other.txt 2>/dev/null', 'git checkout feature > other.txt', 'git stash 2>&1'], self.blocked)
 
 
+class Round4Heredoc(GitGuardBase):
+    """P1-1, P2-1, P2-2: the receiver of the body is the command right before `<<`, inside the innermost open group."""
+    BT = chr(96)
+
+    def test_a_shell_inside_a_group_keeps_the_body_judged(self):
+        self.each(['echo "$(bash <<\'EOF\'\ngit stash\nEOF\n)"', 'echo "$(sh <<EOF\ngit stash\nEOF\n)"', 'printf \'%s\' "$(bash <<\'EOF\'\ngit checkout -- other.txt\nEOF\n)"',
+                   'git commit -q --allow-empty -m "$(sh <<\'EOF\'\ngit stash\nEOF\n)"', f"echo {self.BT}bash <<'EOF'\ngit stash\nEOF\n{self.BT}",
+                   "diff <(bash <<'EOF'\ngit stash\nEOF\n) /dev/null", "cat <<'EOF' > >(bash)\ngit stash\nEOF", "tee >(bash) <<'EOF'\ngit stash\nEOF",
+                   "cat <<'EOF' | tee >(sh) >/dev/null\ngit stash\nEOF"], self.blocked)
+
+    def test_a_commit_message_read_by_cat_is_still_text(self):
+        self.each(["git commit -m \"$(cat <<'EOF'\nhook: git stash is refused\nEOF\n)\"", "x=$(cat <<'EOF'\ngit stash\nEOF\n)"], self.allowed)
+
+    def test_an_unquoted_delimiter_still_runs_substitutions_in_the_body(self):
+        self.each(['cat <<EOF\n$(git stash)\nEOF', f'cat <<EOF\n{self.BT}git stash{self.BT}\nEOF', 'git commit -q --allow-empty -F - <<EOF\nmsg $(git checkout -- other.txt)\nEOF',
+                   'cat > src/a.txt <<EOF\n$(git checkout -- other.txt)\nEOF'], self.blocked)
+        self.each(["cat <<'EOF'\n$(git stash)\nEOF", 'cat <<\\EOF\n$(git stash)\nEOF', 'cat <<EOF\nplain git stash text\nEOF'], self.allowed)
+
+    def test_a_continued_opening_line_is_joined_before_the_receiver_is_read(self):
+        self.blocked("cat <<'EOF' \\\n| bash\ngit stash\nEOF")
+
+
+class Round4Comments(GitGuardBase):
+    """P1-2: a comment is no command and its quote marks open nothing; `\\'` is a plain character in bash."""
+
+    def test_an_odd_quote_in_a_comment_hides_nothing(self):
+        self.each(["# Undo my test change, it's not needed\ngit checkout -- other.txt", "git status  # what's changed?\ngit stash", "# Let's start clean\ngit reset --hard",
+                   "# don't\ngit clean -fd", "# restore what we don't need\ngit checkout -- other.txt", '# step 1: it"s ok\ngit restore other.txt'], self.blocked)
+        self.blocked("# it's PowerShell\ngit checkout -- other.txt", tool='PowerShell')
+
+    def test_an_escaped_quote_in_bash_opens_nothing(self):
+        self.blocked("echo Don\\'t\ngit checkout -- other.txt")
+
+    def test_comment_text_is_no_command_and_no_write(self):
+        self.each(['# git stash\nls', 'git status # > other.txt', 'echo a#b'], self.allowed)
+        self.each(['echo ${#PATH}; git stash', 'echo a;#c\ngit stash'], self.blocked)
+
+
+class Round4Sed(GitGuardBase):
+    """P2-3: the quote-masked sed words find the files; a `;` or `\\|` inside the script is no file."""
+
+    def test_sed_in_place_with_a_script_holding_separators_on_an_owned_file(self):
+        self.each(["sed -i 's/a/b/; s/c/d/' src/a.txt", "sed -i 's/a\\|b/c/' src/a.txt", "sed -i -E 's/(a|b)/c/' src/a.txt",
+                   "sed -i 's/x/y/; s/p/q/' src/a.txt && grep -n y src/a.txt"], self.allowed)
+        self.blocked("sed -i 's/a/b/; s/c/d/' other.txt")
+
+
+class Round4Paths(Round2Branch):
+    """P1-3: a Git Bash path (/d/...) is a path, not a branch name."""
+
+    def test_a_git_bash_path_is_a_path(self):
+        posix = self.repo.as_posix()
+        gb = '/' + posix[0].lower() + posix[2:]
+        self.each([f'git checkout {gb}/other.txt', f'git checkout {gb}/docs', f'git checkout HEAD {gb}/other.txt'], self.blocked)
+        self.allowed(f'git checkout -- {gb}/src/a.txt')
+
+
+class Round4Speed(unittest.TestCase):
+    def test_a_long_run_of_backslashes_is_read_in_linear_time(self):
+        import time
+        from onecrew.v2 import hook_cli
+        for command in ('\\' * 200000, 'echo ' + '\\' * 200001 + "'x"):
+            started = time.monotonic()
+            hook_cli.shell_segments(command)
+            hook_cli.masked_quotes(command)
+            self.assertLess(time.monotonic() - started, 3)
+
+
 if __name__ == '__main__':
     unittest.main()

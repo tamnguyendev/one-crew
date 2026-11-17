@@ -211,7 +211,6 @@ WORDS = re.compile(r'(?:"[^"]*"|\'[^\']*\'|\S)+')
 WRITERS = re.compile(r'(?:^|[\s;|&(])(' + '|'.join(re.escape(n) for n in sorted(EVERY + FIRST + COPY, key=len, reverse=True)) + r')(?=\s)'
                      r'((?:\s+(?:-\w+\s+' + WORD + r'|-\w+|(?!-)' + WORD + r'))+)', re.I)   # a flag's value stops at ; | & < > (B1)
 DOTNET = re.compile(r'\[(?:System\.)?IO\.(?:File|Directory)\]::(\w+)\(\s*("[^"]*"|\'[^\']*\'|[^,)\s]+)(?:\s*,\s*("[^"]*"|\'[^\']*\'|[^,)\s]+))?', re.I)
-SED_I = re.compile(r'\bsed\s+(?:-\w*i\w*|--in-place)\b[^|;&]*?\s("[^"]+"|\'[^\']+\'|[^\s;|&<>]+)\s*(?:[;|&]|$)', re.I)
 # PowerShell only (beta report B1): the common parameters whose value is never a path, and the built-in drives that are not files. A drive the
 # session makes with New-PSDrive is still read as a file; registry writes are left to the other rules.
 COMMON_VALUE = ('-erroraction', '-ea', '-warningaction', '-wa', '-informationaction', '-infa', '-errorvariable', '-ev', '-warningvariable', '-wv',
@@ -230,13 +229,33 @@ PSDRIVE = re.compile(r'^(?:(?:env|variable|function|alias|hkcu|hklm|cert|wsman):
                      r'(?:environment|variable|function|alias|registry|certificate|wsman)::)', re.I)
 
 
-def masked_quotes(command):
+BACKSLASHES = re.compile(r'\\+')
+NEWLINE = re.compile(r'\r?\n')
+
+
+def COMMENT_START(command, i):
+    """#12: does the `#` at `i` start a word (so it starts a comment)? `$#`, `${x#y}`, `a#b` do not."""
+    return i == 0 or command[i - 1] in ' \t\r\n;|&('
+
+
+def masked_quotes(command, powershell=False):
     """The command with the inside of every quoted string blanked (same length, the quotes kept), so `<`, `>`, `|`, `;` and a writer's name
     inside a string are text, not a redirect, a pipe or a command (beta report B2). A double-quoted string that holds `$(` or a backtick is left as
     written, because it can run a command; quotes that do not pair leave the whole text as written (such a command does not parse)."""
-    spans, i = [], 0
-    while i < len(command):
+    spans, comments, i, n = [], [], 0, len(command)
+    while i < n:
         quote = command[i]
+        if quote == '\\' and not powershell:               # #12: in bash `\'` and `\"` outside quotes are plain characters; the run is counted without slicing
+            run = BACKSLASHES.match(command, i).end() - i
+            i += run
+            if run % 2 and i < n and command[i] in '"\'': i += 1
+            continue
+        if quote == '#' and COMMENT_START(command, i):      # #12: a comment runs to the line end; its text is neither a command nor a write target
+            end = command.find('\n', i)
+            end = n if end < 0 else end
+            comments.append((i, end))
+            i = end
+            continue
         if quote not in '"\'':
             i += 1
             continue
@@ -247,6 +266,7 @@ def masked_quotes(command):
         spans.append((i, end))
         i = end + 1
     out = list(command)
+    for start, end in comments: out[start:end] = '_' * (end - start)
     for start, end in spans:
         inner = command[start + 1:end]
         if command[start] == '"' and ('$(' in inner or '`' in inner): continue
@@ -258,7 +278,7 @@ def shell_targets(command, powershell=False):
     """Paths a shell command text appears to write. Heuristic: redirects, tee/Set-Content/sc/ac/Out-File/Tee-Object/cp/mv/rm/ri..., [IO.File]::, sed -i.
     Redirects and writers are found outside quoted strings (masked_quotes); their targets are read from the command as written. In PowerShell
     the value of a common parameter (-ErrorAction ...) is not a target."""
-    masked = masked_quotes(command)
+    masked = masked_quotes(command, powershell)
     found = [unquote(command[m.start(1):m.end(1)]) for m in REDIRECT.finditer(masked)]
     found += [unquote(command[m.start(1):m.end(1)]) for m in REDIRECT_MORE.finditer(masked)]
     for m in SED_WORDS.finditer(masked):
@@ -299,7 +319,6 @@ def shell_targets(command, powershell=False):
         found += [unquote(v) for v in values]
     for m in DOTNET.finditer(command):                  # the second argument is a path only for Copy / Move / Replace (WriteAllText takes the content)
         found += [g.strip('"\'') for g in ((m.group(2), m.group(3)) if m.group(1).lower() in ('copy', 'move', 'replace') else (m.group(2),)) if g]
-    found += [m.group(1).strip('"\'') for m in SED_I.finditer(command)]
     return [f for f in found if f]
 
 
@@ -348,16 +367,25 @@ def shell_segments(command, powershell=False):
     """The command cut at `;`, `&&`, `||`, `|`, a lone `&` and line ends, outside quotes: a quoted string stays in the segment that holds it.
     #12: in bash (not PowerShell) an odd run of backslashes before the line end joins the lines (backslash, newline, then `git stash`), except inside single quotes; in
     PowerShell a backslash is a path character: it joins nothing and does not escape a quote (a quoted path may end in one)."""
-    parts, current, quote, i = [], [], None, 0
-    while i < len(command):
+    parts, current, quote, i, n = [], [], None, 0, len(command)
+    while i < n:
         char = command[i]
         if char == '\\' and not powershell and quote != "'":
-            run = len(command[i:]) - len(command[i:].lstrip('\\'))
-            end = re.match(r'\r?\n', command[i + run:])
+            run = BACKSLASHES.match(command, i).end() - i        # #12: counted in place, not by slicing the rest of the text per backslash (linear time)
+            end = NEWLINE.match(command, i + run)
             if end:
                 current.append('\\' * (run - run % 2))                  # an even run is escaped backslashes: the line end stays a line end
-                i += run + (end.end() if run % 2 else 0)
+                i += run + (end.end() - end.start() if run % 2 else 0)
                 continue
+            current.append('\\' * run)
+            i += run
+            if run % 2 and i < n and command[i] in '"\'' and (quote is None or command[i] == '"'):
+                current.append(command[i]); i += 1                      # #12: `\'` and `\"` are plain characters, not quote marks
+            continue
+        if quote is None and char == '#' and COMMENT_START(command, i):      # #12: a comment is no command
+            end = command.find('\n', i)
+            i = n if end < 0 else end
+            continue
         if quote:
             current.append(char)
             if char == '\\' and quote == '"' and not powershell and i + 1 < len(command) and command[i + 1] in '"\\':
@@ -479,37 +507,85 @@ def command_texts(command, depth=0):
     return texts
 
 
-def reads_as_text(line):
-    """Does every command on the line that holds a `<<` read the here-document as text (cat, tee, `git commit -F -`, an interpreter, sed, grep...)? Anything else
-    (bash.exe, `$SHELL`, cmd, `source /dev/stdin`, `eval "$(cat <<EOF`, an unknown command) may run the body, so the body stays judged. #12"""
-    for segment in shell_segments(line):
-        words = [w for w in TOKEN.findall(segment)]
-        while words and re.match(r'^\w+=', words[0]): words = words[1:]
-        if not words: return False
-        head = os.path.basename(unquote(words[0]).replace('\\', '/')).lower()
-        head = head[:-4] if head.endswith('.exe') else head
-        if head == 'git':
-            rest = [w for w in words[1:] if not w.startswith('-')]
-            if not rest or rest[0].lower() not in GIT_TEXT: return False
-        elif head not in TEXT_READERS: return False
+STREAM_DUP = re.compile(r'\d*>&[\d-]*|&>>?')
+
+
+def segment_reads_text(words):
+    """True when the command of these words is a known text reader, False when it is not, None when there is no command (only assignments)."""
+    while words and re.match(r'^\w+=', words[0]): words = words[1:]
+    if not words: return None
+    head = os.path.basename(unquote(words[0]).replace('\\', '/')).lower()
+    head = head[:-4] if head.endswith('.exe') else head
+    if head == 'git':
+        rest = [w for w in words[1:] if not w.startswith('-')]
+        return bool(rest) and rest[0].lower() in GIT_TEXT
+    return head in TEXT_READERS
+
+
+def open_groups(prefix):
+    """The `$(`, `<(`, `>(`, `(` and backtick groups still open at the end of `prefix`, outermost first, as (where its content starts, where it opens)."""
+    stack, quote, k = [], None, 0
+    while k < len(prefix):
+        c = prefix[k]
+        if c == '\\' and quote != "'":
+            k += 2
+            continue
+        if quote == "'":
+            if c == "'": quote = None
+        elif c == "'" and quote is None: quote = "'"
+        elif c == '"': quote = None if quote == '"' else '"'
+        elif c == '`':
+            if stack and stack[-1][2] == '`': stack.pop()
+            else: stack.append((k + 1, k, '`'))
+        elif c == '(' and (quote is None or prefix[k - 1:k] == '$'): stack.append((k + 1, k, '('))
+        elif c == ')' and stack and stack[-1][2] == '(': stack.pop()
+        k += 1
+    return [(start, opener) for start, opener, _ in stack]
+
+
+def reads_as_text(logical, m):
+    """Does the command that receives the here-document `m` of this (logical) line read it as text (cat, tee, `git commit -F -`, an interpreter, sed, grep...)?
+    The receiver is the command right before the `<<` inside the innermost group still open there (or the words after the `<<` on its segment); the commands
+    that enclose the group and the commands after it on the line must be text readers too. Anything else (bash.exe, `$SHELL`, cmd, `source /dev/stdin`,
+    `eval "$(cat <<EOF`, an unknown command) may run the body, so the body stays judged. A line with `<(` or `>(` never skips it. #12"""
+    if '<(' in logical or '>(' in logical: return False
+    groups = open_groups(logical[:m.start()])
+    starts = [0] + [start for start, _ in groups]
+    ends = [opener for _, opener in groups] + [m.start()]
+    tail = STREAM_DUP.sub('', logical[m.end():])
+    own, *later = re.split(r'[;|&]+', tail, 1)
+    for level, (a, b) in enumerate(zip(starts, ends)):
+        before = logical[a:b]
+        last = '' if not before.strip() or before.rstrip()[-1] in ';|&' else (shell_segments(before) or [''])[-1]
+        if level == len(groups): last = HEREDOC.sub(' ', last) + ' ' + HEREDOC.sub(' ', own)      # the heredoc's own segment: `cat > f <<EOF`, `<<EOF cat`
+        verdict = segment_reads_text(without_redirects(TOKEN.findall(last)))
+        if verdict is False or (verdict is None and level == len(groups)): return False
+    for segment in shell_segments(later[0]) if later else []:
+        words = TOKEN.findall(segment.lstrip(' \t)}"\'`'))
+        if words and segment_reads_text(without_redirects(words)) is not True: return False
     return True
 
 
 def without_heredocs(command, powershell=False):
     """The command without the bodies of its here-documents (`<<WORD` to the line `WORD`): a body is text, not commands, only when the command that receives it
-    is known to read it as text (reads_as_text). A `<<` that has no closing line is left as written. PowerShell has no here-document with `<<`."""
+    is known to read it as text (reads_as_text; the line is joined with its backslash-newline continuations first). The body of an unquoted `<<WORD` still
+    runs `$(...)` and backticks, so those stay. A `<<` that has no closing line is left as written. PowerShell has no here-document with `<<`."""
     if powershell: return command
     lines, out, i = command.split('\n'), [], 0
     while i < len(lines):
-        line = lines[i]
-        out.append(line)
+        start, logical = i, lines[i]
+        while i + 1 < len(lines):
+            plain = logical.rstrip('\r')
+            if (len(plain) - len(plain.rstrip('\\'))) % 2 == 0: break
+            logical = plain[:-1] + lines[i + 1]
+            i += 1
+        out += lines[start:i + 1]
         i += 1
-        text_only = reads_as_text(line)
-        for m in HEREDOC.finditer(line):
+        for m in HEREDOC.finditer(logical):
             word = m.group(2) or m.group(3) or m.group(4)
             end = next((n for n in range(i, len(lines)) if (lines[n].strip('\t\r') if m.group(1) else lines[n].rstrip('\r')) == word), None)
-            if end is None: break
-            if not text_only: break
+            if end is None or not reads_as_text(logical, m): break
+            if m.group(4) and '\\' not in m.group(0): out += [s.group(0) for s in INNER.finditer('\n'.join(lines[i:end]))]
             i = end + 1
     return '\n'.join(out)
 
@@ -651,7 +727,7 @@ def git_verdict(plan, root, here, words, limited, fed=False):
             if '--' in args: paths = []                                           # #12: `checkout <name> --` says <name> is a tree-ish, not a path
             elif re.search(r'[$%`]', plain[0]): paths = plain
             elif local_branch(here if here is not None else Path(root), plain[0]): paths = plain[1:]       # #12: a local branch is a branch even when a folder has its name
-            elif here is None or (here / plain[0]).exists(): paths = plain         # `checkout <path>`: a name that is a file here is a path, not a branch
+            elif here is None or normalize(plain[0], here).exists(): paths = plain       # #12: `normalize` reads `/d/...` (Git Bash) as a path too
             elif len(plain) > 1: paths = plain[1:]                                # `checkout <tree-ish> <paths>`
         if not paths and ('p' in shorts or has_long(longs, '--patch')): return refuse('--patch')
         if fed and not paths and not ({'b', 'B'} & shorts or has_long(longs, '--orphan')): paths = ['{}']      # #12: xargs adds the paths
