@@ -5,7 +5,15 @@ No catalog, no new ledger, no engine change. A skill is text only: delivery neve
 
 Delivery record = ledger event 'skill.delivery' on the plan's anchor task, one chain per binding
 (project, plan, plan revision, node, attempt): selected -> delivered -> evaluated (a separate, later call), or refused with a reason.
-The first record of a binding is final for that attempt: a restart returns it and never selects again.
+The first record of a binding is final for that attempt: a restart returns it and never selects again, with two exceptions that
+only ever narrow it. (1) Revoke wins: a replay (or a read) after the owner revoked the skill, in any revision, hands out no body;
+the replay records a `refused` step (reason `revoked`, detail `revoked_after_delivery`) after the delivered one, which stays as history.
+(2) A replay is checked against what was recorded: another grant digest, another skill id, or a grant that lacks the pinned skill's
+required permissions is refused with reason `binding_mismatch`, recorded under its own key so the real binding stays intact.
+A delivery whose pinned revision is no longer the one in force keeps being returned (binding stability) and says `superseded: true`.
+Plan label: `plan-ns:P1` and `plan:P1` are one binding with `P1` (the task id in the binding already names the root, so the prefix adds
+nothing). Limit: `node` and the `attempt` counter are caller labels and are not checked against the ledger; two different attempt
+numbers for one real attempt make two chains.
 Owner verbs here (rollback, revoke) refuse inside an AI tool session, like skills.decide.
 """
 import copy
@@ -16,7 +24,14 @@ from .ledger import LedgerError, content_hash, text_field, utcnow
 from . import skills as _skills
 
 OUTCOMES = ('success', 'failure', 'unknown')
-REFUSALS = ('wrong_project', 'revoked', 'stale', 'tampered', 'not_suitable', 'wrong_permission', 'not_approved')
+REFUSALS = ('wrong_project', 'revoked', 'stale', 'tampered', 'not_suitable', 'wrong_permission', 'not_approved', 'binding_mismatch')
+
+
+def _plan_label(plan):
+    plan = text_field(plan, 'plan', 200)
+    for prefix in ('plan-ns:', 'plan:'):
+        if plan.startswith(prefix) and len(plan) > len(prefix): return plan[len(prefix):]
+    return plan
 
 
 def body_hash(body):
@@ -26,7 +41,7 @@ def body_hash(body):
 def binding_of(ledger, task_id, plan, plan_revision, node, attempt):
     if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 1:
         raise LedgerError('Delivery attempt must be a positive integer.')
-    return {'project': ledger.project_id, 'task': text_field(task_id, 'task', 200), 'plan': text_field(plan, 'plan', 200),
+    return {'project': ledger.project_id, 'task': text_field(task_id, 'task', 200), 'plan': _plan_label(plan),
             'plan_revision': text_field(str(plan_revision), 'plan revision', 100), 'node': text_field(node, 'node', 200), 'attempt': attempt}
 
 
@@ -114,12 +129,41 @@ def _view(ledger, conn, record, grant=None):
     result['delivered'] = record['status'] in ('delivered', 'evaluated')
     if grant is not None: result['grant'] = copy.deepcopy(grant)     # handed back unchanged: a skill widens nothing
     if result['delivered']:
-        by_rev, _, _, _ = history(ledger, conn, record['skill']['id'])
+        by_rev, current, revoked, _ = history(ledger, conn, record['skill']['id'])
+        if revoked:                         # revoke wins: the body is never handed out again, the delivered step stays as history
+            result.update(delivered=False, reason='revoked', detail='revoked_after_delivery')
+            return result
         value = by_rev.get(record['skill']['revision'])
         if not value or body_hash(value['body']) != record['skill']['hash']:
             raise LedgerError('Delivered skill content no longer matches its pinned hash.')
         result['skill'] = dict(record['skill'], body=value['body'])
+        result['superseded'] = current != record['skill']['revision']
     return result
+
+
+def _replay(ledger, conn, task_id, existing, grant, skill_id):
+    """What a restart of an already recorded binding gets: the record, narrowed by revoke, or refused when the request differs."""
+    permissions = set(grant.get('permissions', []))
+    pinned = existing.get('skill')
+    problems = []
+    if existing.get('grant_digest') != content_hash(grant): problems.append('grant differs from the recorded delivery')
+    if skill_id is not None and pinned and skill_id != pinned['id']: problems.append('another skill id was asked than the one recorded')
+    if pinned and existing['status'] in ('delivered', 'evaluated'):
+        by_rev, _, _, _ = history(ledger, conn, pinned['id'])
+        value = by_rev.get(pinned['revision'])
+        missing = sorted(set((value or {}).get('required_permissions', [])) - permissions)
+        if missing: problems.append('grant lacks the permissions of the delivered skill: ' + ', '.join(missing))
+    if problems:
+        mkey = key_of({'mismatch': existing['key'], 'grant_digest': content_hash(grant), 'skill_id': skill_id})
+        seen = chain(conn, ledger, mkey)
+        if seen: return _view(ledger, conn, seen, grant)
+        payload = {'key': mkey, 'binding': existing['binding'], 'grant_digest': content_hash(grant), 'skill': pinned, 'reason': 'binding_mismatch',
+                   'detail': '; '.join(problems), 'rollback': None, 'steps': [], 'status': None, 'replay_of': existing['key']}
+        return _view(ledger, conn, _emit(ledger, conn, task_id, payload, 'refused'), grant)
+    if pinned and existing['status'] in ('delivered', 'evaluated') and history(ledger, conn, pinned['id'])[2]:
+        record = dict(existing, reason='revoked', detail='revoked_after_delivery')
+        return _view(ledger, conn, _emit(ledger, conn, task_id, record, 'refused'), grant)
+    return _view(ledger, conn, existing, grant)
 
 
 def deliver(ledger, task_id, *, plan, plan_revision, node, attempt, goal, profile, files, grant,
@@ -131,7 +175,7 @@ def deliver(ledger, task_id, *, plan, plan_revision, node, attempt, goal, profil
     with ledger.transaction(write=True) as conn:
         ledger._task(conn, task_id)
         existing = chain(conn, ledger, key)
-        if existing: return _view(ledger, conn, existing, grant)
+        if existing: return _replay(ledger, conn, task_id, existing, grant, skill_id)
         payload = {'key': key, 'binding': binding, 'grant_digest': content_hash(grant), 'skill': None, 'reason': None, 'detail': None,
                    'rollback': None, 'steps': [], 'status': None}
 

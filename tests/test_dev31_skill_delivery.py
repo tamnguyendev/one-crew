@@ -259,5 +259,81 @@ class DeliveryTests(Fixture):
         self.assertEqual(late['reason'], 'wrong_permission'); self.assertEqual(late['grant'], GRANT)
 
 
+class ReplayTests(Fixture):
+    """F5/F6: a replay of a recorded binding is narrowed by revoke and re-checked against the request."""
+
+    def test_replay_after_revoke_hands_out_no_body_and_records_a_refused_step(self):
+        self.approve()
+        first = self.deliver()
+        self.assertTrue(first['delivered'])
+        with owner_env(): skill_delivery.revoke(self.ledger, self.skill['id'], 'owner: this skill is wrong')
+        again = self.deliver()
+        self.assertFalse(again['delivered']); self.assertEqual((again['status'], again['reason']), ('refused', 'revoked'))
+        self.assertEqual(again['detail'], 'revoked_after_delivery')
+        self.assertNotIn('body', again['skill'])
+        self.assertEqual([s['step'] for s in again['steps']], ['selected', 'delivered', 'refused'])      # the delivered step stays as history
+        shown = skill_delivery.record_of(self.ledger, self.tasks[0], **self.args())
+        self.assertFalse(shown['delivered']); self.assertNotIn('body', shown['skill'])
+        replay_again = self.deliver()
+        self.assertEqual(replay_again['steps'], again['steps'])                                          # recorded once
+        self.assertEqual(self.deliver(attempt=2)['reason'], 'revoked')
+
+    def test_read_after_revoke_withholds_the_body_even_before_any_replay(self):
+        self.approve(); self.deliver()
+        with owner_env(): skill_delivery.revoke(self.ledger, self.skill['id'], 'owner: wrong')
+        shown = skill_delivery.record_of(self.ledger, self.tasks[0], **self.args())
+        self.assertFalse(shown['delivered']); self.assertNotIn('body', shown['skill']); self.assertEqual(shown['reason'], 'revoked')
+
+    def test_rollback_replay_keeps_the_pinned_revision_and_says_superseded(self):
+        first = self.approve(); second = self.new_revision('Second reviewed procedure. Task acceptance overrides it.\n')
+        got = self.deliver()
+        self.assertEqual((got['skill']['revision'], got['superseded']), (second['revision'], False))
+        with owner_env(): skill_delivery.rollback(self.ledger, self.skill['id'], first['revision'], 'second revision was wrong')
+        again = self.deliver()
+        self.assertTrue(again['delivered']); self.assertEqual(again['skill']['revision'], second['revision'])
+        self.assertTrue(again['superseded'])
+
+    def test_replay_with_a_grant_lacking_the_required_permission_is_refused_as_binding_mismatch(self):
+        self.approve(required_permissions=['report'])
+        self.deliver()
+        narrow = dict(copy.deepcopy(GRANT), permissions=[])
+        again = self.deliver(grant=narrow)
+        self.assertFalse(again['delivered']); self.assertEqual(again['reason'], 'binding_mismatch')
+        self.assertNotIn('body', again['skill'] or {})
+        self.assertEqual(again['grant'], narrow)
+        # recorded, but the real binding is untouched: the honest caller still gets the skill
+        honest = self.deliver()
+        self.assertTrue(honest['delivered']); self.assertIn('body', honest['skill'])
+        self.assertEqual(self.deliver(grant=narrow)['steps'], again['steps'])                            # one record per distinct bad request
+        self.assertEqual(self.event_count('skill.delivery'), 3)
+
+    def test_replay_with_another_grant_or_another_skill_id_is_refused(self):
+        self.approve(); self.deliver()
+        wider = dict(copy.deepcopy(GRANT), tools=['read', 'finish', 'write'])
+        self.assertEqual(self.deliver(grant=wider)['reason'], 'binding_mismatch')
+        other = self.deliver(skill_id='some-other-skill')
+        self.assertFalse(other['delivered']); self.assertEqual(other['reason'], 'binding_mismatch')
+        self.assertNotEqual((other['skill'] or {}).get('id'), 'some-other-skill')
+        same = self.deliver()
+        self.assertTrue(same['delivered']); self.assertEqual(same['skill']['id'], self.skill['id'])
+
+    def test_replay_without_a_skill_id_is_the_same_binding(self):
+        self.approve(); self.deliver()
+        self.assertTrue(self.deliver(skill_id=None)['delivered'])
+
+    def test_plan_label_prefix_is_one_binding(self):
+        self.approve()
+        got = self.deliver(plan='plan-ns:P1')
+        again = self.deliver(plan='P1')
+        self.assertTrue(got['delivered']); self.assertEqual(again['skill'], got['skill'])
+        self.assertEqual(again['binding']['plan'], 'P1')
+        self.assertEqual(self.deliver(plan='plan:P1')['steps'], got['steps'])
+        self.assertEqual(self.event_count('skill.delivery'), 2)
+
+    def event_count(self, kind):
+        with self.ledger.transaction() as conn:
+            return conn.execute('SELECT COUNT(*) FROM events WHERE kind=?', (kind,)).fetchone()[0]
+
+
 if __name__ == '__main__':
     unittest.main()
