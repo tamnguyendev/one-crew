@@ -565,3 +565,24 @@ class APowerShellSubexpressionMovesTheSession(ShellBase):
         self.assertEqual(code, 0, err)
         code, err = self.at(self.a, 'x=$(cd src); git checkout -- other.txt', 'Bash')
         self.assertEqual(code, 2, err)
+
+
+class ABashPipelineStageIsAChildShell(ShellBase):
+    """FIX25E (Codex P1 on 6acc82a): in bash a `cd` in a pipeline stage or sent to the background runs in a child shell: the commands after it run where the
+    command was (`cd src | cat; git checkout -- other.txt` throws away other.txt at the top). `2>&1` and `&>` are redirects, not a background job."""
+    def setUp(self):
+        super().setUp()
+        self.project_copy(self.a, owned=('src/**',))
+
+    def test_a_cd_in_a_pipeline_or_the_background_does_not_move_what_follows(self):
+        self.each(['cd src | cat; git checkout -- other.txt', 'cd src | cat; git restore other.txt', 'cd src | cat; echo LOST > other.txt',
+                   'true | cd src; git checkout -- other.txt', 'cd src |& cat; git checkout -- other.txt', 'cd src & git checkout -- other.txt'], self.blocked, inside=True)
+
+    def test_from_src_the_owned_file_passes_and_a_redirect_keeps_the_cd(self):
+        code, err = self.check('Bash', project=self.a, cwd=self.a / 'src', command='cd .. | cat; git checkout -- a.txt')
+        self.assertEqual(code, 0, err)
+        for command in ('cd .. 2>&1; git checkout -- other.txt', 'cd .. &>/dev/null; git checkout -- other.txt'):
+            with self.subTest(command=command):
+                code, err = self.check('Bash', project=self.a, cwd=self.a / 'src', command=command)
+                self.assertEqual(code, 2, err)
+        self.each(['cd src 2>&1; git checkout -- a.txt', 'cd src && git checkout -- a.txt'], self.allowed, inside=True)

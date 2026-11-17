@@ -1624,9 +1624,15 @@ def folder_steps(text, state, powershell=False):
     groups, seen, unsure] (read again after the yield). What runs while a segment runs (its `$( )`, a here-document body it launches, a `bash -c` string) runs
     in these folders: a `cd` later in the command does not move it. #12: `( ... )` gives the folder back when it closes, `pushd`/`popd` push and pop, `cd -` goes
     to the previous folder; when the hook cannot tell for sure, every folder the command may be in (the start and each one entered) is a candidate."""
-    begin = 0
-    for segment, _, cut in shell_segments(text, powershell, detail=True):
+    begin, after_pipe = 0, False
+    for segment, op, cut in shell_segments(text, powershell, detail=True):
         start, begin = begin, cut
+        # FIX25E (Codex P1 on 6acc82a): in bash every stage of a pipeline is a child shell and so is a command sent to the background (`&`, not the `&` of
+        # `2>&1` or `&>`): its `cd` does not move the commands after it (`cd src | cat; git checkout -- f` runs the checkout where the command was). PowerShell
+        # runs a pipeline in the session (FIX25D), so there it does.
+        background = op == '&' and text[cut - 2:cut - 1] not in ('>', '<') and text[cut:cut + 1] != '>'
+        stage = not powershell and (after_pipe or op in ('|', '|&') or background)
+        after_pipe = op in ('|', '|&')
         if not segment.strip(): continue
         here, previous, pushed, groups, seen, unsure = state
         words = []
@@ -1643,7 +1649,7 @@ def folder_steps(text, state, powershell=False):
         state[:] = [here, previous, pushed, groups, seen, unsure]
         yield start, cut, segment, words, head_words, moves, folders
         here, previous, pushed, groups, seen, unsure = state
-        if moves:
+        if moves and not stage:
             target = next((w for w in head_words[1:] if not w.startswith('-') or w == '-'), None)
             before = here
             if name == 'popd':
