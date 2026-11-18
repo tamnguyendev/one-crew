@@ -63,7 +63,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from ..ledger import LedgerError, utcnow
-from . import tracking, tracking_list
+from . import tracking, tracking_host_web, tracking_list
 
 MARKER = 'tracking/server.json'
 LOCK = 'tracking/open.lock'
@@ -179,6 +179,7 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
                     else:
                         value = tracking.overview(state_root, project_id=scope)
                     stats['last_read_ms'] = round((time.perf_counter() - started) * 1000, 1)
+                    tracking_host_web.attach(value)                         # DEV31: host background work + machine leases, read-only, in the same JSON the page reads
                     value['server'] = {'pid': os.getpid(), 'instance': identity['instance'], 'version': identity['version'], 'read_ms': stats['last_read_ms'],
                                        'poll_seconds': interval, 'started_at': stats['started_at'], 'requests': stats['requests'], 'project_id': project_id}
                     return self._send(HTTPStatus.OK, value)
@@ -883,6 +884,7 @@ details{margin:6px 0}summary{cursor:pointer;color:var(--mut)}summary:focus-visib
 <section class="pane" id="listpane" aria-label="Danh sách công việc"><h2>Công việc</h2><p class="stage-note" id="stagenote">Mỗi dòng là một công việc: trạng thái, bước tiếp theo, kết quả và hoạt động cuối. Trạng thái do sổ tính; trang chỉ xem, không kéo thả hay đổi trạng thái.</p><div id="empty">Đang đọc sổ…</div>
 <div id="list" role="group" aria-label="Bảng công việc"></div>
 <div id="listfoot" class="listfoot" aria-live="polite"></div>
+@@HOST_HTML@@
 <details id="untrackedbox" data-k="untracked"><summary>Chưa được theo dõi</summary><div id="untracked" class="small"></div></details></section>
 <section class="pane" id="detailpane" aria-label="Chi tiết task"><div id="detail"><div id="nodetail">Chọn một task ở danh sách để xem chi tiết, timeline và bằng chứng.</div></div></section>
 </main>
@@ -984,7 +986,7 @@ function render(force){
     $('#list').setAttribute('data-mode',listMode);$('#list').innerHTML=vis.length?(listMode==='board'?workBoard(vis):workRows(vis)):'';listSig=sig;
     if(foc){var again=document.querySelector('[data-k="'+foc.replace(/"/g,'\\"')+'"]');if(again)again.focus({preventScroll:true})}}
   $('#empty').textContent=vis.length?'':(all.length?'Không có task nào khớp bộ lọc.':L&&L.total?'Không có task nào khớp bộ lọc'+(L.complete?'.':' trong phần đã xét; bấm “Xem thêm” để xét tiếp.'):'Không có plan nào trong sổ này.');
-  paintFoot();
+  paintFoot();paintHost();
   var u=last.untracked||{},parts=['<div>'+esc(u.statement||'')+'</div>'],n=(u.other_tasks||[]).length+(u.registry_projects_without_plan||[]).length+(u.hook_sessions||[]).length;
   (u.other_tasks||[]).slice(0,10).forEach(function(o){parts.push('<div>· task <code>'+esc(o.id.slice(0,12))+'</code> '+esc(o.key)+' phase '+esc(o.phase)+' — '+esc(o.note)+'</div>')});
   (u.registry_projects_without_plan||[]).slice(0,10).forEach(function(r){parts.push('<div>· '+esc(r.project)+' — '+esc(r.note)+'</div>')});
@@ -1042,7 +1044,7 @@ function renderDetail(d){
   if(detailError)h.push('<div id="dstatus" class="dstatus stale" role="status" data-state="stale" data-k="dstatus" tabindex="-1">Chi tiết chưa cập nhật từ '+clockMs(detailOkAt)+': lỗi tải chi tiết ('+esc(detailError.message)+', lần thử gần nhất <span id="dlast">'+clockMs(detailError.last)+'</span>); đang hiện dữ liệu lúc '+(d.generated_at?clock(d.generated_at):clockMs(detailOkAt))+'. Mẫu lệnh trả lời bên dưới là của lúc đó: nếu câu hỏi đã được trả lời hoặc đổi bản, OneCrew từ chối lệnh nhờ --revision. <span id="dnote" data-cap="1">'+cap(noteHtml())+'</span>.</div>');
   h.push('<div class="small mut">Đang xem '+(workNoOwner(d)?'task <b>'+esc(d.plan)+'</b>':'việc này')+' của project <span title="'+esc(d.project)+'">'+esc(short(d.project))+'</span> · <a href="'+esc(urlOf({plan:d.selector,project:d.project_id}))+'">liên kết tới task này</a></div>');
   var needs=d.needs_user||[],nq=needs.filter(function(n){return n.kind==='request'}).length,nother=needs.length-nq;
-  h.push(sitPanel(d));                                                  // UX 13/11: where it is, what blocks it, who acts next, what the owner does, where the results are
+  h.push(sitPanel(d));h.push(hostPlanPanel(d));                                                 // UX 13/11: where it is, what blocks it, who acts next, what the owner does, where the results are
   var done=d.status.kind==='done';
   var nowKeys={};needs.forEach(function(n){nowKeys[needKey(n)]=n});
   if(copied&&!copiedStillValid(copied,d))copied=null;      // R7-1: feedback of a command this data no longer offers (binding lost, other runtime/state) is dropped, never shown again
@@ -1317,4 +1319,5 @@ window.__track={state:function(){return {selected:selected,detailSeq:detailSeq,s
 
 # Keep the adapter separately testable; it shares the existing read-only evidence door.
 from .tracking_work_web import SCRIPT as _WORK_SCRIPT, STYLE as _WORK_STYLE
-PAGE = PAGE.replace('@@WORK_SCRIPT@@', _WORK_SCRIPT).replace('@@WORK_STYLE@@', _WORK_STYLE)
+PAGE = (PAGE.replace('@@WORK_SCRIPT@@', _WORK_SCRIPT + tracking_host_web.SCRIPT).replace('@@WORK_STYLE@@', _WORK_STYLE + tracking_host_web.STYLE)
+        .replace('@@HOST_HTML@@', tracking_host_web.HTML))

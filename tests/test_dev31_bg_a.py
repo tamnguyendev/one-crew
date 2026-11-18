@@ -440,5 +440,125 @@ class HookEndToEnd(Base):
         self.assertTrue(data['read_only'])
 
 
+class PageSection(Base):
+    """DEV31 on the tracking PAGE: the host background work the CLI shows (`track background`) is in the page's JSON and drawn by the page script."""
+
+    def setUp(self):
+        super().setUp()
+        from onecrew.v2 import tracking_host_web
+        self.web = tracking_host_web
+        self.web._cache.clear()
+        self.addCleanup(self.web._cache.clear)
+
+    def feed(self, event, minute, plan=PLAN, project=None):
+        """Like Base.feed, but the page reads with the real clock: the times are a few seconds ago (minute = seconds after the first), never 'stale'."""
+        import datetime as dt
+        when = dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=100 - minute)
+        return background.note(event, project or self.project, plan, at=when.isoformat(timespec='seconds'))
+
+    def overview(self, *projects):
+        return {'projects': [{'path': str(p), 'tasks': []} for p in projects]}
+
+    def need_node(self):
+        from tests import dev31_page_js
+        if not dev31_page_js.node(): self.skipTest('Node unavailable; not verified')
+        return dev31_page_js
+
+    def js(self, call, data):
+        return self.need_node().run(call, '\nlast={host_work:' + json.dumps(data) + '};')
+
+    def test_page_json_has_the_host_work_view_of_the_project_with_every_field(self):
+        self.feed(launch_agent(), 0)
+        self.feed(shell(), 1)
+        [entry] = self.web.host_work(self.overview(self.project))['projects']
+        self.assertIsNone(entry['error'])
+        items = {i['kind']: i for i in entry['view']['items']}
+        agent = items['subagent']
+        self.assertEqual((agent['state'], agent['state_label'], agent['onecrew']['plan'], agent['onecrew']['revision'], agent['host']['session_id']),
+                         ('running', 'đang chạy', 'P1', 2, 's1'))
+        self.assertEqual((agent['output_ref'], agent['source'], agent['trust']), ('C:/out/ag1.txt', 'hook payload', 'host-reported; not independently verified'))
+        for field in ('state_reason', 'outcome_label', 'last_observed', 'next_step', 'output_note'): self.assertTrue(agent[field], field)
+        self.assertIn('background_shell', items)
+        self.assertTrue(any('hook không có tín hiệu' in line for line in entry['view']['unobserved']))     # the "not observed" list travels with it
+        self.assertTrue(entry['view']['read_only'])
+
+    def test_page_json_unbound_item_is_outside_the_contract_and_another_project_is_not_mixed_in(self):
+        other = Path(self.tmp.name) / 'other'
+        (other / '.onecrew').mkdir(parents=True)
+        self.feed(launch_agent(agent='free'), 0, plan=None)
+        self.feed(launch_agent(agent='theirs'), 0, project=other)
+        data = self.web.host_work(self.overview(self.project, other))
+        mine = next(p for p in data['projects'] if p['path'] == str(self.project))['view']
+        self.assertEqual([(i['host']['agent_id'], i['onecrew']['bound']) for i in mine['items']], [('free', False)])
+        self.assertTrue(any('ngoài mọi hợp đồng' in line for line in mine['unobserved']))
+
+    def test_page_reads_only_creates_nothing_and_a_project_without_records_says_so(self):
+        self.feed(launch_agent(), 0)
+        bare = Path(self.tmp.name) / 'bare'
+        bare.mkdir()
+        before = {p: p.read_bytes() for p in self.project.rglob('*') if p.is_file()}
+        data = self.web.attach(self.overview(self.project, bare, Path(self.tmp.name) / 'missing'))
+        self.assertEqual({p: p.read_bytes() for p in self.project.rglob('*') if p.is_file()}, before)
+        self.assertEqual(list(bare.iterdir()), [])
+        self.assertFalse((Path(self.tmp.name) / 'missing').exists())
+        empty = next(p for p in data['host_work']['projects'] if p['path'] == str(bare))
+        self.assertEqual(empty['view']['items'], [])
+        self.assertTrue(empty['view']['unobserved'])
+        self.assertIn('không có nghĩa là không có', data['host_work']['note'])
+
+    def test_page_script_draws_the_item_escapes_hostile_values_and_never_links_the_output(self):
+        hostile = '<img src=x onerror=alert(1)>'
+        plan = dict(PLAN, plan='<script>alert(7)</script>')
+        self.feed(launch_agent(session=hostile, out='C:/out/<b>x</b>.txt'), 0, plan=plan)
+        html = self.js('hostSectionHtml("")', self.web.host_work(self.overview(self.project)))
+        for wanted in ('đang chạy', 'host báo, chưa kiểm độc lập', 'Bước tiếp', 'OneCrew chưa quan sát', 'attempt: chưa rõ', 'Output:', 'Vì sao', 'Nguồn'):
+            self.assertIn(wanted, html)
+        for raw in ('<img', '<script', '<b>x</b>', 'onerror=alert(1)>'):
+            self.assertNotIn(raw, html)
+        for escaped in ('&lt;img src=x onerror=alert(1)&gt;', '&lt;script&gt;alert(7)&lt;/script&gt;', 'C:/out/&lt;b&gt;x&lt;/b&gt;.txt'):
+            self.assertIn(escaped, html)
+        self.assertNotIn('<a ', html)
+        self.assertNotIn('href=', html)                  # a reference is text: nothing here opens it or runs anything
+        self.assertNotIn('<button', html)                # no control
+        self.assertIn('chỉ là chữ host báo, trang không mở', html)
+
+    def test_page_script_groups_by_plan_and_filters_the_plan_panel_to_the_matching_binding(self):
+        self.feed(launch_agent(agent='a1'), 0)
+        self.feed(launch_agent(agent='a2', tool_use='tu2'), 1, plan=dict(PLAN, plan='P2'))
+        self.feed(launch_agent(agent='a3', tool_use='tu3'), 2, plan=None)
+        data = self.web.host_work(self.overview(self.project))
+        whole = self.js('hostSectionHtml("")', data)
+        for wanted in ('Kế hoạch P1', 'Kế hoạch P2', 'Ngoài hợp đồng (không gắn kế hoạch nào)'): self.assertIn(wanted, whole)
+        panel = self.js('hostPlanPanel({project:%s,plan:"plan:P1"})' % json.dumps(str(self.project)), data)
+        self.assertIn('>a1<', panel)
+        self.assertNotIn('>a2<', panel)
+        self.assertNotIn('>a3<', panel)
+        again = self.js('hostPlanPanel({project:%s,plan:"nobody"})' % json.dumps(str(self.project)), data)
+        self.assertIn('Chưa quan sát việc nền nào gắn với kế hoạch này', again)
+
+    def test_page_script_an_unreadable_project_is_not_shown_as_no_background_work(self):
+        html = self.js('hostSectionHtml("")', {'projects': [{'path': 'D:/x', 'view': None, 'error': 'OSError: không đọc được'}], 'note': 'n'})
+        self.assertIn('Không coi là không có', html)
+
+    def test_served_page_and_overview_json_carry_the_section_and_stay_read_only(self):
+        from tests import dev31_page_js
+        from onecrew.v2 import tracking
+        self.feed(launch_agent(), 0)
+        self.feed(parent_stop(), 2)
+        state = Path(self.tmp.name) / 'state'
+        fake = dict(tracking._overview_shell(state, tracking._now(None), {'status': 'ok'}), **self.overview(self.project))
+        with mock.patch.object(tracking, 'overview', return_value=fake):
+            with dev31_page_js.Served(state) as served:
+                status, page = served.get('/')
+                status2, body = served.get('/api/overview')
+        self.assertEqual((status, status2), (200, 200))
+        text = page.decode('utf-8')
+        for wanted in ('id="hostwork"', 'Việc nền của host', 'function paintHost'): self.assertIn(wanted, text)
+        data = json.loads(body)
+        [entry] = data['host_work']['projects']
+        self.assertEqual([i['state'] for i in entry['view']['items']], ['waiting'])         # the parent turn ended, the child was not reported finished
+        self.assertTrue(data['host_work']['read_only'])
+
+
 if __name__ == '__main__':
     unittest.main()

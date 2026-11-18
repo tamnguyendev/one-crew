@@ -366,5 +366,178 @@ class EngineLeaseSeam(mode_tests.ModeFixture):
         self.assertEqual(Leases().status('gate')['resources'][0]['holders'], [])
 
 
+class PageSection(Base):
+    """DEV31 on the tracking PAGE: the machine leases the CLI shows (`python -m onecrew.resource_lease status`) are in the page's JSON and drawn by the page script."""
+
+    LONG = 3600 * 24 * 3650
+
+    def setUp(self):
+        super().setUp()
+        from onecrew.v2 import tracking_host_web
+        self.web = tracking_host_web
+        patch = mock.patch.dict(os.environ, {'ONECREW_LEASE_HOME': str(self.home), 'LOCALAPPDATA': self.tmp.name, 'APPDATA': self.tmp.name,
+                                             'USERPROFILE': self.tmp.name, 'HOME': self.tmp.name})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def real(self, domain=('gate', 'emulator')):
+        """A store on the lease home the page reads, with the real clock (the page's own Leases() uses it)."""
+        return Leases(self.home, domain=domain)
+
+    def declared(self, *names):
+        Leases(self.home).declare(list(names))
+
+    def need_node(self):
+        from tests import dev31_page_js
+        if not dev31_page_js.node(): self.skipTest('Node unavailable; not verified')
+        return dev31_page_js
+
+    def js(self, call, data):
+        return self.need_node().run(call, '\nlast={shared_resources:' + json.dumps(data) + '};')
+
+    def test_holder_and_waiter_shown_on_the_page_json_and_script(self):
+        self.declared('gate', 'emulator')
+        a, b = self.child(), self.child()
+        store = Leases(self.home)
+        first = store.claim('gate', session='sess-A', plan='plan-A', state_root='D:/root-A', pid=a.pid, ttl=self.LONG)
+        second = store.claim('gate', session='sess-B', plan='plan-B', state_root='D:/root-B', pid=b.pid, ttl=self.LONG)
+        data = self.web.shared_resources()
+        self.assertTrue(data['declared'])
+        self.assertIsNone(data['error'])
+        by = {r['resource']: r for r in data['resources']}
+        self.assertEqual(sorted(by), ['emulator', 'gate'])
+        self.assertTrue(by['emulator']['free'])                                              # a declared resource nobody holds is listed as free
+        gate = by['gate']
+        self.assertFalse(gate['free'])
+        [holder] = gate['holders']
+        [waiter] = gate['waiters']
+        self.assertEqual((holder['plan'], holder['session'], holder['state_root'], holder['pid'], holder['state'], holder['mode']),
+                         ('plan-A', 'sess-A', 'D:/root-A', a.pid, 'held', 'write'))
+        self.assertTrue(holder['since'] and holder['until'])
+        self.assertEqual((waiter['plan'], waiter['session'], waiter['position'], waiter['state_root']), ('plan-B', 'sess-B', 1, 'D:/root-B'))
+        self.assertEqual((first['status'], second['status']), ('granted', 'waiting'))
+        html = self.js('resSectionHtml()', data)
+        for wanted in ('gate', 'đang được giữ', 'Giữ:', 'plan-A', 'sess-A', 'D:/root-A', 'đang giữ', 'Chờ, vị trí', '<b>1</b>', 'plan-B', 'sess-B', 'đến ', 'emulator', 'trống',
+                       'Chỉ đọc'):
+            self.assertIn(wanted, html)
+        self.assertNotIn('<button', html)                                                     # no claim / release / renew control
+
+    def test_lease_states_expired_with_a_live_holder_still_holds_and_is_said_so(self):
+        self.declared('gate')
+        a = self.child()
+        past = Clock()
+        past.now = dt.datetime(2020, 1, 1, tzinfo=dt.timezone.utc)
+        Leases(self.home, clock=past).claim('gate', session='s', plan='p', pid=a.pid, ttl=60)
+        [gate] = self.web.shared_resources()['resources']
+        self.assertEqual((gate['free'], gate['holders'][0]['state']), (False, 'expired_holder_alive'))
+        self.assertIn('vẫn giữ', gate['holders'][0]['state_label'])
+        self.assertIn('vẫn giữ', self.js('resSectionHtml()', self.web.shared_resources()))
+        self.kill(a)
+        [gate] = self.web.shared_resources()['resources']
+        self.assertEqual(gate['holders'][0]['state'], 'dead_unreleased')                     # shown as dead, but the page never frees it
+        self.assertEqual(len(Leases(self.home).status('gate')['resources'][0]['holders']), 1)
+
+    def test_page_shows_no_token_in_json_html_or_served_overview(self):
+        self.declared('gate')
+        a, b = self.child(), self.child()
+        store = Leases(self.home)
+        tokens = [store.claim('gate', session='s1', pid=a.pid, ttl=self.LONG)['token'], store.claim('gate', session='s2', pid=b.pid, ttl=self.LONG)['token']]
+        data = self.web.shared_resources()
+        blob = json.dumps(data)
+        for token in tokens: self.assertNotIn(token, blob)
+        self.assertNotIn('token', blob)                                                       # neither the secret nor its hash field
+        html = self.js('resSectionHtml()', data)
+        for token in tokens: self.assertNotIn(token, html)
+        self.assertNotIn('token', html)
+        from tests import dev31_page_js
+        from onecrew.v2 import tracking
+        state = Path(self.tmp.name) / 'state'
+        fake = tracking._overview_shell(state, tracking._now(None), {'status': 'ok'})
+        with mock.patch.object(tracking, 'overview', return_value=fake):
+            with dev31_page_js.Served(state) as served:
+                status, body = served.get('/api/overview')
+        self.assertEqual(status, 200)
+        for token in tokens: self.assertNotIn(token, body.decode('utf-8'))
+        self.assertNotIn(b'token_sha', body)
+
+    def test_no_lease_home_says_not_declared_and_creates_nothing(self):
+        missing = Path(self.tmp.name) / 'no-such-home'
+        with mock.patch.dict(os.environ, {'ONECREW_LEASE_HOME': str(missing)}):
+            data = self.web.shared_resources()
+            attached = self.web.attach({'projects': []})
+        self.assertFalse(missing.exists())                                                    # Leases() makes its folder: it must not have been built
+        self.assertEqual((data['declared'], data['resources'], data['error']), (False, [], None))
+        self.assertIn('chưa khai báo', data['empty_note'])
+        self.assertIn('chưa khai báo', attached['shared_resources']['empty_note'])
+        self.assertIn('chưa khai báo tài nguyên', self.js('resSectionHtml()', data))
+        empty = Path(self.tmp.name) / 'empty-home'
+        empty.mkdir()                                                                         # a folder without managed.json: still nothing is created in it
+        with mock.patch.dict(os.environ, {'ONECREW_LEASE_HOME': str(empty)}):
+            self.assertEqual(self.web.shared_resources()['resources'], [])
+        self.assertEqual(list(empty.iterdir()), [])
+
+    def test_reading_the_page_data_changes_no_lease_file(self):
+        self.declared('gate')
+        a = self.child()
+        Leases(self.home).claim('gate', session='s', plan='p', pid=a.pid, ttl=self.LONG)
+        before = {p.name: p.read_bytes() for p in self.home.iterdir()}
+        self.web.attach({'projects': []})
+        self.web.attach({'projects': []})
+        self.assertEqual({p.name: p.read_bytes() for p in self.home.iterdir()}, before)       # no lock file left, no event, no release, no reconcile write
+
+    def test_hostile_names_are_escaped_by_the_page_script(self):
+        self.declared('gate')
+        a, b = self.child(), self.child()
+        store = Leases(self.home)
+        store.claim('gate', session='<img src=x onerror=alert(1)>', plan='<script>alert(7)</script>', state_root='D:/<b>r</b>', pid=a.pid, ttl=self.LONG)
+        store.claim('gate', session='"><svg onload=alert(2)>', plan="</td><i>w</i>", pid=b.pid, ttl=self.LONG)
+        html = self.js('resSectionHtml()', self.web.shared_resources())
+        for raw in ('<img', '<script', '<b>r</b>', '<svg', '<i>w</i>', 'onload=alert(2)>'):
+            self.assertNotIn(raw, html)
+        for escaped in ('&lt;img src=x onerror=alert(1)&gt;', '&lt;script&gt;alert(7)&lt;/script&gt;', 'D:/&lt;b&gt;r&lt;/b&gt;', '&quot;&gt;&lt;svg onload=alert(2)&gt;'):
+            self.assertIn(escaped, html)
+
+    def test_an_unreadable_store_is_an_error_not_free(self):
+        self.declared('gate')
+        (self.home / 'leases.json').write_text('{not json', encoding='utf-8')
+        data = self.web.shared_resources()
+        self.assertTrue(data['error'])
+        self.assertEqual(data['resources'], [])
+        html = self.js('resSectionHtml()', data)
+        self.assertIn('Không coi là trống', html)
+        self.assertEqual((self.home / 'leases.json').read_text(encoding='utf-8'), '{not json')   # left as it was
+
+    def test_plan_panel_lists_only_the_resources_that_plan_holds_or_waits_for(self):
+        self.declared('gate', 'emulator')
+        a, b = self.child(), self.child()
+        store = Leases(self.home)
+        store.claim('gate', session='s1', plan='plan-A', pid=a.pid, ttl=self.LONG)
+        store.claim('emulator', session='s2', plan='plan-B', pid=b.pid, ttl=self.LONG)
+        data = self.web.shared_resources()
+        mine = self.need_node().run('hostPlanPanel({project:"D:/x",plan:"plan:plan-A"})', '\nlast={shared_resources:' + json.dumps(data) + '};')
+        self.assertIn('gate', mine)
+        self.assertNotIn('emulator', mine)
+        self.assertEqual(self.need_node().run('hostPlanPanel({project:"D:/x",plan:"nobody"})', '\nlast={shared_resources:' + json.dumps(data) + '};'), '')
+
+    def test_served_page_has_the_section_and_the_overview_json_carries_the_leases(self):
+        self.declared('gate')
+        a = self.child()
+        Leases(self.home).claim('gate', session='s1', plan='plan-A', pid=a.pid, ttl=self.LONG)
+        from tests import dev31_page_js
+        from onecrew.v2 import tracking
+        state = Path(self.tmp.name) / 'state'
+        fake = tracking._overview_shell(state, tracking._now(None), {'status': 'ok'})
+        with mock.patch.object(tracking, 'overview', return_value=fake):
+            with dev31_page_js.Served(state) as served:
+                status, page = served.get('/')
+                status2, body = served.get('/api/overview')
+        self.assertEqual((status, status2), (200, 200))
+        text = page.decode('utf-8')
+        for wanted in ('id="resources"', 'Tài nguyên dùng chung', 'function resSectionHtml'): self.assertIn(wanted, text)
+        data = json.loads(body)['shared_resources']
+        self.assertTrue(data['read_only'])
+        self.assertEqual([(r['resource'], r['free'], r['holders'][0]['plan']) for r in data['resources']], [('gate', False, 'plan-A')])
+
+
 if __name__ == '__main__':
     unittest.main()
