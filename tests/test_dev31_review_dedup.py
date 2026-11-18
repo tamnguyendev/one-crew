@@ -3,7 +3,10 @@
 Doors: engine.verify (also `engine step/batch --checks`), the candidate port inside it, `verdict run` and the optional review door.
 Real temporary ledgers from the existing fixtures; reviewers are local fakes counted at their provider seam. No model is called.
 """
+import contextlib
 import copy
+import io
+import json
 import os
 import subprocess
 import sys
@@ -13,21 +16,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))   # the checkout fixtures import test_v2_l1 by its plain name
 
+from onecrew import budget_core
+from onecrew.common_verification import CandidateChecker
+from onecrew.control_core import Control, migrate
 from onecrew.ledger import Ledger, LedgerError
 from onecrew.snapshots import Snapshots
-from onecrew.v2 import engine, internal_plan, plan, plan as plans, review_dispatch, review_request
-from onecrew.v2.verifiers import command
-
-try:                                  # checkout-only fixtures (Control, the candidate port, the reviewer seam): absent from the wheel
-    from onecrew.common_verification import CandidateChecker
-    from onecrew.v2.verifiers import reviewer
-    from tests.test_v2_reviewer import answer, row
-    from tests.test_wf_candidate_reviewer import CandidateReviewerFixture
-    CHECKOUT = True
-except ImportError:
-    CHECKOUT, CandidateReviewerFixture = False, unittest.TestCase
+from onecrew.v2 import engine, internal_plan, plan, plan as plans, review_dispatch, review_request, verdict
+from onecrew.v2.cli import main as cli_main
+from onecrew.v2.verifiers import command, reviewer
 
 OK = [sys.executable, '-c', 'print("ok")']
 QUESTIONS = ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q9', 'Q12']
@@ -46,6 +43,26 @@ def contract(**extra):
              'milestones': [{'id': 'M1', 'title': 'Milestone M1', 'verifier': {'type': 'command', 'config': {'argv': OK}}, 'covers': ['O1']}],
              'budget': {'max_calls': 100, 'time': 120}, 'attention': {'questions': 1}, 'profile_version': None}
     return dict(value, **extra)
+
+
+REVIEW_CRITERIA = [{'id': 'R1', 'question': 'Does a.txt hold the candidate line (cite file:line)? fail if it does not.'}]
+
+
+def milestone(mid='M1', argv=OK, **extra):
+    return dict({'id': mid, 'title': 'Milestone ' + mid, 'verifier': {'type': 'command', 'config': {'argv': argv}}, 'covers': ['O1']}, **extra)
+
+
+def reviewer_milestone(mid='M1', criteria=REVIEW_CRITERIA, model='claude-haiku-5-5'):
+    return {'id': mid, 'title': 'Review', 'covers': ['O1'], 'verifier': {'type': 'reviewer', 'config': {
+        'provider': 'claude', 'model': model, 'criteria': criteria, 'max_minutes': 5}}}
+
+
+def row(cid, verdict_='pass', file='a.txt', line=2):
+    return {'id': cid, 'verdict': verdict_, 'evidence': [{'file': file, 'line': line, 'note': 'seen'}] if file else []}
+
+
+def answer(*rows):
+    return json.dumps({'criteria': list(rows), 'outside_criteria': []})
 
 
 def node(nid, dependencies=(), integration=False, write=('a.txt',)):
@@ -395,7 +412,64 @@ class RequestIdentity(CoreFixture):
         self.assertEqual(self.claim(self.base)['run_id'], second['run_id'])
 
 
-@unittest.skipUnless(CHECKOUT, "needs the checkout-only Control, candidate port and reviewer fixtures (not in the wheel)")
+CRITERIA = REVIEW_CRITERIA
+
+
+class CandidateReviewerFixture(CoreFixture):
+    """Self-contained (installed wheel included): a root with a command milestone M1 and a reviewer milestone M2, a node `C` produced through
+    the public `engine step` with a fixture worker, and the production CandidateChecker. Uses only shipped product modules
+    (control_core.Control, v2.cli), never the checkout-only v1 Control/cli the shared candidate fixtures need."""
+    producer = {'role': 'worker', 'provider': 'codex', 'model': 'gpt-6.1-sol'}
+
+    def milestones(self):
+        check = [sys.executable, '-c', 'from pathlib import Path; assert Path("a.txt").read_text()=="candidate\\n"; print("candidate tested")']
+        return [milestone('M1', argv=check), dict(reviewer_milestone(criteria=CRITERIA), id='M2')]
+
+    def setUp(self):
+        super().setUp()
+        self.engine, self.ip = engine, internal_plan
+        value = contract(milestones=self.milestones(), authority={
+            'edit': True, 'commands': True, 'apply_to_project': True, 'unconfined_commands': True,
+            'self_decide': ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q9', 'Q12']})
+        plans.propose(self.ledger, 'P1', value, 'codex', workflow=True, capabilities=CAPS)
+        plans.approve(self.ledger, 'P1', 'owner', 'fixture approved command and apply')
+        os.environ['ONECREW_ACTOR'] = 'codex'
+        self.store = Snapshots(self.ledger.state_root)
+        migrate(self.ledger); self.control = Control(self.ledger)
+
+    def produce(self):
+        nodes = [node('C'), node('I', ['C'], integration=True, write=())]
+        for item in nodes:
+            item['checks'] = [{'id': mid, 'spec': 'The exact approved root check ' + mid} for mid in ('M1', 'M2')]
+            item['executor'] = dict(self.producer)
+        self.ip.revise(self.ledger, 'P1', nodes, reason='Split work inside the approved scope', evidence=['a.txt:1'])
+        def factory(control, provider):
+            class Worker:
+                def capability(self): return {'provider': provider, 'mode': 'fixture-tools-disabled'}
+                def run(self, attempt, prompt, schema, profile):
+                    control.launched(attempt['id'], attempt['generation'], {'fixture': True})
+                    control.finish(attempt['id'], attempt['generation'], {'exit_code': 0})
+                def result(self, attempt):
+                    return {'summary': 'producer', 'files': [{'path': 'a.txt', 'content': 'candidate\n'}], 'backlog': []}, []
+            return Worker()
+        with patch('onecrew.artifact_provider_core.make_worker', side_effect=factory):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = cli_main(['--project', str(self.root), '--state-root', str(self.ledger.state_root), 'engine', 'step', 'plan-ns:P1'])
+            self.assertEqual(code, 0, out.getvalue())
+
+    def counters(self):
+        with self.ledger.transaction() as conn:
+            root = plan.anchor_events(self.ledger, conn, 'P1')
+            return budget_core.group(conn, root['task_id'])
+
+    def fake_call(self, calls):
+        def fake(prompt, config, env, scratch, limit):
+            calls.append({'prompt': prompt, 'config': config, 'limit': limit})
+            return answer(row('R1')), {}, None, False, b'fixture'
+        return fake
+
+
 class ReviewerCalls(CandidateReviewerFixture):
     """Real production port (CandidateChecker) and the metered reviewer seam: calls and the shared root budget are counted."""
 
@@ -426,12 +500,12 @@ class ReviewerCalls(CandidateReviewerFixture):
         def slow(prompt, config, env, scratch, limit):
             calls.append(config['model'])
             entered.set()
-            if not release.wait(30): raise RuntimeError('fixture release missing')
+            if not release.wait(240): raise RuntimeError('fixture release missing')
             return answer(row('R1')), {}, None, False, b'fixture'
         with patch.object(reviewer, 'call', side_effect=slow):
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                 first = pool.submit(self.check)
-                self.assertTrue(entered.wait(30))
+                self.assertTrue(entered.wait(240))
                 try:
                     fresh = Ledger(self.root, self.ledger.state_root)               # a new connection, as after a reconnect
                     second = self.check(fresh)
@@ -559,3 +633,98 @@ class ReviewerCalls(CandidateReviewerFixture):
             self.assertIsNotNone(review_dispatch.prior_pass(conn, task, review_dispatch.milestone_request(self.ledger, 'P1', 'M2', tree_one)))
         self.assertEqual((len(calls), self.charged() - before), (1, 1))
         self.assertEqual(milestone['verifier']['type'], 'reviewer')
+
+
+class VerdictDoor(CoreFixture):
+    """DEV31 R2-B: `verdict run` refuses to ask the reviewer again about a request that already holds a paid-reviewer fail (the engine door's
+    `_judged_fail` rule), and still re-runs everything else. Real ledger, the production verdict path, the reviewer seam counted."""
+    kind = 'reviewer'
+
+    def setUp(self):
+        super().setUp()
+        goal = (dict(reviewer_milestone(criteria=CRITERIA), id='M1') if self.kind == 'reviewer'
+                else milestone('M1', argv=[sys.executable, '-c', 'import sys; sys.exit(1)'], max_repairs=5))
+        value = contract(milestones=[goal], authority={'edit': True, 'commands': True, 'self_decide': QUESTIONS})
+        plans.propose(self.ledger, 'P1', value, 'codex', workflow=True, capabilities=CAPS)
+        plans.approve(self.ledger, 'P1', 'owner', 'fixture approved reviewer milestone')
+        os.environ['ONECREW_ACTOR'] = 'codex'
+        (self.root / 'a.txt').write_text('two\n'); self.git('commit', '-qam', 'the change to review')    # an empty diff passes without a call
+
+    def ask(self, ledger=None):
+        verdict.run(ledger or self.ledger, 'P1', 'M1')
+        return self.verdicts()[-1]['result']
+
+    def charged(self):
+        with self.ledger.transaction() as conn:
+            return budget_core.group(conn, plans.anchor_events(self.ledger, conn, 'P1')['task_id'])['used_calls']
+
+    def verdicts(self):
+        return [p for k, p in self.events() if k == 'verdict.recorded']
+
+
+class ReviewerVerdictDoor(VerdictDoor):
+    def seam(self, calls, verdict_='fail', error=None):
+        def call(prompt, config, env, scratch, limit):
+            calls.append(verdict_)
+            return (answer(row('R1', verdict_)), {}, error, False, b'fixture') if not error else ('', {}, error, False, b'')
+        return call
+
+    def test_retry_no_replay_verdict_run_twice_after_a_reviewer_fail_is_one_call_one_charge(self):
+        before, calls = self.charged(), []
+        with patch.object(reviewer, 'call', side_effect=self.seam(calls)):
+            self.assertEqual(self.ask(), 'fail')
+            for _ in range(2):
+                with self.assertRaises(LedgerError) as raised: verdict.run(self.ledger, 'P1', 'M1')
+                self.assertIn('already judged milestone M1', str(raised.exception))
+        self.assertEqual((len(calls), self.charged() - before, len(self.verdicts())), (1, 1, 1))
+        self.assertEqual(self.kinds().count('verdict.run_started'), 1, 'the refused asks never opened a run')
+
+    def test_retry_no_replay_refusal_survives_a_reconnect(self):
+        calls = []
+        with patch.object(reviewer, 'call', side_effect=self.seam(calls)):
+            self.ask()
+            with self.assertRaises(LedgerError): self.ask(Ledger(self.root, self.ledger.state_root))
+        self.assertEqual(len(calls), 1)
+
+    def test_wrong_artifact_a_new_artifact_after_a_reviewer_fail_asks_the_reviewer_again(self):
+        before, calls = self.charged(), []
+        with patch.object(reviewer, 'call', side_effect=self.seam(calls)):
+            self.ask()
+            (self.root / 'a.txt').write_text('three\n'); self.git('commit', '-qam', 'the artifact moved')
+            again = self.ask()
+        self.assertEqual((again, len(calls), self.charged() - before), ('fail', 2, 2))
+        self.assertEqual(len(self.verdicts()), 2)
+
+    def test_inconclusive_reviewer_result_stays_retryable_on_the_same_artifact(self):
+        calls = []
+        with patch.object(reviewer, 'call', side_effect=self.seam(calls, error='quota_exhausted: fixture')):
+            self.assertEqual(self.ask(), 'inconclusive')
+        with patch.object(reviewer, 'call', side_effect=self.seam(calls, 'pass')):
+            self.assertEqual(self.ask(), 'pass')
+        self.assertEqual(len(calls), 2)
+
+    def test_wrong_criterion_a_changed_review_after_a_reviewer_fail_is_a_new_request(self):
+        calls = []
+        with patch.object(reviewer, 'call', side_effect=self.seam(calls)):
+            verdict.run(self.ledger, 'P1', 'M1')
+            with self.ledger.transaction() as conn:
+                state = plans.anchor_events(self.ledger, conn, 'P1')
+                contract, _ = plans.load(self.ledger, state, 1)
+            contract['milestones'][0]['verifier']['config']['criteria'] = [{'id': 'R1', 'question': 'Does a.txt hold the line one? fail if it does not.'}]
+            with self.ledger.transaction() as conn: state = plans.anchor_events(self.ledger, conn, 'P1')
+            request = review_dispatch._milestone_request(self.ledger, state['task_id'], 'P1', 1, state['revisions'][1]['sha'], contract,
+                                                         contract['milestones'][0], self.tree())
+            with self.ledger.transaction() as conn:
+                self.assertIsNone(review_dispatch.judged_milestone_fail(conn, state['task_id'], request),
+                                  'another criterion is another request, not a repeat of the judged one')
+                same = review_dispatch.milestone_request(self.ledger, 'P1', 'M1', self.tree())
+                self.assertIsNotNone(review_dispatch.judged_milestone_fail(conn, state['task_id'], same))
+
+
+class CommandVerdictDoor(VerdictDoor):
+    kind = 'command'
+
+    def test_command_only_fail_can_be_run_again_through_verdict_run(self):
+        first, second = self.ask(), self.ask()
+        self.assertEqual((first, second), ('fail', 'fail'))
+        self.assertEqual(len(self.verdicts()), 2)

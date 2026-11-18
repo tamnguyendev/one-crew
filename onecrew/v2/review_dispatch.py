@@ -605,6 +605,28 @@ def _judged_fail(ledger, conn, root, nid, request, subject):
     return None
 
 
+def judged_milestone_fail(conn, task_id, request):
+    """DEV31 R2-B, the verdict door's own `_judged_fail`: the run of `verdict run` that already recorded a FAIL by a paid reviewer judgement
+    for this very request (same milestone, artifact, criteria, scope, environment: the whole identity except `facts`), or None.
+    Only a recorded fail that called the reviewer (calls > 0, no provider error) counts; an inconclusive result, a command-only fail and a
+    fail that held no model call re-run as before. A changed artifact, criterion, revision or environment is another request here."""
+    from . import verdict
+    paid = set()
+    for row in conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='verdict.recorded'", (task_id,)).fetchall():
+        p = json.loads(row['payload'])
+        if p.get('result') == 'fail' and (p.get('calls') or 0) > 0 and p.get('provider') and not p.get('provider_error') and p.get('receipt'):
+            paid.add(p['receipt'])
+    if not paid: return None
+    same = lambda identity: {k: v for k, v in identity.items() if k != 'facts'}
+    wanted = same(request['identity'])
+    for run in verdict.run_records(conn, task_id):
+        shown = run.get('request')
+        if (run.get('kind') == 'reviewer' and run['receipt'] and run['receipt'].get('receipt') in paid
+                and isinstance(shown, dict) and same(shown.get('identity') or {}) == wanted):
+            return run.get('run_id')
+    return None
+
+
 def claim_node_check(ledger, selector, nid, *, execution, door, expected):
     """engine.verify's claim: the request is computed from the facts read inside the same write transaction as the claim. `expected` is the
     (artifact, generation) the caller decided on: another door may have published or moved the node since, and that is not a new request."""
