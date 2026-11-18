@@ -193,6 +193,34 @@ def exists(pid):
         api.CloseHandle(handle)
 
 
+def tree_state(record):
+    """Read-only state of a contained worker's WHOLE process tree (record: the worker's pid/created/host plus the attempt's job_name,
+    session and uptime_ms from its launch token). 'alive' when the top worker or any member of its named Job runs; 'dead' only with proof
+    that the tree ended: the Job exists with no active member, or the Job is gone and `gone_proof` holds (a Local\\ name not found in
+    another live session proves nothing), and the top worker does not run; 'unknown' otherwise. Mirrors Supervisor._reconcile_job."""
+    if record.get('host') != socket.gethostname():
+        return 'unknown'
+    worker = probe(record)
+    if worker == 'alive':
+        return 'alive'
+    try:
+        job = Job.open(record['job_name'])
+    except (LedgerError, OSError):
+        return 'unknown'
+    if job is None:
+        proof, _ = gone_proof(record)
+        return 'dead' if proof is not None and worker == 'dead' else 'unknown'
+    try:
+        active = job.counts().active
+    except (LedgerError, OSError):
+        return 'unknown'
+    finally:
+        job.close()
+    if active:
+        return 'alive'
+    return 'dead' if worker == 'dead' else 'unknown'
+
+
 def probe(record):
     if not record or record.get('host') != socket.gethostname():
         return 'unknown'

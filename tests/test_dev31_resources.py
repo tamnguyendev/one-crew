@@ -526,7 +526,7 @@ class EngineLeaseSeam(unittest.TestCase):
         self.assertIsNone(child.poll())
         view = Leases().status('gate')['resources'][0]
         self.assertFalse(view['free'])                                                       # the worker may still run: the lease stays
-        self.assertEqual((view['holders'][0]['pid'], view['holders'][0]['process']), (child.pid, 'alive'))   # liveness moved to the worker
+        self.assertEqual((view['holders'][0]['pid'], view['holders'][0]['process']), (child.pid, 'unknown'))   # liveness moved to the pid-only worker: kept, never 'confirmed alive'
         waiting = engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')
         self.assertEqual(waiting['state'], 'waiting')
         self.assertIn(str(self.ledger.state_root), ' '.join(waiting['reasons']))             # names the holder
@@ -553,7 +553,7 @@ class EngineLeaseSeam(unittest.TestCase):
         self.assertEqual((first['state'], first['executor_state']), ('held', 'paused'))
         view = Leases().status('gate')['resources'][0]
         self.assertFalse(view['free'])                                                       # worker may still run: not released
-        self.assertEqual((view['holders'][0]['pid'], view['holders'][0]['process']), (child.pid, 'alive'))
+        self.assertEqual((view['holders'][0]['pid'], view['holders'][0]['process']), (child.pid, 'unknown'))   # pid-only worker: kept, never 'confirmed alive'
         self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'waiting')
         child.kill(); child.wait(10)
         self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')   # death confirmed: freed
@@ -588,7 +588,7 @@ class EngineLeaseSeam(unittest.TestCase):
         self.assertIn(str(self.ledger.state_root), ' '.join(waiting['reasons']))             # names the holder
         self.assertEqual(other.attempts(), 0)
         view = Leases().status('gate')['resources'][0]
-        self.assertEqual((view['holders'][0]['pid'], view['holders'][0]['process']), (worker, 'alive'))   # liveness moved to the worker
+        self.assertEqual((view['holders'][0]['pid'], view['holders'][0]['process']), (worker, 'unknown'))   # liveness moved to the pid-only worker: kept, never 'confirmed alive'
         subprocess.run(['taskkill', '/F', '/PID', str(worker)], capture_output=True, check=True)
         for _ in range(100):
             if self.alive(worker) == 'dead': break
@@ -766,6 +766,137 @@ class EngineLeaseSeam(unittest.TestCase):
             return b.execute(ledger, control, task, item, attempt)
         self.assertEqual(engine.step(b.ledger, 'P1', b.isolated(show_b), slots=2, _target='A')['state'], 'produced')
         self.assertEqual(seen, {'A': False, 'B': True})
+
+
+class IndependentReviewAbcd7(Base):
+    """The release/keep cells an independent review of abcd7 (8afb653) found wrong: F1-F6, F9 and a rebind without a creation time."""
+
+    def setUp(self):
+        super().setUp()
+        env = mock.patch.dict(os.environ, {'ONECREW_LEASE_HOME': str(self.home)}); env.start(); self.addCleanup(env.stop)
+        Leases(self.home).declare(['gate'])
+        self.sr = Path(self.tmp.name) / 'state'; self.sr.mkdir()
+        self.ledger_root = Path(self.tmp.name) / 'ledger-root'
+
+    def ref(self): return {'state_root': str(self.ledger_root), 'task_id': 'T1', 'unit': 'task:A'}
+
+    def write_ledger(self, rows):
+        import sqlite3
+        self.ledger_root.mkdir(exist_ok=True)
+        db = sqlite3.connect(self.ledger_root / 'ledger.sqlite3')
+        try:
+            db.execute('CREATE TABLE IF NOT EXISTS attempts (id TEXT, task_id TEXT, status TEXT, identity TEXT, operation TEXT, created_at TEXT)')
+            for i, (status, ident) in enumerate(rows):
+                db.execute('INSERT INTO attempts VALUES (?,?,?,?,?,?)', (f'A{i}', 'T1', status, None if ident is None else json.dumps(ident),
+                                                                         json.dumps({'unit': 'task:A'}), f'2026-11-18T00:00:0{i}'))
+            db.commit()
+        finally: db.close()
+
+    def node(self, pid, ref=None):
+        return resource_lease.node_claim(self.sr, 'T1:A:g0', ['gate'], session='s', plan='P', ttl=600, pid=pid, attempt_ref=ref)
+
+    def view(self): return Leases(self.home).status('gate')['resources'][0]
+
+    def test_f1_second_engine_does_not_renew_a_row_rebound_to_a_worker_it_cannot_identify(self):
+        import socket
+        engine1, engine2, worker = self.child(), self.child(), self.child()
+        first = self.node(engine1.pid)
+        resource_lease.node_rebind(self.sr, first['held'], {'pid': worker.pid, 'host': socket.gethostname(), 'unidentified': True})
+        self.kill(engine1)
+        second = self.node(engine2.pid)
+        self.assertEqual((second['status'], second['held']), ('waiting', []))
+        resource_lease.node_release(self.sr, second['held'])                     # what the engine does when reserve fails: frees nothing
+        self.assertFalse(self.view()['free'])
+
+    def test_f2_second_engine_does_not_renew_a_dead_holder_kept_because_its_ledger_cannot_be_read(self):
+        engine1, engine2 = self.child(), self.child()
+        self.node(engine1.pid, self.ref()); self.kill(engine1)                   # ledger-root does not exist: cannot tell, kept
+        self.assertEqual(self.view()['holders'][0]['state'], 'holder_dead_worker_unknown')
+        self.assertEqual(self.node(engine2.pid, self.ref())['status'], 'waiting')
+
+    def contained(self):
+        """A named Job with a top worker and one more member, both running (as a Supervisor launch leaves them)."""
+        import ctypes, uuid
+        from onecrew import process_core
+        job = process_core.Job('onecrew-test-' + uuid.uuid4().hex[:8]); self.addCleanup(job.close)
+        members = []
+        for _ in range(2):
+            proc = subprocess.Popen(SLEEP, creationflags=0x4); self.procs.append(proc); job.assign(proc); members.append(proc)
+            ctypes.WinDLL('ntdll').NtResumeProcess(ctypes.c_void_p(int(proc._handle)))
+        return job, members
+
+    def test_f3_a_contained_tree_with_a_live_member_keeps_the_lease_after_its_top_worker_died(self):
+        from onecrew import process_core
+        engine1 = self.child(); job, (top, member) = self.contained()
+        self.write_ledger([('unknown', {'worker': process_core.identity(top.pid), 'supervisor': process_core.identity(engine1.pid),
+                                        'job_contained': True, 'job_name': job.name, 'session': process_core.session_id()})])
+        Leases(self.home).claim('gate', pid=engine1.pid, attempt_ref=self.ref()); self.kill(engine1); self.kill(top)
+        Leases(self.home).reconcile()
+        self.assertFalse(self.view()['free'])                                    # a member of the attempt's tree still runs
+        self.kill(member)
+        for _ in range(50):
+            if job.counts().active == 0: break
+            time.sleep(.1)
+        Leases(self.home).reconcile()
+        self.assertTrue(self.view()['free'])                                     # the Job shows no active member and the top worker is dead
+
+    def test_f3_engine_finally_keeps_the_lease_for_a_contained_tree_whose_top_worker_died(self):
+        from onecrew import process_core
+        job, (top, member) = self.contained()
+        token = {'worker': process_core.identity(top.pid), 'job_contained': True, 'job_name': job.name, 'session': process_core.session_id()}
+        self.kill(top)
+        self.assertIsNotNone(resource_lease.worker_identity(token))             # E1: the engine rebinds instead of releasing
+        self.kill(member)
+        for _ in range(50):
+            if job.counts().active == 0: break
+            time.sleep(.1)
+        self.assertIsNone(resource_lease.worker_identity(token))
+
+    def test_f4_a_lease_rebound_to_a_worker_is_freed_when_that_worker_dies_even_without_its_ledger(self):
+        from onecrew import process_core
+        engine1, worker = self.child(), self.child()
+        granted = Leases(self.home).claim('gate', pid=engine1.pid, attempt_ref=self.ref())     # ledger-root missing
+        Leases(self.home).rebind('gate', granted['claim'], granted['token'], identity=process_core.identity(worker.pid))
+        self.kill(engine1); self.kill(worker)
+        self.assertEqual(self.view()['holders'][0]['state'], 'dead_unreleased')
+        Leases(self.home).reconcile()
+        self.assertTrue(self.view()['free'])
+
+    def test_f5_a_recorded_creation_time_without_a_host_is_kept_and_an_unrelated_live_pid_is_not_adopted(self):
+        engine1, unrelated = self.child(), self.child()
+        self.write_ledger([('running', {'worker': {'pid': unrelated.pid, 'created': 1}})])
+        Leases(self.home).claim('gate', pid=engine1.pid, attempt_ref=self.ref()); self.kill(engine1)
+        Leases(self.home).reconcile()
+        self.assertTrue(self.view()['free'])                                     # the recorded worker (created 1) is not that process
+
+    def test_f6_a_pid_only_worker_is_kept_but_never_called_running(self):
+        from onecrew.v2 import tracking_host_web
+        engine1, worker = self.child(), self.child()
+        self.write_ledger([('running', {'pid': worker.pid})])
+        Leases(self.home).claim('gate', pid=engine1.pid, attempt_ref=self.ref()); self.kill(engine1)
+        holder = tracking_host_web.shared_resources()['resources'][0]['holders'][0]
+        self.assertEqual(holder['state'], 'holder_dead_worker_unknown'); self.assertNotIn('còn chạy', holder['state_label'])
+        Leases(self.home).reconcile()
+        self.assertEqual((self.view()['free'], self.view()['holders'][0]['process']), (False, 'unknown'))
+        self.kill(worker); Leases(self.home).reconcile()
+        self.assertTrue(self.view()['free'])
+
+    def test_f9_a_lock_left_by_a_dead_owner_without_an_identity_does_not_block_the_store(self):
+        gone = self.child(); pid = gone.pid; self.kill(gone)
+        (self.home / 'leases.lock').write_text(json.dumps({'pid': pid, 'identity': None, 'nonce': 'x'}), encoding='utf-8')
+        began = time.monotonic()
+        self.assertEqual(Leases(self.home).claim('gate', pid=os.getpid())['status'], 'granted')
+        self.assertLess(time.monotonic() - began, 5)
+
+    def test_rebind_given_pid_and_host_only_is_freed_once_that_process_exits(self):
+        import socket
+        worker = self.child()
+        granted = Leases(self.home).claim('gate', pid=os.getpid())
+        Leases(self.home).rebind('gate', granted['claim'], granted['token'], identity={'pid': worker.pid, 'host': socket.gethostname()})
+        self.assertEqual(self.view()['holders'][0]['process'], 'unknown')        # pid only: never "confirmed alive"
+        worker.kill(); worker.wait(10)                                           # exited; the Popen still holds its handle
+        Leases(self.home).reconcile()
+        self.assertTrue(self.view()['free'])
 
 
 class PageSection(Base):

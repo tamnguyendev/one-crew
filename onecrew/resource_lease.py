@@ -42,7 +42,8 @@ MODES = ('write', 'read')
 ALIASES = {'exclusive': 'write', 'heavy': 'write', 'light': 'read', 'shared': 'read'}
 DEFAULT_TTL = 3600
 LOCK_WAIT = 10.0
-LOCK_UNREADABLE_STALE = 300.0   # a lock with no readable owner token is stolen only after this long (a live owner is never judged by age)
+LOCK_UNREADABLE_STALE = 300.0   # a lock with no readable owner token, or an owner without an identity, is stolen only after this long
+                                # (an identified owner is never judged by age; a store operation holds the lock for milliseconds)
 
 
 class Unmanaged(LedgerError):
@@ -108,7 +109,16 @@ class Leases:
         if token is None:
             try: return time.time() - lock.stat().st_mtime > LOCK_UNREADABLE_STALE, None
             except OSError: return False, None
-        try: dead = token.get('identity') is not None and self._probe(token['identity']) == 'dead'
+        if token.get('identity') is None:
+            # an owner whose own identity could not be read (review of abcd7 F9: it blocked the store forever): stale when its pid is
+            # confirmed gone, otherwise only when very old (its pid may have been reused)
+            from .process_core import exists
+            try:
+                if isinstance(token.get('pid'), int) and exists(token['pid']) == 'dead': return True, token
+            except Exception: pass
+            try: return time.time() - lock.stat().st_mtime > LOCK_UNREADABLE_STALE, token
+            except OSError: return False, token
+        try: dead = self._probe(token['identity']) == 'dead'
         except Exception: dead = False
         return dead, token
 
@@ -184,10 +194,17 @@ class Leases:
     # --- state of one holder ---------------------------------------------------------------------------------------------
     def _alive(self, who):
         ident = who.get('identity')
-        if isinstance(ident, dict) and ident.get('unidentified'):
-            return self._unidentified(ident)
-        try: return self._probe(ident)
+        if isinstance(ident, dict) and ident.get('job_name'):
+            # a contained worker (independent review of abcd7 F3/E1): its whole process tree, not only the top process
+            from .process_core import tree_state
+            try: return tree_state(ident)
+            except Exception: return 'unknown'
+        if isinstance(ident, dict) and (ident.get('unidentified') or (ident.get('pid') is not None and ident.get('created') is None)):
+            return self._unidentified(ident)          # no creation time (an unidentified marker, or a rebind given {pid, host}): pid only
+        try: state = self._probe(ident)
         except Exception: return 'unknown'
+        # a pid-only record identified later describes whoever owns that pid now: never "confirmed alive" (review of abcd7 F6)
+        return 'unknown' if state == 'alive' and isinstance(ident, dict) and ident.get('pid_only') else state
 
     @staticmethod
     def _unidentified(ident):
@@ -204,7 +221,7 @@ class Leases:
         expired = self.clock() >= _stamp(holder['until'])
         if proc == 'dead':
             state = 'dead_unreleased'
-            if isinstance(holder.get('attempt_ref'), dict):
+            if isinstance(holder.get('attempt_ref'), dict) and holder.get('bound_to') != 'worker':
                 worker = self._attempt_worker(holder)       # read-only: what the next reconcile would do with this row
                 if worker == 'unknown' or (isinstance(worker, dict) and worker.get('unidentified')): state = 'holder_dead_worker_unknown'
                 elif worker is not None:
@@ -230,12 +247,14 @@ class Leases:
             keep = []
             for row in entry[who]:
                 if self._alive(row) == 'dead':
-                    worker = self._attempt_worker(row) if who == 'holders' else None
+                    # a row already bound to the worker (rebound here or by the engine) names the protected process itself: its confirmed
+                    # death frees it, with no ledger lookup (independent review of abcd7 F4: kept forever when the ledger had moved)
+                    worker = self._attempt_worker(row) if who == 'holders' and row.get('bound_to') != 'worker' else None
                     if worker is not None:
                         # the engine that held this claim died, but the worker its attempt launched still runs: the lease moves to the
                         # worker (never freed on doubt: a failed lookup answers 'unknown' and the row is kept as it is)
                         if worker != 'unknown':
-                            row['pid'] = int(worker['pid']); row['identity'] = worker
+                            row['pid'] = int(worker['pid']); row['identity'] = worker; row['bound_to'] = 'worker'
                             self._log('rebound', key, claim=row['claim'], session=row.get('session'), plan=row.get('plan'), pid=row['pid'],
                                       note='the holder died; the live worker of its launched attempt keeps the lease')
                             changed = True
@@ -263,7 +282,8 @@ class Leases:
             import sqlite3
             db = Path(ref['state_root']) / 'ledger.sqlite3'
             if not db.is_file(): return 'unknown'
-            conn = sqlite3.connect(db.resolve().as_uri() + '?mode=ro', uri=True, timeout=5)
+            # short: this runs inside the store lock (LOCK_WAIT); a busy ledger answers 'unknown' and the row is kept (review of abcd7 F8)
+            conn = sqlite3.connect(db.resolve().as_uri() + '?mode=ro', uri=True, timeout=1)
             try:
                 found = conn.execute("SELECT identity FROM attempts WHERE task_id=? AND status IN ('running','unknown') AND identity IS NOT NULL "
                                      "AND json_extract(operation,'$.unit')=? ORDER BY created_at DESC LIMIT 1", (ref['task_id'], ref['unit'])).fetchone()
@@ -271,8 +291,7 @@ class Leases:
             if not found: return None
             worker = worker_identity(json.loads(found[0]))
             if worker is None: return None
-            if worker.get('unidentified'): return None if self._unidentified(worker) == 'dead' else worker   # cannot tell: kept
-            return worker if self._alive({'identity': worker}) != 'dead' else None
+            return worker if self._alive({'identity': worker}) != 'dead' else None   # unidentified / job tree / pid-only: cannot tell keeps
         except Exception:
             return 'unknown'
 
@@ -304,9 +323,13 @@ class Leases:
                 except Exception: my_identity = None
                 theirs = mine.get('identity')
                 other = mine.get('pid') != me or (theirs is not None and my_identity is not None and theirs != my_identity)
-                if other and self._alive(mine) == 'alive':
+                # the row survived the reconcile above, so whatever process it names is alive, cannot be told, or is dead but kept for
+                # the worker of its attempt: in every case it is someone else's, and renewing it would hand that lease to this step
+                # (independent review of abcd7 F1/F2: an 'unknown' or dead-but-kept row was renewed, then freed by this step's release)
+                if other:
                     return {'status': 'waiting', 'claim': claim_id, 'resource': key, 'mode': mine['mode'], 'foreign_holder': mine.get('pid'),
-                            'reason': f'{key!r} is held by another engine step of this node (pid {mine.get("pid")}); nothing was changed'}
+                            'reason': f'{key!r} is held by another engine step of this node or its worker (pid {mine.get("pid")}, process '
+                                      f'{self._alive(mine)}); nothing was changed'}
             if mine:
                 self._require_token(mine, token, 'Renewal')
                 if mine['mode'] != mode:
@@ -368,7 +391,7 @@ class Leases:
             self._require_token(row, token, 'Rebind')
             if identity is None: identity = self._identity(int(pid))
             if not isinstance(identity, dict) or identity.get('pid') is None: raise LedgerError('Rebind refused: no process identity; nothing was changed.')
-            row['pid'] = int(identity['pid']); row['identity'] = identity
+            row['pid'] = int(identity['pid']); row['identity'] = identity; row['bound_to'] = 'worker'
             self._log('rebound', key, claim=claim_id, session=row.get('session'), plan=row.get('plan'), pid=row['pid'],
                       note='liveness moved to the worker of an unsettled attempt; freed only when its death is confirmed')
             data['resources'][key] = entry; self._save(data)
@@ -496,15 +519,30 @@ def worker_identity(recorded):
     if not isinstance(recorded, dict): return None
     rec = recorded.get('worker') if isinstance(recorded.get('worker'), dict) else recorded
     if not isinstance(rec.get('pid'), int): return None
-    from .process_core import exists, identity, probe
+    from .process_core import exists, identity, probe, tree_state
     import socket
-    if rec.get('host') and rec['host'] != socket.gethostname():
+    here = socket.gethostname()
+    if rec.get('host') and rec['host'] != here:
         # a worker recorded on another machine: this machine cannot see it, so the absence of its pid here proves nothing; kept as it
         # was recorded (a full identity probes 'unknown'), or as an unidentified marker when its creation time is missing (also 'unknown')
         if rec.get('created') is not None: return dict(rec)
         return {'pid': rec['pid'], 'host': rec['host'], 'unidentified': True}
+    if recorded.get('job_contained') and recorded.get('job_name') and rec.get('created') is not None:
+        # a Supervisor launch: the lease protects the whole contained tree, not only its top process (independent review of abcd7 F3/E1:
+        # the top worker dead while the attempt's Job still had live members freed the lease)
+        tracked = {'pid': rec['pid'], 'created': rec['created'], 'host': rec.get('host') or here, 'job_name': recorded['job_name'],
+                   'session': recorded.get('session'), 'uptime_ms': recorded.get('uptime_ms')}
+        try: return None if tree_state(tracked) == 'dead' else tracked
+        except Exception: return tracked                                        # cannot tell: kept
+    if rec.get('created') is not None:
+        # the recorded creation time is the identity; a missing host means this machine (review of abcd7 F5: it was re-read from
+        # whatever owns the pid now)
+        rec = dict(rec, host=rec.get('host') or here)
+        try: return rec if probe(rec) != 'dead' else None
+        except Exception: return rec                                            # cannot tell: kept
     try:
-        if rec.get('created') is None or not rec.get('host'): rec = identity(rec['pid'])
+        # pid only: identified now, so a later pid reuse is told apart; marked so it is never called confirmed alive (review F6)
+        rec = dict(identity(rec['pid']), pid_only=True)
         return rec if probe(rec) != 'dead' else None
     except Exception:
         # the identity could not be read: only a confirmed absence frees; anything else keeps (an unidentified marker the caller holds)
