@@ -514,6 +514,56 @@ class EngineLeaseSeam(unittest.TestCase):
         self.assertEqual(out['state'], 'held')
         self.assertEqual(Leases().status('gate')['resources'][0]['holders'], [])
 
+    def test_unsettled_attempt_after_launch_keeps_the_lease_until_the_worker_is_dead(self):
+        Leases().declare(['gate'])
+        other = self.second_root()
+        child = subprocess.Popen(SLEEP); self.addCleanup(lambda: child.poll() is None and (child.kill(), child.wait(10)))
+        def lose_contact(ledger, control, task, item, attempt):
+            control.launched(attempt['id'], attempt['generation'], {'pid': child.pid})
+            raise RuntimeError('lab: executor lost contact after launch')
+        first = engine.step(self.ledger, 'P1', self.isolated(lose_contact), slots=2, _target='A')
+        self.assertEqual(first['state'], 'held')
+        self.assertIsNone(child.poll())
+        view = Leases().status('gate')['resources'][0]
+        self.assertFalse(view['free'])                                                       # the worker may still run: the lease stays
+        self.assertEqual((view['holders'][0]['pid'], view['holders'][0]['process']), (child.pid, 'alive'))   # liveness moved to the worker
+        waiting = engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')
+        self.assertEqual(waiting['state'], 'waiting')
+        self.assertIn(str(self.ledger.state_root), ' '.join(waiting['reasons']))             # names the holder
+        self.assertEqual(other.attempts(), 0)
+        child.kill(); child.wait(10)                                                         # the worker's death is confirmed
+        launched = engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')   # the claim's own reconcile frees it
+        self.assertEqual(launched['state'], 'produced')
+        self.assertTrue(any(e['event'] == 'released_after_death' for e in Leases().events('gate')))
+
+    def test_managed_paused_with_a_live_worker_keeps_the_lease_and_a_dead_one_releases(self):
+        Leases().declare(['gate'])
+        child = subprocess.Popen(SLEEP); self.addCleanup(lambda: child.poll() is None and (child.kill(), child.wait(10)))
+        case = self
+        def paused_executor(worker_pid):
+            def run(ledger, control, task, item, attempt):
+                control.launched(attempt['id'], attempt['generation'], {'pid': worker_pid})
+                out = {'artifact': case.store.blob(b'art'), 'receipt': case.store.blob(b'rec')}
+                control.finish(attempt['id'], attempt['generation'], {'fixture': True, 'artifact': out['artifact']}); return out
+            executor = self.isolated(run)
+            executor.state = lambda attempt_id: {'state': 'paused', 'text': 'lab: paused by the owner'}
+            return executor
+        other = self.second_root()
+        first = engine.step(self.ledger, 'P1', paused_executor(child.pid), slots=2, _target='A')
+        self.assertEqual((first['state'], first['executor_state']), ('held', 'paused'))
+        view = Leases().status('gate')['resources'][0]
+        self.assertFalse(view['free'])                                                       # worker may still run: not released
+        self.assertEqual((view['holders'][0]['pid'], view['holders'][0]['process']), (child.pid, 'alive'))
+        self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'waiting')
+        child.kill(); child.wait(10)
+        self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')   # death confirmed: freed
+        self.assertTrue(Leases().status('gate')['resources'][0]['free'])                     # the second root settled and released
+
+    def test_a_settled_attempt_releases_the_lease(self):
+        Leases().declare(['gate'])
+        self.assertEqual(engine.step(self.ledger, 'P1', self.isolated(), slots=2, _target='A')['state'], 'produced')
+        self.assertTrue(Leases().status('gate')['resources'][0]['free'])
+
 
 class PageSection(Base):
     """DEV31 on the tracking PAGE: the machine leases the CLI shows (`python -m onecrew.resource_lease status`) are in the page's JSON and drawn by the page script."""
@@ -660,13 +710,45 @@ class PageSection(Base):
         self.declared('gate', 'emulator')
         a, b = self.child(), self.child()
         store = Leases(self.home)
-        store.claim('gate', session='s1', plan='plan-A', pid=a.pid, ttl=self.LONG)
-        store.claim('emulator', session='s2', plan='plan-B', pid=b.pid, ttl=self.LONG)
-        data = self.web.shared_resources()
+        store.claim('gate', session='s1', plan='plan-A', state_root='D:/root', pid=a.pid, ttl=self.LONG)
+        store.claim('emulator', session='s2', plan='plan-B', state_root='D:/root', pid=b.pid, ttl=self.LONG)
+        data = self.web.shared_resources('D:\\Root\\')                                      # the page's own state root (normalized by the script)
         mine = self.need_node().run('hostPlanPanel({project:"D:/x",plan:"plan:plan-A"})', '\nlast={shared_resources:' + json.dumps(data) + '};')
         self.assertIn('gate', mine)
         self.assertNotIn('emulator', mine)
         self.assertEqual(self.need_node().run('hostPlanPanel({project:"D:/x",plan:"nobody"})', '\nlast={shared_resources:' + json.dumps(data) + '};'), '')
+
+    def test_plan_card_shows_only_leases_of_its_own_state_root_not_a_same_named_plan_elsewhere(self):
+        self.declared('gate', 'only-b', 'anon')
+        a, b, c = self.child(), self.child(), self.child()
+        store = Leases(self.home)
+        store.claim('gate', session='sB', plan='P1', state_root='D:/stateB', pid=b.pid, ttl=self.LONG)        # B/P1 holds
+        store.claim('gate', session='sA', plan='P1', state_root='D:/stateA', pid=a.pid, ttl=self.LONG)        # A/P1 waits
+        store.claim('only-b', session='sB2', plan='P1', state_root='D:/stateB', pid=c.pid, ttl=self.LONG)
+        store.claim('anon', session='sX', plan='P1', pid=c.pid, ttl=self.LONG)                              # no state root: owner unknown
+        call = 'hostPlanPanel({project:"projA",plan:"plan:P1"})'
+        card_a = self.need_node().run(call, '\nlast={shared_resources:' + json.dumps(self.web.shared_resources('D:/stateA')) + '};')
+        self.assertIn('data-resource="gate"', card_a)
+        self.assertIn('data-res-role="waiter"', card_a)
+        self.assertNotIn('data-res-role="holder"', card_a)                                   # B's holder row is not A's
+        self.assertNotIn('stateB', card_a)
+        self.assertNotIn('only-b', card_a)
+        self.assertNotIn('anon', card_a)                                                      # a row with no state root is never on a card
+        card_b = self.need_node().run(call, '\nlast={shared_resources:' + json.dumps(self.web.shared_resources('D:/stateB')) + '};')
+        self.assertIn('data-res-role="holder"', card_b)
+        self.assertNotIn('data-res-role="waiter"', card_b)
+        self.assertIn('only-b', card_b)
+        self.assertNotIn('stateA', card_b)
+        overview = self.js('resSectionHtml()', self.web.shared_resources('D:/stateA'))        # the machine-wide overview still shows everything
+        for wanted in ('stateA', 'stateB', 'only-b', 'anon'): self.assertIn(wanted, overview)
+
+    def test_codex_probe_foreign_resource_is_not_shown_on_a_card_of_another_root(self):
+        shared = {'resources': [{'resource': 'only-B', 'holders': [{'plan': 'P1', 'state_root': 'stateB'}], 'waiters': []}], 'page_state_root': 'stateA'}
+        page = self.need_node().run('hostPlanPanel({project:"projA",plan:"plan:P1"})', '\nlast={shared_resources:' + json.dumps(shared) + '};')
+        self.assertNotIn('only-B', page)
+        shared.pop('page_state_root')                                                        # a page that does not know its root shows nothing either
+        page = self.need_node().run('hostPlanPanel({project:"projA",plan:"plan:P1"})', '\nlast={shared_resources:' + json.dumps(shared) + '};')
+        self.assertNotIn('only-B', page)
 
     def test_served_page_has_the_section_and_the_overview_json_carries_the_leases(self):
         self.declared('gate')

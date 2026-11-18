@@ -300,6 +300,24 @@ class Leases:
                     return {'status': label, 'claim': claim_id}
             raise LedgerError(f'{claim_id} holds nothing on {key!r}; only the holder releases (a lease is never freed by expiry).')
 
+    def rebind(self, resource, claim_id, token, pid=None, identity=None):
+        """The holder (with its token) moves the liveness of its claim to another process, e.g. the worker an unsettled attempt
+        launched. The token stays private and unchanged; only the pid and its creation-time identity change. The claim is then
+        freed by `reconcile` only when THAT process's death is confirmed (or by the holder's explicit release)."""
+        key = self._key(resource)
+        with self._locked():
+            data = self._load(); entry = data['resources'].get(key) or {'holders': [], 'waiters': []}
+            row = next((r for r in entry['holders'] if r['claim'] == claim_id), None)
+            if row is None: raise LedgerError(f'{claim_id} holds nothing on {key!r}; nothing was rebound.')
+            self._require_token(row, token, 'Rebind')
+            if identity is None: identity = self._identity(int(pid))
+            if not isinstance(identity, dict) or identity.get('pid') is None: raise LedgerError('Rebind refused: no process identity; nothing was changed.')
+            row['pid'] = int(identity['pid']); row['identity'] = identity
+            self._log('rebound', key, claim=claim_id, session=row.get('session'), plan=row.get('plan'), pid=row['pid'],
+                      note='liveness moved to the worker of an unsettled attempt; freed only when its death is confirmed')
+            data['resources'][key] = entry; self._save(data)
+            return {'status': 'rebound', 'claim': claim_id, 'pid': row['pid']}
+
     # --- view ------------------------------------------------------------------------------------------------------------
     @staticmethod
     def _who(row):
@@ -411,6 +429,33 @@ def node_release(state_root, held):
             leases.release(name, claim_id, token)
         with contextlib.suppress(OSError):
             _claim_file(state_root, claim_id).unlink()
+
+
+def worker_identity(recorded):
+    """The live worker an attempt recorded with Control.launched (`recorded` = the decoded identity): its `worker` identity, else the
+    record itself when it names a pid. A record without a creation time gets one from the running process now. Returns None when no
+    worker was recorded or it is not alive (then nothing is left to protect)."""
+    if not isinstance(recorded, dict): return None
+    rec = recorded.get('worker') if isinstance(recorded.get('worker'), dict) else recorded
+    if not isinstance(rec.get('pid'), int): return None
+    from .process_core import identity, probe
+    try:
+        if rec.get('created') is None or not rec.get('host'): rec = identity(rec['pid'])
+        return rec if probe(rec) != 'dead' else None
+    except Exception:
+        return None
+
+
+def node_rebind(state_root, held, worker):
+    """An attempt ended UNSETTLED after launching `worker` (identity record): keep its claims and move their liveness to the worker.
+    The token stays in `<state_root>/lease-claims/`. Returns True when the claims are kept (also when a rebind itself failed: a held
+    claim is never given back while the worker may live; the engine's own death or the worker's still frees it by reconcile)."""
+    if not held or not worker: return False
+    leases = Leases()
+    for name, claim_id, token in held:
+        with contextlib.suppress(LedgerError):
+            leases.rebind(name, claim_id, token, identity=worker)
+    return True
 
 
 def main(argv=None):

@@ -75,11 +75,12 @@ def _who(row, **more):
     return out
 
 
-def shared_resources():
+def shared_resources(page_state_root=None):
     """Every declared resource: free or held, holders (plan, session, state root, since, until, state) and waiters with position.
     Nothing is created: without a lease home with managed.json this answers "chưa khai báo" and stops."""
     base = _lease_home()
-    out = {'kind': 'onecrew-page-resources', 'read_only': True, 'note': LEASE_NOTE, 'home': str(base), 'declared': False, 'resources': [], 'error': None}
+    out = {'kind': 'onecrew-page-resources', 'read_only': True, 'note': LEASE_NOTE, 'home': str(base), 'declared': False, 'resources': [], 'error': None,
+           'page_state_root': str(page_state_root) if page_state_root else None}      # the state root this page reads: a task card shows only leases of THIS root
     try:
         if not (base / 'managed.json').is_file():
             out['empty_note'] = 'chưa khai báo tài nguyên dùng chung nào trên máy này (không có managed.json); trang không tạo gì'
@@ -104,10 +105,10 @@ def shared_resources():
     return out
 
 
-def attach(overview):
+def attach(overview, state_root=None):
     """Add `host_work` and `shared_resources` to an overview/list-page model of the server (in place) and return it."""
     overview['host_work'] = host_work(overview)
-    overview['shared_resources'] = shared_resources()
+    overview['shared_resources'] = shared_resources(state_root)
     return overview
 
 
@@ -152,10 +153,13 @@ function hostSectionHtml(path){var hw=(last&&last.host_work)||null;if(!hw)return
   ps.forEach(function(p){h+='<div class="host-proj" data-host-project="'+esc(p.path)+'"><h4 title="'+esc(p.path)+'">'+esc(short(p.path))+'</h4>'+(p.error?'<p class="err">Không đọc được việc nền của project này: '+esc(p.error)+'. Không coi là không có.</p>':hostViewHtml(p.view||{}))+'</div>'});
   if(hw.projects_not_read)h+='<p class="work-meta">'+esc(hw.projects_not_read)+' project nữa chưa đọc (giới hạn). Lọc theo Dự án để xem.</p>';
   return h}
+function resRootKey(p){return p?String(p).replace(/\\/g,'/').replace(/\/+$/,'').toLowerCase():''}   // a row with no state root has no key: it never lands on a task card
 function hostPlanPanel(d){var hw=(last&&last.host_work)||null,rs=(last&&last.shared_resources)||null,h='';
   if(hw){var p=hostProjects(d.project)[0];h+='<section class="hostplan" id="hostplan" data-k="hostplan" aria-label="Việc nền của host"><h3>Việc nền của host gắn với việc này</h3>'
     +(!p?'<p class="work-empty">Chưa đọc được việc nền của project này.</p>':p.error?'<p class="err">Không đọc được: '+esc(p.error)+'</p>':hostViewHtml(p.view||{},d.plan))+'</section>'}
-  if(rs&&(rs.resources||[]).length){var mine=rs.resources.filter(function(r){return (r.holders||[]).concat(r.waiters||[]).some(function(x){return x.plan&&hostPlanKey(x.plan)===hostPlanKey(d.plan)})});
+  if(rs&&(rs.resources||[]).length){var root=resRootKey(rs.page_state_root),own=function(x){return x.plan&&hostPlanKey(x.plan)===hostPlanKey(d.plan)&&resRootKey(x.state_root)===root},
+      mine=root?rs.resources.filter(function(r){return (r.holders||[]).concat(r.waiters||[]).some(own)}):[];
+    mine=mine.map(function(r){return Object.assign({},r,{holders:(r.holders||[]).filter(own),waiters:(r.waiters||[]).filter(own)})});
     if(mine.length)h+='<section class="hostplan" id="resplan" aria-label="Tài nguyên dùng chung"><h3>Tài nguyên dùng chung mà việc này giữ hoặc chờ</h3>'+mine.map(resItemHtml).join('')+'</section>'}
   return h}
 function resRow(x,waiter){return '<div class="res-row" data-res-role="'+(waiter?'waiter':'holder')+'">'+(waiter?'Chờ, vị trí <b>'+esc(x.position)+'</b>: ':'Giữ: ')+'kế hoạch '+esc(x.plan||'chưa rõ')+' · phiên '+esc(x.session||'chưa rõ')+' · sổ '+esc(x.state_root||'chưa rõ')+' · pid '+esc(x.pid==null?'chưa rõ':x.pid)+' · '+esc(x.mode_label||x.mode)

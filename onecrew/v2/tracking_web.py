@@ -179,7 +179,7 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
                     else:
                         value = tracking.overview(state_root, project_id=scope)
                     stats['last_read_ms'] = round((time.perf_counter() - started) * 1000, 1)
-                    tracking_host_web.attach(value)                         # DEV31: host background work + machine leases, read-only, in the same JSON the page reads
+                    tracking_host_web.attach(value, state_root)                        # DEV31: host background work + machine leases, read-only, in the same JSON the page reads
                     value['server'] = {'pid': os.getpid(), 'instance': identity['instance'], 'version': identity['version'], 'read_ms': stats['last_read_ms'],
                                        'poll_seconds': interval, 'started_at': stats['started_at'], 'requests': stats['requests'], 'project_id': project_id}
                     return self._send(HTTPStatus.OK, value)

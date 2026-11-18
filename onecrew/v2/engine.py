@@ -992,6 +992,7 @@ def _step(ledger, selector, executor, *, control=None, slots=1, _target=None, _s
         # a second time: one attempt has exactly one executor body; the owner of the attempt (or reconciliation) settles it.
         return {'node': nid, 'state': 'waiting', 'attempt': attempt['id'], 'attempt_status': attempt['status'],
                 'reason': 'Attempt already admitted by another caller; one executor body per attempt, reconcile instead of re-running.'}
+    live_worker = None       # DEV31-C: set when the attempt ends UNSETTLED after a launch (its worker may still run): the lease is kept for it
     try:
         if hasattr(executor, 'declaration'):
             produced = executors.Dispatcher().send(executor, 'start', ledger, control, task, item, attempt)
@@ -1012,6 +1013,7 @@ def _step(ledger, selector, executor, *, control=None, slots=1, _target=None, _s
         if callable(getattr(executor,'state',None)):
             execution_state=executor.state(attempt['id'])
             if execution_state['state'] in ('paused','pause_requested','stopped','stop_requested','unknown'):
+                if held_leases: live_worker = resource_lease.worker_identity(_row_json(observed, 'identity'))   # a worker that may still run keeps the lease
                 with ledger.transaction(write=True) as conn:
                     current=state(ledger,root['selector'],conn)
                     if _publication_current(current,view,nid):
@@ -1078,6 +1080,7 @@ def _step(ledger, selector, executor, *, control=None, slots=1, _target=None, _s
                     failure['stderr'] = process_result.get('stderr')
         lost = False
         if observed['status'] != 'settled':
+            if held_leases: live_worker = resource_lease.worker_identity(_row_json(observed, 'identity'))
             control.unknown(attempt['id'], str(error)[:1000])
         elif _row_json(observed, 'result').get('reason') in RECOVERED:
             # 2.3-B: recovery settled this attempt while this controller was hung; whoever observes it first applies the same takeover.
@@ -1093,7 +1096,10 @@ def _step(ledger, selector, executor, *, control=None, slots=1, _target=None, _s
                 _retain(ledger, conn, view, nid, str(error)[:1000], attempt=attempt['id'])
         return {'node': nid, 'state': 'retained' if lost else 'held', 'reason': failure.get('reason', str(error))}
     finally:
-        resource_lease.node_release(ledger.state_root, held_leases)       # the attempt is over (settled, failed or cancelled)
+        # settled, failed before launch or cancelled: give the lease back. Unsettled after a launch: the worker may still run, so the
+        # lease stays and its liveness moves to that worker; it is freed only when the worker's death is confirmed (reconcile).
+        if not (live_worker and resource_lease.node_rebind(ledger.state_root, held_leases, live_worker)):
+            resource_lease.node_release(ledger.state_root, held_leases)
     with ledger.transaction(write=True) as conn:
         current = state(ledger, root['selector'], conn)
         mine = current['nodes'].get(nid) or {}
