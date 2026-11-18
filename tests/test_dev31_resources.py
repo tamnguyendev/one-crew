@@ -616,6 +616,76 @@ class EngineLeaseSeam(unittest.TestCase):
             self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'waiting')
         self.assertFalse(Leases().status('gate')['resources'][0]['free'])
 
+    def blind_identity(self, pid):
+        """process_core.identity fails for `pid` (as when OpenProcess/GetProcessTimes is refused), works for any other pid."""
+        from onecrew import process_core
+        original = process_core.identity
+        def maybe(target):
+            if target == pid: raise LedgerError('Process identity unavailable.')
+            return original(target)
+        return mock.patch.object(process_core, 'identity', side_effect=maybe)
+
+    def test_pid_only_worker_whose_identity_cannot_be_read_keeps_the_lease_until_it_is_dead(self):
+        """Codex dev31 round 6 P2: "cannot tell" keeps, only a confirmed death frees."""
+        Leases().declare(['gate'])
+        other = self.second_root()
+        lab = Path(self.temp.name) / 'lab'; lab.mkdir()
+        proc = subprocess.run([sys.executable, '-m', 'tests.test_dev31_resources', 'controller', str(self.root), str(self.ledger.state_root), str(lab)],
+                              capture_output=True, timeout=90, env=dict(os.environ), cwd=str(Path(__file__).resolve().parents[1]))
+        self.assertEqual(proc.returncode, 45, proc.stderr.decode('utf-8', 'replace'))
+        worker = int((lab / 'worker.pid').read_text())
+        self.addCleanup(lambda: subprocess.run(['taskkill', '/F', '/PID', str(worker)], capture_output=True))
+        with self.blind_identity(worker):
+            waiting = engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')
+            self.assertEqual(waiting['state'], 'waiting')                                    # the worker lives: kept although unidentified
+            self.assertEqual(other.attempts(), 0)
+            view = Leases().status('gate')['resources'][0]
+            self.assertFalse(view['free'])
+            self.assertEqual(view['holders'][0]['pid'], worker)
+            self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'waiting')   # and again
+            subprocess.run(['taskkill', '/F', '/PID', str(worker)], capture_output=True, check=True)
+            for _ in range(100):
+                if self.alive(worker) == 'dead': break
+                time.sleep(.1)
+            self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')   # exists() says dead
+        self.assertTrue(any(e['event'] == 'released_after_death' for e in Leases().events('gate')))
+
+    @staticmethod
+    def finished_pid():
+        """The pid of a process that has exited and whose handle nobody holds (a Popen kept alive keeps the dead process visible)."""
+        return int(subprocess.run([sys.executable, '-c', 'import os;print(os.getpid())'], capture_output=True, check=True).stdout)
+
+    def test_missing_ledger_keeps_the_row_and_the_page_does_not_promise_a_release(self):
+        from onecrew.v2 import tracking_host_web
+        leases = Leases(); leases.declare(['gate'])
+        short = subprocess.Popen(SLEEP)
+        try:
+            leases.claim('gate', pid=short.pid, session='S', plan='P1', state_root=str(self.ledger.state_root),
+                         attempt_ref={'state_root': str(Path(self.temp.name) / 'absent'), 'task_id': 'T', 'unit': 'task:A'})
+        finally: short.kill(); short.wait(10)
+        for _ in range(2): leases.reconcile()
+        row = next(r for r in tracking_host_web.shared_resources(str(self.ledger.state_root))['resources'] if r['resource'] == 'gate')
+        self.assertFalse(row['free'])
+        holder = row['holders'][0]
+        self.assertEqual(holder['state'], 'holder_dead_worker_unknown')
+        self.assertNotIn('sẽ nhả', holder['state_label']); self.assertIn('vẫn giữ', holder['state_label'])
+        self.assertNotIn('sẽ nhả', ' '.join(tracking_host_web.STATE_LABELS[k] for k in ('holder_dead_worker_unknown', 'holder_dead_worker_alive')))
+
+    def test_exists_says_alive_for_this_process_and_dead_for_a_finished_child(self):
+        from onecrew.process_core import exists
+        self.assertEqual(exists(os.getpid()), 'alive')
+        self.assertEqual(exists(self.finished_pid()), 'dead')
+
+    def test_worker_identity_markers(self):
+        from onecrew.resource_lease import worker_identity
+        self.assertIsNone(worker_identity({}))                                                # nothing recorded: nothing to protect
+        with self.blind_identity(os.getpid()):
+            marker = worker_identity({'pid': os.getpid()})
+        self.assertEqual((marker['pid'], marker.get('unidentified')), (os.getpid(), True))   # cannot tell: kept
+        gone = self.finished_pid()
+        with self.blind_identity(gone):
+            self.assertIsNone(worker_identity({'pid': gone}))                            # confirmed dead: freed
+
     def alive(self, pid):
         from onecrew.process_core import identity, probe
         try: return probe(identity(pid))

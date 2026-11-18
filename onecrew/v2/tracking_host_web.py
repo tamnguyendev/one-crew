@@ -24,7 +24,10 @@ LEASE_NOTE = ('Khóa dùng chung của máy (mọi phiên, plan và sổ). Chỉ
               'không tự nhả; khóa chỉ được nhả khi bên giữ nhả, hoặc khi tiến trình của bên giữ đã chết được xác nhận.')
 STATE_LABELS = {'held': 'đang giữ', 'expired_holder_alive': 'quá hạn nhưng tiến trình còn sống: vẫn giữ',
                 'held_holder_unknown': 'đang giữ, chưa kiểm được tiến trình', 'expired_holder_unknown': 'quá hạn, chưa kiểm được tiến trình: vẫn giữ',
-                'dead_unreleased': 'tiến trình đã chết, chưa nhả (sẽ nhả khi đối chiếu)'}
+                'dead_unreleased': 'tiến trình đã chết, chưa nhả (sẽ nhả khi đối chiếu)',
+                'holder_dead_worker_alive': 'tiến trình điều phối đã dừng; worker của lượt chạy còn chạy — khóa chuyển sang worker và vẫn giữ',
+                'holder_dead_worker_unknown': 'tiến trình điều phối đã dừng; chưa xác định được worker hoặc sổ của lượt chạy — vẫn giữ; '
+                                              'kiểm tra đường dẫn sổ (state root) và tiến trình worker'}
 MODE_LABELS = {'write': 'độc quyền (nặng)', 'read': 'dùng chung (nhẹ)'}
 WHO_FIELDS = ('claim', 'mode', 'session', 'plan', 'state_root', 'project_id', 'project', 'pid', 'since', 'until', 'process')
 

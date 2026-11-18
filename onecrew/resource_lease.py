@@ -183,13 +183,31 @@ class Leases:
 
     # --- state of one holder ---------------------------------------------------------------------------------------------
     def _alive(self, who):
-        try: return self._probe(who.get('identity'))
+        ident = who.get('identity')
+        if isinstance(ident, dict) and ident.get('unidentified'):
+            return self._unidentified(ident)
+        try: return self._probe(ident)
+        except Exception: return 'unknown'
+
+    @staticmethod
+    def _unidentified(ident):
+        """A worker whose creation time could not be read: only the pid is known, so only 'no such process' is a confirmed death
+        ('dead' frees); a process that answers cannot be proven to be the same one, so it is never called alive either ('unknown' keeps)."""
+        import socket
+        from .process_core import exists
+        if ident.get('host') != socket.gethostname(): return 'unknown'
+        try: return 'dead' if exists(ident['pid']) == 'dead' else 'unknown'
         except Exception: return 'unknown'
 
     def _state(self, holder):
         proc = self._alive(holder)
         expired = self.clock() >= _stamp(holder['until'])
-        if proc == 'dead': state = 'dead_unreleased'
+        if proc == 'dead':
+            state = 'dead_unreleased'
+            if isinstance(holder.get('attempt_ref'), dict):
+                worker = self._attempt_worker(holder)       # read-only: what the next reconcile would do with this row
+                if worker == 'unknown' or (isinstance(worker, dict) and worker.get('unidentified')): state = 'holder_dead_worker_unknown'
+                elif worker is not None: state = 'holder_dead_worker_alive'
         elif proc == 'alive': state = 'expired_holder_alive' if expired else 'held'
         else: state = 'expired_holder_unknown' if expired else 'held_holder_unknown'
         return proc, state
@@ -251,6 +269,7 @@ class Leases:
             if not found: return None
             worker = worker_identity(json.loads(found[0]))
             if worker is None: return None
+            if worker.get('unidentified'): return None if self._unidentified(worker) == 'dead' else worker   # cannot tell: kept
             return worker if self._alive({'identity': worker}) != 'dead' else None
         except Exception:
             return 'unknown'
@@ -475,12 +494,17 @@ def worker_identity(recorded):
     if not isinstance(recorded, dict): return None
     rec = recorded.get('worker') if isinstance(recorded.get('worker'), dict) else recorded
     if not isinstance(rec.get('pid'), int): return None
-    from .process_core import identity, probe
+    from .process_core import exists, identity, probe
+    import socket
     try:
         if rec.get('created') is None or not rec.get('host'): rec = identity(rec['pid'])
         return rec if probe(rec) != 'dead' else None
     except Exception:
-        return None
+        # the identity could not be read: only a confirmed absence frees; anything else keeps (an unidentified marker the caller holds)
+        try:
+            if exists(rec['pid']) == 'dead': return None
+        except Exception: pass
+        return {'pid': rec['pid'], 'host': rec.get('host') or socket.gethostname(), 'unidentified': True}
 
 
 def node_rebind(state_root, held, worker):

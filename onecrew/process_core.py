@@ -177,6 +177,18 @@ def identity(pid):
         api.CloseHandle(handle)
 
 
+def exists(pid):
+    """Read-only lookup by pid alone (no creation time needed): 'dead' when no such process exists (ERROR_INVALID_PARAMETER), 'alive' when it
+    opens, 'unknown' for any other failure (access denied ...). Used when an identity cannot be read: dead frees, anything else keeps."""
+    api = kernel()
+    ctypes.set_last_error(0)
+    handle = api.OpenProcess(0x1000 | 0x100000, False, int(pid))
+    if not handle:
+        return 'dead' if ctypes.get_last_error() == 87 else 'unknown'
+    api.CloseHandle(handle)
+    return 'alive'
+
+
 def probe(record):
     if not record or record.get('host') != socket.gethostname():
         return 'unknown'
