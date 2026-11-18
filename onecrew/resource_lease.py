@@ -231,9 +231,12 @@ class Leases:
             return changed
 
     # --- claim / release -------------------------------------------------------------------------------------------------
-    def claim(self, resource, *, mode='write', session=None, plan=None, state_root=None, pid=None, ttl=DEFAULT_TTL, claim_id=None, token=None):
+    def claim(self, resource, *, mode='write', session=None, plan=None, state_root=None, pid=None, ttl=DEFAULT_TTL, claim_id=None, token=None,
+              only_own=False):
         """Ask for a resource. Returns {'status': 'granted'|'waiting', 'claim': id, 'token': secret, ...}; the token is shown once, on the
-        answer that creates the claim. Call again with the same claim id AND token to renew or retry (no token is returned again)."""
+        answer that creates the claim. Call again with the same claim id AND token to renew or retry (no token is returned again).
+        `only_own` (the engine seam): a holder row whose work process is ANOTHER live process is not renewed with a token the caller
+        merely read from a shared file; the answer is `waiting` with `foreign_holder` and nothing is changed."""
         key = self._key(resource); mode = _mode(mode)
         if ttl <= 0: raise LedgerError('ttl must be positive.')
         with self._locked():
@@ -242,6 +245,15 @@ class Leases:
             self._reconcile(key, entry)
             claim_id = claim_id or 'LS-' + uuid.uuid4().hex[:12]
             mine = next((r for r in entry['holders'] if r['claim'] == claim_id), None)
+            if mine and only_own:
+                me = os.getpid() if pid is None else int(pid)
+                try: my_identity = self._identity(me)
+                except Exception: my_identity = None
+                theirs = mine.get('identity')
+                other = mine.get('pid') != me or (theirs is not None and my_identity is not None and theirs != my_identity)
+                if other and self._alive(mine) == 'alive':
+                    return {'status': 'waiting', 'claim': claim_id, 'resource': key, 'mode': mine['mode'], 'foreign_holder': mine.get('pid'),
+                            'reason': f'{key!r} is held by another engine step of this node (pid {mine.get("pid")}); nothing was changed'}
             if mine:
                 self._require_token(mine, token, 'Renewal')
                 if mine['mode'] != mode:
@@ -326,6 +338,21 @@ def declared_among(labels):
     return sorted(out)
 
 
+def _store_error(labels):
+    """Fail closed: when `managed.json` EXISTS but cannot be read, a node that carries any resources label must not run unleased.
+    No file, or a node with no labels, is not an error (today's behaviour)."""
+    configured = os.environ.get('ONECREW_LEASE_HOME')
+    path = (Path(configured) if configured else Path.home() / '.onecrew' / 'leases') / 'managed.json'
+    if not labels or not path.is_file(): return None
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+        if not isinstance(data, dict) or not isinstance(data.get('resources', []), list): raise ValueError('not a {"resources": [...]} object')
+        for x in data.get('resources', []): normalize(x)
+    except (OSError, ValueError, LedgerError) as error:
+        return f'lease store unreadable: {path} ({type(error).__name__}: {error}); fix it or remove it'
+    return None
+
+
 def _claim_file(state_root, claim_id):
     return Path(state_root) / 'lease-claims' / (claim_id + '.json')
 
@@ -335,6 +362,8 @@ def node_claim(state_root, key, labels, *, session, plan, ttl, pid=None):
     (state root, attempt key, resource) so a later engine step retries the same claim; its token lives in `<state_root>/lease-claims/`
     (private to the engine, never in a view or an event). Returns None when no label is declared, else
     {'status': 'granted'|'waiting', 'held': [(resource, claim, token)], 'reason': ...}. A waiting answer holds nothing else."""
+    broken = _store_error(labels)
+    if broken: return {'status': 'waiting', 'held': [], 'reason': 'resource_lease: ' + broken}
     names = declared_among(labels)
     if not names: return None
     leases = Leases(); granted = []
@@ -345,10 +374,17 @@ def node_claim(state_root, key, labels, *, session, plan, ttl, pid=None):
         except (OSError, ValueError, AttributeError): saved = None
         try:
             answer = leases.claim(name, mode='write', session=session, plan=plan, state_root=str(state_root),
-                                  pid=os.getpid() if pid is None else pid, ttl=ttl, claim_id=claim_id, token=saved)
+                                  pid=os.getpid() if pid is None else pid, ttl=ttl, claim_id=claim_id, token=saved, only_own=True)
             if answer.get('token'):
-                path.parent.mkdir(parents=True, exist_ok=True)
-                durable_write(path, canonical({'resource': name, 'claim': claim_id, 'token': answer['token']}).encode('utf-8'))
+                try:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    durable_write(path, canonical({'resource': name, 'claim': claim_id, 'token': answer['token']}).encode('utf-8'))
+                except OSError as error:
+                    # never leave a held claim with no stored token: give back what this call just granted (token still in memory)
+                    with contextlib.suppress(LedgerError): leases.release(name, claim_id, answer['token'])   # also withdraws a queued claim
+                    node_release(state_root, granted)
+                    return {'status': 'waiting', 'held': [],
+                            'reason': f'resource_lease: the claim token for {name!r} could not be stored in {path} ({error}); the claim was given back, fix the folder and retry'}
                 saved = answer['token']
         except LedgerError as error:
             answer = {'status': 'waiting', 'reason': str(error)}

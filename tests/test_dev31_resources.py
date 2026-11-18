@@ -273,6 +273,70 @@ class ResourceLeaseReviewTests(Base):
 
 OK = [sys.executable, '-c', 'print("ok")']
 SEAM_CAPS = ['namespaced-storage', 'root-budget', 'internal-plan', 'sequential-engine', 'parallel-engine', 'execution-mode']
+class NodeClaimOwnershipTests(Base):
+    """Opus F1/F5: a node claim is renewed and released only by the process that holds it; a broken store fails closed."""
+
+    def setUp(self):
+        super().setUp()
+        env = mock.patch.dict(os.environ, {'ONECREW_LEASE_HOME': str(self.home)}); env.start(); self.addCleanup(env.stop)
+        Leases(self.home).declare(['gpu'])
+        self.sr = Path(self.tmp.name) / 'state'; self.sr.mkdir()
+        self.key = 'T1:build:g0'
+
+    def claim(self, root=None, key=None, pid=None, labels=('gpu',)):
+        return resource_lease.node_claim(root or self.sr, key or self.key, list(labels), session='s', plan='p', ttl=600, pid=pid)
+
+    def gpu(self): return Leases(self.home).status('gpu')['resources'][0]
+
+    def test_a_second_live_process_of_the_same_node_waits_and_releases_nothing(self):
+        holder = self.child()
+        a = self.claim(pid=holder.pid)
+        self.assertEqual(a['status'], 'granted')
+        b = self.claim(pid=os.getpid())                                           # another engine step of the same node, other process
+        self.assertEqual(b['status'], 'waiting'); self.assertEqual(b['held'], [])
+        self.assertIn('held by another engine step of this node', b['reason']); self.assertIn(str(holder.pid), b['reason'])
+        resource_lease.node_release(self.sr, b['held'])                           # the engine releases what it holds: nothing
+        view = self.gpu()
+        self.assertFalse(view['free']); self.assertEqual(len(view['holders']), 1)
+        self.assertTrue(list((self.sr / 'lease-claims').glob('*.json')))          # A's token file is still there
+        other = Path(self.tmp.name) / 'state2'; other.mkdir()
+        self.assertEqual(self.claim(root=other, key='T9:x:g0')['status'], 'waiting')   # another state root still waits
+        resource_lease.node_release(self.sr, a['held'])                           # A's own release frees it
+        self.assertTrue(self.gpu()['free'] or self.gpu()['holders'][0]['state_root'] == str(other))
+
+    def test_the_same_process_retry_still_renews(self):
+        a = self.claim(); b = self.claim()
+        self.assertEqual((a['status'], b['status']), ('granted', 'granted'))
+        self.assertEqual(len(self.gpu()['holders']), 1)
+
+    def test_a_dead_previous_holder_is_taken_over(self):
+        holder = self.child()
+        self.assertEqual(self.claim(pid=holder.pid)['status'], 'granted')
+        self.kill(holder)
+        again = self.claim(pid=os.getpid())                                       # reconcile frees the dead row; this caller claims fresh
+        self.assertEqual(again['status'], 'granted'); self.assertEqual(len(self.gpu()['holders']), 1)
+
+    def test_an_unreadable_managed_file_fails_closed_for_labelled_nodes_only(self):
+        (self.home / 'managed.json').write_text('{"resources": ["gpu",]}', encoding='utf-8')
+        out = self.claim()
+        self.assertEqual(out['status'], 'waiting'); self.assertEqual(out['held'], [])
+        self.assertIn('lease store unreadable', out['reason']); self.assertIn('managed.json', out['reason']); self.assertIn('fix it or remove it', out['reason'])
+        self.assertIsNone(self.claim(labels=()))                                  # no resources label: unaffected
+        (self.home / 'managed.json').unlink()
+        self.assertIsNone(self.claim())                                           # no store at all: exactly as before
+
+    def test_a_token_file_write_failure_gives_the_claim_back(self):
+        real = resource_lease.durable_write
+        def only_tokens(path, data):
+            if 'lease-claims' in str(path): raise OSError('disk full')
+            return real(path, data)
+        with mock.patch.object(resource_lease, 'durable_write', side_effect=only_tokens):
+            out = self.claim()
+        self.assertEqual(out['status'], 'waiting'); self.assertIn('disk full', out['reason'])
+        view = self.gpu(); self.assertTrue(view['free']); self.assertEqual(view['waiters'], [])
+        self.assertEqual(self.claim()['status'], 'granted')                       # nothing is stuck
+
+
 SEAM_OWNED = ['a.txt', 'b.txt', 'c.txt', 'api.py']
 
 
