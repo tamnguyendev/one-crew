@@ -15,7 +15,6 @@ from onecrew.ledger import LedgerError
 from onecrew import resource_lease
 from onecrew.resource_lease import Leases, Unmanaged
 from onecrew.v2 import engine
-from tests import test_v24_c_execution_mode as mode_tests
 
 SLEEP = [sys.executable, '-c', 'import time; time.sleep(120)']
 
@@ -272,20 +271,106 @@ class ResourceLeaseReviewTests(Base):
         self.assertEqual(json.loads(self.lock_path().read_text(encoding='utf-8'))['nonce'], 'someone-else')
 
 
-class EngineLeaseSeam(mode_tests.ModeFixture):
-    """R2-C: a node whose `resources` carry a resource declared in the MACHINE lease store claims it for its attempt, across state roots."""
+OK = [sys.executable, '-c', 'print("ok")']
+SEAM_CAPS = ['namespaced-storage', 'root-budget', 'internal-plan', 'sequential-engine', 'parallel-engine', 'execution-mode']
+SEAM_OWNED = ['a.txt', 'b.txt', 'c.txt', 'api.py']
+
+
+def seam_contract(**extra):
+    """The smallest contract that passes step 0, self-contained so the wheel can run this module (no v1 test fixture)."""
+    value = {'schema_version': 2, 'title': 'Sample', 'size': 'S',
+             'understanding': {'restated_goal': 'Do the sample and prove it.', 'target': {'repo': '.', 'ref': 'HEAD', 'paths': ['a.txt']},
+                               'assumptions': [], 'confidence': 'high', 'unknowns': []},
+             'preconditions': [{'id': 'P1', 'check': 'path_exists', 'args': {'path': 'a.txt'}, 'why': 'the file to work on is there'}],
+             'output': ['The sample exists'], 'scope': {'owned': ['a.txt']}, 'non_goals': ['Nothing else'],
+             'items': [{'id': 'I1', 'title': 'Do it', 'tier': 'must', 'milestone': 'M1'},
+                       {'id': 'S1', 'title': 'Nice to have', 'tier': 'should'}, {'id': 'W1', 'title': 'Never', 'tier': 'wont'}],
+             'milestones': [{'id': 'M1', 'title': 'Milestone M1', 'verifier': {'type': 'command', 'config': {'argv': OK}}, 'covers': ['O1']}],
+             'budget': {'max_calls': 100, 'time': 120}, 'attention': {'questions': 1}, 'profile_version': None}
+    return dict(value, **extra)
+
+
+def seam_node(nid, write=(), depends=(), resources=(), integration=False):
+    return {'id': nid, 'goal': 'Produce evidence for O1', 'input': [], 'output': ['Evidence for O1'],
+            'acceptance': ['O1'], 'depends': [{'node': upstream, 'requires': 'verified'} for upstream in depends],
+            'read': list(write), 'write': list(write), 'resources': list(resources), 'estimate_seconds': [1, 2],
+            'execution_cap_seconds': 60, 'budget_calls': 1,
+            'checks': [{'id': 'check-' + nid, 'spec': 'Check the declared O1 output of ' + nid}], 'integration': integration}
+
+
+class EngineLeaseSeam(unittest.TestCase):
+    """R2-C: a node whose `resources` carry a resource declared in the MACHINE lease store claims it for its attempt, across state roots.
+    Self-contained: a real temp git project, ledger and Control from modules the wheel ships."""
 
     def setUp(self):
-        super().setUp()
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self._setup_project(Path(self.temp.name))
         self.machine = Path(self.temp.name) / 'machine'
         os.environ.update(ONECREW_LEASE_HOME=str(self.machine), LOCALAPPDATA=str(Path(self.temp.name) / 'local'),
                           APPDATA=str(Path(self.temp.name) / 'roaming'))
-        self.plan_nodes = [mode_tests.worker('A', ['a.txt'], resources=['gate']), mode_tests.integration(['A'])]
+        self.plan_nodes = [seam_node('A', ['a.txt'], resources=['gate']), seam_node('I', depends=['A'], integration=True)]
         self.revise(self.plan_nodes)
+
+    def _setup_project(self, base):
+        from onecrew.ledger import Ledger
+        from onecrew.snapshots import Snapshots
+        from onecrew.control_core import Control, migrate
+        from onecrew.v2 import plan as plans
+        self.root = base / 'project'; self.root.mkdir()
+        self.git('init', '-q'); self.git('config', 'user.name', 'T'); self.git('config', 'user.email', 't@localhost')
+        (self.root / 'a.txt').write_text('one\n'); self.git('add', '.'); self.git('commit', '-q', '-m', 'base')
+        self.ledger = Ledger(self.root, base / 'state')
+        env = mock.patch.dict(os.environ); env.start(); self.addCleanup(env.stop)
+        for name in ('ONECREW_ACTOR', 'ONECREW_V2_REQUIRE_PLAN', 'CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION'): os.environ.pop(name, None)
+        for name in SEAM_OWNED[1:]: (self.root / name).write_text(name + '\n')
+        raw = seam_contract(scope={'owned': list(SEAM_OWNED)}, authority={'edit': True, 'commands': True, 'edit_tests': True,
+                                                                          'self_decide': ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q9', 'Q12']})
+        self.root_view = plans.propose(self.ledger, 'P1', raw, 'codex', workflow=True, capabilities=SEAM_CAPS)
+        plans.approve(self.ledger, 'P1', 'owner', 'fixture 2.4-C approval')
+        os.environ['ONECREW_ACTOR'] = 'codex'
+        self.store = Snapshots(self.ledger.state_root); migrate(self.ledger); self.control = Control(self.ledger)
+
+    def git(self, *args):
+        return subprocess.run(['git', '-C', str(self.root), *args], check=True, capture_output=True).stdout.decode().strip()
+
+    def revise(self, nodes):
+        from onecrew.v2 import internal_plan
+        return internal_plan.revise(self.ledger, 'P1', nodes, reason='Split work inside the approved scope', evidence=['a.txt:1'])
+
+    def events(self):
+        from onecrew.v2 import plan as plans
+        with self.ledger.transaction() as conn:
+            task = plans.derive(self.ledger, conn, 'P1')['task_id']
+        return [(e['kind'], e['payload']) for e in self.ledger.events(task)]
+
+    def started(self):
+        return [p for k, p in self.events() if k == 'node.started']
+
+    def attempts(self):
+        with self.ledger.transaction() as conn: return conn.execute('SELECT COUNT(*) FROM attempts').fetchone()[0]
+
+    def execute(self, ledger, control, task, item, attempt):
+        control.launched(attempt['id'], attempt['generation'], {'fixture': True})
+        artifact = self.store.blob(('artifact-' + item['id']).encode())
+        receipt = self.store.blob(('executor-' + item['id']).encode())
+        control.finish(attempt['id'], attempt['generation'], {'fixture': True, 'artifact': artifact})
+        return {'artifact': artifact, 'receipt': receipt}
+
+    def isolated(self, callback=None, capabilities=('start', 'isolate'), name='fixture-isolated-artifact'):
+        from onecrew.v2 import executors
+        case = self
+        class Isolated(executors.Executor):
+            declaration = executors.Declaration(name, 'managed', capabilities)
+            control = case.control
+            def start(self, *args): return (callback or case.execute)(*args)
+            def isolate(self, attempt_id): return {'attempt': attempt_id, 'writes': 'scoped candidate only'}
+        return Isolated()
 
     def second_root(self, nodes=None):
         other = type(self)(self._testMethodName)
-        mode_tests.ModeFixture.setUp(other); self.addCleanup(other.doCleanups)    # another project + state root, the same machine lease folder
+        self.addCleanup(other.doCleanups)
+        other.temp = tempfile.TemporaryDirectory(); other.addCleanup(other.temp.cleanup)
+        other._setup_project(Path(other.temp.name))                                # another project + state root, the same machine lease folder
         other.revise(nodes or self.plan_nodes)
         return other
 
