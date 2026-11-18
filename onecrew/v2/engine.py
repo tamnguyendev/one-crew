@@ -489,6 +489,29 @@ def _row_json(row, key):
     return value if isinstance(value, dict) else {}
 
 
+def _leases_after(ledger, control, attempt_id, held):
+    """DEV31-C: what the claims of an attempt become when its engine step ends, read from the ledger (not from flags the step set: a
+    Ctrl+C, a SystemExit or a busy ledger inside the error handler skipped them; independent review of 1665f2f F1/F2):
+    * settled, or never launched (no identity recorded): released;
+    * launched and unsettled with a worker pid: kept for that worker while it may live (rebind), released once its death is confirmed;
+    * launched and unsettled with no usable pid: kept until the ledger shows the attempt settled (Codex review of 48a938b P2);
+    * the ledger cannot be read: kept the same way (never freed on doubt)."""
+    from .. import resource_lease
+    try:
+        row = control.attempt(attempt_id)
+        launched, settled = row['identity'] is not None, row['status'] == 'settled'
+    except BaseException:
+        resource_lease.node_bind_attempt(ledger.state_root, held, attempt_id); return
+    if settled or not launched:
+        resource_lease.node_release(ledger.state_root, held); return
+    recorded = _row_json(row, 'identity')
+    if resource_lease.launch_unidentified(recorded):
+        resource_lease.node_bind_attempt(ledger.state_root, held, attempt_id); return
+    worker = resource_lease.worker_identity(recorded)
+    if not (worker and resource_lease.node_rebind(ledger.state_root, held, worker)):
+        resource_lease.node_release(ledger.state_root, held)          # its worker's death is confirmed
+
+
 def _lost(row):
     """Can the attempt's own controller no longer settle or publish it? True when recovery settled it, or when its recorded controller
     is dead (creation-time identity; another host or an unreadable identity is NOT dead)."""
@@ -994,8 +1017,7 @@ def _step(ledger, selector, executor, *, control=None, slots=1, _target=None, _s
         # a second time: one attempt has exactly one executor body; the owner of the attempt (or reconciliation) settles it.
         return {'node': nid, 'state': 'waiting', 'attempt': attempt['id'], 'attempt_status': attempt['status'],
                 'reason': 'Attempt already admitted by another caller; one executor body per attempt, reconcile instead of re-running.'}
-    live_worker = None       # DEV31-C: set when the attempt ends UNSETTLED after a launch (its worker may still run): the lease is kept for it
-    untracked_launch = False # ... and this one when that launch recorded no pid: the lease is kept until the ledger shows the attempt settled
+    live_worker = None       # DEV31-C: a worker that may still run after a settled attempt (paused/unknown executor state) keeps the lease
     try:
         if hasattr(executor, 'declaration'):
             produced = executors.Dispatcher().send(executor, 'start', ledger, control, task, item, attempt)
@@ -1083,11 +1105,7 @@ def _step(ledger, selector, executor, *, control=None, slots=1, _target=None, _s
                     failure['stderr'] = process_result.get('stderr')
         lost = False
         if observed['status'] != 'settled':
-            if held_leases:
-                if observed['identity'] is not None and resource_lease.launch_unidentified(_row_json(observed, 'identity')):
-                    untracked_launch = True     # launched, no worker to follow (Codex review of 48a938b P2): kept until the attempt settles
-                else: live_worker = resource_lease.worker_identity(_row_json(observed, 'identity'))
-            control.unknown(attempt['id'], str(error)[:1000])
+            control.unknown(attempt['id'], str(error)[:1000])     # the lease is decided in `finally` from the ledger (_leases_after)
         elif _row_json(observed, 'result').get('reason') in RECOVERED:
             # 2.3-B: recovery settled this attempt while this controller was hung; whoever observes it first applies the same takeover.
             # Once taken over (or held by a sweep) this controller's outcome is late: retained below, never published, never a 2nd hold.
@@ -1102,11 +1120,9 @@ def _step(ledger, selector, executor, *, control=None, slots=1, _target=None, _s
                 _retain(ledger, conn, view, nid, str(error)[:1000], attempt=attempt['id'])
         return {'node': nid, 'state': 'retained' if lost else 'held', 'reason': failure.get('reason', str(error))}
     finally:
-        # settled, failed before launch or cancelled: give the lease back. Unsettled after a launch: the worker may still run, so the
-        # lease stays and its liveness moves to that worker; it is freed only when the worker's death is confirmed (reconcile).
-        if untracked_launch: resource_lease.node_bind_attempt(ledger.state_root, held_leases, attempt['id'])
-        elif not (live_worker and resource_lease.node_rebind(ledger.state_root, held_leases, live_worker)):
-            resource_lease.node_release(ledger.state_root, held_leases)
+        # whatever ended this step (a result, an Exception, Ctrl+C / SystemExit, a busy ledger inside the handler): the ledger decides
+        if held_leases and not (live_worker and resource_lease.node_rebind(ledger.state_root, held_leases, live_worker)):
+            _leases_after(ledger, control, attempt['id'], held_leases)
     with ledger.transaction(write=True) as conn:
         current = state(ledger, root['selector'], conn)
         mine = current['nodes'].get(nid) or {}

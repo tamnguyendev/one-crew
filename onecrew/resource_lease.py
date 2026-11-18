@@ -223,7 +223,9 @@ class Leases:
     def _state(self, holder):
         proc = self._alive(holder)
         expired = self.clock() >= _stamp(holder['until'])
-        if holder.get('bound_to') == 'attempt' and proc != 'dead': return proc, 'attempt_unsettled'
+        if holder.get('bound_to') == 'attempt':
+            # the ledger, not a process, decides this row: its pid is the controller that launched (review of 1665f2f F5)
+            return proc, 'attempt_settled_unreleased' if proc == 'dead' else 'attempt_unsettled'
         if proc == 'dead':
             state = 'dead_unreleased'
             if isinstance(holder.get('attempt_ref'), dict) and holder.get('bound_to') not in ('worker', 'attempt'):
@@ -558,7 +560,10 @@ def launch_unidentified(recorded):
     """A launch was recorded (Control.launched) but names no pid for its worker: nothing on this machine can follow it or prove it
     stopped (Codex review of 48a938b P2: such a launch was treated like "nothing launched" and its lease freed while it ran)."""
     rec = recorded.get('worker') if isinstance(recorded, dict) and isinstance(recorded.get('worker'), dict) else recorded
-    return not (isinstance(rec, dict) and isinstance(rec.get('pid'), int) and not isinstance(rec.get('pid'), bool))
+    pid = rec.get('pid') if isinstance(rec, dict) else None
+    # 0, negative pids and booleans name no process: Windows answers "invalid pid", which must never read as a confirmed death
+    # (independent review of 1665f2f F3: {'pid': 0} freed the lease)
+    return not (isinstance(pid, int) and not isinstance(pid, bool) and pid > 0)
 
 
 def node_bind_attempt(state_root, held, attempt_id):
@@ -578,7 +583,7 @@ def worker_identity(recorded):
     worker was recorded or it is not alive (then nothing is left to protect)."""
     if not isinstance(recorded, dict): return None
     rec = recorded.get('worker') if isinstance(recorded.get('worker'), dict) else recorded
-    if not isinstance(rec.get('pid'), int): return None
+    if launch_unidentified(recorded): return None          # callers check launch_unidentified first: a missing pid is never "dead"
     from .process_core import exists, identity, probe, tree_state
     import socket
     here = socket.gethostname()

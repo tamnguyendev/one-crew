@@ -780,8 +780,82 @@ class EngineLeaseSeam(unittest.TestCase):
                 case.b_waits_for_a(other, 'attempt_unsettled')
                 self.assertTrue(any(e['event'] == 'bound_to_attempt' for e in Leases().events('gate')))
                 case.settle_a()
+                from onecrew.v2 import tracking_host_web
+                holder = tracking_host_web.shared_resources(str(case.ledger.state_root))['resources'][0]['holders'][0]
+                self.assertEqual(holder['state'], 'attempt_settled_unreleased')            # review of 1665f2f F5: the ledger, not a death
+                self.assertIn('sẽ nhả', holder['state_label']); self.assertNotIn('đã chết', holder['state_label'])
                 self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')
                 self.assertTrue(any(e['event'] == 'released_after_death' for e in Leases().events('gate')))
+
+    def fresh(self):
+        case = type(self)(self._testMethodName); case.setUp(); self.addCleanup(case.doCleanups)
+        Leases().declare(['gate'])
+        return case, case.second_root()
+
+    def test_interrupt_after_launch_keeps_the_lease(self):
+        """Independent review of 1665f2f F1: Ctrl+C / SystemExit after the launch skipped `except Exception`; the finally released."""
+        for exc in (KeyboardInterrupt(), SystemExit(3)):
+            with self.subTest(exc=type(exc).__name__):
+                case, other = self.fresh()
+                def stop(ledger, control, task, item, attempt):
+                    control.launched(attempt['id'], attempt['generation'], {'worker': {'session': 'lab-adapter-01'}})
+                    raise exc
+                with self.assertRaises(type(exc)):
+                    engine.step(case.ledger, 'P1', case.isolated(stop), slots=2, _target='A')
+                self.assertEqual(case.a_attempt()['status'], 'running')
+                case.b_waits_for_a(other, 'attempt_unsettled')
+                case.settle_a()
+                self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')
+        case, other = self.fresh()                                                     # a live worker with a pid: kept for it
+        worker = subprocess.Popen(SLEEP); self.addCleanup(lambda: worker.poll() is None and worker.kill())
+        def stop(ledger, control, task, item, attempt):
+            control.launched(attempt['id'], attempt['generation'], {'pid': worker.pid})
+            raise KeyboardInterrupt
+        with self.assertRaises(KeyboardInterrupt):
+            engine.step(case.ledger, 'P1', case.isolated(stop), slots=2, _target='A')
+        self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'waiting')
+        worker.kill(); worker.wait(10)
+        self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')
+
+    def test_pid_zero_or_negative_is_no_pid_and_keeps_the_lease(self):
+        """Independent review of 1665f2f F3: exists(0) answers 'dead' (invalid pid), which freed the lease."""
+        for record in ({'worker': {'pid': 0}}, {'pid': -1}, {'pid': True}):
+            with self.subTest(record=record):
+                case, other = self.fresh()
+                def lost(ledger, control, task, item, attempt):
+                    control.launched(attempt['id'], attempt['generation'], record)
+                    raise RuntimeError('lab adapter lost contact after launch')
+                self.assertEqual(engine.step(case.ledger, 'P1', case.isolated(lost), slots=2, _target='A')['state'], 'held')
+                case.b_waits_for_a(other, 'attempt_unsettled')
+                case.settle_a()
+                self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')
+        case, other = self.fresh()
+        case.launch_record({'worker': {'pid': 0}})                                     # and when the controller dies
+        case.b_waits_for_a(other, 'holder_dead_worker_unknown')
+        case.settle_a()
+        self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')
+
+    def test_busy_ledger_in_the_error_handler_keeps_the_lease(self):
+        """Independent review of 1665f2f F2: the handler's first ledger read failed on a locked ledger and the finally released."""
+        import sqlite3
+        Leases().declare(['gate'])
+        other = self.second_root()
+        release, locked = threading.Event(), threading.Event()
+        def locker(path):
+            conn = sqlite3.connect(str(path), timeout=30, isolation_level=None)
+            conn.execute('BEGIN EXCLUSIVE'); locked.set()
+            release.wait(60); conn.execute('ROLLBACK'); conn.close()
+        def lost(ledger, control, task, item, attempt):
+            control.launched(attempt['id'], attempt['generation'], {'worker': {'session': 'lab-adapter-01'}})
+            threading.Thread(target=locker, args=(ledger.path,), daemon=True).start(); locked.wait(10)
+            raise RuntimeError('lab adapter lost contact after launch (ledger busy)')
+        with self.assertRaises(Exception):
+            engine.step(self.ledger, 'P1', self.isolated(lost), slots=2, _target='A')
+        self.assertFalse(Leases().status('gate')['resources'][0]['free'])
+        release.set(); time.sleep(.5)
+        self.b_waits_for_a(other, 'attempt_unsettled')
+        self.settle_a()
+        self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')
 
     def test_contact_lost_before_any_launch_frees_the_lease(self):
         """Codex review of 48a938b, control: nothing was launched, so B may run at once."""
