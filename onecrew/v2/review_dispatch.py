@@ -271,6 +271,13 @@ def claim_check(ledger, selector, request, *, door, subject, check=CHECK_MILESTO
             view['next'] = (f"Check what the run did, then `onecrew verdict release-run --plan {other.get('plan')} --run {other.get('run_id')} --reason \"...\"`. "
                             'Nothing is run again by itself.')
         return view
+    if check == CHECK_MILESTONE and request['identity'].get('kind') == 'milestone' and (request['identity'].get('execution') or {}).get('method') == 'reviewer':
+        # DEV31 R2-B: same transaction as the claim. A paid reviewer fail that `verdict run` already recorded for this very question is not asked again here
+        judged = judged_review(conn, root['task_id'], request, ledger, doors=('verdict.run',))
+        if judged:
+            subject_id = (subject or {}).get('milestone', request['identity'].get('review_id'))
+            raise LedgerError(f'This very review (request {request["id"][:20]}) already judged milestone {subject_id} on this tree as failed in run {judged["run_id"]} '
+                              f'({judged["door"]}); nothing was dispatched and no reviewer was asked again. To ask a new question, amend the plan (a new revision) or change the artifact.')
     run = {'run_id': uuid.uuid4().hex, 'check': check, 'door': door, 'request': request, 'subject': subject, 'parent': parent,
            'root': root['task_id'], 'pid': os.getpid(), 'host': this_host(), 'started': utcnow(), 'deadline': deadline,
            # identity metadata may be complete; independence is a separate judgement made from actual provenance (never declared here)
@@ -605,26 +612,59 @@ def _judged_fail(ledger, conn, root, nid, request, subject):
     return None
 
 
-def judged_milestone_fail(conn, task_id, request):
-    """DEV31 R2-B, the verdict door's own `_judged_fail`: the run of `verdict run` that already recorded a FAIL by a paid reviewer judgement
-    for this very request (same milestone, artifact, criteria, scope, environment: the whole identity except `facts`), or None.
-    Only a recorded fail that called the reviewer (calls > 0, no provider error) counts; an inconclusive result, a command-only fail and a
-    fail that held no model call re-run as before. A changed artifact, criterion, revision or environment is another request here."""
-    from . import verdict
-    paid = set()
-    for row in conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='verdict.recorded'", (task_id,)).fetchall():
-        p = json.loads(row['payload'])
-        if p.get('result') == 'fail' and (p.get('calls') or 0) > 0 and p.get('provider') and not p.get('provider_error') and p.get('receipt'):
-            paid.add(p['receipt'])
-    if not paid: return None
-    same = lambda identity: {k: v for k, v in identity.items() if k != 'facts'}
-    wanted = same(request['identity'])
-    for run in verdict.run_records(conn, task_id):
-        shown = run.get('request')
-        if (run.get('kind') == 'reviewer' and run['receipt'] and run['receipt'].get('receipt') in paid
-                and isinstance(shown, dict) and same(shown.get('identity') or {}) == wanted):
-            return run.get('run_id')
+def _question(request):
+    """DEV31 R2-B: what a reviewer is asked, whichever door asks it. The recorded receipts store no prompt hash that both doors share (the
+    verdict door and the candidate port each store their own receipt), so the question is the tuple that fixes the prompt: the plan, the
+    approved revision and its sha (criteria and reviewer config live in the revision), the milestone, the criteria, the scope, the tree the
+    reviewer saw (`evidence.candidate`) and the pinned provider/model. How and where it runs (execution, environment, provenance) is not part of it."""
+    execution = request['identity'].get('execution') or {}
+    return _work_key(request), execution.get('provider'), execution.get('model')
+
+
+def _paid_fail_proof(ledger, ref):
+    """True when the reviewer receipt `ref` holds a FAIL that a model really gave (calls > 0, a provider, no provider error)."""
+    try:
+        body = json.loads(Snapshots(ledger.state_root).read_blob(ref))
+    except (OSError, ValueError, TypeError, LedgerError):
+        return False
+    return (isinstance(body, dict) and body.get('kind') == 'reviewer-receipt' and body.get('result') == 'fail' and (body.get('calls') or 0) > 0
+            and bool(body.get('provider')) and not body.get('provider_error'))
+
+
+def judged_review(conn, task_id, request, ledger=None, doors=('verdict.run',)):
+    """DEV31 R2-B: the earlier PAID reviewer FAIL of this very question, as {'run_id', 'door'}, or None. `doors` says where to look:
+    'verdict.run' = a recorded verdict of `verdict run`; 'candidate' = a finished milestone run of the candidate port (needs `ledger` to read
+    its proof). Only a fail that called the reviewer counts; an inconclusive result, a command-only fail and a fail that held no model call
+    re-run as before. Another tree, criterion, revision, milestone or reviewer pin is another question."""
+    wanted = _question(request)
+    if 'verdict.run' in doors:
+        from . import verdict
+        paid = set()
+        for row in conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='verdict.recorded'", (task_id,)).fetchall():
+            p = json.loads(row['payload'])
+            if p.get('result') == 'fail' and (p.get('calls') or 0) > 0 and p.get('provider') and not p.get('provider_error') and p.get('receipt'):
+                paid.add(p['receipt'])
+        if paid:
+            for run in verdict.run_records(conn, task_id):
+                shown = run.get('request')
+                if (run.get('kind') == 'reviewer' and run['receipt'] and run['receipt'].get('receipt') in paid
+                        and isinstance(shown, dict) and isinstance(shown.get('identity'), dict) and _question(shown) == wanted):
+                    return {'run_id': run.get('run_id'), 'door': 'verdict.run'}
+    if 'candidate' in doors and ledger is not None:
+        for run in _runs(conn, task_id).values():
+            finished = run['finished'] or {}
+            shown = run.get('request')
+            if (run.get('check') == CHECK_MILESTONE and run.get('door') != 'verdict.run' and finished.get('outcome') == 'observed'
+                    and finished.get('result') == 'fail' and finished.get('proof') and isinstance(shown, dict) and isinstance(shown.get('identity'), dict)
+                    and _question(shown) == wanted and _paid_fail_proof(ledger, finished['proof'])):
+                return {'run_id': run['run_id'], 'door': 'candidate'}
     return None
+
+
+def judged_milestone_fail(conn, task_id, request):
+    """The verdict door's own record only (kept for the older callers): the run id of the `verdict run` that already recorded a paid fail."""
+    found = judged_review(conn, task_id, request)
+    return found['run_id'] if found else None
 
 
 def judged_plain_fail(conn, task_id, revision, plan_sha, milestone_id, artifact_sha):

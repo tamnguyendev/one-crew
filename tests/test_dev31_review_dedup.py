@@ -635,6 +635,120 @@ class ReviewerCalls(CandidateReviewerFixture):
         self.assertEqual(milestone['verifier']['type'], 'reviewer')
 
 
+class CrossDoorReview(CandidateReviewerFixture):
+    """DEV31 R2-B (Codex P2 B): the candidate port and `verdict run` are two doors for one reviewer question. A paid reviewer fail from one
+    door is not asked again, nor charged again, by the other; an independent question still runs."""
+
+    def check(self):
+        return engine.verify(self.ledger, 'P1', 'C', CandidateChecker(self.ledger, 'P1'))
+
+    def charged(self):
+        return self.counters()['used_calls']
+
+    def failing(self, calls, error=None):
+        def call(prompt, config, env, scratch, limit):
+            calls.append(prompt)
+            return ('', {}, error, False, b'') if error else (answer(row('R1', 'fail')), {}, None, False, b'fixture')
+        return call
+
+    def workspace(self, text='candidate\n'):
+        (self.root / 'a.txt').write_bytes(text.encode())
+
+    def verdicts(self):
+        return [p for k, p in self.events() if k == 'verdict.recorded']
+
+    def test_duplicate_candidate_fail_then_verdict_run_is_refused_with_one_call_and_one_charge(self):
+        self.produce()
+        before, calls = self.charged(), []
+        with patch.object(reviewer, 'call', side_effect=self.failing(calls)):
+            self.assertEqual(self.check()['result'], 'fail')
+            self.workspace()
+            verdict.run(self.ledger, 'P1', 'M1')
+            with self.assertRaises(LedgerError) as raised: verdict.run(self.ledger, 'P1', 'M2')
+        self.assertIn('already judged milestone M2', str(raised.exception))
+        self.assertIn('candidate', str(raised.exception))
+        self.assertIn('amend the plan', str(raised.exception))
+        self.assertEqual((len(calls), self.charged() - before), (1, 1))
+        self.assertEqual([v['milestone'] for v in self.verdicts()], ['M1'], 'the refused ask recorded no verdict')
+        self.assertEqual(self.kinds().count('verdict.run_started'), 1, 'and opened no run')
+
+    def test_duplicate_verdict_fail_then_candidate_verify_is_refused_with_one_call_and_one_charge(self):
+        self.produce()
+        self.workspace()
+        before, calls = self.charged(), []
+        with patch.object(reviewer, 'call', side_effect=self.failing(calls)):
+            verdict.run(self.ledger, 'P1', 'M1')
+            verdict.run(self.ledger, 'P1', 'M2')
+            self.assertEqual(self.verdicts()[-1]['result'], 'fail')
+            with self.assertRaises(LedgerError) as raised: self.check()
+        self.assertIn('already judged milestone M2', str(raised.exception))
+        self.assertIn('verdict.run', str(raised.exception))
+        self.assertEqual((len(calls), self.charged() - before), (1, 1))
+        self.assertNotIn('node.verification', self.kinds())
+        again = [p for p in self.payloads('review.run_finished') if p.get('outcome') == 'not_dispatched']
+        self.assertTrue(again, 'the refused node run is closed as known (nothing ran), not held')
+
+    def test_retry_no_replay_the_refusal_survives_a_reconnect_in_both_directions(self):
+        self.produce()
+        calls = []
+        with patch.object(reviewer, 'call', side_effect=self.failing(calls)):
+            self.check()
+            self.workspace(); verdict.run(self.ledger, 'P1', 'M1')
+            fresh = Ledger(self.root, self.ledger.state_root)
+            for _ in range(2):
+                with self.assertRaises(LedgerError): verdict.run(fresh, 'P1', 'M2')
+        self.assertEqual(len(calls), 1)
+
+    def test_wrong_artifact_a_different_tree_after_a_candidate_fail_asks_the_reviewer_again(self):
+        self.produce()
+        before, calls = self.charged(), []
+        with patch.object(reviewer, 'call', side_effect=self.failing(calls)):
+            self.check()
+            self.workspace()
+            verdict.run(self.ledger, 'P1', 'M1')
+            self.workspace('candidate\nand another line\n')        # another tree: the old judgement is not about it
+            verdict.run(self.ledger, 'P1', 'M2')
+        self.assertEqual((len(calls), self.charged() - before), (2, 2))
+        self.assertEqual(self.verdicts()[-1]['result'], 'fail')
+
+    def test_wrong_criterion_another_question_or_milestone_is_not_a_repeat(self):
+        self.produce()
+        calls = []
+        with patch.object(reviewer, 'call', side_effect=self.failing(calls)):
+            self.check()
+            self.workspace()
+            with self.ledger.transaction() as conn:
+                state = plan.anchor_events(self.ledger, conn, 'P1')
+                loaded, sha = plan.load(self.ledger, state, 1)
+            m2 = next(m for m in loaded['milestones'] if m['id'] == 'M2')
+            tree = self.tree()
+            same = review_dispatch._milestone_request(self.ledger, state['task_id'], 'P1', 1, sha, loaded, m2, tree)
+            reworded = copy.deepcopy(m2)
+            reworded['verifier']['config']['criteria'] = [{'id': 'R1', 'question': 'Does a.txt hold the line two? fail if it does not.'}]
+            criterion = review_dispatch._milestone_request(self.ledger, state['task_id'], 'P1', 1, sha, loaded, reworded, tree)
+            other_model = copy.deepcopy(m2); other_model['verifier']['config']['model'] = 'claude-sonnet-5-5'
+            pinned = review_dispatch._milestone_request(self.ledger, state['task_id'], 'P1', 1, sha, loaded, other_model, tree)
+            other_milestone = copy.deepcopy(m2); other_milestone['id'] = 'M3'
+            moved = review_dispatch._milestone_request(self.ledger, state['task_id'], 'P1', 1, sha, loaded, other_milestone, tree)
+            with self.ledger.transaction() as conn:
+                found = review_dispatch.judged_review(conn, state['task_id'], same, self.ledger, doors=('candidate',))
+                self.assertEqual(found['door'], 'candidate')
+                for other in (criterion, pinned, moved):
+                    self.assertIsNone(review_dispatch.judged_review(conn, state['task_id'], other, self.ledger, doors=('verdict.run', 'candidate')))
+
+    def test_independent_reviews_kept_an_inconclusive_or_command_only_candidate_result_does_not_block_verdict(self):
+        self.produce()
+        calls = []
+        with patch.object(reviewer, 'call', side_effect=self.failing(calls, error='quota_exhausted: fixture')):
+            self.check()                                           # a reviewer that never answered: not a judgement
+        self.workspace()
+        verdict.run(self.ledger, 'P1', 'M1')
+        with patch.object(reviewer, 'call', side_effect=self.failing(calls)):
+            verdict.run(self.ledger, 'P1', 'M2')                   # asks: the earlier result was inconclusive
+        self.assertEqual(self.verdicts()[-1]['result'], 'fail')
+        self.assertEqual(len(calls), 2)
+
+
 class VerdictDoor(CoreFixture):
     """DEV31 R2-B: `verdict run` refuses to ask the reviewer again about a request that already holds a paid-reviewer fail (the engine door's
     `_judged_fail` rule), and still re-runs everything else. Real ledger, the production verdict path, the reviewer seam counted."""

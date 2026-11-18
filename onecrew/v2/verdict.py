@@ -1049,9 +1049,9 @@ def _begin_run(ledger, name, revision, milestone_id, kind, max_minutes, check=No
                                   f'wait for it to end, or until {run.get("deadline")}.')
         if request is not None:                                     # 2.5-B: the same milestone on the same tree running through CandidateChecker
             from . import review_dispatch
-            judged = review_dispatch.judged_milestone_fail(conn, state['task_id'], request) if kind == 'reviewer' else None
-            if judged:        # DEV31 R2-B: the engine door refuses a repeated paid-reviewer fail (_judged_fail); this door does the same
-                raise LedgerError(f'This very review (request {request["id"][:20]}) already judged milestone {milestone_id} on this artifact as failed in run {judged}; '
+            judged = review_dispatch.judged_review(conn, state['task_id'], request, ledger, doors=('verdict.run', 'candidate')) if kind == 'reviewer' else None
+            if judged:        # DEV31 R2-B: a paid-reviewer fail of this very question from either door (the candidate port included) is not asked again
+                raise LedgerError(f'This very review (request {request["id"][:20]}) already judged milestone {milestone_id} on this artifact as failed in run {judged["run_id"]} ({judged["door"]}); '
                                   f'nothing was dispatched and no reviewer was asked again. {ASK_AGAIN}')
             other = review_dispatch.verdict_conflict(conn, state['task_id'], request)
             if other:
