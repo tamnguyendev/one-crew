@@ -6,7 +6,7 @@ OneCrew is a local workflow tool for people who delegate work to AI assistants. 
 
 [Get started](docs/GETTING-STARTED.en.md) · [Releases](https://github.com/tamnguyendev/one-crew/releases) · [Report an issue](https://github.com/tamnguyendev/one-crew/issues) · [Limitations](#current-limitations)
 
-> **Beta:** this guide targets the published **`2.5.0.dev30`** release, tested on Windows. The separate `2.5.0.dev28+mrr.4` release adds experimental multi-repository reading; it does **not** include the later changes (the dev28 tracking list, the dev30 user-level hook). Choose a release explicitly rather than installing from `main`.
+> **Beta:** this guide targets the published **`2.5.0.dev31`** release, tested on Windows. The separate `2.5.0.dev28+mrr.4` release adds experimental multi-repository reading; it does **not** include the later changes (the dev28 tracking list, the dev30 user-level hook, the dev31 background tracking and shared-resource leases). Choose a release explicitly rather than installing from `main`.
 
 ## Why OneCrew?
 
@@ -24,7 +24,7 @@ Use it when a task needs explicit scope, checkable outputs, or a handoff you can
 
 ## What you can do
 
-These capabilities are included in the dev30 release. Their availability does not mean every host, provider, or workflow has been tested end to end.
+These capabilities are included in the dev31 release. Their availability does not mean every host, provider, or workflow has been tested end to end.
 
 | Capability | What it gives you |
 |---|---|
@@ -97,10 +97,11 @@ The ledger and dashboard are local. Model-backed work still uses the provider an
 
 | Area | Status |
 |---|---|
-| Contracts, wiki/context, verification, findings, diagnostics, and tracking UI | Included in the **dev30 beta** described here. |
+| Contracts, wiki/context, verification, findings, diagnostics, and tracking UI | Included in the **dev31 beta** described here. |
 | Reading multiple repositories in one task (MR-R) | **Separate experimental release:** [dev28-mrr.4](https://github.com/tamnguyendev/one-crew/releases/tag/v2.5.0.dev28-mrr.4). Read-only source use, not arbitrary multi-repo editing; its release notes report no real-model trial. |
 | Claude Code plugin (CP-1) | Separate from the Python wheel. Do not assume installing this release installs a marketplace plugin. |
-| User-level hook coverage and shell-parser hardening | **Included in dev30.** Optional `onecrew hook user install` makes every Claude Code session on the machine, subagents included, ask the plan of the project it writes in; git commands that discard uncommitted work outside the owned scope are refused. Known limits: the [dev30 release notes](https://github.com/tamnguyendev/one-crew/releases/tag/v2.5.0.dev30), [issue #25](https://github.com/tamnguyendev/one-crew/issues/25), [issue #12](https://github.com/tamnguyendev/one-crew/issues/12). |
+| Background-work tracking, one review per request, shared-resource leases, skill delivery | **Included in dev31.** Optional hook events (`hook install --print --background`) let the dashboard show subagents and background commands the host reports; a check request is reviewed and charged once; heavy resources you declare are held across sessions, plans, and ledgers on the machine; an approved, pinned skill can be delivered to a native worker. Known limits: the [dev31 release notes](https://github.com/tamnguyendev/one-crew/releases/tag/v2.5.0.dev31), issues [#55](https://github.com/tamnguyendev/one-crew/issues/55), [#36](https://github.com/tamnguyendev/one-crew/issues/36), [#32](https://github.com/tamnguyendev/one-crew/issues/32), [#41](https://github.com/tamnguyendev/one-crew/issues/41). |
+| User-level hook coverage and shell-parser hardening | **Included since dev30.** Optional `onecrew hook user install` makes every Claude Code session on the machine, subagents included, ask the plan of the project it writes in; git commands that discard uncommitted work outside the owned scope are refused. Known limits: the [dev30 release notes](https://github.com/tamnguyendev/one-crew/releases/tag/v2.5.0.dev30), [issue #25](https://github.com/tamnguyendev/one-crew/issues/25), [issue #12](https://github.com/tamnguyendev/one-crew/issues/12). |
 | Other assistant hosts and providers | Support depends on the adapter and workflow. Claude Code hook behavior is not a guarantee of equivalent protection in another host. |
 
 For version-specific evidence and limitations, use the [release notes](https://github.com/tamnguyendev/one-crew/releases), not a feature name or passing test count alone.
