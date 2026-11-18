@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## v2.5.0.dev31 (19/11/2026): theo dõi việc nền (#55 BG-A), không review trùng (#36), khóa tài nguyên dùng chung (#32), giao skill cho worker (#41); chủ nghiệm thu DEV31 trên sổ phát triển 19/11
+
+- **#55 BG-A, theo dõi subagent và việc nền:**
+  - Chỉ đọc. Host báo qua hook, OneCrew ghi lại và hiện trên trang theo dõi.
+  - OneCrew không bắt đầu, dừng hay chạy lại việc nền.
+  - Lượt mẹ dừng thì việc con là "chưa rõ", không bao giờ thành "xong".
+- **#36, một yêu cầu kiểm = một lượt reviewer, một lần trừ ngân sách:** giữ đúng khi trùng, sai thứ tự, kết nối lại, chưa rõ kết quả, crash, và đi qua nhiều cửa (candidate → verdict). Sai bản, sai artifact hay sai tiêu chí là một yêu cầu mới.
+- **#32, khóa tài nguyên dùng chung cho cả máy:**
+  - `resource_lease` cho các tài nguyên nặng đã khai báo, dùng chung giữa các sổ và plan.
+  - Chỉ token mới nhả được khóa.
+  - Engine giữ khóa cho worker đã khởi chạy, kể cả cả cây tiến trình trong Job.
+  - Chỉ nhả khi tiến trình chết đã được xác nhận, hoặc khi sổ ghi lượt chạy đã kết thúc. Lượt khởi chạy mà không ghi PID thì giữ tới khi sổ ghi kết thúc.
+  - Trang theo dõi có mục khóa dùng chung, không bao giờ ghi "còn chạy" hay "sẽ nhả" khi chưa xác nhận.
+- **#41, skill v1:** giao một skill đã duyệt và đã ghim cho worker native. Từ chối khi sai quyền, sai dự án, skill cũ, bị sửa, bị thu hồi hoặc không hợp việc; có rollback.
+- **Kiểm:**
+  - MA–MD là verdict lệnh kiểm trên artifact `655edbf4`; MO do chủ thử và nghiệm thu.
+  - Codex review 10 vòng; vòng cuối không còn P1/P2.
+  - Trước Codex có các lượt review độc lập.
+  - Chưa chạy toàn gate.
+- **Giới hạn đã biết:**
+  - **#55:** chưa chạy với host Claude thật; BG-B chưa mở.
+  - **#36:** fail ghi ở môi trường khác vẫn tính là cùng câu hỏi.
+  - **#32:** controller treo thì khóa giữ tới khi bước trả về; dòng lượt chạy bị xóa tay khỏi sổ thì khóa có thể bị nhả; chưa có lệnh chốt lượt khởi chạy thiếu PID; PID bị tiến trình khác dùng lại hay worker ở máy khác thì giữ khóa.
+  - **#41:** worker managed chưa nối.
+  - Bốn issue vẫn mở.
+
 ## v2.5.0.dev30 (18/11/2026): hook người dùng (#25), chặn lệnh git làm mất việc (HOOK30, #12), các bản vá theo 5 vòng review của Codex; chủ nghiệm thu FIX25B trên sổ phát triển 18/11
 
 - **#25, hook người dùng:** `onecrew hook user install` cài một hook PreToolUse vào hồ sơ Claude Code của người dùng. Mọi phiên trên máy, kể cả phiên mở ngoài dự án và subagent, bị plan của dự án đích xét khi ghi vào một dự án đang enforce. Dự án không có plan không bị ảnh hưởng. Gỡ: `hook user uninstall` (trả settings về như cũ, có bản `.bak`). Trong phiên AI, lệnh cài/gỡ trên hồ sơ người dùng bị từ chối, với mọi cách viết đường dẫn của cùng tệp.
