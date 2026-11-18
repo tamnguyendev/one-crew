@@ -207,7 +207,9 @@ class Leases:
             if isinstance(holder.get('attempt_ref'), dict):
                 worker = self._attempt_worker(holder)       # read-only: what the next reconcile would do with this row
                 if worker == 'unknown' or (isinstance(worker, dict) and worker.get('unidentified')): state = 'holder_dead_worker_unknown'
-                elif worker is not None: state = 'holder_dead_worker_alive'
+                elif worker is not None:
+                    # "still running" only when this machine confirmed it; a worker it cannot observe (another host ...) is "cannot tell"
+                    state = 'holder_dead_worker_alive' if self._alive({'identity': worker}) == 'alive' else 'holder_dead_worker_unknown'
         elif proc == 'alive': state = 'expired_holder_alive' if expired else 'held'
         else: state = 'expired_holder_unknown' if expired else 'held_holder_unknown'
         return proc, state
@@ -496,6 +498,11 @@ def worker_identity(recorded):
     if not isinstance(rec.get('pid'), int): return None
     from .process_core import exists, identity, probe
     import socket
+    if rec.get('host') and rec['host'] != socket.gethostname():
+        # a worker recorded on another machine: this machine cannot see it, so the absence of its pid here proves nothing; kept as it
+        # was recorded (a full identity probes 'unknown'), or as an unidentified marker when its creation time is missing (also 'unknown')
+        if rec.get('created') is not None: return dict(rec)
+        return {'pid': rec['pid'], 'host': rec['host'], 'unidentified': True}
     try:
         if rec.get('created') is None or not rec.get('host'): rec = identity(rec['pid'])
         return rec if probe(rec) != 'dead' else None

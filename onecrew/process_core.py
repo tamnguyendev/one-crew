@@ -178,15 +178,19 @@ def identity(pid):
 
 
 def exists(pid):
-    """Read-only lookup by pid alone (no creation time needed): 'dead' when no such process exists (ERROR_INVALID_PARAMETER), 'alive' when it
-    opens, 'unknown' for any other failure (access denied ...). Used when an identity cannot be read: dead frees, anything else keeps."""
+    """Read-only lookup by pid alone (no creation time needed): 'dead' when no such process exists (ERROR_INVALID_PARAMETER) or the process
+    object it opens has already ended (signalled: an exited process another program still holds a handle to keeps its pid reserved, so it is
+    the same process, not a reuse), 'alive' when it opens and has not ended, 'unknown' for any other failure (access denied ...). Used when an
+    identity cannot be read: dead frees, anything else keeps."""
     api = kernel()
     ctypes.set_last_error(0)
     handle = api.OpenProcess(0x1000 | 0x100000, False, int(pid))
     if not handle:
         return 'dead' if ctypes.get_last_error() == 87 else 'unknown'
-    api.CloseHandle(handle)
-    return 'alive'
+    try:
+        return {0: 'dead', 258: 'alive'}.get(api.WaitForSingleObject(handle, 0), 'unknown')
+    finally:
+        api.CloseHandle(handle)
 
 
 def probe(record):

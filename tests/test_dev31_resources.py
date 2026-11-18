@@ -686,6 +686,60 @@ class EngineLeaseSeam(unittest.TestCase):
         with self.blind_identity(gone):
             self.assertIsNone(worker_identity({'pid': gone}))                            # confirmed dead: freed
 
+    def launch_record(self, record):
+        """A controller process records `record` as the launched worker of this ledger's attempt, then dies abruptly."""
+        lab = Path(self.temp.name) / 'lab-record'; lab.mkdir()
+        (lab / 'record.json').write_text(json.dumps(record), encoding='utf-8')
+        proc = subprocess.run([sys.executable, '-m', 'tests.test_dev31_resources', 'controller', str(self.root), str(self.ledger.state_root), str(lab)],
+                              capture_output=True, timeout=90, env=dict(os.environ), cwd=str(Path(__file__).resolve().parents[1]))
+        self.assertEqual(proc.returncode, 45, proc.stderr.decode('utf-8', 'replace'))
+
+    def test_exists_says_dead_for_an_exited_process_another_program_still_holds(self):
+        """Codex dev31 round 7 P2: an exited process whose handle an observer keeps open keeps its pid; it has ended all the same."""
+        from onecrew.process_core import exists
+        held = subprocess.Popen([sys.executable, '-c', 'pass'])
+        self.assertEqual(held.wait(10), 0)                                               # exited; the Popen still holds its handle
+        self.assertEqual(exists(held.pid), 'dead')
+
+    def test_unidentified_worker_that_exited_while_observed_frees_the_lease(self):
+        """Codex dev31 round 7 P2: pid-only worker, identity unreadable, a program (this test) still holds its handle. The second ledger
+        waits while the worker runs and runs once Windows reports the process ended (no handle released, no pid reused)."""
+        Leases().declare(['gate'])
+        other = self.second_root()
+        worker = subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.readline()'], stdin=subprocess.PIPE)
+        self.addCleanup(lambda: worker.poll() is None and worker.kill())
+        self.launch_record({'pid': worker.pid})
+        with self.blind_identity(worker.pid):
+            self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'waiting')
+            worker.stdin.close(); self.assertEqual(worker.wait(10), 0)
+            self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')
+        self.assertTrue(any(e['event'] == 'released_after_death' for e in Leases().events('gate')))
+
+    def other_host_keeps(self, record):
+        """Codex dev31 round 7 P2 + P3: a worker the ledger records on another machine is not looked up here (its pid being absent here proves
+        nothing); the lease is kept and the page says "cannot tell", never "still running" nor "will release"."""
+        from onecrew.process_core import exists
+        from onecrew.v2 import tracking_host_web
+        self.assertEqual(exists(record['pid']), 'dead')                                  # absent on this machine
+        Leases().declare(['gate'])
+        other = self.second_root()
+        self.launch_record(record)
+        holder = tracking_host_web.shared_resources(str(self.ledger.state_root))['resources'][0]['holders'][0]
+        self.assertEqual(holder['state'], 'holder_dead_worker_unknown')
+        self.assertNotIn('sẽ nhả', holder['state_label']); self.assertNotIn('còn chạy', holder['state_label'])
+        for _ in range(2):
+            self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'waiting')
+        self.assertFalse(Leases().status('gate')['resources'][0]['free'])
+        self.assertEqual(other.attempts(), 0)
+
+    def test_worker_on_another_host_without_a_creation_time_keeps_the_lease(self):
+        import socket
+        self.other_host_keeps({'pid': 2_000_000, 'host': socket.gethostname() + '-other'})
+
+    def test_worker_on_another_host_with_a_full_identity_keeps_the_lease_and_is_not_called_running(self):
+        import socket
+        self.other_host_keeps({'pid': 2_000_000, 'host': socket.gethostname() + '-other', 'created': 12345})
+
     def alive(self, pid):
         from onecrew.process_core import identity, probe
         try: return probe(identity(pid))
@@ -943,6 +997,9 @@ def _controller(project, state, lab, launch):
     case.control = Control(ledger)
     def start(ledger, control, task, item, attempt):
         if not launch: os._exit(46)
+        if (lab / 'record.json').is_file():                     # record a given launch (another host, a pid the test owns ...) as is
+            control.launched(attempt['id'], attempt['generation'], json.loads((lab / 'record.json').read_text(encoding='utf-8')))
+            os._exit(45)
         worker = subprocess.Popen(SLEEP, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         control.launched(attempt['id'], attempt['generation'], {'pid': worker.pid})
         (lab / 'worker.pid').write_text(str(worker.pid))
