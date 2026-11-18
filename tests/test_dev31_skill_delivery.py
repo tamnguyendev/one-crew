@@ -8,6 +8,8 @@ import copy
 import hashlib
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -34,6 +36,8 @@ def ai_env():
 
 
 class Fixture(unittest.TestCase):
+    history_goal, history_file = GOAL, 'calc.py'           # what the three completed outcomes (and so the skill's signature) are about
+
     def setUp(self):
         # A skill file lives at state/skills/<project hash>/<id>/<revision hash>/ (about 200 characters); on Windows a long TEMP overflows
         # MAX_PATH, so the temp tree is made as short as the drive allows (still a throw-away directory, removed after each test).
@@ -44,14 +48,14 @@ class Fixture(unittest.TestCase):
         base = Path(self.temp.name)
         patch = mock.patch.dict(os.environ, {'LOCALAPPDATA': str(base / 'local'), 'APPDATA': str(base / 'roaming')})
         patch.start(); self.addCleanup(patch.stop)
-        self.root = base / 'project'; self.root.mkdir(); (self.root / 'calc.py').write_text('def add(a, b): return a - b\n')
+        self.root = base / 'project'; self.root.mkdir(); (self.root / self.history_file).write_text('def add(a, b): return a - b\n')
         self.state = base / 'state'
         self.ledger = Ledger(self.root, self.state)
         self.tasks = []
         for i in range(3):
-            self.tasks.append(task_intake.submit(self.ledger, GOAL, 'history-' + str(i))['id'])
+            self.tasks.append(task_intake.submit(self.ledger, self.history_goal, 'history-' + str(i))['id'])
         control_core.migrate(self.ledger)
-        sig = skills.signature(GOAL, 'audit', {'calc.py': 'h'})
+        sig = skills.signature(self.history_goal, 'audit', {self.history_file: 'h'})
         with self.ledger.transaction(write=True) as conn:
             for i, task in enumerate(self.tasks):
                 row = self.ledger._task(conn, task)
@@ -333,6 +337,177 @@ class ReplayTests(Fixture):
     def event_count(self, kind):
         with self.ledger.transaction() as conn:
             return conn.execute('SELECT COUNT(*) FROM events WHERE kind=?', (kind,)).fetchone()[0]
+
+
+NODE_GOAL = 'Produce evidence for O1'
+CAPS = ['namespaced-storage', 'root-budget', 'internal-plan', 'sequential-engine']
+
+
+def plan_value():
+    return {'schema_version': 2, 'title': 'Sample', 'size': 'S',
+            'understanding': {'restated_goal': 'Do the sample and prove it.', 'target': {'repo': '.', 'ref': 'HEAD', 'paths': ['a.txt']},
+                              'assumptions': [], 'confidence': 'high', 'unknowns': []},
+            'preconditions': [{'id': 'P1', 'check': 'path_exists', 'args': {'path': 'a.txt'}, 'why': 'the file to work on is there'}],
+            'output': ['The sample exists'], 'scope': {'owned': ['a.txt', 'b.txt']}, 'non_goals': ['Nothing else'],
+            'items': [{'id': 'I1', 'title': 'Do it', 'tier': 'must', 'milestone': 'M1'}, {'id': 'S1', 'title': 'Nice to have', 'tier': 'should'},
+                      {'id': 'W1', 'title': 'Never', 'tier': 'wont'}],
+            'milestones': [{'id': 'M1', 'title': 'Milestone M1', 'covers': ['O1'],
+                            'verifier': {'type': 'command', 'config': {'argv': [sys.executable, '-c', 'print("ok")']}}}],
+            'budget': {'max_calls': 100, 'time': 120}, 'attention': {'questions': 1}, 'profile_version': None,
+            'authority': {'edit': True, 'commands': True, 'edit_tests': True, 'self_decide': ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q9', 'Q12']}}
+
+
+def plan_node():
+    return {'id': 'C', 'goal': NODE_GOAL, 'input': [], 'output': ['Evidence for O1'], 'acceptance': ['O1'], 'depends': [],
+            'read': ['a.txt'], 'write': ['a.txt'], 'resources': [], 'estimate_seconds': [1, 2], 'execution_cap_seconds': 60, 'budget_calls': 1,
+            'checks': [{'id': 'check-C', 'spec': 'Check the declared O1 output of C'}], 'integration': False,
+            'executor': {'role': 'worker', 'provider': 'codex', 'model': 'gpt-6.1-sol'}}
+
+
+class NativeWorkerPathTests(Fixture):
+    """#41 wired into the native worker: a real plan, the real executor and a fixture worker (no model call) that captures its input."""
+    history_goal, history_file = NODE_GOAL, 'a.txt'
+
+    def setUp(self):
+        super().setUp()
+        from onecrew.common_executor import NativeExecutor
+        from onecrew.snapshots import Snapshots
+        from onecrew.v2 import engine, internal_plan, plan as plans
+        self.engine, self.plans, self.store = engine, plans, Snapshots(self.ledger.state_root)
+        env = mock.patch.dict(os.environ); env.start(); self.addCleanup(env.stop)
+        for name in ('ONECREW_V2_REQUIRE_PLAN',) + tuple(interventions.AI_SESSION_MARKERS): os.environ.pop(name, None)
+        git = lambda *a: subprocess.check_output(['git', '-C', str(self.root), *a], stderr=subprocess.PIPE)
+        git('init', '-q'); git('config', 'user.name', 'T'); git('config', 'user.email', 't@localhost')
+        (self.root / 'a.txt').write_text('one\n'); git('add', 'a.txt'); git('commit', '-q', '-m', 'base')
+        plans.propose(self.ledger, 'P1', plan_value(), 'codex', workflow=True, capabilities=CAPS)
+        plans.approve(self.ledger, 'P1', 'owner', 'fixture approval')           # a temp ledger, like the existing engine tests
+        os.environ['ONECREW_ACTOR'] = 'codex'
+        control_core.migrate(self.ledger)
+        last = dict(plan_node(), id='I', depends=[{'node': 'C', 'requires': 'verified'}], write=[], integration=True,
+                    executor={'role': 'worker', 'provider': 'claude', 'model': 'claude-haiku-5-5'}, checks=[{'id': 'check-I', 'spec': 'Check the report of I'}])
+        internal_plan.revise(self.ledger, 'P1', [plan_node(), last], reason='Split work inside the approved scope', evidence=['a.txt:1'])
+        self.inputs, self.seen = [], {}
+        case = self
+
+        class Executor(NativeExecutor):
+            def prepare(self, ledger, control, task, node, attempt):
+                case.seen = dict(ledger=ledger, control=control, task=task, node=node, attempt=attempt)
+                return super().prepare(ledger, control, task, node, attempt)
+        self.executor = Executor(self.ledger, worker_factory=self.factory)
+
+    def factory(self, control, provider):
+        case = self
+
+        class Worker:
+            def capability(self): return {'provider': provider, 'mode': 'fixture-no-tools'}
+
+            def run(self, attempt, prompt, schema, profile):
+                case.inputs.append(prompt)
+                control.launched(attempt['id'], attempt['generation'], {'fixture': True})
+                control.finish(attempt['id'], attempt['generation'], {'exit_code': 0, 'fixture': True})
+
+            def result(self, attempt):
+                return {'summary': 'Fixture producer', 'files': [{'path': 'a.txt', 'content': 'candidate\n'}], 'backlog': []}, [{'source': 'fixture'}]
+        return Worker()
+
+    def run_node(self):
+        return self.engine.step(self.ledger, 'P1', self.executor)
+
+    def body_of(self, prompt):
+        return json.loads(prompt[prompt.index('\n') + 1:])
+
+    def checker(self, result):
+        def check(item, artifact):
+            return {'artifact': artifact, 'checks': [{'id': c['id'], 'result': result, 'evidence': self.store.blob(b'fixture check')} for c in item['checks']]}
+        return check
+
+    def deliveries(self):
+        with self.ledger.transaction() as conn:
+            return [json.loads(r['payload']) for r in conn.execute("SELECT payload FROM events WHERE kind='skill.delivery' ORDER BY seq")]
+
+    def test_approved_skill_text_reaches_the_worker_input_pinned_and_the_grant_is_unchanged(self):
+        value = self.approve()
+        result = self.run_node()
+        self.assertEqual(result['state'], 'produced')
+        section = self.body_of(self.inputs[0])['approved_skill']
+        self.assertEqual((section['id'], section['revision'], section['sha256']), (value['id'], value['revision'], skill_delivery.body_hash(value['body'])))
+        self.assertEqual(section['text'], value['body']); self.assertIn('adds no permission', section['rule'])
+        receipt = json.loads(self.store.read_blob(result['receipt']))
+        self.assertEqual(receipt['approved_skill'], {'id': value['id'], 'revision': value['revision'], 'sha256': section['sha256']})
+        steps = self.deliveries()[-1]
+        self.assertEqual((steps['status'], steps['binding']['node'], steps['binding']['attempt']), ('delivered', 'C', 1))
+        # the worker's grant and scope are what the contract gave: same permissions, the node's own paths, no tool
+        handoff = self.ledger.task(self.seen['task']['id'], full=True)['handoff']
+        self.assertEqual(skill_delivery.native_grant(handoff, self.seen['node']), {'permissions': ['discover', 'report'], 'owned_paths': ['a.txt'],
+                                                                                    'read_paths': ['a.txt'], 'tools': []})
+        self.assertEqual(handoff['grant']['permissions'], ['discover', 'report'])
+        self.assertEqual(steps['grant_digest'], content_hash(skill_delivery.native_grant(handoff, self.seen['node'])))
+
+    def test_revoked_skill_leaves_the_worker_input_without_skill_text_and_records_the_refusal(self):
+        self.approve()
+        with owner_env(): skill_delivery.revoke(self.ledger, self.skill['id'], 'owner: wrong')
+        self.assertEqual(self.run_node()['state'], 'produced')
+        body = self.body_of(self.inputs[0])
+        self.assertNotIn('approved_skill', body); self.assertNotIn(self.skill['body'], self.inputs[0])
+        last = self.deliveries()[-1]
+        self.assertEqual(last['status'], 'refused'); self.assertIsNone(last['skill'])      # the automatic selection no longer sees the revoked skill
+
+    def test_revoke_after_delivery_withdraws_the_text_when_the_same_attempt_is_prepared_again(self):
+        self.approve()
+        self.run_node()
+        self.assertIn('approved_skill', self.body_of(self.inputs[0]))
+        with owner_env(): skill_delivery.revoke(self.ledger, self.skill['id'], 'owner: wrong')
+        again = self.executor.prepare(self.ledger, self.seen['control'], self.seen['task'], self.seen['node'], self.seen['attempt'])['prompt']
+        self.assertNotIn('approved_skill', self.body_of(again)); self.assertNotIn(self.skill['body'], again)
+        last = self.deliveries()[-1]
+        self.assertEqual((last['status'], last['reason'], last['detail']), ('refused', 'revoked', 'revoked_after_delivery'))
+
+    def test_project_without_an_approved_skill_sees_no_change_and_no_ledger_write(self):
+        before = self.run_node()                                # the candidate skill of the fixture is only proposed: not approved
+        self.assertEqual(before['state'], 'produced')
+        self.assertNotIn('approved_skill', self.body_of(self.inputs[0]))
+        self.assertEqual(self.deliveries(), [])
+        self.assertNotIn('approved_skill', json.loads(self.store.read_blob(before['receipt'])))
+        # the same attempt prepared again without the skill layer gives the byte-identical input
+        with mock.patch.object(skill_delivery, 'for_native', return_value=(None, None)):
+            plain = self.executor.prepare(self.ledger, self.seen['control'], self.seen['task'], self.seen['node'], self.seen['attempt'])['prompt']
+        self.assertEqual(plain, self.inputs[0])
+
+    def test_restart_of_the_same_attempt_gets_the_same_skill_even_after_a_newer_revision(self):
+        first = self.approve()
+        self.run_node()
+        self.new_revision('A newer revision arrives while the attempt exists.\n')
+        again = self.executor.prepare(self.ledger, self.seen['control'], self.seen['task'], self.seen['node'], self.seen['attempt'])['prompt']
+        self.assertEqual(self.body_of(again)['approved_skill'], self.body_of(self.inputs[0])['approved_skill'])
+        self.assertEqual(self.body_of(again)['approved_skill']['revision'], first['revision'])
+        self.assertEqual(len(self.deliveries()), 2)             # selected, delivered: the restart wrote nothing
+
+    def test_selected_delivered_evaluated_outcome_comes_from_the_node_verification_not_the_caller(self):
+        self.approve()
+        self.run_node()
+        with self.assertRaises(LedgerError): skill_delivery.evaluate_node(self.ledger, 'P1', 'C')       # nothing verified yet
+        self.engine.verify(self.ledger, 'P1', 'C', self.checker('pass'))
+        done = skill_delivery.evaluate_node(self.ledger, 'P1', 'C')
+        self.assertEqual((done['status'], done['outcome']), ('evaluated', 'success'))
+        self.assertEqual([s['step'] for s in done['steps']], ['selected', 'delivered', 'evaluated'])
+        self.assertEqual(skill_delivery.evaluate_node(self.ledger, 'P1', 'C')['steps'], done['steps'])
+
+    def test_selected_delivered_evaluated_by_the_engine_itself_after_verify(self):
+        # coordinator (Codex R2): nobody has to call evaluate_node; engine.verify records it from the published result
+        self.approve()
+        self.run_node()
+        self.engine.verify(self.ledger, 'P1', 'C', self.checker('pass'))
+        self.assertEqual(len(self.deliveries()), 3)              # selected, delivered and evaluated, without anyone calling evaluate_node
+        done = skill_delivery.evaluate_node(self.ledger, 'P1', 'C')                                     # already done: a no-op
+        self.assertEqual(len(self.deliveries()), 3)
+        self.assertEqual([s['step'] for s in done['steps']], ['selected', 'delivered', 'evaluated'])
+        self.assertEqual(done['outcome'], 'success')
+
+    def test_failed_verification_is_evaluated_as_failure(self):
+        self.approve()
+        self.run_node()
+        self.engine.verify(self.ledger, 'P1', 'C', self.checker('fail'))
+        self.assertEqual(skill_delivery.evaluate_node(self.ledger, 'P1', 'C')['outcome'], 'failure')
 
 
 if __name__ == '__main__':

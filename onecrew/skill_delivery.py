@@ -236,6 +236,69 @@ def evaluate(ledger, task_id, *, plan, plan_revision, node, attempt, outcome, no
         return _view(ledger, conn, _emit(ledger, conn, task_id, record, 'evaluated'))
 
 
+SECTION_RULE = ('Guidance only, pinned by id, revision and sha256. It adds no permission, owned path, tool or budget; '
+                'the node goal, acceptance and grant override it.')
+
+
+def _attempt_number(conn, task_id, attempt_id):
+    """The 1-based order of an attempt among the attempts of its task: the same attempt keeps its number across a restart."""
+    ids = [row['id'] for row in conn.execute('SELECT id FROM attempts WHERE task_id=? ORDER BY created_at, rowid', (task_id,)).fetchall()]
+    return ids.index(attempt_id) + 1 if attempt_id in ids else None
+
+
+def native_grant(handoff, node):
+    """What the native worker really gets: the contract's permissions and the node's own read/write scope; native tools are off.
+    Limits and budget are left out so that an extended budget does not make a restart look like another grant."""
+    return {'permissions': sorted(handoff['grant'].get('permissions', [])), 'owned_paths': sorted(node['write']),
+            'read_paths': sorted(node['read']), 'tools': []}
+
+
+def for_native(ledger, task, node, attempt, handoff):
+    """(section, delivery record) for one native worker attempt; (None, None) when the project has no owner-approved skill at all, so a
+    project without skills sees no ledger write and no prompt change. `section` is the delimited prompt part (id, revision, sha256, text)
+    when the pinned skill is delivered, else None (a refusal is recorded by deliver). The skill layer never takes the node down."""
+    try:
+        with ledger.transaction() as conn:
+            if not conn: return None, None
+            found = conn.execute("SELECT 1 FROM events e JOIN tasks t ON t.id=e.task_id WHERE t.project_id=? AND e.kind='skill.state' "
+                                 "AND json_extract(e.payload,'$.status')='approved' LIMIT 1", (ledger.project_id,)).fetchone()
+            number = _attempt_number(conn, task['id'], attempt['id']) if found else None
+        if not found or number is None: return None, None
+        binding = handoff['plan_binding']
+        record = deliver(ledger, task['id'], plan=binding['selector'], plan_revision=binding['revision'], node=node['id'], attempt=number,
+                         goal=handoff['goal'], profile={'mode': handoff['owned_execution']['mode']},
+                         files={path: '' for path in set(node['read']) | set(node['write'])}, grant=native_grant(handoff, node))
+    except Exception:
+        return None, None
+    if not record['delivered']: return None, record
+    skill = record['skill']
+    return {'id': skill['id'], 'revision': skill['revision'], 'sha256': skill['hash'], 'text': skill['body'], 'rule': SECTION_RULE}, record
+
+
+def evaluate_node(ledger, selector, nid):
+    """Record `evaluate` for the skill delivered to the current attempt of a node, with the outcome read from the node's own verification
+    result in the engine state (pass -> success, fail -> failure); nothing is accepted from the caller. A node with no verification
+    result yet, or no delivered skill, raises. Same result again is a no-op."""
+    from .v2 import engine
+    view = engine.state(ledger, selector)
+    record = view['nodes'].get(nid)
+    if not record or not record.get('attempt') or record.get('verification_result') not in ('pass', 'fail'):
+        raise LedgerError('The node has no verification result to evaluate a delivered skill against.')
+    with ledger.transaction() as conn:
+        number = _attempt_number(conn, record['child'], record['attempt'])
+        rows = conn.execute("SELECT e.payload FROM events e JOIN tasks t ON t.id=e.task_id WHERE t.project_id=? AND e.kind='skill.delivery' "
+                            "ORDER BY e.seq", (ledger.project_id,)).fetchall()
+    found = None
+    for row in rows:
+        value = json.loads(row['payload'])
+        bound = value['binding']
+        if value['key'] == key_of(bound) and bound['task'] == record['child'] and bound['node'] == nid and bound['attempt'] == number: found = value
+    if not found: raise LedgerError('No skill was delivered to this attempt.')
+    bound = found['binding']
+    return evaluate(ledger, record['child'], plan=bound['plan'], plan_revision=bound['plan_revision'], node=nid, attempt=number,
+                    outcome='success' if record['verification_result'] == 'pass' else 'failure', note='node verification ' + record['verification_result'])
+
+
 def record_of(ledger, task_id, *, plan, plan_revision, node, attempt):
     """Read the delivery record of a binding (None if nothing was selected for it)."""
     key = key_of(binding_of(ledger, task_id, plan, plan_revision, node, attempt))

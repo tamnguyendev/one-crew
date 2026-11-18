@@ -1563,7 +1563,7 @@ def verify(ledger, selector, nid, checker, *, door='engine.verify'):
     if claim['status'] == 'issued':
         with ledger.transaction() as conn:
             run = review_dispatch._parented(review_dispatch._runs(conn, root['task_id']))[claim['run_id']]
-        return publish_issued(ledger, root['selector'], run)
+        return _evaluated_skill(ledger, root['selector'], nid, publish_issued(ledger, root['selector'], run))
     run_id = claim['run_id']
     token = review_dispatch._CURRENT.set(run_id)
     try:
@@ -1610,7 +1610,24 @@ def verify(ledger, selector, nid, checker, *, door='engine.verify'):
         return dict(body, status='late', receipt=receipt, check_run=run_view,
                     reason='The result arrived after this run was held or closed; it is kept as evidence and was not published.',
                     **({'next': review_dispatch._next(root['selector'], run_id)} if issued == 'held' else {}))
-    return _publish_verification(ledger, root, contract, sha, view, nid, item, artifact, body, receipt, ctx, run_id, run_view)
+    return _evaluated_skill(ledger, root['selector'], nid,
+                            _publish_verification(ledger, root, contract, sha, view, nid, item, artifact, body, receipt, ctx, run_id, run_view))
+
+
+def _evaluated_skill(ledger, selector, nid, result):
+    """DEV31-D (#41): once the node's verification is published, the skill delivered to its attempt (if any) is evaluated with the outcome
+    of that verification (skill_delivery.evaluate_node reads it from the engine state; nothing comes from a caller). Best effort and
+    after the fact: no delivered skill, no pass/fail yet or any error leaves the verification result exactly as published."""
+    try:
+        with ledger.transaction() as conn:
+            if not conn.execute("SELECT 1 FROM events e JOIN tasks t ON t.id=e.task_id WHERE t.project_id=? AND e.kind='skill.delivery' LIMIT 1",
+                                (ledger.project_id,)).fetchone():
+                return result
+        from .. import skill_delivery
+        skill_delivery.evaluate_node(ledger, selector, nid)
+    except Exception:
+        pass
+    return result
 
 
 def _publish_verification(ledger, root, contract, sha, view, nid, item, artifact, body, receipt, ctx, run_id, run_view):
