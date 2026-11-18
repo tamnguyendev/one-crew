@@ -564,6 +564,85 @@ class EngineLeaseSeam(unittest.TestCase):
         self.assertEqual(engine.step(self.ledger, 'P1', self.isolated(), slots=2, _target='A')['state'], 'produced')
         self.assertTrue(Leases().status('gate')['resources'][0]['free'])
 
+    def test_failure_before_launch_releases_the_lease_at_once(self):
+        Leases().declare(['gate'])
+        def never_launched(ledger, control, task, item, attempt): raise RuntimeError('lab: failed before any launch')
+        self.assertEqual(engine.step(self.ledger, 'P1', self.isolated(never_launched), slots=2, _target='A')['state'], 'held')
+        self.assertTrue(Leases().status('gate')['resources'][0]['free'])
+
+    def test_engine_process_dies_after_launch_the_worker_keeps_the_lease(self):
+        """Codex dev31 P2-1: the engine process dies abruptly (os._exit) after the executor recorded a launched worker: the finally never
+        runs, yet a second state root waits while that worker lives and runs only after the worker is gone."""
+        Leases().declare(['gate'])
+        other = self.second_root()
+        lab = Path(self.temp.name) / 'lab'; lab.mkdir()
+        proc = subprocess.run([sys.executable, '-m', 'tests.test_dev31_resources', 'controller', str(self.root), str(self.ledger.state_root), str(lab)],
+                              capture_output=True, timeout=90, env=dict(os.environ), cwd=str(Path(__file__).resolve().parents[1]))
+        self.assertEqual(proc.returncode, 45, proc.stderr.decode('utf-8', 'replace'))
+        worker = int((lab / 'worker.pid').read_text())
+        self.addCleanup(lambda: subprocess.run(['taskkill', '/F', '/PID', str(worker)], capture_output=True))
+        self.assertEqual(self.alive(worker), 'alive')
+        self.assertEqual([h['process'] for h in Leases().status('gate')['resources'][0]['holders']], ['dead'])   # the engine is gone
+        waiting = engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')
+        self.assertEqual(waiting['state'], 'waiting')                                         # not produced: the worker still answers
+        self.assertIn(str(self.ledger.state_root), ' '.join(waiting['reasons']))             # names the holder
+        self.assertEqual(other.attempts(), 0)
+        view = Leases().status('gate')['resources'][0]
+        self.assertEqual((view['holders'][0]['pid'], view['holders'][0]['process']), (worker, 'alive'))   # liveness moved to the worker
+        subprocess.run(['taskkill', '/F', '/PID', str(worker)], capture_output=True, check=True)
+        for _ in range(100):
+            if self.alive(worker) == 'dead': break
+            time.sleep(.1)
+        self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')   # death confirmed: freed
+        self.assertTrue(any(e['event'] == 'released_after_death' for e in Leases().events('gate')))
+
+    def test_dead_engine_with_no_launched_worker_is_freed(self):
+        Leases().declare(['gate'])
+        other = self.second_root()
+        lab = Path(self.temp.name) / 'lab'; lab.mkdir()
+        proc = subprocess.run([sys.executable, '-m', 'tests.test_dev31_resources', 'controller-no-launch', str(self.root), str(self.ledger.state_root), str(lab)],
+                              capture_output=True, timeout=90, env=dict(os.environ), cwd=str(Path(__file__).resolve().parents[1]))
+        self.assertEqual(proc.returncode, 46, proc.stderr.decode('utf-8', 'replace'))
+        self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')
+
+    def test_a_lookup_that_fails_keeps_the_row_never_frees_on_doubt(self):
+        Leases().declare(['gate'])
+        other = self.second_root()
+        lab = Path(self.temp.name) / 'lab'; lab.mkdir()
+        proc = subprocess.run([sys.executable, '-m', 'tests.test_dev31_resources', 'controller-no-launch', str(self.root), str(self.ledger.state_root), str(lab)],
+                              capture_output=True, timeout=90, env=dict(os.environ), cwd=str(Path(__file__).resolve().parents[1]))
+        self.assertEqual(proc.returncode, 46)
+        with mock.patch.object(Leases, '_attempt_worker', return_value='unknown'):
+            self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'waiting')
+        self.assertFalse(Leases().status('gate')['resources'][0]['free'])
+
+    def alive(self, pid):
+        from onecrew.process_core import identity, probe
+        try: return probe(identity(pid))
+        except Exception: return 'dead'
+
+    def test_shared_state_root_two_projects_same_plan_card_shows_only_the_real_holder(self):
+        """Codex dev31 P2-2: two git projects share ONE state root and both have plan P1; only B holds `gate`."""
+        from onecrew.ledger import Ledger
+        from tests import dev31_page_js as js
+        from onecrew.v2 import tracking_host_web
+        Leases().declare(['gate'])
+        shared_state = self.ledger.state_root
+        with mock.patch('onecrew.ledger.Ledger', side_effect=lambda project, state: Ledger(project, shared_state)):
+            b = self.second_root()
+        self.assertEqual(b.ledger.state_root, self.ledger.state_root)
+        self.assertNotEqual(b.ledger.project_id, self.ledger.project_id)
+        if not js.node(): self.skipTest('Node unavailable; not verified')
+        seen = {}
+        def show_b(ledger, control, task, item, attempt):
+            data = tracking_host_web.shared_resources(str(ledger.state_root))
+            for label, led in (('A', self.ledger), ('B', b.ledger)):
+                call = 'hostPlanPanel(' + json.dumps({'project': led.project_path, 'project_id': led.project_id, 'plan': 'plan:P1'}) + ')'
+                seen[label] = 'data-res-role="holder"' in js.run(call, 'last={shared_resources:' + json.dumps(data) + '};')
+            return b.execute(ledger, control, task, item, attempt)
+        self.assertEqual(engine.step(b.ledger, 'P1', b.isolated(show_b), slots=2, _target='A')['state'], 'produced')
+        self.assertEqual(seen, {'A': False, 'B': True})
+
 
 class PageSection(Base):
     """DEV31 on the tracking PAGE: the machine leases the CLI shows (`python -m onecrew.resource_lease status`) are in the page's JSON and drawn by the page script."""
@@ -710,10 +789,10 @@ class PageSection(Base):
         self.declared('gate', 'emulator')
         a, b = self.child(), self.child()
         store = Leases(self.home)
-        store.claim('gate', session='s1', plan='plan-A', state_root='D:/root', pid=a.pid, ttl=self.LONG)
-        store.claim('emulator', session='s2', plan='plan-B', state_root='D:/root', pid=b.pid, ttl=self.LONG)
+        store.claim('gate', session='s1', plan='plan-A', state_root='D:/root', pid=a.pid, ttl=self.LONG, project_id='pidA')
+        store.claim('emulator', session='s2', plan='plan-B', state_root='D:/root', pid=b.pid, ttl=self.LONG, project_id='pidA')
         data = self.web.shared_resources('D:\\Root\\')                                      # the page's own state root (normalized by the script)
-        mine = self.need_node().run('hostPlanPanel({project:"D:/x",plan:"plan:plan-A"})', '\nlast={shared_resources:' + json.dumps(data) + '};')
+        mine = self.need_node().run('hostPlanPanel({project:"D:/x",project_id:"pidA",plan:"plan:plan-A"})', '\nlast={shared_resources:' + json.dumps(data) + '};')
         self.assertIn('gate', mine)
         self.assertNotIn('emulator', mine)
         self.assertEqual(self.need_node().run('hostPlanPanel({project:"D:/x",plan:"nobody"})', '\nlast={shared_resources:' + json.dumps(data) + '};'), '')
@@ -722,11 +801,12 @@ class PageSection(Base):
         self.declared('gate', 'only-b', 'anon')
         a, b, c = self.child(), self.child(), self.child()
         store = Leases(self.home)
-        store.claim('gate', session='sB', plan='P1', state_root='D:/stateB', pid=b.pid, ttl=self.LONG)        # B/P1 holds
-        store.claim('gate', session='sA', plan='P1', state_root='D:/stateA', pid=a.pid, ttl=self.LONG)        # A/P1 waits
-        store.claim('only-b', session='sB2', plan='P1', state_root='D:/stateB', pid=c.pid, ttl=self.LONG)
+        store.claim('gate', session='sB', plan='P1', state_root='D:/stateB', pid=b.pid, ttl=self.LONG, project_id='pB')        # B/P1 holds
+        store.claim('gate', session='sA', plan='P1', state_root='D:/stateA', pid=a.pid, ttl=self.LONG, project_id='pA')        # A/P1 waits
+        store.claim('only-b', session='sB2', plan='P1', state_root='D:/stateB', pid=c.pid, ttl=self.LONG, project_id='pB')
         store.claim('anon', session='sX', plan='P1', pid=c.pid, ttl=self.LONG)                              # no state root: owner unknown
-        call = 'hostPlanPanel({project:"projA",plan:"plan:P1"})'
+        call = 'hostPlanPanel({project:"projA",project_id:"pA",plan:"plan:P1"})'
+        call_b = 'hostPlanPanel({project:"projB",project_id:"pB",plan:"plan:P1"})'
         card_a = self.need_node().run(call, '\nlast={shared_resources:' + json.dumps(self.web.shared_resources('D:/stateA')) + '};')
         self.assertIn('data-resource="gate"', card_a)
         self.assertIn('data-res-role="waiter"', card_a)
@@ -734,13 +814,25 @@ class PageSection(Base):
         self.assertNotIn('stateB', card_a)
         self.assertNotIn('only-b', card_a)
         self.assertNotIn('anon', card_a)                                                      # a row with no state root is never on a card
-        card_b = self.need_node().run(call, '\nlast={shared_resources:' + json.dumps(self.web.shared_resources('D:/stateB')) + '};')
+        card_b = self.need_node().run(call_b,'\nlast={shared_resources:' + json.dumps(self.web.shared_resources('D:/stateB')) + '};')
         self.assertIn('data-res-role="holder"', card_b)
         self.assertNotIn('data-res-role="waiter"', card_b)
         self.assertIn('only-b', card_b)
         self.assertNotIn('stateA', card_b)
         overview = self.js('resSectionHtml()', self.web.shared_resources('D:/stateA'))        # the machine-wide overview still shows everything
         for wanted in ('stateA', 'stateB', 'only-b', 'anon'): self.assertIn(wanted, overview)
+
+    def test_row_without_a_project_is_only_in_the_overview_labelled_unknown(self):
+        self.declared('gate')
+        a = self.child()
+        Leases(self.home).claim('gate', session='old', plan='P1', state_root='D:/stateA', pid=a.pid, ttl=self.LONG)   # no project: an old / CLI row
+        data = self.web.shared_resources('D:/stateA')
+        self.assertIsNone(data['resources'][0]['holders'][0]['project_id'])
+        for project_id in ('pA', ''):
+            card = self.need_node().run('hostPlanPanel({project:"projA",project_id:"' + project_id + '",plan:"plan:P1"})',
+                                        '\nlast={shared_resources:' + json.dumps(data) + '};')
+            self.assertNotIn('gate', card)
+        self.assertIn('chưa xác định dự án', self.js('resSectionHtml()', data))
 
     def test_codex_probe_foreign_resource_is_not_shown_on_a_card_of_another_root(self):
         shared = {'resources': [{'resource': 'only-B', 'holders': [{'plan': 'P1', 'state_root': 'stateB'}], 'waiters': []}], 'page_state_root': 'stateA'}
@@ -770,5 +862,26 @@ class PageSection(Base):
         self.assertEqual([(r['resource'], r['free'], r['holders'][0]['plan']) for r in data['resources']], [('gate', False, 'plan-A')])
 
 
+def _controller(project, state, lab, launch):
+    """A separate engine process (test helper): runs engine.step with an executor that, after (optionally) launching a real worker
+    child and recording it with control.launched, ends the whole process abruptly (os._exit) so no `finally` can run."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from onecrew.ledger import Ledger
+    from onecrew.control_core import Control
+    ledger = Ledger(project, state)
+    case = EngineLeaseSeam()
+    case.control = Control(ledger)
+    def start(ledger, control, task, item, attempt):
+        if not launch: os._exit(46)
+        worker = subprocess.Popen(SLEEP, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        control.launched(attempt['id'], attempt['generation'], {'pid': worker.pid})
+        (lab / 'worker.pid').write_text(str(worker.pid))
+        os._exit(45)
+    engine.step(ledger, 'P1', case.isolated(start), slots=2, _target='A')
+
+
 if __name__ == '__main__':
-    unittest.main()
+    if len(sys.argv) > 1 and sys.argv[1] in ('controller', 'controller-no-launch'):
+        _controller(Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]), sys.argv[1] == 'controller')
+    else:
+        unittest.main()

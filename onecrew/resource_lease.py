@@ -210,6 +210,16 @@ class Leases:
             keep = []
             for row in entry[who]:
                 if self._alive(row) == 'dead':
+                    worker = self._attempt_worker(row) if who == 'holders' else None
+                    if worker is not None:
+                        # the engine that held this claim died, but the worker its attempt launched still runs: the lease moves to the
+                        # worker (never freed on doubt: a failed lookup answers 'unknown' and the row is kept as it is)
+                        if worker != 'unknown':
+                            row['pid'] = int(worker['pid']); row['identity'] = worker
+                            self._log('rebound', key, claim=row['claim'], session=row.get('session'), plan=row.get('plan'), pid=row['pid'],
+                                      note='the holder died; the live worker of its launched attempt keeps the lease')
+                            changed = True
+                        keep.append(row); continue
                     self._log(label, key, claim=row['claim'], session=row.get('session'), plan=row.get('plan'),
                               state_root=row.get('state_root'), pid=row['identity'].get('pid'),
                               note='process death confirmed; the lease was not released by the holder')
@@ -223,6 +233,28 @@ class Leases:
             self._log('granted', key, claim=row['claim'], session=row.get('session'), plan=row.get('plan'), mode=row['mode'])
         return changed
 
+    def _attempt_worker(self, row):
+        """A dead holder row that names its attempt (state root + task + node unit): the worker Control recorded for that attempt, when it
+        is alive (identity dict) or the lookup cannot say ('unknown': the row is kept). None = no launched worker is left, free the row.
+        Read-only: the ledger is opened with mode=ro."""
+        ref = row.get('attempt_ref')
+        if not isinstance(ref, dict): return None
+        try:
+            import sqlite3
+            db = Path(ref['state_root']) / 'ledger.sqlite3'
+            if not db.is_file(): return 'unknown'
+            conn = sqlite3.connect(db.resolve().as_uri() + '?mode=ro', uri=True, timeout=5)
+            try:
+                found = conn.execute("SELECT identity FROM attempts WHERE task_id=? AND status IN ('running','unknown') AND identity IS NOT NULL "
+                                     "AND json_extract(operation,'$.unit')=? ORDER BY created_at DESC LIMIT 1", (ref['task_id'], ref['unit'])).fetchone()
+            finally: conn.close()
+            if not found: return None
+            worker = worker_identity(json.loads(found[0]))
+            if worker is None: return None
+            return worker if self._alive({'identity': worker}) != 'dead' else None
+        except Exception:
+            return 'unknown'
+
     def reconcile(self):
         with self._locked():
             data = self._load(); changed = False
@@ -232,7 +264,7 @@ class Leases:
 
     # --- claim / release -------------------------------------------------------------------------------------------------
     def claim(self, resource, *, mode='write', session=None, plan=None, state_root=None, pid=None, ttl=DEFAULT_TTL, claim_id=None, token=None,
-              only_own=False):
+              only_own=False, project_id=None, project=None, attempt_ref=None):
         """Ask for a resource. Returns {'status': 'granted'|'waiting', 'claim': id, 'token': secret, ...}; the token is shown once, on the
         answer that creates the claim. Call again with the same claim id AND token to renew or retry (no token is returned again).
         `only_own` (the engine seam): a holder row whose work process is ANOTHER live process is not renewed with a token the caller
@@ -275,6 +307,9 @@ class Leases:
             row = {'claim': claim_id, 'token_sha': self._token_sha(secret), 'mode': mode, 'session': session, 'plan': plan,
                    'state_root': str(state_root) if state_root is not None else None,
                    'pid': pid, 'identity': self._identity(pid), 'ttl': ttl, 'asked_at': self.clock().isoformat()}
+            if project_id: row['project_id'] = str(project_id)
+            if project: row['project'] = str(project)
+            if attempt_ref: row['attempt_ref'] = attempt_ref
             if not entry['waiters'] and _compatible(mode, entry['holders']):
                 row['since'] = self.clock().isoformat(); row['until'] = (self.clock() + dt.timedelta(seconds=ttl)).isoformat()
                 entry['holders'].append(row); self._log('claimed', key, claim=claim_id, session=session, plan=plan, mode=mode, pid=pid)
@@ -322,7 +357,8 @@ class Leases:
     @staticmethod
     def _who(row):
         return {'claim': row['claim'], 'mode': row['mode'], 'session': row.get('session'), 'plan': row.get('plan'),
-                'state_root': row.get('state_root'), 'pid': row['identity'].get('pid'), 'since': row.get('since') or row.get('asked_at'),
+                'state_root': row.get('state_root'), 'project_id': row.get('project_id'), 'project': row.get('project'),
+                'pid': row['identity'].get('pid'), 'since': row.get('since') or row.get('asked_at'),
                 'until': row.get('until')}
 
     def status(self, resource=None):
@@ -375,7 +411,7 @@ def _claim_file(state_root, claim_id):
     return Path(state_root) / 'lease-claims' / (claim_id + '.json')
 
 
-def node_claim(state_root, key, labels, *, session, plan, ttl, pid=None):
+def node_claim(state_root, key, labels, *, session, plan, ttl, pid=None, project_id=None, project=None, attempt_ref=None):
     """Claim (write = exclusive) every declared label of a node for ONE attempt, in sorted order. The claim id is derived from
     (state root, attempt key, resource) so a later engine step retries the same claim; its token lives in `<state_root>/lease-claims/`
     (private to the engine, never in a view or an event). Returns None when no label is declared, else
@@ -392,7 +428,8 @@ def node_claim(state_root, key, labels, *, session, plan, ttl, pid=None):
         except (OSError, ValueError, AttributeError): saved = None
         try:
             answer = leases.claim(name, mode='write', session=session, plan=plan, state_root=str(state_root),
-                                  pid=os.getpid() if pid is None else pid, ttl=ttl, claim_id=claim_id, token=saved, only_own=True)
+                                  pid=os.getpid() if pid is None else pid, ttl=ttl, claim_id=claim_id, token=saved, only_own=True,
+                                  project_id=project_id, project=project, attempt_ref=attempt_ref)
             if answer.get('token'):
                 try:
                     path.parent.mkdir(parents=True, exist_ok=True)

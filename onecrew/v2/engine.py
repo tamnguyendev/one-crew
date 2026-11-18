@@ -968,7 +968,9 @@ def _step(ledger, selector, executor, *, control=None, slots=1, _target=None, _s
     from .. import resource_lease
     leased = resource_lease.node_claim(ledger.state_root, f'{root["task_id"]}:{nid}:g{view["nodes"][nid]["generation"]}', item.get('resources') or [],
                                        session=f'{nid}@{task["id"]}', plan=namespaces.parse(root['selector'])[0],
-                                       ttl=max(int(item['execution_cap_seconds']) + 300, 600))
+                                       ttl=max(int(item['execution_cap_seconds']) + 300, 600),
+                                       project_id=ledger.project_id, project=ledger.project_path,
+                                       attempt_ref={'state_root': str(ledger.state_root), 'task_id': task['id'], 'unit': 'task:' + nid})
     if leased and leased['status'] == 'waiting':
         from ..control_core import CapacityWait
         if mode is None: raise CapacityWait(leased['reason'])
