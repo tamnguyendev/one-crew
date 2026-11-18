@@ -31,7 +31,8 @@ STATE_LABELS = {'held': 'đang giữ', 'expired_holder_alive': 'quá hạn nhưn
                                               'kiểm tra đường dẫn sổ (state root) và tiến trình worker',
                 'attempt_unsettled': 'lượt chạy đã khởi chạy nhưng không ghi tiến trình để theo dõi; chưa xác nhận kết thúc — vẫn giữ '
                                      'cho tới khi sổ ghi lượt chạy đã kết thúc',
-                'attempt_settled_unreleased': 'sổ đã ghi lượt chạy kết thúc, chưa nhả (sẽ nhả khi đối chiếu)'}
+                'attempt_settled_unreleased': 'theo sổ, lượt chạy đã kết thúc hoặc chưa từng khởi chạy; chưa nhả (sẽ nhả khi đối chiếu)',
+                'attempt_unread': 'bước đã kết thúc nhưng chưa đọc được lượt chạy trong sổ — vẫn giữ; sẽ đối chiếu lại khi đọc được sổ'}
 MODE_LABELS = {'write': 'độc quyền (nặng)', 'read': 'dùng chung (nhẹ)'}
 WHO_FIELDS = ('claim', 'mode', 'session', 'plan', 'state_root', 'project_id', 'project', 'pid', 'since', 'until', 'process')
 

@@ -41,6 +41,7 @@ from .snapshots import durable_write
 MODES = ('write', 'read')
 ALIASES = {'exclusive': 'write', 'heavy': 'write', 'light': 'read', 'shared': 'read'}
 DEFAULT_TTL = 3600
+MAX_PID = 2 ** 31                # a recorded worker pid outside 0 < pid < MAX_PID is "no pid" (never probed as a confirmed death)
 LOCK_WAIT = 10.0
 LOCK_UNREADABLE_STALE = 300.0   # a lock with no readable owner token, or an owner without an identity, is stolen only after this long
                                 # (an identified owner is never judged by age; a store operation holds the lock for milliseconds)
@@ -194,9 +195,11 @@ class Leases:
     # --- state of one holder ---------------------------------------------------------------------------------------------
     def _alive(self, who):
         if who.get('bound_to') == 'attempt':
-            # a launch recorded without a trackable worker (Codex review of 48a938b P2): no process can prove it stopped, only the
-            # ledger can, when the attempt is settled ('dead' frees); until then 'unknown' keeps, whatever the controller does
-            return self._attempt_state(who)
+            # the ledger decides (Codex review of 48a938b P2): 'dead' frees (settled / never launched / its worker's death confirmed),
+            # anything else keeps; a launched worker with a pid is moved onto the row by the reconcile
+            verdict, worker = self._attempt_verdict(who)
+            if verdict == 'free': return 'dead'
+            return 'unknown'
         ident = who.get('identity')
         if isinstance(ident, dict) and ident.get('job_name'):
             # a contained worker (independent review of abcd7 F3/E1): its whole process tree, not only the top process
@@ -225,7 +228,11 @@ class Leases:
         expired = self.clock() >= _stamp(holder['until'])
         if holder.get('bound_to') == 'attempt':
             # the ledger, not a process, decides this row: its pid is the controller that launched (review of 1665f2f F5)
-            return proc, 'attempt_settled_unreleased' if proc == 'dead' else 'attempt_unsettled'
+            verdict, worker = self._attempt_verdict(holder)
+            if verdict == 'free': return 'dead', 'attempt_settled_unreleased'
+            if verdict == 'worker':
+                return proc, 'holder_dead_worker_alive' if self._alive({'identity': worker}) == 'alive' else 'holder_dead_worker_unknown'
+            return proc, 'attempt_unsettled' if verdict == 'unsettled' else 'attempt_unread'
         if proc == 'dead':
             state = 'dead_unreleased'
             if isinstance(holder.get('attempt_ref'), dict) and holder.get('bound_to') not in ('worker', 'attempt'):
@@ -253,6 +260,15 @@ class Leases:
         for who, label in (('holders', 'released_after_death'), ('waiters', 'waiter_gone')):
             keep = []
             for row in entry[who]:
+                if who == 'holders' and row.get('bound_to') == 'attempt':
+                    verdict, worker = self._attempt_verdict(row)
+                    if verdict == 'worker':
+                        # the ledger names a launched worker with a pid (a ledger unreadable at the step's end left the row on the
+                        # attempt: review of 6a48d45 N1): from now on that worker's confirmed death frees it, as the finally would have done
+                        row['pid'] = int(worker['pid']); row['identity'] = worker; row['bound_to'] = 'worker'
+                        self._log('rebound', key, claim=row['claim'], session=row.get('session'), plan=row.get('plan'), pid=row['pid'],
+                                  note='the ledger names the launched worker of this attempt; freed when its death is confirmed')
+                        changed = True
                 if self._alive(row) == 'dead':
                     # a row already bound to the worker (rebound here or by the engine) names the protected process itself: its confirmed
                     # death frees it, with no ledger lookup (independent review of abcd7 F4: kept forever when the ledger had moved)
@@ -268,7 +284,7 @@ class Leases:
                         keep.append(row); continue
                     self._log(label, key, claim=row['claim'], session=row.get('session'), plan=row.get('plan'),
                               state_root=row.get('state_root'), pid=row['identity'].get('pid'),
-                              note='the ledger shows the attempt settled' if row.get('bound_to') == 'attempt'
+                              note='the ledger shows the attempt settled or never launched' if row.get('bound_to') == 'attempt'
                               else 'process death confirmed; the lease was not released by the holder')
                     changed = True
                 else: keep.append(row)
@@ -427,19 +443,31 @@ class Leases:
             return {'status': 'bound', 'claim': claim_id, 'attempt': attempt_id}
 
     @staticmethod
-    def _attempt_state(row):
-        """'dead' when the ledger shows the bound attempt settled, else 'unknown' (still active, missing, unreadable: kept)."""
+    def _attempt_verdict(row):
+        """A row bound to an attempt whose step has ENDED (bound by the engine's finally): the same rules as that finally, re-applied from
+        the ledger each time (independent review of 6a48d45 N1: a ledger unreadable at the finally bound the row for good, even for an
+        attempt that never launched or whose worker had a pid). Returns (verdict, worker identity):
+        'free' (settled, or never launched: no identity recorded), 'worker' (launched with a usable pid: follow that worker),
+        'unsettled' (launched, no usable pid: kept until settled), 'unread' (ledger or attempt row unreadable or missing: kept)."""
         ref = row.get('attempt_ref')
         try:
             import sqlite3
             db = Path(ref['state_root']) / 'ledger.sqlite3'
-            if not db.is_file(): return 'unknown'
+            if not db.is_file(): return 'unread', None
             conn = sqlite3.connect(db.resolve().as_uri() + '?mode=ro', uri=True, timeout=1)
-            try: found = conn.execute('SELECT status FROM attempts WHERE id=?', (ref['attempt'],)).fetchone()
+            try: found = conn.execute('SELECT status, identity FROM attempts WHERE id=?', (ref['attempt'],)).fetchone()
             finally: conn.close()
-            return 'dead' if found and found[0] == 'settled' else 'unknown'
         except Exception:
-            return 'unknown'
+            return 'unread', None
+        if not found: return 'unread', None
+        status, identity = found
+        if status == 'settled' or identity is None: return 'free', None
+        try: recorded = json.loads(identity)
+        except ValueError: recorded = None
+        if launch_unidentified(recorded): return 'unsettled', None
+        try: worker = worker_identity(recorded)
+        except Exception: return 'unread', None
+        return ('free', None) if worker is None else ('worker', worker)
 
     # --- view ------------------------------------------------------------------------------------------------------------
     @staticmethod
@@ -561,9 +589,9 @@ def launch_unidentified(recorded):
     stopped (Codex review of 48a938b P2: such a launch was treated like "nothing launched" and its lease freed while it ran)."""
     rec = recorded.get('worker') if isinstance(recorded, dict) and isinstance(recorded.get('worker'), dict) else recorded
     pid = rec.get('pid') if isinstance(rec, dict) else None
-    # 0, negative pids and booleans name no process: Windows answers "invalid pid", which must never read as a confirmed death
-    # (independent review of 1665f2f F3: {'pid': 0} freed the lease)
-    return not (isinstance(pid, int) and not isinstance(pid, bool) and pid > 0)
+    # 0, negative, 2**31 and above (0xFFFFFFFF = -1 as a DWORD; ctypes truncates 2**32+) and booleans name no process: Windows answers
+    # "invalid pid", which must never read as a confirmed death (independent reviews of 1665f2f F3 and 6a48d45 N2)
+    return not (isinstance(pid, int) and not isinstance(pid, bool) and 0 < pid < MAX_PID)
 
 
 def node_bind_attempt(state_root, held, attempt_id):

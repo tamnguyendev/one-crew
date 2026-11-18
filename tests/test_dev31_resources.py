@@ -835,6 +835,69 @@ class EngineLeaseSeam(unittest.TestCase):
         case.settle_a()
         self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')
 
+    def blind_finally(self):
+        """The step's finally cannot read the ledger (as when it is locked past the busy timeout): its rows are bound to the attempt."""
+        import sqlite3
+        original = engine._leases_after
+        class Blind:
+            def attempt(self, _): raise sqlite3.OperationalError('database is locked')
+        return mock.patch.object(engine, '_leases_after', lambda ledger, control, attempt_id, held: original(ledger, Blind(), attempt_id, held))
+
+    def test_unreadable_ledger_at_the_step_end_is_re_decided_from_the_ledger(self):
+        """Independent review of 6a48d45 N1: an unreadable ledger at the finally bound the row for good, even for an attempt that never
+        launched or whose worker had a pid. The reconcile re-applies the finally's rules once the ledger can be read."""
+        case, other = self.fresh()                                                     # never launched: freed (rule 1)
+        def before(ledger, control, task, item, attempt): raise RuntimeError('lost before launch')
+        with case.blind_finally():
+            self.assertEqual(engine.step(case.ledger, 'P1', case.isolated(before), slots=2, _target='A')['state'], 'held')
+        self.assertTrue(any(e['event'] == 'bound_to_attempt' for e in Leases().events('gate')))
+        self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')
+        case, other = self.fresh()                                                     # launched, no pid: kept until settled
+        def nopid(ledger, control, task, item, attempt):
+            control.launched(attempt['id'], attempt['generation'], {'worker': {'session': 'lab-adapter-01'}}); raise RuntimeError('lost')
+        with case.blind_finally():
+            engine.step(case.ledger, 'P1', case.isolated(nopid), slots=2, _target='A')
+        case.b_waits_for_a(other, 'attempt_unsettled')
+        case.settle_a()
+        self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')
+        case, other = self.fresh()                                                     # launched with a live pid: follows that worker
+        worker = subprocess.Popen(SLEEP); self.addCleanup(lambda: worker.poll() is None and worker.kill())
+        def pid(ledger, control, task, item, attempt):
+            control.launched(attempt['id'], attempt['generation'], {'pid': worker.pid}); raise RuntimeError('lost')
+        with case.blind_finally():
+            engine.step(case.ledger, 'P1', case.isolated(pid), slots=2, _target='A')
+        for _ in range(2): self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'waiting')
+        self.assertEqual(Leases().status('gate')['resources'][0]['holders'][0]['pid'], worker.pid)
+        worker.kill(); worker.wait(10)
+        self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')
+
+    def test_attempt_bound_row_with_an_unreadable_ledger_is_kept_and_worded(self):
+        from onecrew.v2 import tracking_host_web
+        leases = Leases(); leases.declare(['gate'])
+        claim = leases.claim('gate', pid=os.getpid(), session='S', plan='P1', state_root=str(self.ledger.state_root),
+                             attempt_ref={'state_root': str(Path(self.temp.name) / 'absent'), 'task_id': 'T', 'unit': 'task:A'})
+        leases.bind_attempt('gate', claim['claim'], claim['token'], 'AT-gone')
+        for _ in range(2): leases.reconcile()
+        row = next(r for r in tracking_host_web.shared_resources(str(self.ledger.state_root))['resources'] if r['resource'] == 'gate')
+        self.assertFalse(row['free'])
+        self.assertEqual(row['holders'][0]['state'], 'attempt_unread')
+        self.assertIn('vẫn giữ', row['holders'][0]['state_label']); self.assertNotIn('sẽ nhả', row['holders'][0]['state_label'])
+
+    def test_out_of_range_pids_are_no_pid(self):
+        """Independent review of 6a48d45 N2: 0xFFFFFFFF and 2**31 read as 'invalid pid' = dead and freed the lease."""
+        for record in ({'pid': 4294967295}, {'worker': {'pid': 2 ** 31}}, {'pid': 2 ** 40}):
+            with self.subTest(record=record):
+                case, other = self.fresh()
+                def lost(ledger, control, task, item, attempt):
+                    control.launched(attempt['id'], attempt['generation'], record); raise RuntimeError('lost after launch')
+                engine.step(case.ledger, 'P1', case.isolated(lost), slots=2, _target='A')
+                case.b_waits_for_a(other, 'attempt_unsettled')
+                case.settle_a()
+                self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')
+        case, other = self.fresh()
+        case.launch_record({'pid': 4294967295})                                        # and when the controller dies
+        case.b_waits_for_a(other, 'holder_dead_worker_unknown')
+
     def test_busy_ledger_in_the_error_handler_keeps_the_lease(self):
         """Independent review of 1665f2f F2: the handler's first ledger read failed on a locked ledger and the finally released."""
         import sqlite3
