@@ -721,6 +721,67 @@ class ReviewerVerdictDoor(VerdictDoor):
                 self.assertIsNotNone(review_dispatch.judged_milestone_fail(conn, state['task_id'], same))
 
 
+class PlainReviewerVerdictDoor(VerdictDoor):
+    """DEV31 F2: the same refusal on a PLAIN plan (no workflow, no sequential-engine capability: the usual way milestones are verified).
+    The question is (plan, approved revision, milestone, artifact); the reviewer is a counted fake."""
+    seam = ReviewerVerdictDoor.seam
+
+    def setUp(self):
+        CoreFixture.setUp(self)
+        self.value = contract(milestones=[dict(reviewer_milestone(criteria=CRITERIA), id='M1')],
+                              authority={'edit': True, 'commands': True, 'self_decide': QUESTIONS})
+        plans.propose(self.ledger, 'P1', self.value, 'codex')
+        plans.approve(self.ledger, 'P1', 'owner', 'fixture approved reviewer milestone')
+        os.environ['ONECREW_ACTOR'] = 'codex'
+        (self.root / 'a.txt').write_text('two\n'); self.git('commit', '-qam', 'the change to review')
+
+    def charged(self):
+        # a plain plan has no workflow budget group: what it is charged is the model calls its recorded verdicts carry
+        return sum(int(v.get('calls') or 0) for v in self.verdicts())
+
+    def test_retry_no_replay_plain_plan_second_verdict_run_after_a_reviewer_fail_is_refused_with_one_call(self):
+        before, calls = self.charged(), []
+        with patch.object(reviewer, 'call', side_effect=self.seam(calls)):
+            self.assertEqual(self.ask(), 'fail')
+            with self.assertRaises(LedgerError) as raised: verdict.run(self.ledger, 'P1', 'M1')
+            with self.assertRaises(LedgerError): self.ask(Ledger(self.root, self.ledger.state_root))
+        self.assertIn('already judged milestone M1', str(raised.exception))
+        self.assertIn('amend the plan', str(raised.exception))
+        self.assertNotIn('environment', str(raised.exception))
+        self.assertEqual((len(calls), self.charged() - before, len(self.verdicts())), (1, 1, 1))
+        self.assertEqual(self.kinds().count('verdict.run_started'), 1, 'the refused asks never opened a run')
+
+    def test_wrong_artifact_plain_plan_a_new_artifact_asks_the_reviewer_again(self):
+        calls = []
+        with patch.object(reviewer, 'call', side_effect=self.seam(calls)):
+            self.ask()
+            (self.root / 'a.txt').write_text('three\n'); self.git('commit', '-qam', 'the artifact moved')
+            self.assertEqual(self.ask(), 'fail')
+        self.assertEqual(len(calls), 2)
+
+    def test_wrong_revision_plain_plan_an_amended_revision_asks_the_reviewer_again(self):
+        calls = []
+        with patch.object(reviewer, 'call', side_effect=self.seam(calls)):
+            self.ask()
+            amended = copy.deepcopy(self.value)
+            amended['milestones'][0]['verifier']['config']['criteria'] = [{'id': 'R1', 'question': 'Does a.txt hold the line two? fail if it does not.'}]
+            plans.amend(self.ledger, 'P1', amended, 'the owner thinks the reviewer was wrong about the criterion', 'codex')
+            with patch.dict(os.environ):                      # the owner approves the amendment from the owner's side, not as the AI actor
+                os.environ.pop('ONECREW_ACTOR', None)
+                plans.approve(self.ledger, 'P1', 'owner', 'approved the amendment', revision=2)
+            self.assertEqual(self.ask(), 'fail')
+        self.assertEqual((len(calls), [v['revision'] for v in self.verdicts()]), (2, [1, 2]))
+
+    def test_unknown_outcome_plain_plan_inconclusive_result_stays_retryable(self):
+        calls = []
+        with patch.object(reviewer, 'call', side_effect=self.seam(calls, error='quota_exhausted: fixture')):
+            self.assertEqual(self.ask(), 'inconclusive')
+        with patch.object(reviewer, 'call', side_effect=self.seam(calls, 'fail')):
+            self.assertEqual(self.ask(), 'fail')
+            with self.assertRaises(LedgerError): verdict.run(self.ledger, 'P1', 'M1')
+        self.assertEqual(len(calls), 2)
+
+
 class CommandVerdictDoor(VerdictDoor):
     kind = 'command'
 

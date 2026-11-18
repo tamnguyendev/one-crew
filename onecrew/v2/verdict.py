@@ -418,7 +418,14 @@ def run(ledger, name, milestone_id, directory=None):
     if recovered is not None:
         return recovered
     check = _check_request(ledger, state, revision, sha, contract, milestone, directory, deadline=bounded.get('deadline'))
-    run_id = _begin_run(ledger, name, revision, milestone_id, kind, minutes, check=check)
+    plain = None
+    if check is None and kind == 'reviewer':             # DEV31 F2: a plain plan has no request identity; its question is (revision, plan sha, milestone, artifact)
+        try:
+            with command.before_verifier(), command.snapshot_limits(bounded.get('deadline')):
+                plain = (revision, sha, command.verified_sha(directory))
+        except (LedgerError, OSError):                   # the reviewer meets the same problem and records it; never a refusal made on a guess
+            plain = None
+    run_id = _begin_run(ledger, name, revision, milestone_id, kind, minutes, check=check, plain=plain)
     evidence_context = ({'evidence_context': {'selector': state['selector'], 'revision': revision, 'contract': contract}}
                         if namespaces.has_capability(state, 'sequential-engine') else {})
     integrity = None
@@ -1022,7 +1029,10 @@ def unsettled_run(ledger, conn, task_id, same_work):
     return None
 
 
-def _begin_run(ledger, name, revision, milestone_id, kind, max_minutes, check=None):
+ASK_AGAIN = 'To ask the reviewer a new question, amend the plan (a new revision) or change the artifact.'
+
+
+def _begin_run(ledger, name, revision, milestone_id, kind, max_minutes, check=None, plain=None):
     request, candidate = check if check else (None, None)
     reap(ledger, name)                                              # a lost earlier run must not refuse this one
     snapshot = command.snapshot_seconds()
@@ -1042,11 +1052,17 @@ def _begin_run(ledger, name, revision, milestone_id, kind, max_minutes, check=No
             judged = review_dispatch.judged_milestone_fail(conn, state['task_id'], request) if kind == 'reviewer' else None
             if judged:        # DEV31 R2-B: the engine door refuses a repeated paid-reviewer fail (_judged_fail); this door does the same
                 raise LedgerError(f'This very review (request {request["id"][:20]}) already judged milestone {milestone_id} on this artifact as failed in run {judged}; '
-                                  'nothing was dispatched and no reviewer was asked again. Repair the output, or change the criteria or the environment, to ask a new question.')
+                                  f'nothing was dispatched and no reviewer was asked again. {ASK_AGAIN}')
             other = review_dispatch.verdict_conflict(conn, state['task_id'], request)
             if other:
                 raise LedgerError(f'Milestone {milestone_id} on this artifact is already being checked through {other["door"]} (run {other["run_id"]}, {other["state"]}); '
                                   'nothing was dispatched. Observe that run; `onecrew engine reconcile-check` settles it.')
+        if request is None and plain is not None:                   # DEV31 F2: a plain plan, same transaction as the claim
+            from . import review_dispatch
+            judged = review_dispatch.judged_plain_fail(conn, state['task_id'], *plain[:2], milestone_id, plain[2])
+            if judged:
+                raise LedgerError(f'This very review already judged milestone {milestone_id} on this artifact and revision as failed (receipt {judged[:20]}); '
+                                  f'nothing was dispatched and no reviewer was asked again. {ASK_AGAIN}')
         plans.emit(ledger, conn, state['task_id'], 'verdict.run_started',
                    {'plan': name, 'revision': revision, 'milestone': milestone_id, 'run_id': run_id, 'kind': kind, 'pid': os.getpid(), 'host': this_host(),
                     'started': started.isoformat(), 'max_minutes': max_minutes,

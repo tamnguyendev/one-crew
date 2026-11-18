@@ -627,6 +627,18 @@ def judged_milestone_fail(conn, task_id, request):
     return None
 
 
+def judged_plain_fail(conn, task_id, revision, plan_sha, milestone_id, artifact_sha):
+    """DEV31 F2: the same refusal for a plain plan (no candidate door, so no request identity). The question is: same approved revision and
+    plan sha (criteria and reviewer config live there, an amend is a new question), same milestone, same artifact. Returns the receipt of the
+    recorded paid-reviewer fail (calls > 0, a provider, no provider error), or None. Inconclusive, command and owner verdicts never match."""
+    for row in conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='verdict.recorded'", (task_id,)).fetchall():
+        p = json.loads(row['payload'])
+        if (p.get('result') == 'fail' and (p.get('calls') or 0) > 0 and p.get('provider') and not p.get('provider_error') and p.get('receipt')
+                and (p.get('revision'), p.get('plan_sha'), p.get('milestone'), p.get('artifact_sha')) == (revision, plan_sha, milestone_id, artifact_sha)):
+            return p['receipt']
+    return None
+
+
 def claim_node_check(ledger, selector, nid, *, execution, door, expected):
     """engine.verify's claim: the request is computed from the facts read inside the same write transaction as the claim. `expected` is the
     (artifact, generation) the caller decided on: another door may have published or moved the node since, and that is not a new request."""
