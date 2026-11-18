@@ -732,6 +732,66 @@ class EngineLeaseSeam(unittest.TestCase):
         self.assertFalse(Leases().status('gate')['resources'][0]['free'])
         self.assertEqual(other.attempts(), 0)
 
+    def a_attempt(self):
+        with self.ledger.transaction() as conn:
+            row = conn.execute('SELECT id, generation, status, identity FROM attempts').fetchone()
+        return dict(row)
+
+    def settle_a(self):
+        """What a confirmed reconciliation does: the ledger records A's attempt as ended."""
+        row = self.a_attempt()
+        self.control.finish(row['id'], row['generation'], {'reason': 'supervisor_interrupted', 'tree_stopped': True})
+
+    def b_waits_for_a(self, other, label):
+        from onecrew.v2 import tracking_host_web
+        for _ in range(2):
+            waiting = engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')
+            self.assertEqual(waiting['state'], 'waiting')
+            self.assertIn('resource_lease', ' '.join(waiting['reasons']))
+            self.assertIn(str(self.ledger.state_root), ' '.join(waiting['reasons']))      # held by A's plan and ledger
+        self.assertEqual((other.attempts(), other.started()), (0, []))                    # B has not started
+        holder = tracking_host_web.shared_resources(str(self.ledger.state_root))['resources'][0]['holders'][0]
+        self.assertEqual(holder['state'], label)
+        self.assertNotIn('sẽ nhả', holder['state_label']); self.assertIn('vẫn giữ', holder['state_label'])
+
+    def test_launch_without_a_pid_then_the_controller_dies_keeps_the_lease_until_the_attempt_settles(self):
+        """Codex review of 48a938b P2 (controller stopped abruptly after the launch): launched, no pid recorded, so nothing proves A stopped."""
+        Leases().declare(['gate'])
+        other = self.second_root()
+        self.launch_record({'worker': {'session': 'lab-adapter-01'}})
+        self.assertEqual(self.a_attempt()['status'], 'running')
+        self.b_waits_for_a(other, 'holder_dead_worker_unknown')
+        self.settle_a()
+        self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')
+
+    def test_launch_without_a_pid_then_contact_is_lost_keeps_the_lease_until_the_attempt_settles(self):
+        """Codex review of 48a938b P2 (the adapter loses contact after the launch, the controller lives on): the engine holds the node and
+        the lease is bound to the attempt, not to the controller or a worker it cannot follow."""
+        for record in ({'worker': {'session': 'lab-adapter-01'}}, {}):
+            with self.subTest(record=record):
+                case = type(self)(self._testMethodName); case.setUp(); self.addCleanup(case.doCleanups)
+                Leases().declare(['gate'])
+                other = case.second_root()
+                def lost(ledger, control, task, item, attempt):
+                    control.launched(attempt['id'], attempt['generation'], record)
+                    raise RuntimeError('lab adapter lost contact after launch')
+                self.assertEqual(engine.step(case.ledger, 'P1', case.isolated(lost), slots=2, _target='A')['state'], 'held')
+                self.assertEqual(case.a_attempt()['status'], 'unknown')
+                case.b_waits_for_a(other, 'attempt_unsettled')
+                self.assertTrue(any(e['event'] == 'bound_to_attempt' for e in Leases().events('gate')))
+                case.settle_a()
+                self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')
+                self.assertTrue(any(e['event'] == 'released_after_death' for e in Leases().events('gate')))
+
+    def test_contact_lost_before_any_launch_frees_the_lease(self):
+        """Codex review of 48a938b, control: nothing was launched, so B may run at once."""
+        Leases().declare(['gate'])
+        other = self.second_root()
+        def lost(ledger, control, task, item, attempt): raise RuntimeError('lab adapter lost contact before launch')
+        self.assertEqual(engine.step(self.ledger, 'P1', self.isolated(lost), slots=2, _target='A')['state'], 'held')
+        self.assertIsNone(self.a_attempt()['identity'])
+        self.assertEqual(engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')['state'], 'produced')
+
     def test_worker_on_another_host_without_a_creation_time_keeps_the_lease(self):
         import socket
         self.other_host_keeps({'pid': 2_000_000, 'host': socket.gethostname() + '-other'})
