@@ -12,8 +12,9 @@ Rules (each is a test in tests/test_dev31_resources.py):
 - A holder that cannot get the resource is recorded as a waiter (visible in `status`), and gets it when `claim` is called again with
   the same claim id after the holders are gone. Nothing fails silently and nothing is retried in the background.
 - `until` is advice for people, not a release: a lease past `until` whose holder process is alive stays held ("expired, holder alive").
-- The claim id is not a credential by itself (`status` shows it): renewing a claim, retrying as a waiter and `release` must come from the
-  holder's own process (pid -> identity incl. creation time must equal the stored one); a mismatch changes nothing.
+- The claim id is not a credential (`status` shows it) and neither is a pid the caller names. A granted or queued claim returns a secret
+  token ONCE; only its sha256 is stored. Renewing, retrying as a waiter, withdrawing and `release` require that token (a missing or wrong
+  one changes nothing). The pid stays only the liveness signal of the work process. `status` and the events never show a token.
 - A renewal asks for the mode already held; a different mode is refused (release and claim again). Every answer states the mode.
 - A lease is released only by the holder's explicit `release`, or by `reconcile` after the holder's process death is confirmed (same
   identity probe as the supervisor: pid + creation time). An unknown probe (other machine, no access) never releases.
@@ -23,10 +24,13 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime as dt
+import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
 import re
+import secrets
 import sys
 import time
 import uuid
@@ -190,14 +194,14 @@ class Leases:
         else: state = 'expired_holder_unknown' if expired else 'held_holder_unknown'
         return proc, state
 
-    def _require_holder(self, row, pid, what):
-        """The claim id is not a credential: the caller's process identity must equal the stored one."""
-        try: mine = self._identity(os.getpid() if pid is None else int(pid))
-        except Exception as error:
-            raise LedgerError(f'{what} refused: the caller process identity cannot be read ({type(error).__name__}); nothing was changed.')
-        if mine != row.get('identity'):
-            raise LedgerError(f'{what} refused: {row["claim"]} belongs to another process (pid {row["identity"].get("pid")}); '
-                              'only its own process may renew or release it. Nothing was changed.')
+    @staticmethod
+    def _token_sha(token): return hashlib.sha256(str(token).encode('utf-8')).hexdigest()
+
+    def _require_token(self, row, token, what):
+        """The capability check: the caller proves it owns the claim with the secret returned when it was granted or queued."""
+        if not token or not hmac.compare_digest(self._token_sha(token), str(row.get('token_sha') or '')):
+            raise LedgerError(f'{what} refused: {row["claim"]} needs its claim token (returned once when it was claimed); '
+                              'a claim id or a pid is not enough. Nothing was changed.')
 
     # --- reconcile (the only release without the holder's word) -----------------------------------------------------------
     def _reconcile(self, key, entry):
@@ -227,8 +231,9 @@ class Leases:
             return changed
 
     # --- claim / release -------------------------------------------------------------------------------------------------
-    def claim(self, resource, *, mode='write', session=None, plan=None, state_root=None, pid=None, ttl=DEFAULT_TTL, claim_id=None):
-        """Ask for a resource. Returns {'status': 'granted'|'waiting', 'claim': id, ...}; call again with the same claim id to retry."""
+    def claim(self, resource, *, mode='write', session=None, plan=None, state_root=None, pid=None, ttl=DEFAULT_TTL, claim_id=None, token=None):
+        """Ask for a resource. Returns {'status': 'granted'|'waiting', 'claim': id, 'token': secret, ...}; the token is shown once, on the
+        answer that creates the claim. Call again with the same claim id AND token to renew or retry (no token is returned again)."""
         key = self._key(resource); mode = _mode(mode)
         if ttl <= 0: raise LedgerError('ttl must be positive.')
         with self._locked():
@@ -238,7 +243,7 @@ class Leases:
             claim_id = claim_id or 'LS-' + uuid.uuid4().hex[:12]
             mine = next((r for r in entry['holders'] if r['claim'] == claim_id), None)
             if mine:
-                self._require_holder(mine, pid, 'Renewal')
+                self._require_token(mine, token, 'Renewal')
                 if mine['mode'] != mode:
                     raise LedgerError(f'Renewal refused: {claim_id} holds {key!r} as {mine["mode"]} and {mode} was asked; '
                                       'release it and claim again. Nothing was changed.')
@@ -246,7 +251,7 @@ class Leases:
                 self._save(data); return {'status': 'granted', 'claim': claim_id, 'resource': key, 'mode': mine['mode'], 'until': mine['until']}
             queued = next((r for r in entry['waiters'] if r['claim'] == claim_id), None)
             if queued:
-                self._require_holder(queued, pid, 'Retry')
+                self._require_token(queued, token, 'Retry')
                 if queued['mode'] != mode:
                     raise LedgerError(f'Retry refused: {claim_id} waits for {key!r} as {queued["mode"]} and {mode} was asked; '
                                       'withdraw it and claim again. Nothing was changed.')
@@ -254,29 +259,30 @@ class Leases:
                 return {'status': 'waiting', 'claim': claim_id, 'resource': key, 'mode': queued['mode'], 'position': entry['waiters'].index(queued) + 1,
                         'held_by': [self._who(h) for h in entry['holders']]}
             pid = os.getpid() if pid is None else int(pid)
-            row = {'claim': claim_id, 'mode': mode, 'session': session, 'plan': plan,
+            secret = secrets.token_urlsafe(32)
+            row = {'claim': claim_id, 'token_sha': self._token_sha(secret), 'mode': mode, 'session': session, 'plan': plan,
                    'state_root': str(state_root) if state_root is not None else None,
                    'pid': pid, 'identity': self._identity(pid), 'ttl': ttl, 'asked_at': self.clock().isoformat()}
             if not entry['waiters'] and _compatible(mode, entry['holders']):
                 row['since'] = self.clock().isoformat(); row['until'] = (self.clock() + dt.timedelta(seconds=ttl)).isoformat()
                 entry['holders'].append(row); self._log('claimed', key, claim=claim_id, session=session, plan=plan, mode=mode, pid=pid)
-                result = {'status': 'granted', 'claim': claim_id, 'resource': key, 'mode': mode, 'until': row['until']}
+                result = {'status': 'granted', 'claim': claim_id, 'token': secret, 'resource': key, 'mode': mode, 'until': row['until']}
             else:
                 entry['waiters'].append(row); self._log('waiting', key, claim=claim_id, session=session, plan=plan, mode=mode, pid=pid)
-                result = {'status': 'waiting', 'claim': claim_id, 'resource': key, 'mode': mode, 'position': len(entry['waiters']),
+                result = {'status': 'waiting', 'claim': claim_id, 'token': secret, 'resource': key, 'mode': mode, 'position': len(entry['waiters']),
                           'held_by': [self._who(h) for h in entry['holders']]}
             self._save(data)
             return result
 
-    def release(self, resource, claim_id, pid):
-        """The holder's explicit release (or a waiter withdrawing), from the holder's own process (`pid`). Anyone else is refused; expiry never releases."""
+    def release(self, resource, claim_id, token):
+        """The holder's explicit release (or a waiter withdrawing), with the claim's token. Anyone else is refused; expiry never releases."""
         key = self._key(resource)
         with self._locked():
             data = self._load(); entry = data['resources'].get(key) or {'holders': [], 'waiters': []}
             for who, label in (('holders', 'released'), ('waiters', 'withdrawn')):
                 row = next((r for r in entry[who] if r['claim'] == claim_id), None)
                 if row:
-                    self._require_holder(row, pid, 'Release')
+                    self._require_token(row, token, 'Release')
                     entry[who].remove(row); self._log(label, key, claim=claim_id, session=row.get('session'), plan=row.get('plan'))
                     self._reconcile(key, entry); data['resources'][key] = entry; self._save(data)
                     return {'status': label, 'claim': claim_id}
@@ -304,6 +310,73 @@ class Leases:
         return {'managed': self.managed(), 'resources': out}
 
 
+# --- the engine seam: a node that carries a DECLARED resource label claims it for its attempt ---------------------------------
+def declared_among(labels):
+    """The labels (normalized, sorted) that are declared in the machine store. Reads `managed.json` only: nothing is created and
+    nothing is claimed for an undeclared label, and with no declared resource the engine is exactly as before."""
+    configured = os.environ.get('ONECREW_LEASE_HOME')
+    path = (Path(configured) if configured else Path.home() / '.onecrew' / 'leases') / 'managed.json'
+    if not labels or not path.is_file(): return []
+    try: declared = {normalize(x) for x in json.loads(path.read_text(encoding='utf-8')).get('resources', [])}
+    except (OSError, ValueError, AttributeError, LedgerError): return []
+    out = set()
+    for label in labels:
+        with contextlib.suppress(LedgerError):
+            if normalize(label) in declared: out.add(normalize(label))
+    return sorted(out)
+
+
+def _claim_file(state_root, claim_id):
+    return Path(state_root) / 'lease-claims' / (claim_id + '.json')
+
+
+def node_claim(state_root, key, labels, *, session, plan, ttl, pid=None):
+    """Claim (write = exclusive) every declared label of a node for ONE attempt, in sorted order. The claim id is derived from
+    (state root, attempt key, resource) so a later engine step retries the same claim; its token lives in `<state_root>/lease-claims/`
+    (private to the engine, never in a view or an event). Returns None when no label is declared, else
+    {'status': 'granted'|'waiting', 'held': [(resource, claim, token)], 'reason': ...}. A waiting answer holds nothing else."""
+    names = declared_among(labels)
+    if not names: return None
+    leases = Leases(); granted = []
+    for name in names:
+        claim_id = 'LS-' + hashlib.sha256(f'{state_root}|{key}|{name}'.encode('utf-8')).hexdigest()[:16]
+        path = _claim_file(state_root, claim_id)
+        try: saved = json.loads(path.read_text(encoding='utf-8')).get('token') if path.is_file() else None
+        except (OSError, ValueError, AttributeError): saved = None
+        try:
+            answer = leases.claim(name, mode='write', session=session, plan=plan, state_root=str(state_root),
+                                  pid=os.getpid() if pid is None else pid, ttl=ttl, claim_id=claim_id, token=saved)
+            if answer.get('token'):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                durable_write(path, canonical({'resource': name, 'claim': claim_id, 'token': answer['token']}).encode('utf-8'))
+                saved = answer['token']
+        except LedgerError as error:
+            answer = {'status': 'waiting', 'reason': str(error)}
+        if answer['status'] == 'granted':
+            granted.append((name, claim_id, saved)); continue
+        node_release(state_root, granted)
+        if answer.get('reason'): why = answer['reason']
+        elif answer.get('held_by'):
+            h = answer['held_by'][0]
+            why = (f"{name!r} is held by plan {h.get('plan')} (session {h.get('session')}, state root {h.get('state_root')}) "
+                   f"since {h.get('since')} until {h.get('until')}")
+        else: why = f"{name!r} has {answer.get('position', 1)} claim(s) queued ahead"
+        return {'status': 'waiting', 'held': [], 'reason': 'resource_lease: ' + why}
+    return {'status': 'granted', 'held': granted, 'reason': None}
+
+
+def node_release(state_root, held):
+    """Release the claims of an attempt that finished, was cancelled or never launched. Only the token releases; a refused or failed
+    release changes nothing and the holder's confirmed death still frees it (reconcile)."""
+    if not held: return
+    leases = Leases()
+    for name, claim_id, token in held:
+        with contextlib.suppress(LedgerError):
+            leases.release(name, claim_id, token)
+        with contextlib.suppress(OSError):
+            _claim_file(state_root, claim_id).unlink()
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='onecrew.resource_lease', description='Machine-level leases for heavy shared resources.')
     parser.add_argument('--home', help='lease folder (default: ONECREW_LEASE_HOME or ~/.onecrew/leases)')
@@ -313,8 +386,9 @@ def main(argv=None):
     c = sub.add_parser('claim'); c.add_argument('resource'); c.add_argument('--mode', default='write'); c.add_argument('--session')
     c.add_argument('--plan'); c.add_argument('--state-root'); c.add_argument('--pid', type=int, required=True, help='the process that does the work')
     c.add_argument('--ttl', type=int, default=DEFAULT_TTL); c.add_argument('--claim')
+    c.add_argument('--token', help='the claim token, to renew or retry an existing claim')
     r = sub.add_parser('release'); r.add_argument('resource'); r.add_argument('claim')
-    r.add_argument('--pid', type=int, required=True, help='the holder process (must be the one that claimed)')
+    r.add_argument('--token', required=True, help='the claim token returned when the claim was made')
     sub.add_parser('reconcile')
     args = parser.parse_args(argv)
     leases = Leases(args.home)
@@ -323,8 +397,8 @@ def main(argv=None):
         elif args.cmd == 'declare': result = {'managed': leases.declare(args.names)}
         elif args.cmd == 'claim':
             result = leases.claim(args.resource, mode=args.mode, session=args.session, plan=args.plan, state_root=args.state_root,
-                                  pid=args.pid, ttl=args.ttl, claim_id=args.claim)
-        elif args.cmd == 'release': result = leases.release(args.resource, args.claim, args.pid)
+                                  pid=args.pid, ttl=args.ttl, claim_id=args.claim, token=args.token)
+        elif args.cmd == 'release': result = leases.release(args.resource, args.claim, args.token)
         else: result = {'changed': leases.reconcile()}
     except LedgerError as error:
         print(json.dumps({'error': str(error)}, ensure_ascii=False)); return 2

@@ -961,14 +961,32 @@ def _step(ledger, selector, executor, *, control=None, slots=1, _target=None, _s
                **(_mode_fields(mode) if mode else {}))
         admitted.append(attempt['id'])
 
+    # DEV31-C (#32): a `resources` label the user declared in the MACHINE lease store is claimed (exclusive) for this attempt before it is
+    # admitted, so another plan / session / state root on the machine cannot run on the same resource. Undeclared labels (and no declared
+    # resource at all) change nothing. Waiting is surfaced as a capacity wait; the next step retries the same claim (id derived, token
+    # kept in the state root). The engine process is the liveness signal; release is explicit (below), a dead one is freed by reconcile.
+    from .. import resource_lease
+    leased = resource_lease.node_claim(ledger.state_root, f'{root["task_id"]}:{nid}:g{view["nodes"][nid]["generation"]}', item.get('resources') or [],
+                                       session=f'{nid}@{task["id"]}', plan=namespaces.parse(root['selector'])[0],
+                                       ttl=max(int(item['execution_cap_seconds']) + 300, 600))
+    if leased and leased['status'] == 'waiting':
+        from ..control_core import CapacityWait
+        if mode is None: raise CapacityWait(leased['reason'])
+        from . import execution_mode
+        return _wait(ledger, view, nid, execution_mode.rewrite(mode, 'wait', ['capacity_full: ' + leased['reason'][:400]]), swept)
+    held_leases = leased['held'] if leased else []
     try:
         attempt = control.reserve(task['id'], execution['revision'], 'node-run', {'unit': 'task:' + nid, 'stage': nid}, on_reserved=reserve)
     except LedgerError as error:
+        resource_lease.node_release(ledger.state_root, held_leases)
         from ..control_core import CapacityWait
         if mode is None or not isinstance(error, CapacityWait): raise
         from . import execution_mode
         return _wait(ledger, view, nid, execution_mode.rewrite(mode, 'wait', ['capacity_full: ' + str(error)[:200]]), swept)
+    except BaseException:
+        resource_lease.node_release(ledger.state_root, held_leases); raise
     if attempt['id'] not in admitted:
+        resource_lease.node_release(ledger.state_root, held_leases)
         # T15c E8 / T08a: Control.reserve is idempotent per key, so a concurrent caller that read the node as ready before this node's
         # node.started was committed receives the attempt ANOTHER caller admitted (possibly already running). It must never be dispatched
         # a second time: one attempt has exactly one executor body; the owner of the attempt (or reconciliation) settles it.
@@ -1074,6 +1092,8 @@ def _step(ledger, selector, executor, *, control=None, slots=1, _target=None, _s
             else:
                 _retain(ledger, conn, view, nid, str(error)[:1000], attempt=attempt['id'])
         return {'node': nid, 'state': 'retained' if lost else 'held', 'reason': failure.get('reason', str(error))}
+    finally:
+        resource_lease.node_release(ledger.state_root, held_leases)       # the attempt is over (settled, failed or cancelled)
     with ledger.transaction(write=True) as conn:
         current = state(ledger, root['selector'], conn)
         mine = current['nodes'].get(nid) or {}

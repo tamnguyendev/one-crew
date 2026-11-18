@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -13,6 +14,8 @@ from unittest import mock
 from onecrew.ledger import LedgerError
 from onecrew import resource_lease
 from onecrew.resource_lease import Leases, Unmanaged
+from onecrew.v2 import engine
+from tests import test_v24_c_execution_mode as mode_tests
 
 SLEEP = [sys.executable, '-c', 'import time; time.sleep(120)']
 
@@ -57,9 +60,9 @@ class ResourceLeaseTests(Base):
         self.assertEqual(second['held_by'][0]['session'], 's1')
         view = self.leases.status('gate')['resources'][0]
         self.assertEqual(len(view['holders']), 1)
-        self.assertEqual(self.leases.claim('gate', pid=b.pid, claim_id=second['claim'])['status'], 'waiting')  # still waiting, not granted
-        self.leases.release('gate', first['claim'], a.pid)
-        self.assertEqual(self.leases.claim('gate', pid=b.pid, claim_id=second['claim'])['status'], 'granted')
+        self.assertEqual(self.leases.claim('gate', pid=b.pid, claim_id=second['claim'], token=second['token'])['status'], 'waiting')  # still waiting
+        self.leases.release('gate', first['claim'], first['token'])
+        self.assertEqual(self.leases.claim('gate', pid=b.pid, claim_id=second['claim'], token=second['token'])['status'], 'granted')
 
     def test_light_still_runs(self):
         a, b, c = self.child(), self.child(), self.child()
@@ -88,7 +91,7 @@ class ResourceLeaseTests(Base):
         self.assertEqual(view['holders'][0]['state'], 'expired_holder_alive')
         self.assertEqual(self.leases.claim('gate', session='eager', pid=b.pid)['status'], 'waiting')   # never handed over on expiry
         self.assertFalse(any(e['event'].startswith('released') for e in self.leases.events('gate')))
-        self.leases.claim('gate', pid=a.pid, claim_id=held['claim'], ttl=60)   # the holder may renew
+        self.leases.claim('gate', pid=a.pid, claim_id=held['claim'], token=held['token'], ttl=60)   # the holder may renew
         self.assertEqual(self.leases.status('gate')['resources'][0]['holders'][0]['state'], 'held')
 
     def test_holder_and_waiter_shown(self):
@@ -106,18 +109,18 @@ class ResourceLeaseTests(Base):
     def test_release_after_death_only(self):
         a, b, c = self.child(), self.child(), self.child()
         held = self.leases.claim('gate', session='h', pid=a.pid, ttl=10)
-        self.leases.claim('gate', session='w', pid=b.pid)
-        self.clock.advance(1000)                        # long past `until`
+        waiter = self.leases.claim('gate', session='w', pid=b.pid)
+        self.clock.advance(1000)                       # long past `until`
         self.assertFalse(self.leases.reconcile())       # expiry alone frees nothing
         self.assertFalse(self.leases.status('gate')['resources'][0]['free'])
-        with self.assertRaises(LedgerError): self.leases.release('gate', 'LS-not-the-holder', a.pid)     # only the holder releases
+        with self.assertRaises(LedgerError): self.leases.release('gate', 'LS-not-the-holder', held['token'])     # only the holder releases
         self.kill(a)
         self.assertEqual(self.leases.status('gate')['resources'][0]['holders'][0]['state'], 'dead_unreleased')
         self.assertTrue(self.leases.reconcile())
         view = self.leases.status('gate')['resources'][0]
         self.assertEqual(view['holders'][0]['session'], 'w')   # the waiter got it after the death was confirmed
         self.assertTrue(any(e['event'] == 'released_after_death' and e['claim'] == held['claim'] for e in self.leases.events('gate')))
-        self.assertEqual(self.leases.release('gate', view['holders'][0]['claim'], b.pid)['status'], 'released')   # explicit release works
+        self.assertEqual(self.leases.release('gate', view['holders'][0]['claim'], waiter['token'])['status'], 'released')   # explicit release works
 
     def test_crash_recovery(self):
         a, b = self.child(), self.child()
@@ -151,11 +154,11 @@ class ResourceLeaseTests(Base):
         self.assertEqual(w['status'], 'waiting')                                          # a writer waits for the readers
         r3 = self.leases.claim('db:dev', mode='read', session='r3', pid=d.pid)
         self.assertEqual(r3['status'], 'waiting')                                         # no jumping the waiting writer
-        self.leases.release('db:dev', r1['claim'], a.pid); self.leases.release('db:dev', r2['claim'], b.pid)
+        self.leases.release('db:dev', r1['claim'], r1['token']); self.leases.release('db:dev', r2['claim'], r2['token'])
         view = self.leases.status('db:dev')['resources'][0]
         self.assertEqual([h['session'] for h in view['holders']], ['w'])                  # writer holds; the reader waits
         self.assertEqual([x['session'] for x in view['waiters']], ['r3'])
-        self.leases.release('db:dev', w['claim'], c.pid)
+        self.leases.release('db:dev', w['claim'], w['token'])
         self.assertEqual(self.leases.status('db:dev')['resources'][0]['holders'][0]['session'], 'r3')
 
     def test_cli_status_and_claim(self):
@@ -180,28 +183,43 @@ class ResourceLeaseReviewTests(Base):
         seen = self.leases.status('gate')['resources'][0]['holders'][0]['claim']    # status shows the id to everybody
         self.assertEqual(seen, held['claim'])
         before = (self.home / 'leases.json').read_bytes(); events = len(self.leases.events('gate'))
-        with self.assertRaises(LedgerError): self.leases.claim('gate', session='X', pid=other.pid, claim_id=seen)       # impostor renews
-        with self.assertRaises(LedgerError): self.leases.release('gate', seen, other.pid)                               # impostor releases
-        with self.assertRaises(LedgerError): self.leases.release('gate', seen, b.pid)                                   # another claimant releases
-        with self.assertRaises(LedgerError): self.leases.claim('gate', pid=a.pid, claim_id=wait['claim'])               # waiter retried by another process
-        with self.assertRaises(LedgerError): self.leases.release('gate', wait['claim'], other.pid)                      # waiter withdrawn by another process
+        # the impostor knows the claim id AND the live holder's pid (both are visible in `status`) but not the token
+        for wrong in (None, '', 'not-the-token', wait['token']):
+            with self.assertRaises(LedgerError): self.leases.claim('gate', session='X', pid=a.pid, claim_id=seen, token=wrong)    # renews
+            with self.assertRaises(LedgerError): self.leases.release('gate', seen, wrong)                                         # releases
+        with self.assertRaises(LedgerError): self.leases.claim('gate', pid=b.pid, claim_id=wait['claim'], token=held['token'])   # retries the waiter
+        with self.assertRaises(LedgerError): self.leases.release('gate', wait['claim'], held['token'])                         # withdraws the waiter
+        with self.assertRaises(LedgerError): self.leases.claim('gate', pid=b.pid, claim_id=wait['claim'])                       # no token at all
         self.assertEqual((self.home / 'leases.json').read_bytes(), before)    # nothing changed
         self.assertEqual(len(self.leases.events('gate')), events)
         self.assertEqual(self.holders(), [('A', 'write')])
-        self.assertEqual(self.leases.claim('gate', pid=a.pid, claim_id=seen)['status'], 'granted')              # the holder still renews
-        self.assertEqual(self.leases.release('gate', wait['claim'], b.pid)['status'], 'withdrawn')           # the waiter's own withdrawal
-        self.assertEqual(self.leases.release('gate', seen, a.pid)['status'], 'released')                      # the holder's own release
+        self.assertEqual(self.leases.claim('gate', pid=a.pid, claim_id=seen, token=held['token'])['status'], 'granted')   # the holder still renews
+        self.assertEqual(self.leases.release('gate', wait['claim'], wait['token'])['status'], 'withdrawn')           # the waiter's own withdrawal
+        self.assertEqual(self.leases.release('gate', seen, held['token'])['status'], 'released')                      # the holder's own release
         self.assertEqual(self.holders(), [])
 
-    def test_release_needs_the_holder_pid_in_cli(self):
+    def test_token_is_shown_once_and_never_stored_or_listed(self):
+        a, b = self.child(), self.child()
+        held = self.leases.claim('gate', session='A', pid=a.pid)
+        wait = self.leases.claim('gate', session='B', pid=b.pid)
+        self.assertEqual(self.leases.claim('gate', pid=a.pid, claim_id=held['claim'], token=held['token']).get('token'), None)   # not repeated
+        tokens = (held['token'], wait['token']); self.assertNotEqual(*tokens); self.assertGreaterEqual(len(held['token']), 40)
+        seen = json.dumps(self.leases.status()) + json.dumps(self.leases.events()) + (self.home / 'leases.json').read_text(encoding='utf-8') \
+            + (self.home / 'lease-events.jsonl').read_text(encoding='utf-8')
+        for token in tokens: self.assertNotIn(token, seen)
+        self.assertIn(resource_lease.Leases._token_sha(held['token']), (self.home / 'leases.json').read_text(encoding='utf-8'))   # only the hash
+
+    def test_release_needs_the_token_in_cli(self):
         a, other = self.child(), self.child()
         base = ['--home', str(self.home)]
         resource_lease.main(base + ['declare', 'gate'])
         held = self.leases.claim('gate', pid=a.pid)
-        with self.assertRaises(SystemExit): resource_lease.main(base + ['release', 'gate', held['claim']])     # --pid is required
-        self.assertEqual(resource_lease.main(base + ['release', 'gate', held['claim'], '--pid', str(other.pid)]), 2)
+        with self.assertRaises(SystemExit): resource_lease.main(base + ['release', 'gate', held['claim']])     # --token is required
+        self.assertEqual(resource_lease.main(base + ['release', 'gate', held['claim'], '--token', 'guess']), 2)
+        self.assertEqual(resource_lease.main(base + ['claim', 'gate', '--pid', str(a.pid), '--claim', held['claim']]), 2)    # renewal w/o token
         self.assertEqual(self.holders(), [(None, 'write')])
-        self.assertEqual(resource_lease.main(base + ['release', 'gate', held['claim'], '--pid', str(a.pid)]), 0)
+        self.assertEqual(resource_lease.main(base + ['claim', 'gate', '--pid', str(a.pid), '--claim', held['claim'], '--token', held['token']]), 0)
+        self.assertEqual(resource_lease.main(base + ['release', 'gate', held['claim'], '--token', held['token']]), 0)
 
     def test_renewal_keeps_the_mode(self):
         a, b = self.child(), self.child()
@@ -209,15 +227,15 @@ class ResourceLeaseReviewTests(Base):
         r2 = self.leases.claim('gate', mode='read', session='R2', pid=b.pid)
         self.assertEqual((r1['mode'], r2['mode']), ('read', 'read'))                                    # every grant states its mode
         with self.assertRaises(LedgerError) as raised:
-            self.leases.claim('gate', mode='write', session='R1', pid=a.pid, claim_id=r1['claim'])      # a reader cannot renew as writer
+            self.leases.claim('gate', mode='write', session='R1', pid=a.pid, claim_id=r1['claim'], token=r1['token'])      # a reader cannot renew as writer
         self.assertIn('release it and claim again', str(raised.exception))
         self.assertEqual(sorted(self.holders()), [('R1', 'read'), ('R2', 'read')])
-        renewed = self.leases.claim('gate', mode='read', pid=a.pid, claim_id=r1['claim'])
+        renewed = self.leases.claim('gate', mode='read', pid=a.pid, claim_id=r1['claim'], token=r1['token'])
         self.assertEqual((renewed['status'], renewed['mode']), ('granted', 'read'))
         w = self.leases.claim('gate', mode='write', session='W', pid=a.pid)
         self.assertEqual((w['status'], w['mode']), ('waiting', 'write'))
-        with self.assertRaises(LedgerError): self.leases.claim('gate', mode='read', pid=a.pid, claim_id=w['claim'])   # waiter retry, other mode
-        self.assertEqual(self.leases.claim('gate', mode='write', pid=a.pid, claim_id=w['claim'])['mode'], 'write')
+        with self.assertRaises(LedgerError): self.leases.claim('gate', mode='read', pid=a.pid, claim_id=w['claim'], token=w['token'])   # retry, other mode
+        self.assertEqual(self.leases.claim('gate', mode='write', pid=a.pid, claim_id=w['claim'], token=w['token'])['mode'], 'write')
 
     def lock_path(self): return self.home / 'leases.lock'
 
@@ -252,6 +270,100 @@ class ResourceLeaseReviewTests(Base):
             self.lock_path().write_text(json.dumps({'pid': 1, 'identity': None, 'nonce': 'someone-else'}), encoding='utf-8')
         self.assertTrue(self.lock_path().exists())                                         # not ours any more: left alone
         self.assertEqual(json.loads(self.lock_path().read_text(encoding='utf-8'))['nonce'], 'someone-else')
+
+
+class EngineLeaseSeam(mode_tests.ModeFixture):
+    """R2-C: a node whose `resources` carry a resource declared in the MACHINE lease store claims it for its attempt, across state roots."""
+
+    def setUp(self):
+        super().setUp()
+        self.machine = Path(self.temp.name) / 'machine'
+        os.environ.update(ONECREW_LEASE_HOME=str(self.machine), LOCALAPPDATA=str(Path(self.temp.name) / 'local'),
+                          APPDATA=str(Path(self.temp.name) / 'roaming'))
+        self.plan_nodes = [mode_tests.worker('A', ['a.txt'], resources=['gate']), mode_tests.integration(['A'])]
+        self.revise(self.plan_nodes)
+
+    def second_root(self, nodes=None):
+        other = type(self)(self._testMethodName)
+        mode_tests.ModeFixture.setUp(other); self.addCleanup(other.doCleanups)    # another project + state root, the same machine lease folder
+        other.revise(nodes or self.plan_nodes)
+        return other
+
+    def holding(self, executor_started, release):
+        def hold(ledger, control, task, item, attempt):
+            control.launched(attempt['id'], attempt['generation'], {'fixture': True}); executor_started.set()
+            if not release.wait(20): raise AssertionError('release missing')
+            out = {'artifact': self.store.blob(b'A out'), 'receipt': self.store.blob(b'A receipt')}
+            control.finish(attempt['id'], attempt['generation'], out); return out
+        return self.isolated(hold)
+
+    def test_declared_resource_holds_a_second_state_root_until_the_first_finishes(self):
+        Leases().declare(['gate'])
+        other = self.second_root()
+        self.assertNotEqual(str(self.ledger.state_root), str(other.ledger.state_root))
+        started, release, result = threading.Event(), threading.Event(), {}
+        thread = threading.Thread(target=lambda: result.update(engine.step(self.ledger, 'P1', self.holding(started, release), slots=2, _target='A')))
+        thread.start()
+        try:
+            self.assertTrue(started.wait(10))
+            view = Leases().status('gate')['resources'][0]
+            self.assertEqual(len(view['holders']), 1)
+            self.assertEqual(view['holders'][0]['state_root'], str(self.ledger.state_root))
+            held = engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')
+            self.assertEqual(held['state'], 'waiting')                                    # surfaced like a capacity wait, nothing launched
+            reason = ' '.join(held['reasons'])
+            self.assertIn('capacity_full: resource_lease', reason)
+            self.assertIn(str(self.ledger.state_root), reason); self.assertIn('plan P1', reason); self.assertIn('since', reason); self.assertIn('until', reason)
+            self.assertEqual(other.started(), []); self.assertEqual(other.attempts(), 0)
+            again = engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')   # the next step retries the same claim: still held
+            self.assertEqual(again['state'], 'waiting')
+            claims = list((Path(other.ledger.state_root) / 'lease-claims').glob('*.json'))
+            self.assertEqual(len(claims), 1)                                              # one claim, retried, not one per step
+            tokens = [json.loads(p.read_text(encoding='utf-8'))['token']
+                      for p in claims + list((Path(self.ledger.state_root) / 'lease-claims').glob('*.json'))]
+            self.assertEqual(len(tokens), 2)
+        finally:
+            release.set(); thread.join(20)
+        self.assertEqual(result['state'], 'produced')
+        handed = Leases().status('gate')['resources'][0]['holders']                          # released when the attempt finished: FIFO hands it on
+        self.assertEqual([h['state_root'] for h in handed], [str(other.ledger.state_root)])
+        self.assertFalse((Path(self.ledger.state_root) / 'lease-claims').exists() and list((Path(self.ledger.state_root) / 'lease-claims').glob('*.json')))
+        launched = engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')   # the second root now launches
+        self.assertEqual(launched['state'], 'produced')
+        self.assertEqual([p['node'] for p in other.started()], ['A'])
+        self.assertEqual(Leases().status('gate')['resources'][0]['holders'], [])
+        # the secret never reaches a view, an event of either ledger or the lease log
+        everything = json.dumps(Leases().status()) + json.dumps(Leases().events()) + json.dumps(self.events()) + json.dumps(other.events()) \
+            + json.dumps(engine.state(other.ledger, 'P1'), default=str) + json.dumps(held)
+        for token in tokens: self.assertNotIn(token, everything)
+
+    def test_an_undeclared_label_stays_inside_one_plan(self):
+        Leases().declare(['emulator'])                                            # 'gate' is not declared: today's behaviour, in-plan only
+        other = self.second_root()
+        started, release, result = threading.Event(), threading.Event(), {}
+        thread = threading.Thread(target=lambda: result.update(engine.step(self.ledger, 'P1', self.holding(started, release), slots=2, _target='A')))
+        thread.start()
+        try:
+            self.assertTrue(started.wait(10))
+            self.assertEqual(Leases().status()['resources'], [])                  # nothing was claimed for it
+            free = engine.step(other.ledger, 'P1', other.isolated(), slots=2, _target='A')
+            self.assertEqual(free['state'], 'produced')                           # another state root is not held by a label nobody declared
+        finally:
+            release.set(); thread.join(20)
+        self.assertEqual(result['state'], 'produced')
+        self.assertFalse((Path(self.ledger.state_root) / 'lease-claims').exists())
+        self.assertFalse((Path(other.ledger.state_root) / 'lease-claims').exists())
+
+    def test_no_declared_resource_changes_nothing(self):
+        self.assertEqual(engine.step(self.ledger, 'P1', self.isolated(), slots=2, _target='A')['state'], 'produced')
+        self.assertFalse(self.machine.exists() and any(self.machine.iterdir()))
+
+    def test_a_failing_executor_still_releases_the_lease(self):
+        Leases().declare(['gate'])
+        def boom(ledger, control, task, item, attempt): raise RuntimeError('worker failed')
+        out = engine.step(self.ledger, 'P1', self.isolated(boom), slots=2, _target='A')
+        self.assertEqual(out['state'], 'held')
+        self.assertEqual(Leases().status('gate')['resources'][0]['holders'], [])
 
 
 if __name__ == '__main__':
