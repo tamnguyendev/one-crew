@@ -1,4 +1,9 @@
-"""UI33 mockup: the task-first tracking page (docs/mockups/ui33/index.html) run under Node with a tiny stub; no browser, stdlib only."""
+"""UI33/UI58 mockup: the task-first tracking page (docs/mockups/ui33/index.html), run under Node with no DOM; stdlib only.
+
+The page's render functions take data in the shape of the real tracking model (tracking.overview items + tracking.detail of the same root +
+host_work + shared_resources), so the same code draws the synthetic sample committed here and a real export built outside the repo. These
+tests read only this file and the page; they fail (never skip) without Node.
+"""
 import json
 import re
 import shutil
@@ -8,11 +13,17 @@ from pathlib import Path
 
 HTML_PATH = Path(__file__).resolve().parents[1] / 'docs' / 'mockups' / 'ui33' / 'index.html'
 NODE_FALLBACK = r'C:\Program Files\nodejs\node.exe'
-OWNER_FILTERS = ('all', 'need', 'doing', 'check', 'done')
+FILTERS = ('all', 'need', 'doing', 'check', 'done')
+KINDS = ['scope', 'checks', 'repair', 'plan', 'wait', 'evidence', 'agents', 'res', 'tech']
+SAMPLE_LABEL = 'Dữ liệu mẫu — không phải sổ thật'
+INTERNAL = r'\b(M\d+|verdict|receipt|rev\d*|plan-ns)\b'
 
 
 def node():
-    return shutil.which('node') or NODE_FALLBACK
+    found = shutil.which('node') or (NODE_FALLBACK if Path(NODE_FALLBACK).is_file() else None)
+    if not found:
+        raise AssertionError('Node.js is required for this test (not found on PATH or at %s)' % NODE_FALLBACK)
+    return found
 
 
 def html():
@@ -21,23 +32,35 @@ def html():
 
 def script_and_data():
     text = html()
-    data = re.search(r'<script id="sample-data" type="application/json">(.*?)</script>', text, re.S).group(1)
+    data = re.search(r'<script id="page-data" type="application/json">(.*?)</script>', text, re.S).group(1)
     script = re.search(r'<script>(.*?)</script>', text, re.S).group(1)
     return script, data
 
 
-def run(expr):
-    """Evaluate `expr` after the page script and the sample data (`DATA`); the value as JSON. Fails (never skips) without Node."""
-    script, data = script_and_data()
-    program = script + '\nvar DATA=' + data + ';\nconsole.log(JSON.stringify(' + expr + '));'
+def run(expr, data=None):
+    """Evaluate `expr` after the page script with `DATA` = the embedded sample (or `data`); the value as JSON."""
+    script, sample = script_and_data()
+    program = script + '\nvar DATA=' + (sample if data is None else json.dumps(data)) + ';\nconsole.log(JSON.stringify(' + expr + '));'
     result = subprocess.run([node(), '-'], input=program, text=True, encoding='utf8', capture_output=True, timeout=60)
     if result.returncode:
         raise AssertionError('node failed: ' + result.stderr[-2000:])
     return json.loads(result.stdout.strip().splitlines()[-1])
 
 
+def tasks():
+    return run('itemsOf(DATA)')
+
+
 def case(name):
-    return next(t for t in run('DATA.tasks') if t.get('case') == name)
+    return next(t for t in tasks() if t.get('case') == name)
+
+
+def page(name):
+    return run('renderTask(DATA,findTask(DATA,%s))' % json.dumps(case(name)['id']))
+
+
+def panel(name, kind):
+    return run('renderDetail(DATA,findTask(DATA,%s),%s)' % (json.dumps(case(name)['id']), json.dumps(kind)))
 
 
 def without_details(markup):
@@ -45,528 +68,461 @@ def without_details(markup):
 
 
 def text_of(markup):
-    return re.sub(r'<[^>]+>', ' ', markup)
+    return re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', markup)).strip()
+
+
+def block(markup, start, end='</section>'):
+    part = markup[markup.index(start):]
+    return part[:part.index(end) + len(end)]
 
 
 class Ui33Mockup(unittest.TestCase):
     def test_sample_data_labeled(self):
         data = run('DATA')
         self.assertIs(data['sample'], True)
-        label = 'Dữ liệu mẫu — không phải sổ thật'
-        self.assertIn(label, html().split('<script')[0])  # the header, present on every screen
-        self.assertIn(label, run('renderList(DATA,"all")'))
-        self.assertIn(label, run('renderTask(DATA.tasks[0])'))
-        self.assertEqual(run('typeof document'), 'undefined')  # Node loads the script without touching the DOM
-        self.assertEqual(run('(function(){return typeof ui33Wire})()'), 'function')
-        text = html()
-        self.assertNotRegex(text, r'(src|href)="https?://')  # self-contained
+        self.assertEqual(data['label'], SAMPLE_LABEL)
+        head = html().split('<script')[0]
+        self.assertEqual(head.count(SAMPLE_LABEL), 1)                       # the header badge, on every screen; the build swaps exactly this one
+        self.assertIn('id="srcbadge"', head)
+        self.assertEqual(html().count('<script id="page-data" type="application/json">'), 1)
+        self.assertEqual(run('typeof document'), 'undefined')               # Node loads the script without touching a DOM
+        self.assertEqual(run('typeof wire'), 'function')
+        self.assertNotRegex(html(), r'(src|href)="https?://')               # self-contained
+        # the sample is synthetic: no real ledger ids, machine paths or real plan names (the repo is public)
+        _, raw = script_and_data()
+        for leak in ('TASK-', 'TamNT', 'OneCrewRuns', 'state-v2-real', 'D:\\\\', 'onecrew-development', 'wf-dev30'):
+            self.assertNotIn(leak, raw, leak)
+        # the same page shows a real export under its own label
+        real = dict(data, sample=False, label='Dữ liệu thật của sổ phát triển — đọc lúc 19/11/2026 10:00')
+        od = case('owner_decision')['id']
+        self.assertNotIn('Lệnh mẫu chỉ để minh họa', run('renderTask(DATA,findTask(DATA,%s))' % json.dumps(od), real))
+        self.assertIn('Lệnh mẫu chỉ để minh họa', run('renderTask(DATA,findTask(DATA,%s))' % json.dumps(od)))
+        self.assertIn("if(!D.sample)badge.classList.add('real')", html())
 
     def test_four_sample_cases(self):
-        tasks = run('DATA.tasks')
-        cases = [t['case'] for t in tasks if t.get('case')]
-        self.assertEqual(sorted(cases), ['owner_decision', 'pass_then_edit', 'real_fail', 'timeout'])
-        self.assertGreaterEqual(len(tasks), 12)
-        self.assertGreaterEqual(len({t['project'] for t in tasks}), 2)
-        self.assertGreaterEqual(len([t for t in tasks if not t.get('case')]), 8)
+        all_tasks = tasks()
+        cases = {t.get('case') for t in all_tasks}
+        self.assertLessEqual({'pass_then_edit', 'timeout', 'real_fail', 'owner_decision', 'engine_parts', 'plain_between_checks'}, cases)
+        self.assertGreaterEqual(len({t['project'] for t in all_tasks}), 2)
+        # a pass followed by an edit: "Cần kiểm lại", not counted, not in Xong
         pe = case('pass_then_edit')
-        self.assertEqual(pe['validity']['state'], 'recheck')
-        self.assertIn('không còn được tính vì mã đã đổi', pe['validity']['reason'])
-        self.assertIn('chạy lại bộ kiểm', pe['next'].lower())
-        # never counted as passed: not in the done filter, not in the Xong count
-        self.assertNotIn(pe['id'], [t['id'] for t in run('filterTasks(DATA.tasks,"done")')])
-        done = run('countTasks(DATA.tasks).done')
-        self.assertEqual(done, len([t for t in tasks if t['group'] == 'done']))
-        self.assertTrue(all(t['validity']['state'] == 'valid' for t in tasks if t['group'] == 'done'))
+        self.assertEqual(run('statusLine(%s)' % json.dumps(pe)), 'Cần kiểm lại')
+        self.assertNotEqual(run('groupOf(%s)' % json.dumps(pe)), 'done')
+        self.assertNotIn(pe['id'], [t['id'] for t in run('filterTasks(itemsOf(DATA),"done")')])
+        self.assertEqual(run('msTally(findTask(DATA,%s)).passed' % json.dumps(pe['id'])), 0)
+        pp = page('pass_then_edit')
+        self.assertIn('data-validity="recheck"', pp)
+        self.assertIn('<i class="b-wait"', block(pp, 'id="b-out"'))
+        self.assertNotIn('<i class="b-ok"', block(pp, 'id="b-out"'))
+        # a timeout: "Chưa kết luận", never "không đạt"
         to = case('timeout')
-        self.assertIn('Chưa kết luận', run('statusLine(%s)' % json.dumps(to)))
-        self.assertNotIn('không đạt', run('statusLine(%s)' % json.dumps(to)).lower())
+        self.assertEqual(run('statusLine(%s)' % json.dumps(to)), 'Chưa kết luận')
+        tp = page('timeout')
+        for part in (block(tp, 'id="b-trust"'), block(tp, 'id="b-next"'), run('renderList(DATA,"all")')):
+            self.assertNotIn('không đạt', text_of(part).lower().replace('chưa kết luận', ''))
+        self.assertIn('Kiểm môi trường chạy', tp)
+        # a real failure: "Cần sửa", its error line, repairs, and it is not an owner decision
         rf = case('real_fail')
-        self.assertEqual(run('statusLine(%s)' % json.dumps(rf)).split(':')[0], 'Kiểm không đạt')
-        self.assertEqual(rf['repairs'], {'used': 3, 'left': 0, 'total': 3})     # the next check is its last try (verdict.stop_reason)
-        self.assertTrue(case('owner_decision')['owner_needed'])
-        states = {t['validity']['state'] for t in tasks}
-        self.assertIn('valid', states)
-        self.assertTrue(any(t['validity']['reason'].startswith('Chưa biết:') for t in tasks))
+        self.assertEqual(run('statusLine(%s)' % json.dumps(rf)), 'Cần sửa')
+        self.assertFalse(run('ownerNeeded(%s)' % json.dumps(rf)))
+        self.assertEqual(rf['situation']['repairs']['left'], 0)
+        self.assertIn('AssertionError', page('real_fail'))
+        # the owner's decision
+        od = case('owner_decision')
+        self.assertTrue(run('ownerNeeded(%s)' % json.dumps(od)))
+        self.assertEqual(run('statusLine(%s)' % json.dumps(od)), 'Cần bạn quyết')
+        # everything in Xong is still trusted
+        for t in run('filterTasks(itemsOf(DATA),"done")'):
+            self.assertIn(t['validity']['kind'], ('accepted', 'valid'))
 
     def test_owner_first(self):
-        tasks = run('DATA.tasks')
-        owner_ids = [t['id'] for t in tasks if t['owner_needed']]
-        self.assertTrue(owner_ids)
-        ordered = run('orderTasks(DATA.tasks)')
-        flags = [t['owner_needed'] for t in ordered]
-        self.assertEqual(flags, sorted(flags, reverse=True))
-        self.assertEqual(len(ordered), len(tasks))
-        for filt in OWNER_FILTERS:
-            got = run('filterTasks(DATA.tasks,%s)' % json.dumps(filt))
-            flags = [t['owner_needed'] for t in got]
-            self.assertEqual(flags, sorted(flags, reverse=True), filt)
-        need = run('filterTasks(DATA.tasks,"need")')
-        self.assertEqual([t['id'] for t in need], owner_ids)
-        # an owner-needing task sitting in a later position of the source still comes first
-        shuffled = run('orderTasks(DATA.tasks.slice().reverse())')
-        self.assertTrue(shuffled[0]['owner_needed'])
+        all_tasks = tasks()
+        owner_ids = [t['id'] for t in all_tasks if run('ownerNeeded(%s)' % json.dumps(t))]
+        self.assertGreaterEqual(len(owner_ids), 2)
+        for expr in ('orderTasks(itemsOf(DATA))', 'orderTasks(itemsOf(DATA).slice().reverse())'):
+            ordered = run(expr)
+            flags = [t['id'] in owner_ids for t in ordered]
+            self.assertEqual(flags, sorted(flags, reverse=True), expr)
+            self.assertEqual(len(ordered), len(all_tasks))
+        for filt in FILTERS:
+            got = [t['id'] in owner_ids for t in run('filterTasks(itemsOf(DATA),%s)' % json.dumps(filt))]
+            self.assertEqual(got, sorted(got, reverse=True), filt)
+        self.assertEqual(sorted(t['id'] for t in run('filterTasks(itemsOf(DATA),"need")')), sorted(owner_ids))
+        # newest first after the owner's tasks
+        rest = [t for t in run('orderTasks(itemsOf(DATA))') if t['id'] not in owner_ids]
+        stamps = [t['last_update']['at'] for t in rest]
+        self.assertEqual(stamps, sorted(stamps, reverse=True))
+        # the list: summary first, the owner's group before the others
         listing = run('renderList(DATA,"all")')
-        self.assertLess(listing.index('Cần bạn'), listing.index('class="tname"'))
-        owner_part = listing.split('Các việc còn lại')[0]
-        for t in tasks:
-            self.assertEqual('data-id="%s"' % t['id'] in owner_part, t['owner_needed'], t['id'])
-        counts = run('countTasks(DATA.tasks)')
-        self.assertEqual(counts['all'], len(tasks))
+        self.assertLess(listing.index('việc cần bạn'), listing.index('class="filters"'))
+        self.assertIn('<b>%d</b> việc cần bạn' % len(owner_ids), listing)
+        owner_part = listing.split('Các việc khác')[0]
+        for t in all_tasks:
+            self.assertEqual('data-id="%s"' % t['id'] in owner_part, t['id'] in owner_ids, t['id'])
+        counts = run('countTasks(itemsOf(DATA))')
+        self.assertEqual(counts['all'], len(all_tasks))
         self.assertEqual(counts['need'], len(owner_ids))
         for filt, label in (('need', 'Cần bạn'), ('doing', 'Đang làm'), ('check', 'Chờ kiểm'), ('done', 'Xong'), ('all', 'Tất cả')):
-            self.assertIn('%s (%d)' % (label, counts[filt]), listing)
+            self.assertRegex(listing, r'data-filter="%s"[^>]*>%s <b>%d</b>' % (filt, label, counts[filt]))
+        # the owner flag comes from the real fields only: situation.no_owner_decision or an owner-kind need
+        self.assertTrue(run('ownerNeeded({situation:{no_owner_decision:false}})'))
+        self.assertTrue(run('ownerNeeded({needs_user:[{kind:"approve"}]})'))
+        self.assertFalse(run('ownerNeeded({needs_user:[{kind:"other"}],situation:{no_owner_decision:true}})'))
+        self.assertFalse(run('ownerNeeded({})'))
+        # nobody waiting on the owner: the summary says so instead of hiding
+        calm = run('(function(){var d=JSON.parse(JSON.stringify(DATA));itemsOf(d).forEach(function(t){t.needs_user=[];t.situation.no_owner_decision=true});return renderList(d,"all")})()')
+        self.assertIn('Không có việc nào cần bạn', calm)
+        self.assertNotIn('Các việc khác', calm)
 
     def test_one_status_line(self):
         listing = run('renderList(DATA,"all")')
-        rows = listing.split('<a class="task')[1:]
-        self.assertEqual(len(rows), len(run('DATA.tasks')))
-        for row in rows:
-            self.assertEqual(row.count('class="sline'), 1)
-        for t in run('DATA.tasks'):
+        rows = re.findall(r'<a class="row"[\s\S]*?</a>', listing)
+        self.assertEqual(len(rows), len(tasks()))
+        for row, t in zip(rows, run('filterTasks(itemsOf(DATA),"all")')):
+            self.assertEqual(row.count('class="sline"'), 1)
+            self.assertEqual(row.count('class="chip'), 1)
+            self.assertEqual(row.count('class="mk '), 1)                     # a shape, not a sentence
+            for tag in ('<p', '<br', '<div', '<ul'):
+                self.assertNotIn(tag, row)
+            self.assertIn('>%s<' % run('statusLine(%s)' % json.dumps(t)), row)
+            self.assertNotRegex(text_of(row), INTERNAL)
+            self.assertNotIn(t['plan'], text_of(row))
+            self.assertLessEqual(len(text_of(row).split()), 22, row)
+        lines = {t['case']: run('statusLine(%s)' % json.dumps(t)) for t in tasks() if t.get('case')}
+        self.assertEqual(lines['owner_decision'], 'Cần bạn quyết')
+        self.assertEqual(lines['pass_then_edit'], 'Cần kiểm lại')
+        self.assertEqual(lines['timeout'], 'Chưa kết luận')
+        self.assertEqual(lines['real_fail'], 'Cần sửa')
+        for t in tasks():
             line = run('statusLine(%s)' % json.dumps(t))
-            self.assertNotIn('\n', line)
             self.assertTrue(line.strip())
-        lines = {t['case']: run('statusLine(%s)' % json.dumps(t)) for t in run('DATA.tasks') if t.get('case')}
-        self.assertEqual(lines['owner_decision'], 'Cần bạn quyết: hết lượt sửa, chờ bạn quyết')
-        self.assertEqual(lines['pass_then_edit'], 'Cần kiểm lại: mã đổi sau lần kiểm')
-        self.assertEqual(lines['timeout'], 'Chưa kết luận: bộ kiểm hết giờ')
-        self.assertNotIn('không đạt', lines['timeout'].lower())
-        # project name only when the visible list holds more than one project
-        self.assertTrue(run('needsProject(DATA.tasks)'))
-        self.assertIn('class="proj"', listing)
-        one = run('(function(){var t=DATA.tasks.filter(function(x){return x.project===DATA.projects[0]});'
-                  'return {need:needsProject(t),html:renderList({tasks:t},"all")}})()')
-        self.assertFalse(one['need'])
-        self.assertNotIn('class="proj"', one['html'])
-        # user words only on the list
-        self.assertNotRegex(listing, r'\b(M\d+|verdict|receipt|rev\d*)\b')
+            self.assertNotIn('\n', line)
+        css = re.search(r'<style>(.*?)</style>', html(), re.S).group(1)
+        self.assertRegex(css, r'\.tname\{[^}]*white-space:nowrap[^}]*text-overflow:ellipsis')
+        # the project shows only as the row's hover title, and only when the list holds more than one project
+        self.assertTrue(run('needsProject(itemsOf(DATA))'))
+        self.assertIn('data-proj="phieu-kham"', listing)
+        one = run('(function(){var d=JSON.parse(JSON.stringify(DATA));d.overview.projects=d.overview.projects.slice(0,1);return renderList(d,"all")})()')
+        self.assertNotIn('data-proj=', one)
 
     def test_task_page_fields(self):
-        for t in run('DATA.tasks'):
-            page = run('renderTask(%s)' % json.dumps(t))
-            main = without_details(page)
-            order = [page.index(x) for x in ('<h2>', 'Đầu ra mới nhất', 'Kết quả còn tin được không', 'Bước tiếp theo')]
+        for t in tasks():
+            markup = run('renderTask(DATA,findTask(DATA,%s))' % json.dumps(t['id']))
+            main = without_details(markup)
+            order = [markup.index(x) for x in ('<h2>', 'id="b-out"><h3>Đầu ra</h3>', 'id="b-trust"><h3>Còn tin được không</h3>',
+                                               'id="b-next"><h3>Bước tiếp theo</h3>', 'id="b-dec"><h3>Bạn cần quyết gì</h3>', 'class="more"')]
             self.assertEqual(order, sorted(order), t['id'])
-            self.assertIn('>Mở<', page)
-            self.assertIn('Ai làm: ' + t['who'], page)
-            self.assertIn(t['who'], ('Bạn', 'AI', 'Bộ kiểm', 'Chưa biết'))
-            self.assertIn(run('VALID_LABEL')[t['validity']['state']], page)
-            self.assertIn(t['validity']['reason'], text_of(page))
-            self.assertNotRegex(main, r'\b(M\d+|verdict|receipt|rev\d*)\b', t['id'])
-        pe = run('renderTask(%s)' % json.dumps(case('pass_then_edit')))
-        self.assertIn('Cần kiểm lại', pe)
-        self.assertIn('không còn được tính', pe)
-        self.assertIn('Chạy lại bộ kiểm', pe)
-        to = run('renderTask(%s)' % json.dumps(case('timeout')))
-        self.assertIn('Chưa kết luận', to)
-        self.assertIn('hết giờ sau 20 phút', to)
-        self.assertIn('Kiểm môi trường', to)
-        unknown = [t for t in run('DATA.tasks') if t['validity']['reason'].startswith('Chưa biết:')]
-        self.assertIn('Chưa biết: ', run('renderTask(%s)' % json.dumps(unknown[0])))
-        valid = next(t for t in run('DATA.tasks') if t['validity']['state'] == 'valid')
-        self.assertIn('Còn đúng với bản hiện tại', run('renderTask(%s)' % json.dumps(valid)))
-
-    def test_decision_and_consequences(self):
-        od = case('owner_decision')
-        page = run('renderTask(%s)' % json.dumps(od))
-        self.assertIn('class="decision"', page)
-        options = od['decision']['options']
-        self.assertTrue(2 <= len(options) <= 3)
-        block = page[page.index('class="decision"'):]
-        block = block[:block.index('</section>')]
-        self.assertEqual(block.count('<button'), len(options))
-        self.assertEqual(block.count('Hệ quả:'), len(options))
-        for option in options:
-            self.assertTrue(option['label'].strip() and option['consequence'].strip())
-            self.assertGreaterEqual(len(option['label'].split()), 6)  # a full sentence, not a bare verb
-            self.assertIn(option['consequence'], block)
-        self.assertIn('Duyệt bản sửa kế hoạch: AI làm tiếp theo phạm vi mới', block)
-        self.assertIn('thêm khoảng 1 ngày', block)
-        self.assertIn('Kết thúc việc: giữ kết quả hiện có, không làm tiếp', block)
-        self.assertIn('data-toast', block)
-        self.assertIn('Mockup: chưa ghi gì', html())
-        # the last-repair warning is a warning, not a decision, and not in the owner group
-        rf = case('real_fail')
-        rpage = run('renderTask(%s)' % json.dumps(rf))
-        self.assertIn('nếu lần kiểm tới vẫn không đạt, việc sẽ dừng và chờ bạn quyết. Đây là cảnh báo, bạn chưa cần làm gì.', rpage)
-        self.assertIn('class="warn"', rpage)
-        self.assertNotIn('class="decision"', rpage)
-        self.assertIn('đã dùng 3/3, lần kiểm tới là lần thử cuối', rpage)
-        self.assertFalse(rf['owner_needed'])
-        listing = run('renderList(DATA,"all")')
-        owner_part = listing.split('Các việc còn lại')[0]
-        self.assertNotIn('data-id="%s"' % rf['id'], owner_part)
-        self.assertNotIn('Đây là cảnh báo', listing)
-        self.assertEqual(run('lastRepairWarning(%s)' % json.dumps(case('owner_decision'))), '')     # a stopped task asks a decision instead
-        # the warning appears only on the last repair
-        self.assertNotIn('class="warn"', page)
-        self.assertEqual(run('lastRepairWarning({repairs:{used:1,left:2,total:3},validity:{state:"fail"}})'), '')
-
-    def test_plan_change_before_after(self):
-        od = case('owner_decision')
-        fields = od['detail']['plan']['fields']
-        panel = run('renderDetail(%s,"plan")' % json.dumps(od))
-        self.assertIn('class="before"', panel)
-        self.assertIn('class="after"', panel)
-        before, after = panel.split('class="after"')
-        for f in fields:
-            self.assertIn(f['before'], before)
-            self.assertIn('<span class="av">%s</span>' % f['after'], after)
-            self.assertIn('<span class="bv">%s</span>' % f['before'], before)
-            self.assertNotIn('class="av"', before)
-        self.assertGreaterEqual(len(fields), 2)
-        # closed by default, opened by a click on its own summary
-        page = run('renderTask(%s)' % json.dumps(od))
-        detail = re.search(r'<details class="d" data-kind="plan"([^>]*)>', page)
-        self.assertIsNotNone(detail)
-        self.assertNotIn('open', detail.group(1))
-        # side by side on wide, stacked below 900px
-        css = html()
-        self.assertRegex(css, r'\.ba\{display:grid;grid-template-columns:minmax\(0,1fr\) minmax\(0,1fr\)')
-        mobile = re.search(r'@media \(max-width:899px\)\{(.*?)\n\}', css, re.S).group(1)
-        self.assertRegex(mobile, r'\.ba\{grid-template-columns:minmax\(0,1fr\)\}')
-        self.assertIn('Chưa có dữ liệu', run('renderDetail(DATA.tasks[6],"plan")'))
-
-    def test_finding_repair_recheck(self):
-        rf = case('real_fail')
-        panel = run('renderDetail(%s,"error")' % json.dumps(rf))
-        self.assertIn('Đã dùng 3/3 lượt sửa', panel)
-        steps = re.findall(r'<li>(.*?)</li>', panel)
-        self.assertEqual(len(steps), len(rf['detail']['error']['loop']))
-        joined = ' '.join(steps)
-        order = [joined.index(x) for x in ('Lần kiểm 1 không đạt', 'Sửa (lượt 1)', 'Lần kiểm 2 không đạt', 'Sửa (lượt 2)', 'Lần kiểm 3 không đạt', 'lần thử cuối')]
-        self.assertEqual(order, sorted(order))
-        for step in rf['detail']['error']['loop']:
-            self.assertIn(step['t'], panel)  # every step carries its time
-        od = case('owner_decision')
-        self.assertIn('Đã dùng 3/3 lượt sửa, còn 0', run('renderDetail(%s,"error")' % json.dumps(od)))
-        page = run('renderTask(%s)' % json.dumps(rf))
-        self.assertRegex(page, r'<details class="d" data-kind="error">')
-        self.assertIn('hết lượt', run('renderTask(%s)' % json.dumps(od)))
-
-    def test_wait_opens_timeline(self):
-        od = case('owner_decision')
-        panel = run('renderDetail(%s,"wait")' % json.dumps(od))
-        for entry in od['detail']['wait']['timeline']:
-            for key in ('who', 'waiting_for', 'since', 'how_long'):
-                self.assertIn(entry[key], panel)
-        self.assertEqual(panel.count('<li>'), len(od['detail']['wait']['timeline']))
-        page = run('renderTask(%s)' % json.dumps(od))
-        match = re.search(r'<details class="d" data-kind="wait"([^>]*)><summary>([^<]*)</summary>', page)
-        self.assertIsNotNone(match)
-        self.assertNotIn('open', match.group(1))
-        self.assertIn('ai đang chờ ai', match.group(2).lower())
-        to = case('timeout')
-        self.assertIn('20 phút', run('renderDetail(%s,"wait")' % json.dumps(to)))
-
-    def test_result_opens_evidence(self):
-        rf = case('real_fail')
-        ev = rf['detail']['result']
-        panel = run('renderDetail(%s,"result")' % json.dumps(rf))
-        self.assertIn(ev['command'], panel)
-        self.assertIn('mã: 1', panel)
-        self.assertIn('AssertionError', panel)
-        self.assertIn(ev['file'], panel)
-        self.assertIn(ev['hash'], panel)
-        # technical identifiers live only inside the opened panel
-        page = run('renderTask(%s)' % json.dumps(rf))
-        main = without_details(page)
-        self.assertNotIn(ev['hash'], main)
-        self.assertNotIn(ev['command'], main)
-        self.assertRegex(page, r'<details class="d" data-kind="result">')
-        # the output panel behind "Mở" is closed by default too
-        self.assertRegex(page, r'<details class="d out"><summary>Mở</summary>')
-        # nothing is escaped away: a hostile log line cannot inject markup
-        hostile = run('renderDetail({detail:{result:{command:"<b>x</b>",exit:0,log:"<script>1</script>",file:"f",hash:"h"}}},"result")')
-        self.assertNotIn('<script>', hostile)
-        self.assertNotIn('<b>x</b>', hostile)
-
-    def test_back_keeps_filter_and_position(self):
-        # plain hash names only (the artifact viewer passes #name, never #/path or a query): #viec, #viec-<filter>, #viec-<filter>-<task>
-        self.assertEqual(run('routeOf("#viec-need")'), {'view': 'list', 'id': None, 'filter': 'need'})
-        self.assertEqual(run('routeOf("#viec-all-t04")'), {'view': 'task', 'id': 't04', 'filter': 'all'})
-        self.assertEqual(run('routeOf("#viec-done-t04")'), {'view': 'task', 'id': 't04', 'filter': 'done'})
-        self.assertEqual(run('routeOf("")')['view'], 'list')
-        self.assertEqual(run('routeOf("#viec-bogus")')['filter'], 'all')
-        self.assertEqual(run('routeOf(hrefOf({view:"task",id:"t03",filter:"doing"}))'), {'view': 'task', 'id': 't03', 'filter': 'doing'})
-        self.assertEqual(run('hrefOf({view:"list",filter:"need"})'), '#viec-need')
-        self.assertRegex(run('hrefOf({view:"task",id:"t03",filter:"doing"})'), r'^#[A-Za-z0-9-]+$')
-        # a row opened from a filter links back to that same filter
-        listing = run('renderList(DATA,"check")')
-        self.assertIn('href="#viec-check-t01"', listing)
-        self.assertIn('data-filter="check"', listing)
-        self.assertRegex(listing, r'data-filter="check" aria-current="true"')
-        # save list state, leave, come back: same filter and scrollTop; each filter keeps its own
-        got = run('(function(){var m={};var store={getItem:function(k){return k in m?m[k]:null},setItem:function(k,v){m[k]=v}};'
-                  'saveListState(store,"need",0);saveListState(store,"check",734);saveListState(store,"all",120.4);'
-                  'return {a:loadListState(store,"check"),b:loadListState(store,"all"),c:loadListState(store,"need"),d:loadListState(store,"done"),k:listStateKey("check")}})()')
-        self.assertEqual(got['a'], {'filter': 'check', 'scrollTop': 734})
-        self.assertEqual(got['b'], {'filter': 'all', 'scrollTop': 120})
-        self.assertEqual(got['c'], {'filter': 'need', 'scrollTop': 0})
-        self.assertEqual(got['d'], {'filter': 'done', 'scrollTop': 0})
-        self.assertNotEqual(run('listStateKey("check")'), run('listStateKey("need")'))
-        # the wiring does restore the saved position after a render and keeps a back path
-        text = html()
-        self.assertIn('lp.scrollTop=top', text)
-        self.assertIn('history.back()', text)
-        self.assertIn('‹ Quay lại', text)
-        self.assertIn("addEventListener('hashchange',render)", text)
-        broken = run('(function(){var s={getItem:function(){throw 1},setItem:function(){throw 1}};saveListState(s,"all",5);return loadListState(s,"all")})()')
-        self.assertEqual(broken, {'filter': 'all', 'scrollTop': 0})
-
-    def test_mobile_layout(self):
-        text = html()
-        self.assertRegex(text, r'<meta name="viewport" content="width=device-width, initial-scale=1">')
-        css = re.search(r'<style>(.*?)</style>', text, re.S).group(1)
-        media = re.search(r'@media \(max-width:899px\)\{(.*?)\n\}', css, re.S)
-        self.assertIsNotNone(media)
-        body = media.group(1)
-        self.assertRegex(body, r'body\.view-task #listpane\{display:none\}')
-        self.assertRegex(body, r'body\.view-list #taskpane\{display:none\}')
-        self.assertRegex(body, r'#back\{display:inline-block\}')
-        self.assertRegex(css, r'#back\{display:none[;}]')  # hidden on wide screens
-        self.assertRegex(css, r'main\{[^}]*grid-template-columns:minmax\(0,380px\) minmax\(0,1fr\)')  # side by side on wide
-        # 16px side gutters and wrapping of long text
-        self.assertRegex(css, r'\.pane\{[^}]*padding:12px 16px')
-        self.assertRegex(css, r'header\{padding:8px 16px')
-        self.assertIn('overflow-wrap:anywhere', css)
-        # no fixed width above 375px on any container
-        for match in re.finditer(r'(?<![\w-])(?:min-)?width:\s*(\d+)px', css):
-            self.assertLessEqual(int(match.group(1)), 375, match.group(0))
-        self.assertNotRegex(css, r'(?<![\w-])(?:min-)?width:\s*\d+(?:vw|em|rem)')
-        # the wide split breakpoint is the same 900px the existing page uses, and the page body does not scroll sideways
-        self.assertNotIn('overflow-x:scroll', css)
-        self.assertIn('min-width:0', css)
-        # the task header controls are hidden on a phone task page; wide tables and timelines scroll inside their own box
-        self.assertRegex(body, r'body\.view-task header \.tools')
-        self.assertRegex(css, r'\.scroll\{overflow-x:auto')
-        self.assertRegex(css, r'\.board\{[^}]*overflow-x:auto')
-        pages = run('DATA.tasks.map(function(t){return renderTask(t,DATA)})')
-        for page in pages + [run('renderList(DATA,"all")')]:
-            for table in re.finditer(r'<table', page):
-                self.assertTrue(page[:table.start()].endswith('<div class="scroll">'), page[table.start() - 80:table.start()])
-            # never a <details> inside another one, so "outside every details" stays a true reading of the main view
+            words = text_of(main)
+            self.assertNotRegex(words, INTERNAL, t['id'])
+            self.assertNotIn(t['selector'], words)
+            # scanned, not read: short outside the owner's options, each option one sentence plus one consequence (Vietnamese syllables)
+            self.assertLessEqual(len(text_of(re.sub(r'<ul class="opts">[\s\S]*?</ul>', '', main)).split()), 130, t['id'])
+            for opt in re.findall(r'<li class="opt">([\s\S]*?)</li>', main):
+                self.assertLessEqual(len(text_of(opt).split()), 40, t['id'])
+            self.assertNotIn('<p class="one">' + '<p', main)
+            v = run('validityOf(findTask(DATA,%s))' % json.dumps(t['id']))
+            self.assertIn('data-validity="%s"' % v['kind'], main)
+            self.assertIn(v['label'], block(main, 'id="b-trust"'))
+            who = run('whoOf(findTask(DATA,%s))' % json.dumps(t['id']))
+            if who:
+                self.assertIn(who, ('Bạn', 'AI', 'Bộ kiểm', 'Chưa rõ'))
+                self.assertIn('Ai làm: <span class="chip', block(main, 'id="b-next"'))
+                self.assertIn('>%s</span>' % who, block(main, 'id="b-next"'))
+            # every deeper part is behind its own labelled disclosure, closed, never nested
+            kinds = re.findall(r'<details class="d" data-kind="(\w+)"([^>]*)>', markup)
+            self.assertEqual([k for k, _ in kinds], KINDS)
+            self.assertTrue(all('open' not in rest for _, rest in kinds))
             depth = 0
-            for tag in re.finditer(r'<(/?)details\b', page):
+            for tag in re.finditer(r'<(/?)details\b', markup):
                 depth += -1 if tag.group(1) else 1
                 self.assertLessEqual(depth, 1)
             self.assertEqual(depth, 0)
+        # milestone ids become positions on the main surface
+        self.assertEqual(run('human("Mốc M2 kiểm không đạt; mốc M1, M3 và M2 đạt",findTask(DATA,"t01"))'), 'Mốc 2 kiểm không đạt; mốc 1, 3 và 2 đạt')
+        self.assertEqual(run('human("Mốc MX lạ",findTask(DATA,"t01"))'), 'Mốc MX lạ')
+        self.assertEqual(run('human("Các mốc đã đạt (M1, M2) còn khớp",findTask(DATA,"t01"))'), 'Các mốc đã đạt (1, 2) còn khớp')
+        rf = page('real_fail')
+        self.assertIn('Từ chối thẻ hết hạn', run('renderDetail(DATA,findTask(DATA,"t02"),"checks")'))
+        self.assertIn('Mốc 2 kiểm không đạt trên lần kiểm mới nhất', text_of(block(rf, 'id="b-trust"')))
+        self.assertIn('1/2', block(rf, 'id="b-out"'))
+        self.assertIn('Sửa và kiểm lại mốc 2', block(rf, 'id="b-next"'))
+        done = run('renderTask(DATA,findTask(DATA,"t09"))')
+        self.assertIn('Không còn bước nào', block(done, 'id="b-next"'))
+        self.assertNotIn('Ai làm', block(done, 'id="b-next"'))
 
-    # ---- the whole page: existing sections next to the new ones, on one sample ----
+    def test_decision_and_consequences(self):
+        od = case('owner_decision')
+        markup = page('owner_decision')
+        dec = block(markup, 'id="b-dec"')
+        self.assertIn('class="blk need decision"', markup)
+        options = od['needs_user'][0]['options']
+        self.assertTrue(2 <= len(options) <= 3)
+        self.assertEqual(dec.count('<li class="opt">'), len(options))
+        self.assertEqual(dec.count('<button'), len(options))
+        self.assertEqual(dec.count('Hệ quả: '), len(options))
+        for option in options:
+            self.assertGreaterEqual(len(option['label'].split()), 6)        # a full sentence, not a bare verb
+            self.assertIn('<b>%s</b><span class="cons">Hệ quả: %s</span>' % (option['label'], option['consequence']), dec)
+            self.assertIn('data-copy="%s"' % run('esc(%s)' % json.dumps(option['human_command'])), dec)
+        self.assertIn('thêm khoảng 1 ngày', dec)
+        # the question is the owner's words from the situation, not the verifier's English
+        self.assertIn('Quyết định sau khi dừng: duyệt bản sửa để đi tiếp, hoặc kết thúc', dec)
+        self.assertNotIn('Milestone M3 stopped', without_details(markup))
+        self.assertIn('Sao chép chưa phải là duyệt', dec)
+        # the last-try warning is a warning beside the next step, not a decision, not on the list
+        rf = page('real_fail')
+        self.assertNotIn('decision', block(rf, 'id="b-dec"'))
+        self.assertIn('Không có gì', block(rf, 'id="b-dec"'))
+        warn = block(rf, 'id="b-next"')
+        self.assertIn('<p class="warn" role="note"', warn)
+        self.assertIn('Lần kiểm tới là lần thử cuối. Chỉ là cảnh báo, bạn chưa cần làm gì.', warn)
+        self.assertNotIn('thử cuối', run('renderList(DATA,"all")'))
+        for name in ('timeout', 'owner_decision', 'pass_then_edit'):
+            self.assertNotIn('class="warn"', page(name), name)
+        # approve and accept: one command each; no command is said plainly, never a dead button
+        for tid in ('t08', 't07'):
+            self.assertEqual(block(run('renderTask(DATA,findTask(DATA,%s))' % json.dumps(tid)), 'id="b-dec"').count('data-copy="'), 1, tid)
+        bare = run('(function(){var t=findTask(DATA,"t08");t.needs_user[0].human_command=null;return renderTask(DATA,t)})()')
+        self.assertIn('Chưa có lệnh', block(bare, 'id="b-dec"'))
+        self.assertNotIn('<button', block(bare, 'id="b-dec"'))
 
-    def test_full_page_existing_sections(self):
-        text = html()
-        head = text.split('<main>')[0]
-        for control in ('id="f-q"', 'id="f-proj"', 'id="f-stage"', 'id="f-time"', 'data-mode="list"', 'data-mode="board"', 'Thông tin kết nối và giới hạn'):
-            self.assertIn(control, head)
-        # header filters really filter the sample
-        tasks = run('DATA.tasks')
-        sign = run('applyFilters(DATA.tasks,{project:"Ký số SignSDK"},DATA.today)')
-        self.assertEqual({t['project'] for t in sign}, {'Ký số SignSDK'})
-        self.assertEqual(len(sign), len([t for t in tasks if t['project'] == 'Ký số SignSDK']))
-        self.assertEqual([t['id'] for t in run('applyFilters(DATA.tasks,{q:"phiếu"},DATA.today)')], [t['id'] for t in tasks if 'phiếu' in (t['name'] + t['project'] + t['reason'] + t['next']).lower()])
-        today = run('applyFilters(DATA.tasks,{time:"today"},DATA.today)')
-        self.assertTrue(today and all(t['updated'] == run('DATA.today') for t in today))
-        self.assertEqual([t['id'] for t in run('applyFilters(DATA.tasks,{stage:"attn"},DATA.today)')], [t['id'] for t in tasks if t['stage'] in ('stopped', 'unknown')])
-        filtered = run('renderList(DATA,"all",null,{project:"Ký số SignSDK"})')
-        self.assertIn('đang lọc:', filtered)
-        self.assertEqual(filtered.count('<a class="task'), len(sign))
-        # board: the existing lanes, every task in exactly one lane, empty "Cần chú ý" lane hidden
-        board = run('renderList(DATA,"all",null,{mode:"board"})')
-        for lane in ('Chưa bắt đầu', 'Đang thực hiện', 'Cần sửa', 'Chờ kiểm', 'Chờ nghiệm thu', 'Hoàn tất', 'Cần chú ý'):
-            self.assertIn(lane, board)
-        self.assertEqual(board.count('<a class="task'), len(tasks))
-        self.assertNotIn('data-lane="attn"', run('renderList(DATA,"all",null,{mode:"board",stage:"done"})'))
-        # task page: primary layer first, then the existing summary, owner command box, background work, resources and the five tabs
-        od = run('renderTask(DATA.tasks.filter(function(t){return t.case==="owner_decision"})[0],DATA)')
-        order = [od.index(x) for x in ('Đầu ra mới nhất', 'class="decision"', 'class="sit"', 'class="need"', 'Việc nền của host gắn với việc này', 'class="tabs"')]
-        self.assertEqual(order, sorted(order))
-        for tab in ('Tổng quan', 'Solution', 'Thay đổi', 'Kết quả &amp; kiểm chứng', 'Tiến độ'):
-            self.assertIn('>%s</button>' % tab, od)
-        self.assertEqual(len(re.findall(r'<div class="tabp"[^>]*data-panel="\w+"(?! hidden)>', od)), 1)  # one tab open at a time
-        for label in ('Bạn cần làm gì', 'Đang ở đâu', 'Vướng gì', 'Ai làm tiếp', 'Kết quả ở đâu', 'Hoạt động cuối của việc', 'Sổ đọc lúc'):
-            self.assertIn(label, od)
-        # the owner command box: text plus a copy button, placeholder marked, never a run button
-        need = od[od.index('class="need"'):]
-        need = need[:need.index('</details>')]
-        self.assertEqual(need.count('data-copy="'), 2)
-        self.assertEqual(need.count('Sao chép lệnh'), 2)
-        self.assertIn('<mark class="ph">&lt;lý do của bạn&gt;</mark>', need)
-        self.assertIn('Mở PowerShell của bạn trên máy này.', need)
-        self.assertIn('Sao chép chưa phải duyệt', need)
-        # the decision buttons point at those command boxes
-        for i in range(2):
-            self.assertIn('data-goto="cmd-t04-%d"' % i, od)
-            self.assertIn('id="cmd-t04-%d"' % i, need)
-        # Thay đổi reuses the plan before/after; Kết quả names who did each part, "chưa biết" when the ledger has no source
-        self.assertGreaterEqual(od.count('class="after"'), 2)
-        self.assertIn('Ai được giao / ai đã thực hiện / ai đã kiểm', od)
-        self.assertIn('<td>Đã thực hiện</td><td>Cả việc</td><td>chưa biết</td>', od)
-        rf = run('renderTask(DATA.tasks.filter(function(t){return t.case==="real_fail"})[0],DATA)')
-        self.assertIn('Mở bằng chứng', rf)
-        self.assertIn('Vấn đề 1 · Đang mở', rf)
-        self.assertIn('Vòng sửa 2', rf)
-        # with the whole sample loaded, the main view still holds no technical id
-        for t in tasks:
-            main = without_details(run('renderTask(%s,DATA)' % json.dumps(t)))
-            self.assertNotRegex(main, r'\b(M\d+|verdict|receipt|rev\d*)\b', t['id'])
-            self.assertNotIn(t.get('slug') or '\0', main)
+    def test_plan_change_before_after(self):
+        od = case('owner_decision')
+        diff = run('findTask(DATA,%s).work.changes[0].diff' % json.dumps(od['id']))
+        self.assertGreaterEqual(len(diff), 2)
+        markup = panel('owner_decision', 'plan')
+        self.assertIn('Bản 2', markup)
+        self.assertIn('đã duyệt', markup)
+        pairs = re.findall(r'<div class="ba"><div class="before"><span class="bl">Trước</span><span class="bv">(.*?)</span></div>'
+                           r'<div class="after"><span class="bl">Sau</span><span class="av">(.*?)</span></div></div>', markup)
+        self.assertEqual(pairs, [(d['before'], d['after']) for d in diff])
+        self.assertIn('Mục M3', markup)                                     # the changed field is named
+        # closed by default, with its count on the summary
+        self.assertRegex(page('owner_decision'), r'<details class="d" data-kind="plan"><summary><span>Thay đổi kế hoạch</span><span class="cnt">1 lần sửa</span>')
+        self.assertIn('Kế hoạch chưa sửa lần nào.', panel('real_fail', 'plan'))
+        more = run('renderDetail(DATA,{work:{changes:[{kind:"contract",revision:3,diff_total:5,diff:[{path:"title",change:"changed",before:"a",after:"b"}]}]}},"plan")')
+        self.assertIn('Còn 4 thay đổi nữa không hiện.', more)
+        self.assertIn('Tên việc', more)
+        css = html()
+        self.assertRegex(css, r'\.ba\{display:grid;grid-template-columns:minmax\(0,1fr\) minmax\(0,1fr\)')    # side by side on wide
+        mobile = re.search(r'@media \(max-width:899px\)\{(.*?)\n\}', css, re.S).group(1)
+        self.assertRegex(mobile, r'\.ba\{grid-template-columns:minmax\(0,1fr\)\}')                          # stacked on a phone
 
-    def test_background_work_box(self):
-        data = run('DATA')
-        items = data['host_work']['items']
-        self.assertTrue(2 <= len(items) <= 3)
-        self.assertEqual({i['kind'] for i in items}, {'subagent', 'shell'})
-        self.assertEqual({i['state'] for i in items}, {'running', 'finished'})
-        self.assertTrue(all(i['source'] == 'hook' and i['task'] for i in items))
-        listing = run('renderList(DATA,"all")')
-        box = listing[listing.index('id="hostbox"'):]
-        box = box[:box.index('</section>')]
-        names = {t['id']: t['name'] for t in data['tasks']}
-        state_word = {'running': 'đang chạy', 'finished': 'đã kết thúc'}
-        articles = re.findall(r'<article class="host-item"[\s\S]*?</article>', box)
-        self.assertEqual(len(articles), len(items))
-        for item, art in zip(items, articles):
-            self.assertIn('data-task="%s"' % item['task'], art)
-            self.assertIn('Thuộc việc:', art)
-            self.assertIn(names[item['task']], art)                        # bound task, by name
-            self.assertIn(state_word[item['state']], art)
-            self.assertIn(item['summary'], art)
-            self.assertIn('hook', art)
-            self.assertIn('OneCrew chưa kiểm độc lập', art)
-        self.assertIn('đang chạy 2 · đang chờ 0 · đã kết thúc 1 · chưa rõ 0', box)
-        self.assertIn('OneCrew chưa quan sát (%d)' % len(data['host_work']['unobserved']), box)
-        self.assertIn('Không có dòng nào không có nghĩa là không có việc nền', box)
-        # shared resources: one lease held by a task, waiters with their queue position
-        res = listing[listing.index('id="resbox"'):]
-        res = res[:res.index('</section>')]
-        lease = data['resources']['items'][0]
-        self.assertIn(lease['label'], res)
-        self.assertIn('đang được giữ', res)
-        self.assertIn('data-res-role="holder" data-task="%s"' % lease['holders'][0]['task'], res)
-        self.assertIn('Chờ, vị trí <b>1</b>', res)
-        # per task: only its own background work and its own lease rows
-        t07 = run('renderTask(DATA.tasks[6],DATA)')
-        own = t07[t07.index('Việc nền của host gắn với việc này'):]
-        own = own[:own.index('</section>')]
-        self.assertIn(items[0]['summary'], own)
-        self.assertNotIn(items[1]['summary'], own)
-        self.assertNotIn('Tài nguyên dùng chung mà việc này giữ hoặc chờ', t07)
-        t09 = run('renderTask(findTask(DATA,"t09"),DATA)')
-        mine = t09[t09.index('Tài nguyên dùng chung mà việc này giữ hoặc chờ'):]
-        mine = mine[:mine.index('</section>')]
-        self.assertIn('Chờ, vị trí <b>1</b>', mine)
-        self.assertNotIn('data-task="t12"', mine)
-        self.assertIn('Chưa quan sát việc nền nào gắn với việc này (không có nghĩa là không có)', t09)
+    def test_finding_repair_recheck(self):
+        markup = panel('real_fail', 'repair')
+        self.assertIn('Đã dùng 3/3 lượt sửa', markup)
+        self.assertIn('Lỗi: AssertionError: thẻ hết hạn vẫn đăng nhập được', markup)
+        steps = [text_of(s) for s in re.findall(r'<li class="\w+">(.*?)</li>', markup)]
+        expected = ['Lần kiểm 1: không đạt', 'Sửa (lượt 1)', 'Lần kiểm 2: không đạt', 'Sửa (lượt 2)', 'Lần kiểm 3: không đạt', 'Lần kiểm tới là lần thử cuối']
+        self.assertEqual(len(steps), len(expected))
+        for got, want in zip(steps, expected):
+            self.assertTrue(got.startswith(want), (got, want))
+        rf = run('findTask(DATA,"t02")')
+        for c in rf['milestone_checks']['rows'][1]['checks']:
+            self.assertIn(run('fmtTime(%s)' % json.dumps(c['recorded'])), markup)      # every check carries its time
+        self.assertIn('Đã dừng: hết lượt sửa, chờ bạn quyết', panel('owner_decision', 'repair'))
+        to = panel('timeout', 'repair')
+        self.assertIn('Lần kiểm 1: chưa kết luận', to)
+        self.assertIn('Còn 2 lượt sửa', to)
+        self.assertIn('Chưa có lần kiểm nào không đạt.', panel('pass_then_edit', 'repair'))
+        self.assertIn('chưa kiểm lại', panel('engine_parts', 'repair'))
+        # the recheck: the old pass stays visible but marked, with why
+        checks = panel('pass_then_edit', 'checks')
+        self.assertIn('Cần kiểm lại', checks)
+        self.assertIn('mã đã đổi sau lần kiểm', checks)
+        self.assertRegex(page('real_fail'), r'<details class="d" data-kind="repair"><summary><span>Vòng sửa</span><span class="cnt">3 lần không đạt</span>')
+        # the loop is built from the real check history only
+        self.assertEqual(run('repairLoop({checks:[{result:"pass"}],repairs:{left:3}})'), [{'kind': 'check', 'tone': 'ok', 'text': 'Lần kiểm 1: đạt', 't': '', 'd': ''}])
 
-    def test_agent_progress_per_part(self):
-        engine = [t for t in run('DATA.tasks') if t.get('run') == 'engine']
-        self.assertTrue(engine)
-        t = engine[0]
-        parts = t['parts']
-        self.assertGreaterEqual(len(parts), 3)
-        self.assertGreaterEqual(len({p['agent'] for p in parts if p['agent'] != 'chưa biết'}), 2)   # different agents on different parts
-        self.assertTrue(any(p['agent'] == 'chưa biết' for p in parts))
-        page = run('renderTask(%s,DATA)' % json.dumps(t))
-        prog = page[page.index('data-panel="progress"'):]
-        self.assertIn('Tiến độ của các agent', prog)
-        cards = re.findall(r'<article class="agent" data-part="(\w+)">([\s\S]*?)</article>', prog)
-        self.assertEqual([c[0] for c in cards], [p['id'] for p in parts])
-        for (pid, card), p in zip(cards, parts):
-            self.assertIn('<span class="agent-who">%s</span>' % p['agent'], card)
-            self.assertIn(p['label'], card)
-            if p['signal']:
-                self.assertIn('<span class="sig">%s</span>' % p['signal']['at'], card)
-                self.assertIn(p['signal']['ago'], card)
-            else:
-                self.assertIn('Tín hiệu cuối:</b> chưa có', card)
-        running = next(p for p in parts if p['state'] == 'running')
-        elapsed = '1 giờ 6 phút · lượt 2 đang chạy được 34 phút'          # 32 min (try 1) + 09:58 -> read at 10:32
-        self.assertEqual(run('partElapsed(%s,"10:32")' % json.dumps(running)), elapsed)
-        self.assertIn('Đã chạy:</b> %s · 2 lượt' % elapsed, prog)
-        # the activity line names what runs, since when, and the last signal
-        self.assertIn('Sổ ghi lượt chạy đang mở', page)
-        self.assertIn('· từ 09:58 · tín hiệu cuối 10:28 (4 phút trước)', page)
-        # a simple per-part timeline with one bar per attempt, the running one up to the read time
-        self.assertEqual(prog.count('class="bar2 '), sum(len(p['attempts']) for p in parts))
-        self.assertIn('class="bar2 running"', prog)
-        self.assertEqual(run('spanPct("09:58",null,hm("08:30"),hm("10:32"))'), {'left': 72.13, 'width': 27.87})
-        # a plain plan says honestly what the ledger cannot see, and lists each check with start, end and duration
-        rf = next(x for x in run('DATA.tasks') if x.get('case') == 'real_fail')
-        self.assertNotEqual(rf.get('run'), 'engine')
-        plain = run('renderTask(%s,DATA)' % json.dumps(rf))
-        self.assertIn('sổ chỉ biết các lần kiểm mốc', plain)
-        self.assertIn('trang không thấy AI đang làm gì', plain)
-        self.assertNotIn('Tiến độ của các agent', plain)
-        self.assertIn('<tr><td>Lần 2</td><td>Không đạt</td><td>08:35</td><td>08:40</td><td>5 phút</td></tr>', plain)
-        self.assertIn('Chạy bộ kiểm: 15 phút', plain)
-        self.assertIn(run('NOTHING_RUNS'), plain)
+    def test_wait_opens_timeline(self):
+        od = run('findTask(DATA,"t01")')
+        markup = panel('owner_decision', 'wait')
+        self.assertIn('Việc đang chờ bạn', markup)
+        since = od['requests'][0]['created_at']
+        self.assertIn(run('fmtTime(%s)' % json.dumps(since)), markup)
+        self.assertIn('(%s)' % run('dur(since(%s,DATA.read_at))' % json.dumps(since)), markup)
+        items = re.findall(r'<li><time>(.*?)</time><span>(.*?)</span></li>', markup)
+        self.assertEqual(len(items), len(od['timeline']))
+        self.assertEqual(items[0][0], run('fmtTime(%s)' % json.dumps(od['timeline'][-1]['at'])))  # newest first
+        self.assertIn('kết quả kiểm mốc 3: không đạt', markup)
+        self.assertNotIn('verdict', markup)
+        engine = panel('engine_parts', 'wait')
+        self.assertIn('<b>Agent chờ</b>: chờ máy thử Android rảnh', engine)
+        self.assertIn('đã chờ 8 phút', engine)
+        self.assertRegex(page('owner_decision'), r'<details class="d" data-kind="wait"><summary><span>Thời gian và ai chờ ai</span>')
+        bare = run('renderDetail(DATA,itemsOf(DATA)[0],"wait")')                   # an overview item without its detail
+        self.assertIn('Chưa đọc chi tiết của việc này.', bare)
+        self.assertIn('Sổ không ghi lần chờ nào.', panel('real_fail', 'wait'))
 
-    def test_new_parts_toggle(self):
-        text = html()
-        self.assertRegex(text, r'<button type="button" id="newtoggle"[^>]*aria-pressed="true"[^>]*>Tô màu phần mới</button>')
-        self.assertIn('<body class="view-list hl-new">', text)          # ON by default
-        css = re.search(r'<style>(.*?)</style>', text, re.S).group(1)
-        self.assertRegex(css, r'body\.hl-new \[data-new\]\{[^}]*outline:')
-        self.assertRegex(css, r'body\.hl-new \[data-new\]::before\{content:"Mới"')
-        self.assertNotRegex(css, r'(?<!hl-new )\[data-new\]')               # nothing is marked while the toggle is off
-        self.assertEqual(run('bodyClass({view:"task"},true)'), 'view-task hl-new')
-        self.assertEqual(run('bodyClass({view:"list"},false)'), 'view-list')
+    def test_result_opens_evidence(self):
+        rf = run('findTask(DATA,"t02")')
+        markup = panel('real_fail', 'evidence')
+        run_row = rf['work']['checks']['runs'][0]
+        self.assertIn('mã: 1', markup)
+        self.assertIn(run_row['receipt'][:12], markup)
+        self.assertIn('Mốc 2', markup)
+        self.assertIn('Không đạt (bản cũ)', markup)
+        self.assertIn('hết giờ', panel('timeout', 'evidence'))
+        self.assertIn('5 mục bằng chứng', markup)
+        # technical identifiers only inside the opened panels
+        main = without_details(page('real_fail'))
+        self.assertNotIn(run_row['receipt'][:12], main)
+        tech = panel('real_fail', 'tech')
+        for value in (rf['plan'], rf['selector'], rf['id']):
+            self.assertIn(value, tech)
+        # nothing is rendered as markup: a hostile value cannot inject
+        hostile = run('renderDetail(DATA,{work:{checks:{runs:[{id:"<b>x</b>",node:"<script>1</script>",status:"fail",receipt:"<img src=x>",outputs:{exit_code:"<i>"}}]}},'
+                      'evidence_index:[{label:"<script>2</script>",key:"k"}]},"evidence")')
+        for bad in ('<script>', '<b>x</b>', '<img', '<i>'):
+            self.assertNotIn(bad, hostile)
+        self.assertNotIn('<script>', run('renderList({overview:{projects:[{path:"p",tasks:[{id:"x",short_title:"<script>1</script>"}]}]}},"all")'))
+
+    def test_back_keeps_filter_and_position(self):
+        # plain hash names only: #viec, #viec-<filter>, #viec-<filter>-<id>
+        self.assertEqual(run('routeOf("#viec-need")'), {'view': 'list', 'id': None, 'filter': 'need'})
+        self.assertEqual(run('routeOf("#viec-all-t04")'), {'view': 'task', 'id': 't04', 'filter': 'all'})
+        self.assertEqual(run('routeOf("#viec-done-TASK-31ba8c8e")'), {'view': 'task', 'id': 'TASK-31ba8c8e', 'filter': 'done'})
+        self.assertEqual(run('routeOf("")'), {'view': 'list', 'id': None, 'filter': 'all'})
+        self.assertEqual(run('routeOf("#viec-bogus")')['filter'], 'all')
+        self.assertEqual(run('routeOf("#/viec/need?x=1")')['view'], 'list')
+        for t in tasks():
+            for filt in FILTERS:
+                href = run('hrefOf({view:"task",id:%s,filter:%s})' % (json.dumps(t['id']), json.dumps(filt)))
+                self.assertRegex(href, r'^#[A-Za-z0-9-]+$')
+                self.assertEqual(run('routeOf(%s)' % json.dumps(href)), {'view': 'task', 'id': t['id'], 'filter': filt})
+        self.assertEqual(run('hrefOf({view:"list",filter:"need"})'), '#viec-need')
+        # a row opened from a filter links back to that same filter; the active filter is marked
+        listing = run('renderList(DATA,"check")')
+        self.assertIn('href="#viec-check-t04"', listing)
+        self.assertRegex(listing, r'data-filter="check" aria-current="true"')
+        self.assertIn('aria-current="page"', run('renderList(DATA,"all","t04")'))
+        # each filter keeps its own scroll position; a broken store answers 0
         got = run('(function(){var m={};var s={getItem:function(k){return k in m?m[k]:null},setItem:function(k,v){m[k]=v}};'
-                  'var a=loadHl(s);saveHl(s,false);var b=loadHl(s);saveHl(s,true);return [a,b,loadHl(s),'
-                  'loadHl({getItem:function(){throw 1}})]})()')
-        self.assertEqual(got, [True, False, True, True])
-        # new elements carry the mark; existing ones never do
-        od = run('renderTask(DATA.tasks.filter(function(t){return t.case==="owner_decision"})[0],DATA)')
-        for new in (r'<section class="blk" id="s-out" data-new="1">', r'<section class="blk" id="s-valid" data-new="1">', r'<section class="blk" id="s-next" data-new="1">',
-                    r'<section class="decision"[^>]*data-new="1">', r'<div class="newgrp" data-new="1"><details class="d" data-kind="plan">'):
-            self.assertRegex(od, new)
-        rf = run('renderTask(DATA.tasks.filter(function(t){return t.case==="real_fail"})[0],DATA)')
-        self.assertRegex(rf, r'<div class="warn" role="note" data-new="1">')
-        self.assertRegex(rf, r'<p class="honest" data-new="1">')
-        self.assertRegex(run('renderTask(DATA.tasks[6],DATA)'), r'<div class="agentwrap" data-new="1">')
+                  'saveListState(s,"need",0);saveListState(s,"check",734);saveListState(s,"all",120.4);'
+                  'return [loadListState(s,"check"),loadListState(s,"all"),loadListState(s,"need"),loadListState(s,"done")]})()')
+        self.assertEqual(got, [{'filter': 'check', 'scrollTop': 734}, {'filter': 'all', 'scrollTop': 120}, {'filter': 'need', 'scrollTop': 0}, {'filter': 'done', 'scrollTop': 0}])
+        self.assertEqual(run('(function(){var s={getItem:function(){throw 1},setItem:function(){throw 1}};saveListState(s,"all",5);return loadListState(s,"all")})()'),
+                         {'filter': 'all', 'scrollTop': 0})
+        self.assertEqual(run('loadListState(null,"all")'), {'filter': 'all', 'scrollTop': 0})
+        # the wiring saves the position when leaving, restores it after the list shows again, and goes back in history when it came from the list
+        text = html()
+        self.assertIn("lp.addEventListener('click',function(e){if(e.target.closest('a.row')){saveListState(store,cur.filter,lp.scrollTop);fromList=true}})", text)
+        self.assertIn('var top=loadListState(store,r.filter).scrollTop;lp.scrollTop=top', text)
+        self.assertIn('if(fromList){fromList=false;history.back()}else location.hash=hrefOf({view:\'list\',filter:r.filter})', text)
+        self.assertIn("window.addEventListener('hashchange',render)", text)
+        self.assertIn('‹ Quay lại', run('renderTask(DATA,findTask(DATA,"t01"))'))
+        # the list is not redrawn when only the selected task changes (its scroll stays where it is)
+        self.assertIn('if(r.filter!==cur.filter){lp.innerHTML=renderList(D,r.filter,r.id);cur.filter=r.filter}', text)
 
-        def block(markup, start, end):
-            part = markup[markup.index(start):]
-            return part[:part.index(end) + len(end)]
-        for old in (block(od, '<section class="sit"', '</section>'), block(od, '<details class="need"', '</details>'),
-                    block(od, '<section class="hostplan"', '</section>'), block(od, '<div class="tabwrap">', '<div class="tabp"'),
-                    block(od, 'data-panel="results"', '</table>'), block(rf, '<ol class="mslist">', '</ol>')):
-            self.assertNotIn('data-new', old)
+    def test_mobile_layout(self):
+        text = html()
+        self.assertIn('<meta name="viewport" content="width=device-width, initial-scale=1">', text)
+        css = re.search(r'<style>(.*?)</style>', text, re.S).group(1)
+        body = re.search(r'@media \(max-width:899px\)\{(.*?)\n\}', css, re.S).group(1)
+        self.assertIn('body.view-task #listpane{display:none}', body)
+        self.assertIn('body.view-list #taskpane{display:none}', body)
+        self.assertIn('#back{display:inline-block}', body)
+        self.assertIn('main{grid-template-columns:minmax(0,1fr)}', body)
+        self.assertIn('.four{grid-template-columns:minmax(0,1fr)}', body)
+        self.assertRegex(css, r'#back\{display:none[;}]')
+        self.assertRegex(css, r'main\{display:grid;grid-template-columns:minmax\(0,380px\) minmax\(0,1fr\)')   # list | task side by side on wide
+        self.assertEqual(run('bodyClass({view:"task"})'), 'view-task')
+        self.assertEqual(run('bodyClass({view:"list"})'), 'view-list')
+        # 16px gutters, long text wraps, nothing wider than a 375px phone
+        self.assertIn('.pane{overflow:auto;min-width:0;padding:12px 16px}', css)
+        self.assertRegex(css, r'header\{padding:8px 16px')
+        self.assertIn('overflow-wrap:anywhere', css)
+        for match in re.finditer(r'(?<![\w-])(?:min-)?width:\s*(\d+)px', css):
+            self.assertLessEqual(int(match.group(1)), 375, match.group(0))
+        self.assertNotRegex(css, r'(?<![\w-])(?:min-)?width:\s*\d+(?:vw|em|rem)')
+        self.assertNotIn('overflow-x:scroll', css)
+        self.assertRegex(css, r'\.scroll\{overflow-x:auto')
+        for t in tasks():
+            markup = run('renderTask(DATA,findTask(DATA,%s))' % json.dumps(t['id']))
+            for table in re.finditer(r'<table', markup):
+                self.assertTrue(markup[:table.start()].endswith('<div class="scroll">'), t['id'])
+        # light and dark through tokens
+        self.assertRegex(css, r'^\s*:root\{--paper:')
+        self.assertIn('@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--paper:', css)
+        self.assertIn(':root[data-theme=dark]{--paper:', css)
+        self.assertRegex(css, r'body\{background:var\(--paper\)')
+        self.assertIn('@media (prefers-reduced-motion:reduce)', css)
+
+    def test_every_root_of_real_shaped_detail_renders(self):
+        """Every root renders with its detail, without it (overview only), and with missing or empty parts, as a real export may have."""
+        result = run('''(function(){var out=[];function chk(d,t,tag){var h=renderTask(d,t);if(!/id="b-dec"/.test(h))out.push(tag+": no blocks");
+            if(/Không vẽ được/.test(h))out.push(tag+": "+h.match(/Không vẽ được phần này: ([^<]*)/)[1]);
+            ["scope","checks","repair","plan","wait","evidence","agents","res","tech"].forEach(function(k){var p=renderDetail(d,t,k);if(/Không vẽ được/.test(p))out.push(tag+" "+k)})}
+          itemsOf(DATA).forEach(function(t){chk(DATA,findTask(DATA,t.id),t.id+" detail");chk(DATA,t,t.id+" overview")});
+          var bare={overview:{projects:[{path:null,tasks:[{id:"x"},{id:"y",situation:null,needs_user:null,milestones:null,tracking:{adapter:"engine"},nodes:null,work:{changes:null,checks:null}}]}]},details:{y:{milestone_checks:{rows:null},timeline:null,gantt:{rows:[{node:"A",segments:null}]}}}};
+          itemsOf(bare).forEach(function(t){chk(bare,findTask(bare,t.id),t.id+" bare")});
+          ["all","need","doing","check","done","bogus"].forEach(function(f){renderList(bare,f);renderList({},f);renderList(DATA,f)});
+          renderTask(DATA,null);return out})()''')
+        self.assertEqual(result, [])
+        self.assertIn('Chọn một việc', run('renderTask(DATA,null)'))
+        self.assertIn('Không có việc nào trong mục này.', run('renderList({},"all")'))
+
+    def test_agents_engine_and_plain(self):
+        eng = run('findTask(DATA,"t05")')
+        markup = panel('engine_parts', 'agents')
+        parts = re.findall(r'<article class="part" data-part="(\w+)">([\s\S]*?)</article>', markup)
+        self.assertEqual([p for p, _ in parts], ['A', 'B', 'C'])
+        agents = [re.search(r'<b class="agent-who">(.*?)</b>', body).group(1) for _, body in parts]
+        self.assertEqual(agents, ['claude-sonnet', 'claude-opus', 'chưa biết'])
+        self.assertIn('2 lượt', parts[1][1])
+        self.assertIn('đã đối chiếu 140/200 dòng', parts[1][1])
+        self.assertIn('tín hiệu cuối chưa có', parts[2][1])
+        self.assertEqual(markup.count('<i class="s-'), sum(len(r['segments']) for r in eng['gantt']['rows']))
+        self.assertIn('<i class="s-to_now"', markup)
+        nxt = block(page('engine_parts'), 'id="b-next"')
+        self.assertIn('class="act run"', nxt)
+        self.assertIn('tín hiệu cuối 4 phút trước', nxt)
+        self.assertIn('>AI</span>', nxt)
+        self.assertIn('1/3', block(page('engine_parts'), 'id="b-out"'))
+        self.assertIn('Theo từng phần', block(page('engine_parts'), 'id="b-trust"'))
+        # a plain plan says briefly what the page cannot see; the engine task does not
+        plain = page('plain_between_checks')
+        self.assertIn('data-honest="1"', block(plain, 'id="b-next"'))
+        self.assertIn(run('BETWEEN_CHECKS'), panel('plain_between_checks', 'agents'))
+        self.assertNotIn('data-honest', page('engine_parts'))
+        self.assertNotIn('data-honest', run('renderTask(DATA,findTask(DATA,"t09"))'))          # finished: nothing to watch
+        # host background work: only this task's own lines
+        own = panel('plain_between_checks', 'agents')
+        self.assertEqual(own.count('<li class="host-item"'), 2)
+        self.assertIn('Viết test cho mã vạch lạ', own)
+        self.assertNotIn('Đối chiếu danh mục với kho', own)
+        self.assertIn('Hook chưa báo việc nền nào của việc này', panel('timeout', 'agents'))
         listing = run('renderList(DATA,"all")')
-        self.assertRegex(listing, r'<nav class="chips"[^>]*data-new="1">')
-        self.assertRegex(listing, r'<div class="rows" data-new="1">')
-        for old in (block(listing, 'id="hostbox"', '</section>'), block(listing, 'id="resbox"', '</section>'), block(listing, 'id="untrackedbox"', '</details>')):
-            self.assertNotIn('data-new', old)
-        head = text.split('<header>')[1].split('</header>')[0]
-        self.assertIn('Tô màu phần mới', head)
-        self.assertNotIn('data-new', head)
-        self.assertNotIn('data-new', run('renderList(DATA,"all",null,{mode:"board"})').split('<div class="board"')[1].split('id="hostbox"')[0])
+        self.assertIn('Agent và việc nền: 2 đang chạy, 1 đã xong', listing)
+        self.assertIn('Không có dòng nào không có nghĩa là không có việc nền', block(listing, 'id="hostbox"', '</details>'))
+        quiet = run('(function(){var d=JSON.parse(JSON.stringify(DATA));d.host_work.projects.forEach(function(p){p.view.items=[];p.view.hooks_seen=[]});return renderList(d,"all")})()')
+        self.assertIn('Agent và việc nền: hook chưa báo tín hiệu nào', quiet)
+        # shared resources: holder and waiter with its place in the queue
+        self.assertIn('chờ, vị trí <b>1</b>', panel('plain_between_checks', 'res'))
+        self.assertIn('data-res-role="holder"', panel('engine_parts', 'res'))
+        self.assertIn('Việc này không giữ hay chờ tài nguyên nào.', panel('real_fail', 'res'))
+        self.assertIn('Tài nguyên dùng chung: 1 đang được giữ, 1 đang chờ', listing)
+        self.assertIn('Máy này chưa khai báo', run('renderDetail({shared_resources:{declared:false,resources:[]}},findTask(DATA,"t02"),"res")'))
 
     def test_read_only_buttons(self):
-        allowed = re.compile(r'data-(toast|copy|tab|mode|goto)="|id="(back|newtoggle)"')
-        pages = [html()] + run('DATA.tasks.map(function(t){return renderTask(t,DATA)})') + [run('renderList(DATA,"all")'), run('renderList(DATA,"all",null,{mode:"board"})')]
+        allowed = re.compile(r'data-copy="|id="(back|theme)"')
+        pages = [html()] + run('itemsOf(DATA).map(function(t){return renderTask(DATA,findTask(DATA,t.id))})') + [run('renderList(DATA,"all")')]
         seen = set()
-        for page in pages:
-            for tag in re.findall(r'<button\b[^>]*>', page):
+        for markup in pages:
+            for tag in re.findall(r'<button\b[^>]*>', markup):
                 match = allowed.search(tag)
                 self.assertIsNotNone(match, tag)
-                seen.add(match.group(1) or match.group(2))
-        self.assertTrue({'toast', 'copy', 'tab', 'mode', 'goto', 'back', 'newtoggle'} <= seen)
+                seen.add(match.group(1) or 'copy')
+        self.assertEqual(seen, {'copy', 'back', 'theme'})
         script = script_and_data()[0]
-        for banned in ('fetch(', 'XMLHttpRequest', 'sendBeacon', 'WebSocket', '<form', '.submit(', 'method=', 'execCommand'):
+        for banned in ('fetch(', 'XMLHttpRequest', 'sendBeacon', 'WebSocket', '<form', '.submit(', 'method=', 'execCommand', 'eval('):
             self.assertNotIn(banned, script + html().split('<script')[0])
-        # what the click handler does: toast (+ move to the matching command), move focus, copy, switch tab, switch list/board
-        handler = re.search(r"document\.addEventListener\('click',function\(e\)\{([\s\S]*?)\}\);", script).group(1)
-        self.assertEqual(re.findall(r"closest\('\[data-(\w+)\]'\)", handler), ['toast', 'goto', 'copy', 'tab', 'mode'])
-        self.assertIn("showToast('Mockup: chưa ghi gì", handler)
-        self.assertNotRegex(handler, r'location\.|history\.|innerHTML')     # nothing in it writes or navigates away
-        copy = re.search(r'function copyText\(text\)\{([\s\S]*?)\n lp\.addEventListener', script).group(1)
-        self.assertIn('navigator.clipboard.writeText(text)', copy)        # copy only copies
-        # the command boxes are text the owner runs in their own terminal; the sample says they are illustrations
-        od = run('renderTask(DATA.tasks.filter(function(t){return t.case==="owner_decision"})[0],DATA)')
-        self.assertIn('Lệnh trong bản mẫu chỉ để minh họa, không chạy được.', od)
-        self.assertIn('Chỉ đọc: không có nút duyệt, trả lời, dừng hay tiếp tục việc', html())
+        handler = re.search(r"document\.addEventListener\('click',function\(e\)\{([\s\S]*?)\}\);\n", script).group(1)
+        self.assertEqual(re.findall(r"closest\('([^']+)'\)", handler), ['[data-copy]', '#back', '#theme'])
+        copy = script[script.index('function copyText(text){'):script.index("lp.addEventListener('scroll'")]
+        self.assertIn('navigator.clipboard.writeText(text)', copy)                  # copy only copies
+        self.assertNotRegex(copy, r'location\.|history\.|innerHTML')
+        self.assertIn('Chỉ đọc: trang không duyệt, không trả lời', run('renderList(DATA,"all")'))
 
 
 if __name__ == '__main__':
