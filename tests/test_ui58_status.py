@@ -113,6 +113,7 @@ class Status(Fixture):
         self.assertEqual((s['stage'], s['label']), ('check', 'Cần kiểm lại'))
         self.assertIn('cần kiểm lại', s['reason'])
         self.assertIn('không còn được tính', s['reason'])
+        self.assertNotIn(': )', s['reason'])                  # no empty list of reasons
         self.assertEqual(s['next'], 'Kiểm lại mốc M1')
         self.assertTrue(d['milestones'][0]['stale'])
         self.assertEqual(d['milestone_checks']['rows'][0]['state'], 'recheck')
@@ -197,6 +198,8 @@ class Status(Fixture):
         self.assertEqual(s['next_by'], 'owner')
         self.assertFalse(s['no_owner_decision'])
         self.assertIsNone(s['warning'])                       # the decision replaces the warning
+        self.assertEqual(s['next'], 'Quyết định sau khi dừng: duyệt bản sửa để đi tiếp, hoặc kết thúc')     # the owner's words, not the stop question in English
+        self.assertEqual(d['validity']['kind'], 'failed')
         asks = [n for n in d['needs_user'] if n['kind'] == 'request']
         self.assertTrue(asks and len(asks[0]['options']) >= 2)
 

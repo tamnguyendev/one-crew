@@ -136,8 +136,9 @@ def milestone_checks(views, history, revision, now, lost):
                      'failures': len([c for c in mine if c.get('result') and c['result'] != 'pass']),
                      'last_result': last.get('result') if last else None, 'last_at': (last.get('recorded') or last.get('ended')) if last else None,
                      'check_seconds': sum(timed) if timed else None, 'untimed_checks': len(mine) - len(timed),
-                     'note': v.get('recheck_note') or (CURRENT_UNKNOWN if v.get('current_unknown') else None) or (('bằng chứng không còn khớp bản hiện tại: ' + '; '.join(map(str, v.get('stale_reasons') or [])))[:200]
-                                                      if v.get('stale') else None)})
+                     'note': v.get('recheck_note') or (CURRENT_UNKNOWN if v.get('current_unknown') else None)
+                             or (('bằng chứng không còn khớp bản hiện tại' + (': ' + '; '.join(map(str, v['stale_reasons'])) if v.get('stale_reasons') else '')
+                                  + ('' if v.get('stale_reasons') else ' (mã đã đổi sau lần kiểm)'))[:200] if v.get('stale') else None)})
     return {'revision': revision, 'rows': rows, 'timed': any(c.get('started') and c.get('ended') for r in rows for c in r['checks']),
             'basis': 'verdict.run_started → verdict.receipt_issued (thời gian chạy bộ kiểm) và verdict.recorded (kết quả); '
                      'không phải thời gian làm việc; khoảng trống giữa hai lần kiểm không phải thời gian chờ'}
@@ -198,7 +199,7 @@ def _plain(views, rows, acceptance, level, has_started):
             'Kiểm môi trường chạy (máy bận, mạng, thời hạn của bộ kiểm) rồi chạy lại bộ kiểm mốc ' + _names(unclear), None, None, LABELS['inconclusive']
     if recheck:
         notes = [by_id[m].get('note') for m in recheck if by_id[m].get('note')]
-        return 'check', 'Mốc ' + _names(recheck) + ' cần kiểm lại: lần đạt trước không còn được tính' + ((' (' + notes[0] + ')') if notes else ''), \
+        return 'check', 'Mốc ' + _names(recheck) + ' cần kiểm lại: lần đạt trước không còn được tính' + ((' vì ' + notes[0]) if notes else ''), \
             'Kiểm lại mốc ' + _names(recheck), None, None, LABELS['recheck']
     if unknown:
         return 'unknown', 'Mốc ' + _names(unknown) + ': ' + CURRENT_UNKNOWN, \
@@ -261,9 +262,12 @@ def situation(*, state, views, checks, engine_view, attempts, active, requests, 
     if owner_needs:
         n = owner_needs[0]
         by, by_text = 'owner', OWNER
-        next_text = n.get('owner_ask') or {'approve': 'Duyệt hoặc yêu cầu sửa kế hoạch', 'accept': 'Nghiệm thu hoặc nêu điều chưa đạt',
-                                          'stopped': 'Quyết định sau khi dừng', 'request': 'Trả lời câu hỏi'}[n['kind']] \
-            + (': ' + str(n.get('question'))[:140] if n['kind'] == 'request' and n.get('question') else '')
+        if n['kind'] == 'request' and state['status'] == 'stopped_with_report' and not n.get('owner_ask'):
+            next_text = OWNER_STEPS['owner_decision']          # #58: the stop question the verifier writes is in English; the decision in the owner's words
+        else:
+            next_text = n.get('owner_ask') or {'approve': 'Duyệt hoặc yêu cầu sửa kế hoạch', 'accept': 'Nghiệm thu hoặc nêu điều chưa đạt',
+                                              'stopped': 'Quyết định sau khi dừng', 'request': 'Trả lời câu hỏi'}[n['kind']] \
+                + (': ' + str(n.get('question'))[:140] if n['kind'] == 'request' and n.get('question') else '')
         src.append('needs_user:' + n['kind'])
     if stage in ('done', 'closed'): next_text, by, by_text = None, None, None
     if not by_text and next_text: by_text = NO_HANDLER
@@ -307,6 +311,7 @@ def validity(state, views, rows, engine_view, current):
     def having(st): return [v['id'] for v in views if (by_id.get(v['id']) or {}).get('state', v.get('state')) == st]
     def out(kind, text): return {'kind': kind, 'label': VALIDITY[kind], 'text': text}
     if state.get('status') == 'accepted': return out('accepted', 'Bạn đã nghiệm thu bản đã giao; kết quả đọc theo lần nghiệm thu')
+    if having('stopped'): return out('failed', 'Mốc ' + _names(having('stopped')) + ' đã dừng vì không đạt sau khi dùng hết giới hạn sửa của kế hoạch')
     if having('failed'): return out('failed', 'Mốc ' + _names(having('failed')) + ' kiểm không đạt trên lần kiểm mới nhất')
     if having('inconclusive'): return out('inconclusive', 'Lần kiểm mới nhất của mốc ' + _names(having('inconclusive')) + ' không ra kết luận (ví dụ hết giờ)')
     if having('recheck'): return out('recheck', 'Mã đã đổi (hoặc quy tắc kiểm đổi) sau lần đạt của mốc ' + _names(having('recheck')) + '; lần đạt cũ không còn được tính')
