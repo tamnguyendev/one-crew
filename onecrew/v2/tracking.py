@@ -221,6 +221,38 @@ def _live_views(reader, contract, state):
     return read()
 
 
+# UI58 MC (D4): the list does not hash every project. The task page's comparison (_live_views) is kept here, per process, keyed by the ledger's
+# identity of the root (resolved state root, project id, task id); it is reused by the list while the root's ledger is the same (latest revision,
+# plan status and last event seq: any new event, a new verdict included, drops it), and always shown with the time it was made. Files that change
+# after that time are not seen until the task page compares again; the list says so with the time instead of claiming the result is current.
+COMPARED_CAP = 512
+_compared = {}
+
+
+def _compared_key(state_root, row):
+    try: root = os.path.normcase(str(Path(state_root).resolve()))
+    except (OSError, ValueError, RuntimeError): root = str(state_root)
+    return (root, row['project_id'], row['id'])
+
+
+def _compared_sig(state, events):
+    return (state.get('latest'), state.get('status'), events[-1][0] if events else 0)
+
+
+def _remember_compared(state_root, row, state, events, views, current, now):
+    if current not in ('compared', 'unknown'): return
+    if len(_compared) >= COMPARED_CAP: _compared.pop(next(iter(_compared)))
+    import copy
+    _compared[_compared_key(state_root, row)] = {'sig': _compared_sig(state, events), 'views': copy.deepcopy(views), 'current': current, 'at': _iso(now)}
+
+
+def _recall_compared(state_root, row, state, events):
+    hit = _compared.get(_compared_key(state_root, row))
+    if not hit or hit['sig'] != _compared_sig(state, events): return None
+    import copy
+    return copy.deepcopy(hit['views']), hit['current'], hit['at']
+
+
 def _goal(contract, payload):
     understanding = (contract or {}).get('understanding') or {}
     return clean(understanding.get('restated_goal') or (contract or {}).get('title') or payload.get('title') or '')
@@ -421,12 +453,16 @@ def _needs_user(state, requests, views, level, engine_view, project=None, state_
         human = f"{prefix} owner answer {_quote(r['id'])} --revision {_quote(r['revision'])} --choice "
         expected = {'task': state.get('task_id'), 'request': r['id'], 'revision': r['revision']}
         options = []
-        for option in (q.get('options') or [])[:6]:
+        for option in (q.get('options') or [])[:8]:            # UI58 MC: every option the ledger holds (2-8), each with its own consequence when recorded
             template = human + _quote(option.get('id')) + suffix + ' --human' if complete else None
-            options.append({'id': clean(option.get('id'), 60), 'label': clean(option.get('label'), 200),
+            said = option.get('consequence') or option.get('impact')
+            options.append({'id': clean(option.get('id'), 60), 'label': clean(option.get('label'), 500),
+                            'consequence': clean(said, 500) if isinstance(said, str) and said.strip() else None,
+                            'recommended': option.get('id') == q.get('recommendation'),
                             'reply_command': command + clean(option.get('id'), 60) + suffix,
                             'human_command': template, 'action': _action(template, dict(expected, choice=option.get('id')), ['reference'])})
-        needs.append({'kind': 'request', 'id': r['id'], 'revision': r['revision'], 'question': clean(q.get('question')),
+        needs.append({'kind': 'request', 'id': r['id'], 'revision': r['revision'], 'question': clean(q.get('question'), 2000),
+                      'source_kind': 'ledger_request', 'source_label': 'Yêu cầu trong sổ (chờ bạn trả lời)', 'asked_at': r.get('created_at'),
                       'reason': clean(q.get('reason'), 300), 'impact': clean(q.get('impact'), 300), 'recommendation': clean(q.get('recommendation'), 60),
                       'options': options,          # UX-03: one template per option; the page copies, never runs
                       'reply_command': command + '<option-id>' + suffix,
@@ -445,7 +481,9 @@ def _needs_user(state, requests, views, level, engine_view, project=None, state_
                     + f' --reference {_quote(REFERENCE_PLACEHOLDER)} --human') if complete and selector and contract else None
         owner = _owner_view(contract)
         needs.append({**({'owner_ask': 'Duyệt việc: ' + owner['request']} if owner['present'] else {}),
-                      'kind': 'approve', 'question': f"Duyệt bản {state['latest']} của plan {state['name']} (plan approve, lệnh của chủ sở hữu)",
+                      'source_kind': 'scope_change' if revision > 1 else 'plan_approval',
+                      'source_label': (f'Đề xuất đổi phạm vi: bản {revision} chờ bạn duyệt' if revision > 1 else 'Kế hoạch chờ bạn duyệt'),
+                      'kind': 'approve','question': f"Duyệt bản {state['latest']} của plan {state['name']} (plan approve, lệnh của chủ sở hữu)",
                       'id': state.get('task_id'), 'revision': revision, 'title': clean((contract or {}).get('title')),
                       'reason': clean(written.get('reason')), 'impact': clean((written.get('acceptance_diff') or {}).get('summary')),
                       'reply_command': template, 'human_command': template, 'reply_shell': REPLY_SHELL,
@@ -1010,9 +1048,17 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
             engine_view = engine.state(rd, row['request_key'], conn)
         except (LedgerError, OSError, ValueError, KeyError) as error:
             engine_error = clean(str(error), 200)
-    views, current = [], None
+    views, current, compared_at = [], None, None
     if contract and not engine_root:
-        try: views, current = _live_views(rd, contract, state) if full else (plans.milestone_views(contract, state, state['latest']), None)
+        try:
+            if full:
+                views, current = _live_views(rd, contract, state)
+                compared_at = _iso(now)
+                _remember_compared(reader.state_root, row, state, events, views, current, now)
+            else:
+                recalled = _recall_compared(reader.state_root, row, state, events)     # D4: the task page's last comparison, never a new hash
+                if recalled: views, current, compared_at = recalled
+                else: views = plans.milestone_views(contract, state, state['latest'])
         except (LedgerError, OSError, ValueError, KeyError): views = []
     gaps = _receipt_gaps(reader.state_root, state, views, engine_view)
     events, children, history = _history(conn, row['id'], events)
@@ -1078,8 +1124,10 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
             'goal': _goal(contract, payload), 'title': clean(payload.get('title'), 200), 'owner_view': _owner_view(contract), 'contract_revision': state['latest'],
             'headline': clean((contract or {}).get('title'), 200),     # mep6: the owner's line for the card; the AI's restated goal stays in 'goal'
             'short_title': short_title((contract or {}).get('title') or payload.get('title')),     # #58: the card's line; the full title stays in 'headline'
-            'validity': tracking_situation.validity(state, views, (checks or {}).get('rows'), engine_view, current),
+            'validity': tracking_situation.validity(state, views, (checks or {}).get('rows'), engine_view, current, as_of=compared_at, reused=not full),
             'compared': current,
+            'compared_at': compared_at,          # UI58 MC: when the views were compared with the project (the list: the task page's last comparison, or None)
+            'compared_by': ('task_page' if compared_at else None) if not engine_root else None,
             'created_at': row['created_at'], 'started_at': first_started, 'has_started': has_started, 'deadline': None,
             'node_titles': {n['id']: clean(n.get('goal'), 200) for n in ((engine_view or {}).get('definition') or {}).get('nodes', [])},
             'root_status': state['status'],

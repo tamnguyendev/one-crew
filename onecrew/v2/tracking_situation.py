@@ -199,7 +199,7 @@ def _plain(views, rows, acceptance, level, has_started):
             'Kiểm môi trường chạy (máy bận, mạng, thời hạn của bộ kiểm) rồi chạy lại bộ kiểm mốc ' + _names(unclear), None, None, LABELS['inconclusive']
     if recheck:
         notes = [by_id[m].get('note') for m in recheck if by_id[m].get('note')]
-        return 'check', 'Mốc ' + _names(recheck) + ' cần kiểm lại: lần đạt trước không còn được tính' + ((' vì ' + notes[0]) if notes else ''), \
+        return 'check', 'Mốc ' + _names(recheck) + ' từng đạt trên bản trước, cần kiểm lại trên bản đang xem: lần đạt trước không còn được tính' + ((' vì ' + notes[0]) if notes else ''), \
             'Kiểm lại mốc ' + _names(recheck), None, None, LABELS['recheck']
     if unknown:
         return 'unknown', 'Mốc ' + _names(unknown) + ': ' + CURRENT_UNKNOWN, \
@@ -302,21 +302,34 @@ def situation(*, state, views, checks, engine_view, attempts, active, requests, 
             'no_owner_decision': not owner_needs and by != 'owner', 'source': src}
 
 
-def validity(state, views, rows, engine_view, current):
+RECHECK_TEXT = ('Mốc {ids} từng đạt trên bản trước; bản đang xem đã khác (mã hoặc quy tắc kiểm đã đổi sau lần đạt), nên cần kiểm lại trên bản này. '
+                'Lần đạt cũ không còn được tính')
+
+
+def _clock(iso):
+    at = _at(iso)
+    return at.astimezone(dt.timezone.utc).strftime('%H:%M %d/%m UTC') if at else str(iso or '')
+
+
+def validity(state, views, rows, engine_view, current, as_of=None, reused=False):
     """#58: can the owner still trust the result the task page shows? `current` says how the views were read: 'compared' (judged against the project
     as it is now, as `plan report` reads them), 'unknown' (the project's current artifact could not be read) or None (the list: the ledger's own
-    record, nothing hashed). Returns {kind, label, text}; engine roots are not judged here (None)."""
+    record, nothing hashed). UI58 MC (D4): the list reuses the task page's last comparison (`reused`, made at `as_of`) and says when it was made;
+    without one it says the result was not compared. Returns {kind, label, text, as_of, compared}; engine roots are not judged here (None)."""
     if engine_view is not None or not views: return None
     by_id = {r['id']: r for r in rows or []}
     def having(st): return [v['id'] for v in views if (by_id.get(v['id']) or {}).get('state', v.get('state')) == st]
-    def out(kind, text): return {'kind': kind, 'label': VALIDITY[kind], 'text': text}
+    when = (' (theo lần so của trang việc lúc ' + _clock(as_of) + '; mã đổi sau lúc đó chỉ thấy khi mở lại việc)') if reused and as_of else ''
+    def out(kind, text, compared=None):
+        return {'kind': kind, 'label': VALIDITY[kind], 'text': text + (when if compared else ''), 'as_of': as_of if compared else None,
+                'compared': bool(compared)}
     if state.get('status') == 'accepted': return out('accepted', 'Bạn đã nghiệm thu bản đã giao; kết quả đọc theo lần nghiệm thu')
     if having('stopped'): return out('failed', 'Mốc ' + _names(having('stopped')) + ' đã dừng vì không đạt sau khi dùng hết giới hạn sửa của kế hoạch')
     if having('failed'): return out('failed', 'Mốc ' + _names(having('failed')) + ' kiểm không đạt trên lần kiểm mới nhất')
     if having('inconclusive'): return out('inconclusive', 'Lần kiểm mới nhất của mốc ' + _names(having('inconclusive')) + ' không ra kết luận (ví dụ hết giờ)')
-    if having('recheck'): return out('recheck', 'Mã đã đổi (hoặc quy tắc kiểm đổi) sau lần đạt của mốc ' + _names(having('recheck')) + '; lần đạt cũ không còn được tính')
-    if having('unknown') or current == 'unknown': return out('unknown', CURRENT_UNKNOWN)
+    if having('recheck'): return out('recheck', RECHECK_TEXT.format(ids=_names(having('recheck'))), current in ('compared', 'unknown'))
+    if having('unknown') or current == 'unknown': return out('unknown', CURRENT_UNKNOWN, True)
     passed = having('passed')
     if not passed: return out('none', 'Chưa mốc nào có lần kiểm đạt')
-    if current == 'compared': return out('valid', 'Các mốc đã đạt (' + _names(passed) + ') còn khớp với bản hiện tại của dự án')
-    return out('not_compared', 'Danh sách không so từng việc với dự án; mở việc để so với bản hiện tại')
+    if current == 'compared': return out('valid', 'Các mốc đã đạt (' + _names(passed) + ') còn khớp với bản hiện tại của dự án', True)
+    return out('not_compared', 'Danh sách chưa so việc này với bản hiện tại của dự án (danh sách không băm từng dự án); mở việc để so')

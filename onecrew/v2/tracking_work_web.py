@@ -24,7 +24,20 @@ li.task{cursor:pointer;overflow-wrap:anywhere}li.task .ttl{display:block;font-we
 li.task .sub{display:block;font-size:12.5px;color:var(--mut);margin-top:2px}li.task .why,li.task .who{display:block;font-size:13px;color:var(--mut);margin-top:3px}
 li.task .nx{font-size:14px}li.task .c-res,li.task .c-last{font-size:13px}li.task .lbl{color:var(--mut)}
 li.task[aria-selected=true]{background:var(--sel);border-left-color:var(--run)}li.task.last{border-left-color:var(--mut)}
-#list[data-mode=list]{--cols:minmax(0,2.3fr) minmax(0,1.6fr) minmax(0,1.9fr) minmax(0,1.1fr) minmax(0,1.2fr)}
+#list[data-mode=list]{--cols:minmax(0,3.2fr) minmax(0,1.8fr) minmax(0,1.1fr) minmax(0,1.2fr)}
+li.task .c-line{display:block;margin-top:4px;font-size:14px;line-height:1.45}li.task .c-line .nx1{font-weight:650}li.task .c-line .who1,li.task .c-line .vnote{color:var(--mut);font-size:13px}
+li.task .c-next,li.task .c-state>.stg{display:none}li.task .c-line .arr{color:var(--mut)}
+.tiles4{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin:12px 0}
+.tile4{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:12px 14px;min-width:0;overflow-wrap:anywhere}.tile4 h3{margin:0 0 6px;font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em}
+.tile4 .tv{font-size:16px;font-weight:650;margin:0 0 4px}.tile4 p{margin:4px 0}.tile4 pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:40vh;overflow:auto;background:var(--bg);padding:8px;border-radius:6px;font-size:12px}
+.tile4 .next-act{font-size:17px;font-weight:700;color:var(--run);margin:2px 0 6px}.tile4 .why-missing{font-size:13px;color:var(--needfg);background:var(--need);border-radius:6px;padding:4px 8px}
+.tile4.v-recheck,.tile4.v-inconclusive,.tile4.v-not_compared,.tile4.v-unknown{border-color:var(--wait)}.tile4.v-failed{border-color:var(--blk)}.tile4.v-valid,.tile4.v-accepted{border-color:var(--acc)}
+.tile4 .declist{list-style:none;margin:4px 0;padding:0}.tile4 .declist li{margin:6px 0}.tile4 .dsrc,.need .dsrc{display:block;font-size:12px;opacity:.85}
+.deep{margin:14px 0}.deep>h3{font-size:15px;margin:0 0 6px}.deep-d{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:6px 12px;margin:6px 0}
+.deep-d>summary{font-weight:650;color:var(--fg);min-height:32px;display:flex;align-items:center;gap:6px}.deep-d .cnt{color:var(--mut);font-weight:400}.deep-body{padding:6px 0;overflow-wrap:anywhere}
+.loop{list-style:none;margin:6px 0;padding:0}.loop li{padding:4px 0 4px 12px;border-left:3px solid var(--line);margin:2px 0}.loop li.fail{border-left-color:var(--blk)}.loop li.pass{border-left-color:var(--acc)}.loop li.fix{border-left-color:var(--run)}.loop li.recheck{border-left-color:var(--wait)}
+.opt .cons{display:block;font-size:13px;margin-top:2px}.opt .oid{font-size:12px;opacity:.8}
+#detail pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%;max-height:40vh;overflow:auto;box-sizing:border-box}.deep-body .small{min-width:0;overflow-wrap:anywhere}
 #list[data-mode=list] .lhead{display:grid;grid-template-columns:var(--cols);gap:14px;padding:6px 14px 6px 18px;font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
 .lrows{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:10px;background:var(--card);overflow:hidden}
 .lrows li.task{display:grid;grid-template-columns:var(--cols);gap:14px;padding:12px 14px;border-top:1px solid var(--line);border-left:4px solid transparent;margin:0}
@@ -129,8 +142,20 @@ function workResult(t){var s=sit(t),m=s.milestones;return m?m.text:((t.level||{}
 // OBS-2C: where the work came from (ledger records only) and what it spawned, each id counted once (tracking_list)
 function orgBadge(o){return o&&o.source?'<span class="org '+esc(o.source)+'" data-origin="'+esc(o.source)+'" title="'+esc(o.why||'')+'">'+esc(o.label||o.source)+'</span>':''}
 function linksText(t){var l=(t.list||{}).links||{},p=[];if(l.repairs)p.push(l.repairs+' việc sửa');if(l.children)p.push(l.children+' việc con');return p.length?'<span class="links" title="việc AI/engine phát sinh trong việc này; mỗi việc đếm một lần">'+esc(p.join(' · '))+'</span>':''}
-function workItem(t){var s=sit(t),needs=(t.needs_user||[]).length,lu=t.last_update;
-  return '<div class="c-title"><span class="ttl">'+esc(workTitle(t))+'</span><span class="sub">'+orgBadge(t.origin)+linksText(t)+(t.origin||linksText(t)?' · ':'')+(workNoOwner(t)?'<span class="name">'+esc(t.plan)+'</span> · '+workNoOwner(t)+' · ':'')+'<span class="r3 mut" title="'+esc(t.project)+'">'+esc(short(t.project))+'</span></span>'+(workDesc(t)?'<span class="c-desc">'+esc(workDesc(t))+'</span>':'')+'</div>'
+// UI58 MC: one line per row says the state and the next step (and who, when the ledger names it); the validity note says when a result was
+// not compared with the project now (the list does not hash projects) or passed on an earlier version; the project shows only when the list
+// holds several projects and none is chosen.
+function validityNote(t){var v=t&&t.validity;if(!v)return '';if(v.kind==='not_compared')return 'chưa so với bản hiện tại';if(v.kind==='recheck')return 'từng đạt trên bản trước';
+  if(v.compared&&v.as_of&&t.compared_by==='task_page'&&!t.milestone_checks)return 'theo lần so lúc '+when(v.as_of);return ''}
+function whoShort(t){var s=sit(t);if(!s.next)return '';var w=s.next_by_text||'';return w&&w!=='Chưa có thông tin người xử lý'?w:'chưa rõ ai làm'}
+function statusLine(t){var s=sit(t),vn=validityNote(t),needs=(t.needs_user||[]).length;
+  return '<span class="sline" data-status-line="1">'+(needs?'<span class="needb">Cần bạn</span> ':'')+workBadge(t)+(vn?' <span class="vnote">('+esc(vn)+')</span>':'')
+    +' <span class="arr" aria-hidden="true">→</span> <span class="nx1">'+esc(s.next||(s.stage==='done'||s.stage==='closed'?'Không còn bước tiếp theo':'Chưa biết bước tiếp theo'))+'</span>'
+    +(s.next?' <span class="who1">· '+esc(whoShort(t))+'</span>':'')+'</span>'}
+function scopeProjects(){var L=(typeof last!=='undefined'&&last)?last:null;if(!L)return 0;var ps=(L.list&&L.list.projects)||L.projects||[];return ps.length}
+function showProject(){var p=typeof document!=='undefined'&&document.querySelector?document.querySelector('#proj'):null;return !(p&&p.value)&&scopeProjects()>1}
+function workItem(t){var s=sit(t),needs=(t.needs_user||[]).length,lu=t.last_update,proj=showProject();
+  return '<div class="c-title"><span class="ttl">'+esc(workTitle(t))+'</span><span class="c-line">'+statusLine(t)+'</span><span class="sub">'+orgBadge(t.origin)+linksText(t)+(workNoOwner(t)?(t.origin||linksText(t)?' · ':'')+'<span class="name">'+esc(t.plan)+'</span> · '+workNoOwner(t):'')+(proj?((t.origin||linksText(t)||workNoOwner(t))?' · ':'')+'<span class="r3 mut proj" data-project-shown="1" title="'+esc(t.project)+'">'+esc(short(t.project))+'</span>':'')+'</span>'+(workDesc(t)?'<span class="c-desc">'+esc(workDesc(t))+'</span>':'')+'</div>'
     +'<div class="c-state">'+workBadge(t)+'<span class="why">'+esc(workReason(t))+'</span></div>'
     +'<div class="c-next">'+(needs?'<span class="needb">Cần bạn</span> ':'')+'<span class="nx">'+esc(s.next||'Không còn bước tiếp theo')+'</span>'+(s.next?'<span class="who">Người xử lý: '+esc(workWho(t))+'</span>':'')+'</div>'
     +'<div class="c-res"><span class="lbl">Kết quả: </span>'+esc(workResult(t))+'</div>'
@@ -145,7 +170,7 @@ function workBoard(rows){var lanes=BOARD_LANES.map(function(s){var items=rows.fi
     return '<section class="board-lane'+(!items.length?' empty':'')+(s[0]==='attn'?' attn':'')+'" data-stage="'+s[0]+'" aria-label="'+s[1]+'"><h3 class="lane-title">'+s[1]+' <span>'+items.length+'</span></h3><ul role="listbox" aria-label="'+s[1]+'">'+items.map(row).join('')+'</ul>'+(!items.length?'<div class="lane-empty">Không có công việc</div>':'')+'</section>'}).join('');
   var closed=rows.filter(function(t){return workStage(t)==='closed'});
   return '<div class="board">'+lanes+'</div>'+(closed.length?'<details class="closed-fold" data-k="closed-fold"><summary>Đã đóng ('+closed.length+') · đóng không phải nghiệm thu</summary><ul role="listbox" aria-label="Đã đóng">'+closed.map(row).join('')+'</ul></details>':'')}
-function workRows(rows){return '<div class="lhead" aria-hidden="true"><span>Công việc</span><span>Trạng thái · lý do</span><span>Bước tiếp theo · người xử lý</span><span>Kết quả</span><span>Hoạt động cuối</span></div><ul class="lrows" role="listbox" aria-label="Danh sách công việc">'+rows.map(row).join('')+'</ul>'}
+function workRows(rows){return '<div class="lhead" aria-hidden="true"><span>Công việc · tình trạng → bước tiếp</span><span>Vì sao</span><span>Kết quả</span><span>Hoạt động cuối</span></div><ul class="lrows" role="listbox" aria-label="Danh sách công việc">'+rows.map(row).join('')+'</ul>'}
 function workText(v){if(v==null||v===''||(Array.isArray(v)&&!v.length))return 'chưa có dữ liệu';if(typeof v!=='object')return String(v);
   if(Array.isArray(v))return v.map(workText).join('; ');return v.text||v.title||v.label||v.spec||v.question||v.goal||Object.keys(v).map(function(k){return k+': '+workText(v[k])}).join('; ')||'chưa có dữ liệu'}
 function workEsc(v){return esc(workText(v))}
@@ -169,6 +194,92 @@ function sitPanel(d){var s=sit(d),a=s.activity||{},needs=d.needs_user||[],lu=d.l
     +'</div><p class="sit-foot"><span class="'+(a.running?'live':'idle')+'">'+esc(a.text||'')+(a.since?' · từ '+when(a.since):'')+(a.last_signal?' · tín hiệu cuối '+when(a.last_signal)+' ('+relText(a.last_signal)+')':'')+'</span>'
     +'<span>Hoạt động cuối của việc: '+(lu?'<time title="'+when(lu.at)+'">'+when(lu.at)+'</time> · '+esc(lu.summary||''):'chưa có')+'</span>'
     +'<span class="mut">Sổ đọc lúc '+(d.generated_at?when(d.generated_at):'chưa rõ')+'</span></p></section>'}
+// ---- UI58 MC: the task page — four tiles (output, still valid, next step, your decision), then "Xem sâu" sections opened on demand -------------
+var LEVEL_WORDS={produced:'Đã tạo, chưa kiểm',verified:'Đã kiểm đạt',failed:'Đã kiểm, không đạt',accepted:'Đã nghiệm thu',unknown:'Chưa xác định'};
+function seqOf(x){var s=x&&x.source;return s&&typeof s.seq==='number'?s.seq:-1}
+function outputOf(d){var w=d.work||{},keys=d.evidence_keys||[],outs=(w.outputs||[]).slice().sort(function(a,b){return seqOf(a)-seqOf(b)}),runs=((w.checks||{}).runs||[]).slice().sort(function(a,b){return seqOf(a)-seqOf(b)});
+  var cur=outs.filter(function(x){return !x.stale}),pick=(cur.length?cur:outs).slice(-1)[0]||null,r={output:pick,key:null,why:null,receipt:null,log:null,run:null};
+  if(!d.work)r.why='Chưa đọc được phần đầu ra của việc này (dữ liệu chi tiết chưa có).';
+  else if(!pick)r.why='Sổ chưa ghi đầu ra nào của việc này: chưa có lần tạo đầu ra hay lần kiểm nào nêu một bản bàn giao.';
+  else if(pick.artifact&&keys.indexOf(pick.artifact)>=0)r.key=pick.artifact;
+  else if(pick.artifact&&/^[0-9a-f]{40}$/.test(pick.artifact))r.why='Đầu ra là bản mã '+pick.artifact.slice(0,12)+'… trong thư mục dự án; sổ không lưu bản này trong kho bằng chứng nên trang không có đích để mở. Kết quả kiểm của bản này mở được bên dưới.';
+  else r.why='Đầu ra '+String(pick.artifact||'').slice(0,12)+'… không còn trong kho bằng chứng của sổ: không có đích để mở.';
+  var run=pick?runs.filter(function(x){return x.node===pick.node&&x.artifact===pick.artifact}).slice(-1)[0]:null;run=run||runs.slice(-1)[0]||null;r.run=run;
+  if(run&&run.receipt&&keys.indexOf(run.receipt)>=0)r.receipt=run.receipt;
+  if(run&&run.outputs&&run.outputs.stdout&&keys.indexOf(run.outputs.stdout)>=0)r.log=run.outputs.stdout;
+  return r}
+function tileOut(d){var o=outputOf(d),x=o.output,h='<section class="tile4" id="t-out" data-k="t-out" aria-label="Đầu ra"><h3>Đầu ra</h3>';
+  if(!x)h+='<p class="tv">Chưa có đầu ra</p><p class="why-missing" data-missing="output">'+esc(o.why)+'</p>';
+  else{h+='<p class="tv">'+esc(x.title||nodeName(d,x.node))+'</p><p class="small">'+esc(LEVEL_WORDS[x.level]||'Chưa xác định')+(x.stale?' · '+(x.stale_reason==='cần kiểm lại'?'cần kiểm lại trên bản đang xem':'bản cũ'):' · bản mới nhất')+(x.source&&x.source.at?' · '+when(x.source.at):'')+'</p>';
+    h+=o.key?'<p class="open-out" data-open-output="'+esc(o.key)+'"><b>Mở đầu ra:</b>'+openBtn(o.key)+'</p>':'<p class="why-missing" data-missing="output-target">'+esc(o.why)+'</p>'}
+  if(o.receipt)h+='<p class="open-check" data-open-check="'+esc(o.receipt)+'"><b>Kết quả kiểm mới nhất'+(o.run&&o.run.status?' ('+esc(({pass:'đạt',fail:'không đạt',inconclusive:'chưa kết luận'})[o.run.status]||o.run.status)+')':'')+':</b>'+openBtn(o.receipt)+'</p>';
+  else if(x)h+='<p class="why-missing" data-missing="check">Chưa có kết quả kiểm mở được cho đầu ra này: '+(o.run?'biên nhận kiểm không còn trong kho bằng chứng.':'sổ chưa ghi lần kiểm nào của nó.')+'</p>';
+  if(o.log)h+='<p class="small">Đầu ra lệnh kiểm (stdout):'+openBtn(o.log)+'</p>';
+  return h+'<button type="button" class="linkish" data-deep="evidence">Mọi bằng chứng</button></section>'}
+function trustOf(d){if(d.validity)return d.validity;var outs=((d.work||{}).outputs||[]),cur=outs.filter(function(x){return !x.stale}),ok=cur.filter(function(x){return x.level==='verified'||x.level==='accepted'}).length;
+  if(!d.work)return {kind:'unknown',label:'Chưa xác định',text:'Chưa đọc được kết quả kiểm của việc này'};
+  if(!outs.length)return {kind:'none',label:'Chưa có kết quả kiểm',text:'Sổ chưa ghi lần kiểm nào cho đầu ra của việc này'};
+  var all=cur.length&&ok===cur.length;return {kind:all?'valid':cur.length?'parts':'recheck',label:all?'Các phần hiện hành đã kiểm đạt':cur.length?'Theo từng phần':'Cần kiểm lại',
+    text:ok+'/'+cur.length+' đầu ra hiện hành đã kiểm đạt'+(outs.length-cur.length?'; '+(outs.length-cur.length)+' bản cũ hoặc cần kiểm lại không được tính':'')}}
+function tileTrust(d){var v=trustOf(d),s=sit(d);
+  return '<section class="tile4 v-'+esc(v.kind)+'" id="t-trust" data-validity="'+esc(v.kind)+'" aria-label="Còn tin được không"><h3>Còn tin được không</h3><p class="tv">'+esc(v.label)+'</p><p class="small">'+esc(v.text||'')+'</p>'
+    +(s.milestones?'<p class="small">'+esc(s.milestones.text)+' <span class="mut">('+esc(s.milestones.note)+')</span></p>':'')
+    +(d.compared==='compared'&&d.compared_at?'<p class="small mut">Đã so với bản hiện tại của dự án lúc '+when(d.compared_at)+'.</p>':d.compared==='unknown'?'<p class="why-missing">Chưa xác định bản hiện tại của dự án, nên lần đạt chưa được tính.</p>':'')
+    +'<button type="button" class="linkish" data-deep="loop">Xem các lần kiểm</button></section>'}
+function tileNext(d){var s=sit(d),done=s.stage==='done'||s.stage==='closed',a=s.activity||{},h='<section class="tile4" id="t-next" aria-label="Bước tiếp theo"><h3>Bước tiếp theo</h3>';
+  if(s.next)h+='<p class="next-act" data-next-action="1">'+esc(s.next)+'</p><p class="small">Ai làm: <b>'+esc(s.next_by_text||'Chưa có thông tin người xử lý')+'</b></p>';
+  else h+='<p class="tv">'+(done?'Không còn bước nào':'Chưa biết bước tiếp theo')+'</p>'+(done?'':'<p class="why-missing" data-missing="next">Sổ không đủ để nói bước tiếp theo.</p>');
+  h+='<p class="small">Vì sao: '+esc(s.reason||'chưa xác định')+'</p>';
+  if(s.repairs)h+='<p class="small">Mốc '+esc(s.repairs.milestone)+': '+esc(s.repairs.text)+'</p>';
+  if(s.warning)h+='<p class="work-warning small" data-warning="1">'+esc(s.warning)+'</p>';
+  return h+'<p class="small mut">'+esc(a.text||'')+'</p><button type="button" class="linkish" data-deep="waits">Thời gian và lượt chờ</button></section>'}
+function optHtml(n,o,marks){var c=o.human_command||o.reply_command;
+  return '<div class="opt" data-option="'+esc(o.id)+'"><b>'+esc(o.label||o.id)+'</b> <span class="oid">('+esc(o.id)+')</span>'+(o.recommended||n.recommendation===o.id?' <span class="small">· đề xuất</span>':'')
+    +'<span class="cons"><b>Hệ quả:</b> '+esc(o.consequence||(n.impact?'câu hỏi không ghi hệ quả riêng cho lựa chọn này; ảnh hưởng chung: '+n.impact:'câu hỏi không ghi hệ quả cho lựa chọn này'))+'</span>'
+    +(c?commandBox(c,marks,'Trả lời lựa chọn này'):'')+'</div>'}
+function tileDecide(d){var needs=d.needs_user||[],s=sit(d);
+  if(!needs.length)return '<section class="tile4" id="t-dec" aria-label="Bạn cần quyết gì"><h3>Bạn cần quyết gì</h3><p class="tv">Không có quyết định nào đang chờ bạn</p>'
+    +(s.next_by==='owner'&&s.next?'<p class="small">OneCrew chỉ ra bước của bạn: '+esc(s.next)+'. Trang chưa có mẫu lệnh cho bước này.</p>':'<p class="small mut">Điều này không có nghĩa là việc đang tiến triển.</p>')+'</section>';
+  return '<section class="tile4 sit-need" id="t-dec" aria-label="Bạn cần quyết gì"><h3>Bạn cần quyết gì ('+needs.length+')</h3><ul class="declist">'+needs.map(function(n){
+    return '<li data-need-row="'+esc(n.id||n.kind)+'"><span class="dsrc">'+esc(n.source_label||({approve:'Kế hoạch chờ bạn duyệt',accept:'Chờ bạn nghiệm thu',stopped:'Đã dừng, chờ bạn quyết'})[n.kind]||'')+'</span><button type="button" class="linkish" data-need-jump="'+esc(needKey(n))+'">'+esc(needTitle(n))+'</button>'
+      +((n.options||[]).length?' <span class="small">· '+n.options.length+' lựa chọn</span>':'')+'</li>'}).join('')+'</ul></section>'}
+function taskTiles(d){return '<div class="tiles4" data-k="tiles">'+tileOut(d)+tileTrust(d)+tileNext(d)+tileDecide(d)+'</div>'}
+function deep(k,title,count,body){return '<details class="deep-d" data-k="deep-'+k+'" id="deep-'+k+'"><summary>'+esc(title)+(count!==''&&count!=null?' <span class="cnt">('+esc(count)+')</span>':'')+'</summary><div class="deep-body">'+body+'</div></details>'}
+function deepPlan(d,w){var rows=(w.changes||[]).filter(function(x){return x.kind==='contract'}).slice().reverse();
+  if(!rows.length)return workEmpty('Sổ chưa ghi lần đổi hợp đồng nào: việc đang chạy theo bản '+esc(d.contract_revision||1)+'.')+'<button type="button" class="linkish" data-work-tab="changes">Mở tab Thay đổi</button>';
+  return rows.map(function(x){var diffs=x.diff||[];return '<article class="work-row" data-change="'+esc(x.id)+'"><h4>Bản '+esc(x.from_revision!=null?x.from_revision:(x.revision-1))+' → bản '+esc(x.revision)+(x.approved?' · đã duyệt':' · chưa duyệt')+'</h4>'
+    +'<p><b>Lý do:</b> '+workEsc(x.reason)+'</p>'+diffs.slice(0,6).map(function(v){return '<h4>'+esc(diffLabel(v.path))+'</h4><div class="work-diff"><div><b>Trước</b><br>'+((v.before==null&&v.change==='added')?'Chưa có — nội dung mới được thêm':workEsc(v.before))+'</div><div><b>Sau</b><br>'+workEsc(v.after)+'</div></div>'}).join('')
+    +(diffs.length>6||x.diff_total>diffs.length?'<p class="work-meta">Còn '+((x.diff_total||diffs.length)-Math.min(6,diffs.length))+' mục thay đổi khác trong tab Thay đổi.</p>':'')+(x.diff_error?workEmpty(x.diff_error):'')+workSource(x)+'</article>'}).join('')
+    +'<button type="button" class="linkish" data-work-tab="changes">Mở tab Thay đổi</button>'}
+function loopSteps(r){var out=[],fixes=0,checks=r.checks||[];
+  checks.forEach(function(c,i){var prev=checks[i-1];if(prev&&prev.result&&prev.result!=='pass'){fixes++;out.push({k:'fix',t:'Sửa (lượt '+fixes+') rồi kiểm lại'})}
+    var k=c.state==='open'?'open':c.state==='lost'||c.state==='abandoned'?'lost':c.result==='pass'?'pass':c.result==='inconclusive'?'recheck':c.result?'fail':'open';
+    out.push({k:k,t:'Lần kiểm '+(i+1)+': '+checkWord(c)+((k==='fail'||k==='recheck')&&i===checks.length-1&&r.reason?' — '+r.reason:''),at:c.recorded||c.ended||c.started})});
+  if(r.state==='recheck')out.push({k:'recheck',t:'Mã hoặc quy tắc kiểm đã đổi sau lần đạt: cần kiểm lại trên bản đang xem'+(r.note?' ('+r.note+')':'')});
+  if(r.repairs&&typeof r.repairs.left==='number'&&checks.length&&checks[checks.length-1].result&&checks[checks.length-1].result!=='pass')out.push({k:'next',t:r.repairs.text});
+  return out}
+function deepLoop(d,w){var c=d.milestone_checks,h='';
+  if(c){var rows=(c.rows||[]).filter(function(r){return (r.checks||[]).length||r.state==='recheck'});
+    h+=rows.length?rows.map(function(r){return '<article class="work-row" data-loop="'+esc(r.id)+'"><h4>'+esc(r.id)+(r.title?' — '+esc(r.title):'')+' · '+esc(r.label)+'</h4><ol class="loop">'+loopSteps(r).map(function(s){return '<li class="'+esc(s.k)+'">'+esc(s.t)+(s.at?' <span class="work-meta">· '+when(s.at)+'</span>':'')+'</li>'}).join('')+'</ol></article>'}).join('')
+      :workEmpty('Chưa có lần kiểm nào của các mốc trong hợp đồng hiện hành.');
+    return h+'<button type="button" class="linkish" data-work-tab="progress">Mở Tiến độ · các mốc</button>'}
+  var rp=workRepairFlow(d,w);return (rp||workEmpty('Sổ không ghi vòng sửa nào của việc này (chưa có lần kiểm không đạt dẫn tới việc sửa).'))+'<button type="button" class="linkish" data-work-tab="results">Mở Kết quả &amp; kiểm chứng</button>'}
+function deepWaits(d){var ws=(d.waits||[]).slice().sort(function(a,b){return String(a.since).localeCompare(String(b.since))}),h='';
+  h+=ws.length?'<ol class="loop waitline">'+ws.map(function(x){var end=x.open?'đang chờ':x.until==='unknown'?'chưa rõ kết thúc':when(x.until),sec=(!x.open&&x.until&&x.until!=='unknown')?(new Date(x.until)-new Date(x.since))/1000:null;
+      return '<li class="'+(x.open?'recheck':'')+'" data-wait="'+esc(x.seq)+'">Chờ: '+esc(x.reason||'không rõ lý do')+' · từ '+when(x.since)+' → '+esc(end)+(typeof sec==='number'&&isFinite(sec)?' ('+hms(sec)+')':'')+(x.node?' · phần việc '+esc(x.node):'')+' <span class="work-meta">· nguồn '+esc(x.source)+' #'+esc(x.seq)+'</span></li>'}).join('')+'</ol>'
+    :workEmpty('Sổ không ghi khoảng chờ nào của việc này. Khoảng trống giữa hai lần kiểm không phải thời gian chờ.');
+  return h+'<button type="button" class="linkish" data-work-tab="progress">Mở dòng thời gian đầy đủ (Tiến độ)</button>'}
+function deepEvidence(d){var P=prov(d),keys=P.keys.slice().sort(function(a,b){var x=P.byKey[a],y=P.byKey[b];return (y[y.length-1].seq||0)-(x[x.length-1].seq||0)});
+  if(!keys.length)return workEmpty('Sổ chưa nêu bằng chứng nào của việc này.');
+  return '<p class="work-meta">Mới nhất trước; mỗi mục mở qua cửa bằng chứng chỉ đọc của việc này (lọc bí mật).</p>'+keys.slice(0,20).map(function(k){var u=P.byKey[k],x=u[u.length-1];
+    return '<div class="small" data-k="dev:'+k+'" data-evidence="'+k+'">'+occLine(x)+openOr(x)+'</div>'}).join('')+(keys.length>20?'<p class="work-meta">Còn '+(keys.length-20)+' mục cũ hơn ở “Số đo và nhật ký kỹ thuật”.</p>':'')}
+function deepSections(d){var w=d.work||{},ch=(w.changes||[]).filter(function(x){return x.kind==='contract'}).length,c=d.milestone_checks,
+    nloop=c?(c.rows||[]).reduce(function(n,r){return n+(r.checks||[]).length},0):(w.repairs||[]).length,P=prov(d);
+  return '<section class="deep" aria-label="Xem sâu"><h3>Xem sâu</h3>'+deep('plan','Thay đổi kế hoạch (trước / sau)',ch,deepPlan(d,w))
+    +deep('loop',c?'Lần kiểm: lỗi → sửa → kiểm lại':'Vòng sửa: lỗi → sửa → kiểm lại',nloop,deepLoop(d,w))
+    +deep('waits','Thời gian chờ và dòng thời gian',(d.waits||[]).length,deepWaits(d))
+    +deep('evidence','Bằng chứng',P.keys.length,deepEvidence(d))
+    +deep('summary','Tóm tắt: đang ở đâu, vướng gì, ai làm tiếp','',sitPanel(d))+'</section>'}
 function msStrip(d){var c=d.milestone_checks;if(!c||!(c.rows||[]).length)return '';
   return '<div class="ms-strip" aria-label="Các mốc">'+c.rows.map(function(m){return '<span class="ms '+esc(m.state)+'" title="'+esc(m.title||'')+'"><b>'+esc(m.id)+'</b> '+esc(m.label)+'</span>'}).join('')+'<button type="button" class="linkish" data-work-tab="progress">Xem các mốc và lần kiểm</button></div>'}
 function workOverview(d,w){var o=(w.outputs||[]).filter(function(x){return !x.stale}),f=w.findings||[],open=f.filter(function(x){return (x.status||x.state)==='open'}).length,c=d.milestone_checks,m=d.measure||{};

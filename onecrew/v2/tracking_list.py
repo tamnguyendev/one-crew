@@ -39,7 +39,9 @@ SOURCES = ('owner', 'ai', 'unknown')
 SOURCE_WORDS = {'owner': 'Chủ giao', 'ai': 'AI giao', 'unknown': 'Chưa rõ nguồn'}
 SPAWNED = 'spawned'
 SPAWNED_WORD = 'Có việc AI phát sinh (việc sửa, việc con)'
-STAGES = ('need', 'running', 'todo', 'doing', 'fix', 'check', 'accept', 'done', 'stopped', 'unknown', 'closed')
+STAGES = ('need', 'running', 'recheck', 'todo', 'doing', 'fix', 'check', 'accept', 'done', 'stopped', 'unknown', 'closed')
+NOT_COMPARED = ('Danh sách không băm từng dự án: việc chưa mở trang riêng thì kết quả kiểm chưa được so với bản hiện tại; '
+                'việc đã mở dùng lần so gần nhất của trang việc, kèm thời điểm. Mở việc để so.')
 ENDED = ('accepted', 'closed')
 STATES = ('ended', 'open')
 TIME_FIELDS = ('created', 'updated', 'ended')
@@ -323,6 +325,7 @@ def _stage_ok(item, stage):
     if stage == 'need': return bool(item.get('needs_user'))
     situation = item.get('situation') or {}
     if stage == 'running': return bool((situation.get('activity') or {}).get('running'))
+    if stage == 'recheck': return (item.get('validity') or {}).get('kind') == 'recheck' or situation.get('label') == 'Cần kiểm lại'   # UI58 MC: the card's word
     return (situation.get('stage') or 'unknown') == stage
 
 
@@ -391,6 +394,10 @@ def _page(state_root, f, *, project_id=None, now=None):
                 item = read(e); scanned += 1; extra += 1; bottom = e['seq']
                 if _stage_ok(item, stage): items.append(item); found += 1
             left = [e for e in candidates if e['seq'] < bottom] if bottom is not None else []     # matching rows below the region, not read
+            validity = [(i.get('validity') or {}) for i in items]       # UI58 MC: how many shown results were compared with the project, and when
+            listed['validity'] = {'not_compared': sum(1 for v in validity if v.get('kind') == 'not_compared'),
+                                  'reused': sum(1 for v in validity if v.get('compared')), 'recheck': sum(1 for v in validity if v.get('kind') == 'recheck'),
+                                  'note': NOT_COMPARED}
             listed.update(scanned=scanned, shown=len(items), remaining=len(left), complete=not left,
                           floor=bottom if left else 0, next_cursor=bottom if left else None,
                           matched_exact=stage is None or not left, stage_matched=len(items) if stage else None)

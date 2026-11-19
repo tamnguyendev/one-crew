@@ -868,7 +868,7 @@ details{margin:6px 0}summary{cursor:pointer;color:var(--mut)}summary:focus-visib
 <div id="viewsw" role="group" aria-label="Cách xem danh sách"><button type="button" data-list-mode="list" aria-pressed="true">Danh sách</button><button type="button" data-list-mode="board" aria-pressed="false">Bảng</button></div>
 <details id="filters" data-k="filters"><summary>Bộ lọc <span id="fcount" class="small mut"></span></summary><div class="fbody">
 <label>Dự án <select id="proj"><option value="">tất cả</option></select></label>
-<label>Trạng thái <select id="kind"><option value="">tất cả</option><option value="need">Cần bạn quyết định</option><option value="running">Đang có lượt chạy</option><option value="todo">Chưa bắt đầu</option><option value="doing">Đang thực hiện</option><option value="fix">Cần sửa</option><option value="check">Chờ kiểm</option><option value="accept">Chờ nghiệm thu</option><option value="done">Hoàn tất</option><option value="stopped">Đã dừng</option><option value="unknown">Chưa xác định</option><option value="closed">Đã đóng</option><option value="ended">Đã kết thúc (nghiệm thu hoặc đóng)</option></select></label>
+<label>Trạng thái <select id="kind"><option value="">tất cả</option><option value="need">Cần bạn quyết định</option><option value="running">Đang có lượt chạy</option><option value="recheck">Cần kiểm lại (việc đã so với bản hiện tại)</option><option value="todo">Chưa bắt đầu</option><option value="doing">Đang thực hiện</option><option value="fix">Cần sửa</option><option value="check">Chờ kiểm</option><option value="accept">Chờ nghiệm thu</option><option value="done">Hoàn tất</option><option value="stopped">Đã dừng</option><option value="unknown">Chưa xác định</option><option value="closed">Đã đóng</option><option value="ended">Đã kết thúc (nghiệm thu hoặc đóng)</option></select></label>
 <label>Nguồn <select id="origin"><option value="">tất cả</option><option value="owner">Chủ giao</option><option value="ai">AI giao</option><option value="unknown">Chưa rõ nguồn</option><option value="spawned">Có việc AI phát sinh (việc sửa, việc con)</option></select></label>
 <label>Thời gian <select id="tfield"><option value="created">Ngày tạo</option><option value="updated">Cập nhật cuối</option><option value="ended">Ngày kết thúc</option></select></label>
 <label>Từ <input id="since" type="date" aria-label="Từ ngày"></label><label>Đến hết <input id="until" type="date" aria-label="Đến hết ngày"></label>
@@ -937,10 +937,13 @@ function pendingPane(sel){var t=taskOf(sel),e=detailError;   // the selected tas
   $('#detail').innerHTML=h}
 function tasks(){var out=[];(last&&last.projects||[]).forEach(function(p){p.tasks.forEach(function(t){out.push(t)})});return out}
 function ended(t){return t.root_status==='accepted'||t.root_status==='closed'}
+function isRecheck(t){return (t.validity||{}).kind==='recheck'||sit(t).label==='Cần kiểm lại'}     // UI58 MC: the same rule as the server's stage filter (tracking_list._stage_ok)
+function notCompared(t){return (t.validity||{}).kind==='not_compared'}
 function visible(){var cur=$('#proj').value,kind=$('#kind').value,src=$('#origin').value,raw=($('#q').value||'').trim(),q=raw.toLowerCase(),lf=last&&last.list&&last.list.filters,byServer=!!lf&&(lf.q||'')===raw;   // OBS-2C: the server already searched every root for this text (the client keeps filtering the loaded rows at once)
   return workOrder(tasks().filter(function(t){if(cur&&t.project!==cur)return false;
     if(kind==='need'&&!(t.needs_user||[]).length)return false;if(kind==='running'&&!(sit(t).activity||{}).running)return false;
-    if(kind==='ended'){if(!ended(t))return false}else if(kind&&kind!=='need'&&kind!=='running'&&workStage(t)!==kind)return false;
+    if(kind==='recheck'&&!isRecheck(t))return false;
+    if(kind==='ended'){if(!ended(t))return false}else if(kind&&kind!=='need'&&kind!=='running'&&kind!=='recheck'&&workStage(t)!==kind)return false;
     if(src==='spawned'){if(!((t.list||{}).links||{}).spawned)return false}else if(src&&(t.origin||{}).source!==src)return false;
     if(q&&!byServer&&workSearch(t).indexOf(q)<0)return false;return true}),$('#sort').value)}
 // OBS-2C: the list is read a page at a time in the ledger's stable order (creation seq, newest first). `listFloor` is the creation seq of the
@@ -961,6 +964,7 @@ function footHtml(){var L=last&&last.list;if(!L)return '';
     +(L.remaining?' · còn '+L.remaining+' việc '+(L.matched_exact?'khớp bộ lọc ':'')+'chưa '+(L.matched_exact?'tải':'xét'):'')+'.</p>';
   if(!L.complete)h+='<button type="button" id="more" data-k="more">Xem thêm '+Math.min(LIST_PAGE,L.remaining)+' việc</button>';
   if(L.unreadable)h+='<p class="small err">'+L.unreadable+' việc không đọc được: vẫn được đếm và hiện là chưa xác định.</p>';
+  var V=L.validity||{};if(V.not_compared)h+='<p class="small" id="notcompared"><b>'+V.not_compared+' việc trong phần đã tải chưa so kết quả kiểm với bản hiện tại của dự án</b>, nên số “Cần kiểm lại” chỉ gồm việc đã so. '+esc(V.note||'')+'</p>';
   var ao=L.attention_outside||{};if(ao.count)h+='<p class="needout" id="needout">Ngoài phần đã tải còn '+ao.count+' việc đang chờ bạn: '+(ao.items||[]).map(function(x){return esc(x.plan)+' ('+esc(x.why)+')'}).join(', ')+(ao.count>(ao.items||[]).length?', …':'')+'. Chọn lọc “Cần bạn quyết định” để đọc đủ.</p>';
   return h+'<details class="small mut" data-k="listcov" id="listcov"><summary>Thứ tự và phạm vi của danh sách</summary><p>'+esc(L.order_basis)+'</p><p>'+esc(L.coverage)+'</p><p>'+esc(L.not_tracked)+'</p></details>'}
 function paintFoot(){var f=$('#listfoot'),h=footHtml();if(f.innerHTML===h)return;var a=document.activeElement,had=a&&a.id==='more',cov=$('#listcov'),open=cov&&cov.open;f.innerHTML=h;if(open&&$('#listcov'))$('#listcov').open=true;if(had&&$('#more'))$('#more').focus({preventScroll:true})}
@@ -975,13 +979,13 @@ function render(force){
   ((last.list&&last.list.projects)||last.projects||[]).forEach(function(p){opts+='<option value="'+esc(p.path)+'"'+(p.path===cur?' selected':'')+'>'+esc(short(p.path))+'</option>'});if(ps.innerHTML!==opts)ps.innerHTML=opts;   // OBS-2C: every project of the scope, not only the loaded rows'
   var vis=visible(),all=tasks(),need=all.filter(function(t){return (t.needs_user||[]).length}).length,L=last.list,part=L&&!L.complete;
   $('#count').textContent=L?'Đang hiện '+vis.length+(vis.length!==all.length?' (đã tải '+all.length+')':'')+' / '+L.total+' công việc':all.length+' công việc'+(vis.length!==all.length?' · hiện '+vis.length:'');
-  var kindNow=$('#kind').value,counts={need:need,fix:all.filter(function(t){return workStage(t)==='fix'}).length,unknown:all.filter(function(t){return workStage(t)==='unknown'}).length,running:all.filter(function(t){return (sit(t).activity||{}).running}).length,
+  var kindNow=$('#kind').value,nc=all.filter(notCompared).length,counts={need:need,recheck:all.filter(isRecheck).length,fix:all.filter(function(t){return workStage(t)==='fix'}).length,unknown:all.filter(function(t){return workStage(t)==='unknown'}).length,running:all.filter(function(t){return (sit(t).activity||{}).running}).length,
     ended:L&&L.counts&&typeof L.counts.ended==='number'?L.counts.ended:all.filter(ended).length};
-  var chips=[['need','Cần bạn quyết định'],['fix','Cần sửa'],['unknown','Chưa xác định'],['running','Đang có lượt chạy'],['ended','Đã kết thúc']].filter(function(c){return counts[c[0]]||kindNow===c[0]}).map(function(c){return '<button type="button" class="chip" data-kind="'+c[0]+'" aria-pressed="'+(kindNow===c[0])+'">'+c[1]+' ('+counts[c[0]]+(part&&c[0]!=='ended'?', phần đã tải':'')+')</button>'}).join('');   // 'ended' counts every root of the scope (the ledger's index)
+  var chips=[['need','Cần bạn quyết định'],['recheck','Cần kiểm lại'],['fix','Cần sửa'],['unknown','Chưa xác định'],['running','Đang có lượt chạy'],['ended','Đã kết thúc']].filter(function(c){return counts[c[0]]||kindNow===c[0]||(c[0]==='recheck'&&nc)}).map(function(c){return '<button type="button" class="chip" data-kind="'+c[0]+'" aria-pressed="'+(kindNow===c[0])+'">'+c[1]+' ('+counts[c[0]]+(part&&c[0]!=='ended'?', phần đã tải':'')+(c[0]==='recheck'&&nc?'; '+nc+' việc chưa so':'')+')</button>'}).join('');   // 'ended' counts every root of the scope (the ledger's index); UI58 MC: "Cần kiểm lại" counts compared results only and says how many were not compared
   document.querySelectorAll('#viewsw [data-list-mode]').forEach(function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-list-mode')===listMode))});
   var fs=filterSummary(),fa=$('#factive');fa.hidden=!fs.length;var fh=fs.length?'<b>Đang lọc:</b> '+esc(fs.join(' · '))+' <button type="button" id="fclear">Bỏ lọc</button>':'';if(fa.innerHTML!==fh)fa.innerHTML=fh;$('#fcount').textContent=fs.length?'('+fs.length+' đang áp dụng)':'';
   if($('#chips').innerHTML!==chips)$('#chips').innerHTML=chips;
-  var sig=JSON.stringify(vis.map(function(t){return [t.selector,t.project_id,t.status.label,JSON.stringify(t.situation||null),t.last_update&&t.last_update.seq,(t.needs_user||[]).length,t.title]}))+'|'+$('#sort').value+'|'+listMode+'|'+(selected?selected.plan+selected.project:'')+(lastViewed?lastViewed.plan:'');
+  var sig=String(showProject())+JSON.stringify(vis.map(function(t){return [t.selector,t.project_id,t.status.label,JSON.stringify(t.situation||null),JSON.stringify(t.validity||null),t.last_update&&t.last_update.seq,(t.needs_user||[]).length,t.title]}))+'|'+$('#sort').value+'|'+listMode+'|'+(selected?selected.plan+selected.project:'')+(lastViewed?lastViewed.plan:'');
   if(sig!==listSig||force){var foc=document.activeElement&&document.activeElement.getAttribute&&document.activeElement.getAttribute('data-k');
     $('#list').setAttribute('data-mode',listMode);$('#list').innerHTML=vis.length?(listMode==='board'?workBoard(vis):workRows(vis)):'';listSig=sig;
     if(foc){var again=document.querySelector('[data-k="'+foc.replace(/"/g,'\\"')+'"]');if(again)again.focus({preventScroll:true})}}
@@ -999,14 +1003,15 @@ function needTitle(n){if(n.owner_ask&&(n.kind==='approve'||n.kind==='accept'))re
 function needKey(n){return 'need:'+n.kind+':'+(n.id||'')+':'+(n.revision||'')}
 function commandBox(command,ph,label){return '<div class="command-box cmd"><div class="command-head"><span>PowerShell · '+esc(label||'Lệnh dành cho bạn')+'</span><button type="button" class="copy" data-copy="'+esc(command)+'">Sao chép lệnh</button></div><pre><code>'+cmdHtml(command,ph)+'</code></pre></div>'}
 function needCard(n,i){var ph=n.reference_placeholder,nk=needKey(n),command=n.human_command||n.reply_command,hasCommand=!!command||(n.options||[]).some(function(o){return !!(o.human_command||o.reply_command)}),marks=(n.placeholders||[]).map(function(k){return k==='reference'?ph:'<'+k+'>'});if(!marks.length&&ph)marks=[ph];
-  var h='<details data-k="'+esc(nk)+'" class="need" data-need-id="'+esc(n.id||'')+'" data-need-rev="'+esc(n.revision||'')+'"'+'><summary>'+esc(needTitle(n))+(n.kind==='approve'?' · bản '+esc(n.revision)+' — xem nội dung và lệnh':'')+'</summary><div class="q">'+esc(n.kind==='approve'?(n.title||'Phương án đang chờ quyết định'):(n.question||n.kind))+'</div>';
+  var h='<details data-k="'+esc(nk)+'" class="need" data-need-id="'+esc(n.id||'')+'" data-need-rev="'+esc(n.revision||'')+'"'+(n.kind==='request'?' open':'')+'><summary>'+esc(needTitle(n))+(n.kind==='approve'?' · bản '+esc(n.revision)+' — xem nội dung và lệnh':'')+'</summary>'
+    +(n.source_label?'<span class="dsrc">'+esc(n.source_label)+(n.asked_at?' · hỏi lúc '+when(n.asked_at):'')+'</span>':'')+'<div class="q">'+esc(n.kind==='approve'?(n.title||'Phương án đang chờ quyết định'):(n.question||n.kind))+'</div>';   // UI58 MC: a ledger request opens with its whole question, every option, its consequence and command
   if(n.reason)h+='<p><b>Vì sao:</b> '+esc(n.reason)+'</p>';if(n.impact)h+='<p><b>Ảnh hưởng:</b> '+esc(n.impact)+'</p>';
   if(n.kind==='approve')h+=(n.reason?'':'<p>Bản này chưa có quyết định duyệt trong sổ.</p>')+(n.impact?'':'<p class="small">Chưa có mô tả ảnh hưởng riêng. Hãy đối chiếu nội dung trước / sau.</p>')+'<button type="button" data-work-tab="changes">Xem thay đổi trước khi duyệt</button>';
   if(detailError){var pinned=[command].concat((n.options||[]).map(function(o){return o.human_command||o.reply_command})).some(function(c){return /--revision/.test(c||'')});h+='<p class="stale-tpl" '+(pinned?'data-stale-template="1"':'data-stale-data="1"')+'>Dữ liệu cũ từ '+clockMs(detailOkAt)+'. Đợi cập nhật hoặc kiểm lại trạng thái.'+(pinned?' Lệnh ghim --revision cũ sẽ bị từ chối nếu bản đã đổi. Sao chép không xác nhận yêu cầu còn hiệu lực.':'')+'</p>';}
   if(hasCommand){h+='<p><b>Mở PowerShell của bạn trên máy này.</b> Không dán vào ô chat để nhờ AI duyệt.</p>';
     if(ph)h+='<p class="small">Thay phần <mark class="ph">'+esc(ph)+'</mark> bằng lý do xác nhận của bạn trước khi chạy. Mẫu chưa điền không phải quyết định đã duyệt.</p>';}
   if(hasCommand&&(n.placeholders||[]).indexOf('option-id')>=0)h+='<p><b>Cần điền thêm:</b> thay <mark class="ph">&lt;option-id&gt;</mark> bằng ID phương án anh chọn trong danh sách bên dưới. Không tự chọn thay anh.</p>';
-  (n.options||[]).forEach(function(o){var c=o.human_command||o.reply_command;h+='<div class="opt"><b>'+esc(o.label)+'</b>'+(n.recommendation===o.id?' <span class="small">· đề xuất</span>':'')+(c?commandBox(c,marks,'Trả lời lựa chọn này'):'')+'</div>'});
+  (n.options||[]).forEach(function(o){h+=optHtml(n,o,marks)});
   if(!(n.options||[]).length&&command)h+=commandBox(command,marks,n.kind==='approve'?'Duyệt bản '+n.revision:'Ghi nhận quyết định');
   if(!hasCommand){h+='<p>'+esc(n.binding_reason||n.note||'Chưa có mẫu lệnh đủ dữ liệu để thực hiện an toàn.')+'</p>';if(n.inspect_command)h+=commandBox(n.inspect_command,null,'Chỉ xem trạng thái, chưa duyệt');}
   if((n.plan_choices||[]).length)h+='<p><b>Cần chọn phương án:</b> '+n.plan_choices.map(function(o){return esc(o.id)+' — '+esc(o.title||o.summary||'Chưa có mô tả')}).join('; ')+'</p>';
@@ -1044,7 +1049,7 @@ function renderDetail(d){
   if(detailError)h.push('<div id="dstatus" class="dstatus stale" role="status" data-state="stale" data-k="dstatus" tabindex="-1">Chi tiết chưa cập nhật từ '+clockMs(detailOkAt)+': lỗi tải chi tiết ('+esc(detailError.message)+', lần thử gần nhất <span id="dlast">'+clockMs(detailError.last)+'</span>); đang hiện dữ liệu lúc '+(d.generated_at?clock(d.generated_at):clockMs(detailOkAt))+'. Mẫu lệnh trả lời bên dưới là của lúc đó: nếu câu hỏi đã được trả lời hoặc đổi bản, OneCrew từ chối lệnh nhờ --revision. <span id="dnote" data-cap="1">'+cap(noteHtml())+'</span>.</div>');
   h.push('<div class="small mut">Đang xem '+(workNoOwner(d)?'task <b>'+esc(d.plan)+'</b>':'việc này')+' của project <span title="'+esc(d.project)+'">'+esc(short(d.project))+'</span> · <a href="'+esc(urlOf({plan:d.selector,project:d.project_id}))+'">liên kết tới task này</a></div>');
   var needs=d.needs_user||[],nq=needs.filter(function(n){return n.kind==='request'}).length,nother=needs.length-nq;
-  h.push(sitPanel(d));h.push(hostPlanPanel(d));                                                 // UX 13/11: where it is, what blocks it, who acts next, what the owner does, where the results are
+  h.push(taskTiles(d));                                                 // UI58 MC: output, still valid, next step, your decision; the five-question summary moved under "Xem sâu"
   var done=d.status.kind==='done';
   var nowKeys={};needs.forEach(function(n){nowKeys[needKey(n)]=n});
   if(copied&&!copiedStillValid(copied,d))copied=null;      // R7-1: feedback of a command this data no longer offers (binding lost, other runtime/state) is dropped, never shown again
@@ -1055,6 +1060,7 @@ function renderDetail(d){
   if(needs.length||staleNotes.length){h.push('<h3 id="needs">Quyết định cần bạn ('+needs.length+')</h3>');
     staleNotes.forEach(function(x){h.push('<div class="stale-need" data-k="stale:'+esc(x.key)+'" data-stale-id="'+esc(x.id||'')+'">Yêu cầu bạn đang đọc <b>'+esc(String(x.id||'').slice(0,12))+'…</b> ('+esc(x.title||'')+') '+esc(x.why)+'.<button type="button" class="stale-hide" data-key="'+esc(x.key)+'">ẩn</button></div>')});
     needs.forEach(function(n,i){h.push(needCard(n,i))})}
+  h.push(deepSections(d));h.push(hostPlanPanel(d));
   h.push(workDashboard(d));
   h.push('<div id="legacy-progress"'+(d.work&&workTab!=='overview'&&workTab!=='progress'?' hidden':'')+'>');
   if(!d.work||(workTab!=='progress'&&!d.milestone_checks))h.push(gantt(d));
@@ -1096,6 +1102,7 @@ function renderDetail(d){
   $('#detail').innerHTML=h.join('');
   knownNeeds={};needs.forEach(function(n){var el=document.querySelector('#detail details[data-k="'+needKey(n).replace(/"/g,'\\"')+'"]');knownNeeds[needKey(n)]={id:n.id,revision:n.revision,title:needTitle(n),open:!!(el&&el.open)}});
 }
+function openDeep(k){var el=document.querySelector('#detail details[data-k="deep-'+k+'"]');if(!el)return false;el.open=true;el.scrollIntoView({block:'start'});var s=el.querySelector('summary');if(s)s.focus({preventScroll:true});return true}
 function noteOpen(){needs_open_sync()}
 // R7-1: what a reader can copy from a need comes from the project's hook binding too, which lives outside the ledger: an unchanged last_seq
 // does not mean unchanged cards. needsSig is that copyable surface; copiedStillValid ties copy feedback to a command the data still offers.
@@ -1241,7 +1248,9 @@ function detailFailed(sel,msg){var now=Date.now(),note=restNote(),changed=!detai
   else{var l2=$('#dlast');if(l2)l2.textContent=clockMs(now)}
   dind()}
 function select(sel,opts){opts=opts||{};if(!sel){if(detailInflight){clearTimeout(detailInflight.timer);detailInflight.ctl.abort();detailInflight=null}   // closing cancels the read: selecting the task again starts a fresh one (never a nearly expired one)
-    if(selected){lastViewed=selected}selected=null;selEv=null;evState={};copied=null;detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailSeq=null;detailTimeouts=0;$('#detail').innerHTML='<div id="nodetail">Chọn một task ở danh sách để xem chi tiết, timeline và bằng chứng.</div>';setView();render(true);dind();window.scrollTo(0,listY);
+    var was=selected;if(selected){lastViewed=selected}selected=null;selEv=null;evState={};copied=null;detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailSeq=null;detailTimeouts=0;$('#detail').innerHTML='<div id="nodetail">Chọn một task ở danh sách để xem chi tiết, timeline và bằng chứng.</div>';setView();render(true);dind();
+    var row0=was&&document.querySelector('[data-k="task:'+String(was.project).replace(/"/g,'\\"')+':'+String(was.plan).replace(/"/g,'\\"')+'"]');if(row0)row0.focus({preventScroll:true});   // UI58 MC: every way back (button, Escape, browser back) lands on the row that was opened, filter and scroll kept
+    window.scrollTo(0,listY);
     if(!opts.silent&&location.search)history.pushState({},'',location.pathname);return}
   var other=!sameSel(selected,sel);if(other)workTab='overview';detailTimeouts=0;if(!selected)listY=window.scrollY;      // a click on a task (the same one too) is the reader asking again: a new series of tries
   if(other){selEv=null;evState={};copied=null;detailSeq=null;selStep=null;gRange='current';gPinnedWindow=null;gFold={};staleNotes=[];knownNeeds={};detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailTimeouts=0}
@@ -1272,7 +1281,7 @@ function openEvidence(key,btn){var d0=mine(),sel0=selected;if(!d0)return;if(evSt
 document.addEventListener('click',function(ev){var t=ev.target;
   if(t.id==='dretry'){detailTimeouts=0;loadDetail('retry');return}   // P2: the reader starts a new, bounded series of tries (the status line then says "đang thử lại…" and keeps the focus)
   var li=t.closest&&t.closest('li.task');if(li){select({plan:li.dataset.plan,project:li.dataset.project});return}
-  if(t.id==='back'||t.id==='close'){var k=selected;select(null);var again=k&&document.querySelector('[data-k="task:'+k.project+':'+k.plan+'"]');if(again)again.focus();return}
+  if(t.id==='back'||t.id==='close'){select(null);return}
   if(t.classList&&t.classList.contains('copy')){var ck=t.closest('.need').getAttribute('data-k'),ct=t.getAttribute('data-copy'),cd=mine();
     if(!cd||!copiedStillValid({k:ck,text:ct},cd)){if(cd){var cs=snapshot();renderDetail(cd);restore(cs)}return}   // R7-1: a card painted before the data changed never copies a command the latest data no longer offers
     copyText(ct,ck);return}
@@ -1280,6 +1289,8 @@ document.addEventListener('click',function(ev){var t=ev.target;
   var lm=t.closest&&t.closest('[data-list-mode]');if(lm){setMode(lm.getAttribute('data-list-mode'));lm.focus({preventScroll:true});return}
   if(t.id==='fclear'){$('#kind').value='';$('#proj').value='';$('#q').value='';$('#origin').value='';$('#since').value='';$('#until').value='';relist();var qq=$('#q');if(qq)qq.focus({preventScroll:true});return}
   if(t.id==='more'){loadMore();return}
+  var dp=t.closest&&t.closest('[data-deep]');if(dp){openDeep(dp.getAttribute('data-deep'));return}     // UI58 MC: a tile opens the matching "Xem sâu" section
+  var nj=t.closest&&t.closest('[data-need-jump]');if(nj){var nel=document.querySelector('#detail details.need[data-k="'+nj.getAttribute('data-need-jump').replace(/"/g,'\\"')+'"]');if(nel){nel.open=true;nel.scrollIntoView({block:'start'});var ns0=nel.querySelector('summary');if(ns0)ns0.focus({preventScroll:true})}return}
   var wt=t.closest&&t.closest('[data-work-tab]');if(wt){workTab=wt.getAttribute('data-work-tab');var wd=mine();if(wd){var ws=snapshot();renderDetail(wd);restore(ws);var wb=document.querySelector('[data-work-tab="'+workTab+'"]');if(wb){wb.focus({preventScroll:true});if(workTab==='progress')wb.closest('.work-nav').scrollIntoView({block:'start'})}}return}
   if(t.classList&&t.classList.contains('stale-hide')){var key=t.getAttribute('data-key');staleNotes=staleNotes.filter(function(x){return x.key!==key});var d0=mine();if(d0){var s0=snapshot();renderDetail(d0);restore(s0)}return}
   if(t.classList&&t.classList.contains('tg')){var fk=t.getAttribute('data-fold');if(fk.indexOf('h:')===0){gFold[fk]=gFold[fk]===false?true:false;if(gFold[fk]===false&&gRange==='current'){gRange='all';gPinnedWindow=null;var hd=mine();if(hd){gPinnedWindow=gWindow(hd.gantt);if(gPinnedWindow)gPinnedWindow.range='all'}}}else gFold[fk]=gFold[fk]===false?true:false;repaintGantt();var b=document.querySelector('[data-fold="'+fk+'"]');if(b)b.focus({preventScroll:true});return}
@@ -1296,7 +1307,7 @@ document.addEventListener('keydown',function(ev){var t=ev.target;
     else if(ev.key==='Home'&&items.length){ev.preventDefault();items[0].focus()}else if(ev.key==='End'&&items.length){ev.preventDefault();items[items.length-1].focus()}return}
   if(t.closest&&t.closest('ol.ev > li')&&(ev.key==='Enter'||ev.key===' ')&&!(t.tagName==='BUTTON'||t.tagName==='A')){ev.preventDefault();t.closest('ol.ev > li').click();return}
   if(t.classList&&(t.classList.contains('seg')||t.classList.contains('mk'))&&(ev.key==='Enter'||ev.key===' ')){ev.preventDefault();t.click();return}
-  if(ev.key==='Escape'&&selected&&!(t.closest&&t.closest('input,select,textarea'))){ev.preventDefault();var k=selected;select(null);var again=document.querySelector('[data-k="task:'+k.project+':'+k.plan+'"]');if(again)again.focus()}
+  if(ev.key==='Escape'&&selected&&!(t.closest&&t.closest('input,select,textarea'))){ev.preventDefault();select(null)}
 });
 document.addEventListener('change',function(ev){if(ev.target&&ev.target.id==='grange'){gRange=ev.target.value;gPinnedWindow=null;var gd=mine();if(gRange==='all'&&gd){(gd.gantt.rows||[]).forEach(function(r){gFold['n:'+r.node]=false;gFold['h:'+r.node]=false});gPinnedWindow=gWindow(gd.gantt);if(gPinnedWindow)gPinnedWindow.range=gRange}repaintGantt()}});
 document.addEventListener('toggle',function(ev){if(ev.target&&ev.target.classList&&ev.target.classList.contains('need'))needs_open_sync()},true);
@@ -1304,6 +1315,7 @@ $('#sort').addEventListener('change',function(){render(true)});
 $('#q').addEventListener('input',function(){render(true);clearTimeout(qTimer);qTimer=setTimeout(relist,350)});$('#kind').addEventListener('change',relist);   // OBS-2C: the loaded rows are filtered at once, the ledger is searched after a short pause
 ['#origin','#tfield','#since','#until'].forEach(function(s){$(s).addEventListener('change',relist)});
 $('#proj').addEventListener('change',function(){var v=$('#proj').value;if(selected&&v&&selected.project){var t=tasks().filter(function(x){return x.project===v&&x.project_id===selected.project});if(!t.length){select(null);$('#detail').innerHTML='<div id="nodetail">Đã đổi sang project '+esc(short(v))+': chọn một task của project này.</div>'}}relist()});
+try{if('scrollRestoration' in history)history.scrollRestoration='manual'}catch(e){}   // UI58 MC: the page puts the list back where the reader left it (listY); the browser's own restore would move it to the top on "back"
 window.addEventListener('popstate',function(){var qs=new URLSearchParams(location.search);if(qs.get('plan'))select({plan:qs.get('plan'),project:qs.get('project_id')||''},{silent:true});else select(null,{silent:true})});
 window.matchMedia('(max-width:899px)').addEventListener('change',setView);
 if(!window.matchMedia('(max-width:760px)').matches)$('#filters').open=true;   // desktop: the filters are open; phone: folded, the active ones are listed under the search

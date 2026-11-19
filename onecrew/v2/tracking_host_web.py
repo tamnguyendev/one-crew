@@ -165,11 +165,22 @@ function resRootKey(p){return p?String(p).replace(/\\/g,'/').replace(/\/+$/,'').
 function hostPlanPanel(d){var hw=(last&&last.host_work)||null,rs=(last&&last.shared_resources)||null,h='';
   if(hw){var p=hostProjects(d.project)[0];h+='<section class="hostplan" id="hostplan" data-k="hostplan" aria-label="Việc nền của host"><h3>Việc nền của host gắn với việc này</h3>'
     +(!p?'<p class="work-empty">Chưa đọc được việc nền của project này.</p>':p.error?'<p class="err">Không đọc được: '+esc(p.error)+'</p>':hostViewHtml(p.view||{},d.plan))+'</section>'}
-  if(rs&&(rs.resources||[]).length){var root=resRootKey(rs.page_state_root),own=function(x){return x.plan&&hostPlanKey(x.plan)===hostPlanKey(d.plan)&&resRootKey(x.state_root)===root&&!!x.project_id&&x.project_id===d.project_id},
-      mine=root?rs.resources.filter(function(r){return (r.holders||[]).concat(r.waiters||[]).some(own)}):[];
-    mine=mine.map(function(r){return Object.assign({},r,{holders:(r.holders||[]).filter(own),waiters:(r.waiters||[]).filter(own)})});
-    if(mine.length)h+='<section class="hostplan" id="resplan" aria-label="Tài nguyên dùng chung"><h3>Tài nguyên dùng chung mà việc này giữ hoặc chờ</h3>'+mine.map(resItemHtml).join('')+'</section>'}
+  var m=leaseMatch(d,rs);
+  if(m.mine.length)h+='<section class="hostplan" id="resplan" aria-label="Tài nguyên dùng chung"><h3>Tài nguyên dùng chung mà việc này giữ hoặc chờ</h3>'+m.mine.map(resItemHtml).join('')+'</section>';
+  // a record that names this plan on this ledger but no project: never listed on the card as held (DEV31 keeps it in the page's section, labelled
+  // "chưa xác định dự án"); the card only says that such a record exists and where to read it
+  if(m.unsure.length)h+='<p class="work-meta" id="resunsure" data-attribution="unknown">Có '+m.unsure.length+' khóa dùng chung ghi kế hoạch cùng tên trên sổ này nhưng không ghi dự án: chưa xác định có thuộc việc này không, nên không tính là việc này đang giữ. Xem mục “Tài nguyên dùng chung” ở trang danh sách.</p>';
   return h}
+// UI58 MC: a lease lands on a task card only when its holder record names THIS task by the ledger's identity: the page's state root, the
+// project id (Ledger.project_id) and the plan. A same-named plan of another project never matches; a record without a project id is
+// "chưa xác định" (shown apart, never "đang giữ"); a record without a state root never lands on a card.
+function leaseMatch(d,rs){var out={mine:[],unsure:[]};if(!rs||!(rs.resources||[]).length||!d)return out;var root=resRootKey(rs.page_state_root);if(!root)return out;
+  var same=function(x){return !!x.plan&&hostPlanKey(x.plan)===hostPlanKey(d.plan)&&resRootKey(x.state_root)===root},
+      own=function(x){return same(x)&&!!x.project_id&&!!d.project_id&&x.project_id===d.project_id},unsure=function(x){return same(x)&&!x.project_id};
+  rs.resources.forEach(function(r){var all=(r.holders||[]).concat(r.waiters||[]);
+    if(all.some(own))out.mine.push(Object.assign({},r,{holders:(r.holders||[]).filter(own),waiters:(r.waiters||[]).filter(own)}));
+    if(all.some(unsure))out.unsure.push(Object.assign({},r,{holders:(r.holders||[]).filter(unsure),waiters:(r.waiters||[]).filter(unsure)}))});
+  return out}
 function resRow(x,waiter){return '<div class="res-row" data-res-role="'+(waiter?'waiter':'holder')+'">'+(waiter?'Chờ, vị trí <b>'+esc(x.position)+'</b>: ':'Giữ: ')+'kế hoạch '+esc(x.plan||'chưa rõ')+' · phiên '+esc(x.session||'chưa rõ')+' · dự án '+esc(x.project||'chưa xác định dự án')+' · sổ '+esc(x.state_root||'chưa rõ')+' · pid '+esc(x.pid==null?'chưa rõ':x.pid)+' · '+esc(x.mode_label||x.mode)
     +' · '+(waiter?'xin từ ':'từ ')+when(x.since)+(x.until?' · đến '+when(x.until):'')+(waiter?' · tiến trình: '+esc(({alive:'còn chạy',dead:'đã dừng, sẽ bị bỏ khỏi hàng chờ ở lần đối chiếu sau',unknown:'chưa kiểm được'})[x.process]||x.process||'chưa rõ'):' · <b>'+esc(x.state_label||x.state||'chưa rõ')+'</b>')+'</div>'}
 function resItemHtml(r){return '<article class="res-item" data-resource="'+esc(r.resource)+'" data-free="'+(r.free?'true':'false')+'"><h4><code>'+esc(r.resource)+'</code> · <span class="'+(r.free?'res-free':'res-held')+'">'+esc(r.state_label)+'</span>'+(r.declared===false?' <span class="mut">(không còn trong danh sách khai báo)</span>':'')+'</h4>'
