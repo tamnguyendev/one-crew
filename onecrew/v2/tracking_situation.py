@@ -26,7 +26,15 @@ OWNER = 'Bạn'
 CHECKER = 'Bộ kiểm OneCrew'
 NOTHING_RUNS = 'Không có lượt chạy hay lần kiểm nào đang diễn ra trong sổ.'
 MILESTONE_STATES = {'passed': 'Đạt', 'failed': 'Không đạt', 'recheck': 'Cần kiểm lại', 'checking': 'Đang kiểm', 'pending': 'Chưa kiểm',
-                    'stopped': 'Đã dừng'}
+                    'stopped': 'Đã dừng', 'inconclusive': 'Chưa kết luận', 'unknown': 'Chưa xác định bản hiện tại'}
+# #58: the words of a stage that says more than its column (the stage key stays one of STAGES, so filters and lanes do not change)
+LABELS = {'inconclusive': 'Chưa kết luận', 'recheck': 'Cần kiểm lại', 'unknown': 'Chưa xác định bản hiện tại'}
+CURRENT_UNKNOWN = 'Chưa xác định bản hiện tại của dự án (không đọc được thư mục dự án), nên lần đạt này chưa được tính'
+STOP_WORDS = (('max_repairs_total exceeded', 'đã dùng hết tổng số lượt sửa của cả việc'), ('max_repairs exceeded', 'đã dùng hết lượt sửa mà vẫn không đạt'),
+              ('max_stuck reached', 'không đạt nhiều lần liên tiếp trên cùng một bản'))
+# #58: what is known of the result shown on the task page (`validity`), in the owner's words
+VALIDITY = {'valid': 'Còn đúng với bản hiện tại', 'accepted': 'Đã nghiệm thu', 'recheck': 'Cần kiểm lại', 'inconclusive': 'Chưa kết luận',
+            'failed': 'Không đạt', 'unknown': 'Chưa xác định', 'not_compared': 'Đạt theo lần kiểm đã ghi; chưa so với bản hiện tại', 'none': 'Chưa có kết quả kiểm'}
 OWNER_STEPS = {'amend_grant': 'Quyết định có sửa hợp đồng để cho phép bàn giao vào dự án hay không',
                'owner_decision': 'Quyết định sau khi dừng: duyệt bản sửa để đi tiếp, hoặc kết thúc',
                'read_plan': 'Đọc kế hoạch và quyết định bước tiếp theo'}
@@ -58,8 +66,25 @@ def _who(pin):
 
 def _milestone_state(view, checking):
     if view['id'] in checking: return 'checking'
+    if view.get('current_unknown'): return 'unknown'
     if view.get('needs_recheck') or (view.get('stale') and view['state'] != 'failed'): return 'recheck'
+    if view['state'] == 'failed' and (view.get('last_verdict') or {}).get('result') == 'inconclusive': return 'inconclusive'   # #58: a timeout is not a failure
     return view['state'] if view['state'] in MILESTONE_STATES else 'pending'
+
+
+def _repairs(view):
+    """#58: the repair rounds of a milestone as the contract counts them (verdict.stop_reason): a failed or inconclusive verdict uses one; after
+    max_repairs of them the next one that does not pass stops the plan."""
+    used, cap = view.get('failures'), view.get('max_repairs')
+    if not isinstance(used, int) or not isinstance(cap, int): return None
+    left = max(0, cap - used)
+    return {'used': used, 'max': cap, 'left': left,
+            'text': f'đã dùng {used}/{cap} lượt sửa' + (f', còn {left}' if left else ', đây là lần thử cuối')}
+
+
+def stop_words(reason):
+    text = str(reason or '')
+    return next((words for key, words in STOP_WORDS if text.startswith(key)), text[:120] or 'không rõ lý do dừng')
 
 
 def milestone_checks(views, history, revision, now, lost):
@@ -105,12 +130,13 @@ def milestone_checks(views, history, revision, now, lost):
         last = next((c for c in reversed(mine) if c.get('result')), None)
         timed = [c['seconds'] for c in mine if isinstance(c.get('seconds'), (int, float))]
         rows.append({'id': v['id'], 'title': v.get('title'), 'state': state, 'label': MILESTONE_STATES[state],
+                     'reason': v.get('last_reason') if state in ('failed', 'inconclusive') else None, 'repairs': _repairs(v),
                      'checks': [{k: c.get(k) for k in ('run_id', 'seq', 'started', 'ended', 'recorded', 'result', 'state', 'seconds', 'by', 'lost', 'reason')}
                                 for c in mine],
                      'failures': len([c for c in mine if c.get('result') and c['result'] != 'pass']),
                      'last_result': last.get('result') if last else None, 'last_at': (last.get('recorded') or last.get('ended')) if last else None,
                      'check_seconds': sum(timed) if timed else None, 'untimed_checks': len(mine) - len(timed),
-                     'note': v.get('recheck_note') or (('bằng chứng không còn khớp bản hiện tại: ' + '; '.join(map(str, v.get('stale_reasons') or [])))[:200]
+                     'note': v.get('recheck_note') or (CURRENT_UNKNOWN if v.get('current_unknown') else None) or (('bằng chứng không còn khớp bản hiện tại: ' + '; '.join(map(str, v.get('stale_reasons') or [])))[:200]
                                                       if v.get('stale') else None)})
     return {'revision': revision, 'rows': rows, 'timed': any(c.get('started') and c.get('ended') for r in rows for c in r['checks']),
             'basis': 'verdict.run_started → verdict.receipt_issued (thời gian chạy bộ kiểm) và verdict.recorded (kết quả); '
@@ -156,17 +182,32 @@ def _engine(state, engine_view, active, needs, acceptance, level, progress=None)
 
 
 def _plain(views, rows, acceptance, level, has_started):
+    """(stage, reason, next, by_text, by, label or None). #58: a real failure, a check that did not conclude (timeout), a pass the project has left
+    and a pass that could not be compared with the project now are four different things, each with its reason and its own next step."""
     by_id = {r['id']: r for r in rows}
-    failed = [v['id'] for v in views if by_id.get(v['id'], {}).get('state') == 'failed']
-    checking = [v['id'] for v in views if by_id.get(v['id'], {}).get('state') == 'checking']
-    recheck = [v['id'] for v in views if by_id.get(v['id'], {}).get('state') == 'recheck']
-    left = [v['id'] for v in views if by_id.get(v['id'], {}).get('state') == 'pending']
+    def having(st): return [v['id'] for v in views if by_id.get(v['id'], {}).get('state') == st]
+    failed, checking, recheck, unclear, unknown, left = (having(s) for s in ('failed', 'checking', 'recheck', 'inconclusive', 'unknown', 'pending'))
+    def why(mid): return by_id[mid].get('reason')
     if checking:
-        return 'check', 'Đang kiểm mốc ' + _names(checking), 'Chờ kết quả kiểm ' + _names(checking), CHECKER, 'checker'
+        return 'check', 'Đang kiểm mốc ' + _names(checking), 'Chờ kết quả kiểm ' + _names(checking), CHECKER, 'checker', None
     if failed:
-        return 'fix', 'Mốc ' + _names(failed) + ' kiểm không đạt', 'Sửa và kiểm lại mốc ' + _names(failed), None, None
+        return 'fix', 'Mốc ' + _names(failed) + ' kiểm không đạt' + (': ' + why(failed[0]) if why(failed[0]) else ''), \
+            'Sửa và kiểm lại mốc ' + _names(failed), None, None, None
+    if unclear:
+        return 'check', 'Mốc ' + _names(unclear) + ' chưa kết luận được' + (': ' + why(unclear[0]) if why(unclear[0]) else '') + '; đây không phải kiểm không đạt', \
+            'Kiểm môi trường chạy (máy bận, mạng, thời hạn của bộ kiểm) rồi chạy lại bộ kiểm mốc ' + _names(unclear), None, None, LABELS['inconclusive']
     if recheck:
-        return 'check', 'Mốc ' + _names(recheck) + ' cần kiểm lại (bằng chứng cũ không còn được tính)', 'Kiểm lại mốc ' + _names(recheck), None, None
+        notes = [by_id[m].get('note') for m in recheck if by_id[m].get('note')]
+        return 'check', 'Mốc ' + _names(recheck) + ' cần kiểm lại: lần đạt trước không còn được tính' + ((' (' + notes[0] + ')') if notes else ''), \
+            'Kiểm lại mốc ' + _names(recheck), None, None, LABELS['recheck']
+    if unknown:
+        return 'unknown', 'Mốc ' + _names(unknown) + ': ' + CURRENT_UNKNOWN, \
+            'Mở lại khi đọc được thư mục dự án, hoặc kiểm lại mốc ' + _names(unknown), None, None, LABELS['unknown']
+    plain = _plain_rest(views, left, acceptance, level, has_started)
+    return plain + (None,)
+
+
+def _plain_rest(views, left, acceptance, level, has_started):
     if level == 'verified' or not left:
         if acceptance.get('ready'): return 'accept', 'Mọi mốc đã kiểm đạt', 'Bạn nghiệm thu hoặc nêu điều chưa đạt', OWNER, 'owner'
         return 'check', acceptance.get('reason') or 'Mọi mốc có kết quả đạt, chưa đủ điều kiện nghiệm thu', 'Hoàn tất kiểm bàn giao', None, None
@@ -183,15 +224,16 @@ def situation(*, state, views, checks, engine_view, attempts, active, requests, 
     unknown_attempts = [a for a in attempts if a.get('status') == 'unknown']
     lost_checks = [(r['id'], c) for r in rows for c in r['checks'] if c.get('state') == 'lost']
     live_checks = [r['id'] for r in rows if r['state'] == 'checking']
-    by, by_text, next_text, src = None, None, None, ['tracking.situation']
+    by, by_text, next_text, src, label = None, None, None, ['tracking.situation'], None
     if state['status'] == 'accepted':
         stage, reason = 'done', 'Bạn đã nghiệm thu'
     elif state['status'] == 'closed':
         stage, reason = 'closed', 'Plan đã đóng; đóng không phải nghiệm thu'
     elif state['status'] == 'stopped_with_report' or ((guidance or {}).get('state') == 'stopped' and not active):
         stage = 'stopped'
-        reason = ('Dừng có báo cáo ở mốc ' + str((state['stopped'].get(state['latest']) or {}).get('milestone') or '?')) if state['status'] == 'stopped_with_report' \
-            else str((guidance or {}).get('reason') or 'OneCrew đã dừng việc này')[:200]
+        stop = state['stopped'].get(state['latest']) or {}
+        reason = ('Dừng có báo cáo ở mốc ' + str(stop.get('milestone') or '?') + (': ' + stop_words(stop['reason']) if stop.get('reason') else '')) \
+            if state['status'] == 'stopped_with_report' else str((guidance or {}).get('reason') or 'OneCrew đã dừng việc này')[:200]
         next_text = 'Đọc báo cáo dừng và quyết định đi tiếp hay kết thúc'
     elif state['status'] == 'proposed' and not has_started:
         stage, reason = 'todo', f"Kế hoạch bản {state['latest']} chưa được duyệt"
@@ -212,7 +254,7 @@ def situation(*, state, views, checks, engine_view, attempts, active, requests, 
             by, by_text = 'owner', OWNER
             src.append('engine.next_action:' + str(g.get('kind')))
     elif views:
-        stage, reason, next_text, by_text, by = _plain(views, rows, acceptance, level, has_started)
+        stage, reason, next_text, by_text, by, label = _plain(views, rows, acceptance, level, has_started)
     else:
         stage, reason = 'unknown', status_reason or 'Hợp đồng không đọc được; không suy được trạng thái'
     owner_needs = [n for n in (needs or []) if n.get('kind') in ('approve', 'request', 'accept', 'stopped')]
@@ -240,9 +282,36 @@ def situation(*, state, views, checks, engine_view, attempts, active, requests, 
     else:
         activity = {'running': False, 'text': NOTHING_RUNS, 'since': None}
     activity.setdefault('last_signal', None)
-    passed = len([v for v in views if v.get('state') == 'passed']) if views and engine_view is None else None
+    # #58: a pass that needs a recheck, or that could not be compared with the project now, is not counted
+    passed = len([v for v in views if v.get('state') == 'passed' and not v.get('stale') and not v.get('current_unknown')]) if views and engine_view is None else None
     milestones = {'passed': passed, 'total': len(views), 'text': f'Đạt {passed}/{len(views)} mốc',
                   'note': 'số mốc đạt, không phải phần trăm công việc'} if passed is not None else None
-    return {'stage': stage, 'label': STAGES[stage], 'reason': reason, 'next': next_text, 'next_by': by,
+    # #58: the repair rounds of the milestone in trouble, and a warning when the next check is its last try. A warning is not a decision: the
+    # owner decides only once the plan stops (milestone.stopped -> a request), which `needs` carries.
+    focus = next((r for r in rows if r['state'] in ('failed', 'inconclusive')), None) if stage not in ('done', 'closed', 'stopped') else None
+    repairs = dict(focus['repairs'], milestone=focus['id']) if focus and focus.get('repairs') else None
+    warning = (f"Mốc {focus['id']} đã dùng hết {repairs['max']} lượt sửa: nếu lần kiểm tới vẫn không đạt, việc sẽ dừng và chờ bạn quyết định. "
+               'Đây là cảnh báo, bạn chưa cần làm gì.') if repairs and repairs['left'] == 0 and not owner_needs else None
+    return {'stage': stage, 'label': label or STAGES[stage], 'reason': reason, 'next': next_text, 'next_by': by,
             'next_by_text': by_text if next_text else None, 'activity': activity, 'milestones': milestones,
+            'repairs': repairs, 'warning': warning,
             'no_owner_decision': not owner_needs and by != 'owner', 'source': src}
+
+
+def validity(state, views, rows, engine_view, current):
+    """#58: can the owner still trust the result the task page shows? `current` says how the views were read: 'compared' (judged against the project
+    as it is now, as `plan report` reads them), 'unknown' (the project's current artifact could not be read) or None (the list: the ledger's own
+    record, nothing hashed). Returns {kind, label, text}; engine roots are not judged here (None)."""
+    if engine_view is not None or not views: return None
+    by_id = {r['id']: r for r in rows or []}
+    def having(st): return [v['id'] for v in views if (by_id.get(v['id']) or {}).get('state', v.get('state')) == st]
+    def out(kind, text): return {'kind': kind, 'label': VALIDITY[kind], 'text': text}
+    if state.get('status') == 'accepted': return out('accepted', 'Bạn đã nghiệm thu bản đã giao; kết quả đọc theo lần nghiệm thu')
+    if having('failed'): return out('failed', 'Mốc ' + _names(having('failed')) + ' kiểm không đạt trên lần kiểm mới nhất')
+    if having('inconclusive'): return out('inconclusive', 'Lần kiểm mới nhất của mốc ' + _names(having('inconclusive')) + ' không ra kết luận (ví dụ hết giờ)')
+    if having('recheck'): return out('recheck', 'Mã đã đổi (hoặc quy tắc kiểm đổi) sau lần đạt của mốc ' + _names(having('recheck')) + '; lần đạt cũ không còn được tính')
+    if having('unknown') or current == 'unknown': return out('unknown', CURRENT_UNKNOWN)
+    passed = having('passed')
+    if not passed: return out('none', 'Chưa mốc nào có lần kiểm đạt')
+    if current == 'compared': return out('valid', 'Các mốc đã đạt (' + _names(passed) + ') còn khớp với bản hiện tại của dự án')
+    return out('not_compared', 'Danh sách không so từng việc với dự án; mở việc để so với bản hiện tại')

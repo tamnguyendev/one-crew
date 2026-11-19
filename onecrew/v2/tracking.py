@@ -36,6 +36,7 @@ import json
 import os
 import re
 import sqlite3
+import subprocess
 from pathlib import Path
 
 from ..ledger import LedgerError, utcnow
@@ -184,6 +185,40 @@ def _owner_view(contract):
     not_doing = clean(shown.get('not_doing'), 500) if isinstance(shown.get('not_doing'), str) and shown.get('not_doing').strip() else None
     return {'present': bool(request), 'request': request, 'user_sees': texts('user_sees'), 'acceptance_steps': texts('acceptance_steps'),
             'not_doing': not_doing}
+
+
+def short_title(title, limit=64):
+    """#58: the card's line from the contract title: whole when short; else cut at a clause boundary (', ' ' (' '; ' ' — ') when that keeps most of
+    the room, otherwise at the last word, with '…'. The full title stays in `headline`."""
+    text = ' '.join(str(title or '').split())
+    if len(text) <= limit: return text or None
+    head = text[:limit - 1]
+    cut = max(head.rfind(mark) for mark in (', ', ' (', '; ', ' — ', ' - '))
+    if cut < limit * 0.6: cut = head.rfind(' ')
+    return (head[:cut] if cut > 0 else head).rstrip(' ,;:—-(') + '…'
+
+
+def _live_views(reader, contract, state):
+    """#58: the task page reads the milestones as `plan report` does (plans.views_for): each pass judged against the project as it is now, so a pass
+    the code has left reads 'cần kiểm lại' and is not counted. One observation of the project for the whole read (observed_view). When the
+    project's current artifact cannot be read, a pass of a non-manual verifier is not counted and says so (current_unknown). -> (views, current)."""
+    from .verifiers import artifact as identities
+
+    @identities.observed_view
+    def read():
+        here = None
+        if state['status'] not in ('accepted', 'closed') and getattr(reader, 'project', None):
+            try: here = identities.identity(reader.project)
+            except (LedgerError, OSError, subprocess.SubprocessError, ValueError): here = None
+        elif state['status'] in ('accepted', 'closed'):
+            return plans.views_for(reader, contract, state, state['latest']), 'compared'
+        if here is None:
+            views = plans.milestone_views(contract, state, state['latest'])
+            for v in views:
+                if v['state'] == 'passed' and v['verifier'] != 'owner-manual': v.update(state='pending', current_unknown=True)
+            return views, 'unknown'
+        return plans.views_for(reader, contract, state, state['latest']), 'compared'
+    return read()
 
 
 def _goal(contract, payload):
@@ -975,9 +1010,9 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
             engine_view = engine.state(rd, row['request_key'], conn)
         except (LedgerError, OSError, ValueError, KeyError) as error:
             engine_error = clean(str(error), 200)
-    views = []
+    views, current = [], None
     if contract and not engine_root:
-        try: views = plans.milestone_views(contract, state, state['latest'])
+        try: views, current = _live_views(rd, contract, state) if full else (plans.milestone_views(contract, state, state['latest']), None)
         except (LedgerError, OSError, ValueError, KeyError): views = []
     gaps = _receipt_gaps(reader.state_root, state, views, engine_view)
     events, children, history = _history(conn, row['id'], events)
@@ -1001,6 +1036,10 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
         views = live
         _receipt_gaps(reader.state_root, state, views, None)        # OBS-2C: the live views too (the gaps were reported above)
         level = _level(state, engine_view, views)       # UX 13/11 (B1): the overview said "đã kiểm" while the milestones it shows need a recheck
+    for v in views:         # #58: why the last check did not pass, from its receipt (the line `plan report` prints under "Vì sao")
+        if (v.get('last_verdict') or {}).get('result') not in (None, 'pass'):
+            try: v['last_reason'] = clean(report._receipt_reason({'state_root': reader.state_root}, v), 300)
+            except (LedgerError, OSError, ValueError, KeyError, TypeError): v['last_reason'] = None
     guidance = acceptance.get('next_action')
     if engine_view is not None and guidance is None:
         from . import engine
@@ -1038,6 +1077,9 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     item = {'id': row['id'], 'plan': state['name'], 'selector': row['request_key'], 'project': row['project_path'], 'project_id': row['project_id'],
             'goal': _goal(contract, payload), 'title': clean(payload.get('title'), 200), 'owner_view': _owner_view(contract), 'contract_revision': state['latest'],
             'headline': clean((contract or {}).get('title'), 200),     # mep6: the owner's line for the card; the AI's restated goal stays in 'goal'
+            'short_title': short_title((contract or {}).get('title') or payload.get('title')),     # #58: the card's line; the full title stays in 'headline'
+            'validity': tracking_situation.validity(state, views, (checks or {}).get('rows'), engine_view, current),
+            'compared': current,
             'created_at': row['created_at'], 'started_at': first_started, 'has_started': has_started, 'deadline': None,
             'node_titles': {n['id']: clean(n.get('goal'), 200) for n in ((engine_view or {}).get('definition') or {}).get('nodes', [])},
             'root_status': state['status'],
@@ -1058,7 +1100,9 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
                                       else 'root không có engine: chỉ mốc và verdict, không có attempt hay quan sát tiến độ'),
                          'errors': [e for e in (contract_error and 'hợp đồng: ' + contract_error, engine_error and 'engine: ' + engine_error) if e]},
             'milestones': [{'id': v['id'], 'title': clean(v['title'], 120), 'state': v['state'], 'stale': bool(v.get('stale')),
-                            **({'needs_recheck': True, 'state_text': 'cần kiểm lại', 'note': v.get('recheck_note')} if v.get('needs_recheck') else {})}
+                            'result': (v.get('last_verdict') or {}).get('result'), 'reason': v.get('last_reason'),
+                            **({'needs_recheck': True, 'state_text': 'cần kiểm lại', 'note': v.get('recheck_note')} if v.get('needs_recheck') else {}),
+                            **({'current_unknown': True, 'note': tracking_situation.CURRENT_UNKNOWN} if v.get('current_unknown') else {})}
                            for v in views],
             'capabilities': list(state.get('capabilities') or ()),
             'origin': tracking_list.origin(state, contract, contract_error),      # OBS-2C: who asked for it, from ledger records only
