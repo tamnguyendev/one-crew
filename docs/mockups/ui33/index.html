@@ -2,19 +2,29 @@
 <html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mockup trang Công việc</title>
 <style>
-:root{--bg:#f4f6f8;--fg:#1c2230;--mut:#5b6572;--card:#fff;--line:#dde2e9;--run:#1d6fd6;--wait:#a86a0a;--blk:#c0392b;--acc:#2f855a;--need:#fff4cc;--needfg:#5c4400;--sel:#e8f0fb;--focus:#1d6fd6;--warnbg:#fde8d4;--warnfg:#7a3300;--okbg:#e6f4ea;--okfg:#1e4620;--badbg:#fde2e2;--badfg:#7a1f1f}
-@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#12161d;--fg:#e6e9ef;--mut:#9aa4b2;--card:#1a2029;--line:#2b3442;--need:#3b3415;--needfg:#ffe9a8;--sel:#1f2d44;--focus:#79b0ff;--warnbg:#47280f;--warnfg:#ffd2a8;--okbg:#17321c;--okfg:#b6e4bd;--badbg:#4a1d1d;--badfg:#ffc9c9;color-scheme:dark}}
-:root[data-theme=dark]{--bg:#12161d;--fg:#e6e9ef;--mut:#9aa4b2;--card:#1a2029;--line:#2b3442;--need:#3b3415;--needfg:#ffe9a8;--sel:#1f2d44;--focus:#79b0ff;--warnbg:#47280f;--warnfg:#ffd2a8;--okbg:#17321c;--okfg:#b6e4bd;--badbg:#4a1d1d;--badfg:#ffc9c9;color-scheme:dark}
+:root{--bg:#f4f6f8;--fg:#1c2230;--mut:#5b6572;--card:#fff;--line:#dde2e9;--run:#1d6fd6;--wait:#a86a0a;--blk:#c0392b;--acc:#2f855a;--need:#fff4cc;--needfg:#5c4400;--sel:#e8f0fb;--focus:#1d6fd6;--warnbg:#fde8d4;--warnfg:#7a3300;--okbg:#e6f4ea;--okfg:#1e4620;--badbg:#fde2e2;--badfg:#7a1f1f;--newc:#7b3fe4;--newfg:#fff;--phbg:#ffd666;--phfg:#3b2a00;--toastbg:#1c2230;--toastfg:#fff}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#12161d;--fg:#e6e9ef;--mut:#9aa4b2;--card:#1a2029;--line:#2b3442;--need:#3b3415;--needfg:#ffe9a8;--sel:#1f2d44;--focus:#79b0ff;--warnbg:#47280f;--warnfg:#ffd2a8;--okbg:#17321c;--okfg:#b6e4bd;--badbg:#4a1d1d;--badfg:#ffc9c9;--newc:#b794f6;--newfg:#1a1030;--phbg:#8a6d1c;--phfg:#fff3cf;--toastbg:#e6e9ef;--toastfg:#12161d;color-scheme:dark}}
+:root[data-theme=dark]{--bg:#12161d;--fg:#e6e9ef;--mut:#9aa4b2;--card:#1a2029;--line:#2b3442;--need:#3b3415;--needfg:#ffe9a8;--sel:#1f2d44;--focus:#79b0ff;--warnbg:#47280f;--warnfg:#ffd2a8;--okbg:#17321c;--okfg:#b6e4bd;--badbg:#4a1d1d;--badfg:#ffc9c9;--newc:#b794f6;--newfg:#1a1030;--phbg:#8a6d1c;--phfg:#fff3cf;--toastbg:#e6e9ef;--toastfg:#12161d;color-scheme:dark}
 *{box-sizing:border-box}html,body{margin:0;height:100%}
 body{background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,"Segoe UI",sans-serif;min-width:0;display:flex;flex-direction:column;overflow-wrap:anywhere}
 :focus-visible{outline:3px solid var(--focus);outline-offset:2px}
 header{padding:8px 16px;border-bottom:1px solid var(--line);background:var(--card)}
 h1{font-size:16px;margin:0}
+.bar{display:flex;gap:6px 10px;align-items:center;flex-wrap:wrap}
 .sample{display:inline-block;margin:4px 0 0;padding:2px 8px;border-radius:12px;font-size:12px;background:var(--need);color:var(--needfg);border:1px solid var(--line);max-width:100%}
 button,a.btn{font:inherit;padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);max-width:100%;min-width:0;cursor:pointer;text-align:left}
+input,select{font:inherit;padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);max-width:100%;min-width:0}
+.newtog{font-size:12px;padding:3px 10px;border-radius:14px}.newtog[aria-pressed=true]{background:var(--newc);color:var(--newfg);border-color:var(--newc);font-weight:600}
+.hl-legend{display:none;margin:4px 0 0;font-size:12px;color:var(--mut)}body.hl-new .hl-legend{display:block}
+.tools{display:flex;gap:6px 10px;flex-wrap:wrap;align-items:center;margin-top:6px}
+.tools label{font-size:12px;color:var(--mut);display:flex;gap:4px;align-items:center;min-width:0;max-width:100%}
+.tools .search{flex:1 1 180px}.tools .search input{width:100%}
+#viewsw{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;flex:none}#viewsw button{border:0;border-radius:0;padding:4px 10px;font-size:13px}#viewsw button+button{border-left:1px solid var(--line)}#viewsw button[aria-pressed=true]{background:var(--sel);color:var(--run);font-weight:600}
+details.conn{margin:6px 0 0;font-size:12px;color:var(--mut)}details.conn p{margin:4px 0}
 main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,380px) minmax(0,1fr)}
 .pane{overflow:auto;min-height:0;min-width:0;padding:12px 16px}
 #listpane{border-right:1px solid var(--line)}
+.cnt{font-size:12px;color:var(--mut);margin:6px 0}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
 .chip{font-size:12px;padding:3px 10px;border-radius:14px;border:1px solid var(--line);background:var(--card);color:var(--fg);text-decoration:none}
 .chip[aria-current=true]{background:var(--sel);border-color:var(--run);font-weight:600}
@@ -26,11 +36,15 @@ a.task.sel{background:var(--sel);border-color:var(--run)}
 .tname{font-weight:600;display:block}.proj{display:block;font-size:12px;color:var(--mut)}
 .sline{display:block;font-size:13px;margin-top:2px}
 .k-need,.k-recheck,.k-inconclusive{color:var(--needfg)}.k-fail{color:var(--blk)}.k-valid{color:var(--acc)}.k-running,.k-waiting{color:var(--run)}.k-unknown{color:var(--mut)}
+.board{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;align-items:flex-start}
+.lane{flex:0 0 250px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px}.lane.attn{border-color:var(--wait)}
+.lane-title{font-size:13px;margin:2px 4px 6px}.lane-title span{color:var(--mut);font-weight:400}
 #back{display:none;margin-bottom:10px}
 .hint{color:var(--mut)}
 section.blk{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:0 0 10px}
 section.blk h3{margin:0 0 4px;font-size:13px;color:var(--mut);font-weight:600}
 h2{font-size:18px;margin:4px 0 10px}
+h4{font-size:14px;margin:12px 0 6px}h5{font-size:13px;margin:0 0 2px}
 .vstate{font-weight:700}
 .vstate.k-valid{color:var(--acc)}.vstate.k-recheck,.vstate.k-inconclusive{color:var(--needfg)}.vstate.k-fail{color:var(--blk)}.vstate.k-unknown{color:var(--mut)}
 .who{display:inline-block;margin-left:6px;padding:0 8px;border-radius:10px;background:var(--sel);font-size:12px}
@@ -46,44 +60,113 @@ details.d>summary{cursor:pointer;font-weight:600;padding:4px 0}
 .ba>div{border:1px solid var(--line);border-radius:6px;padding:6px 8px;min-width:0}
 .ba .before{background:var(--badbg);color:var(--badfg)}.ba .after{background:var(--okbg);color:var(--okfg)}
 pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin:4px 0;font-size:12px}
+code{font-family:ui-monospace,Consolas,monospace;font-size:12px;overflow-wrap:anywhere}
 ol.loop,ul.tl{margin:6px 0;padding-left:20px}
-.toast{position:fixed;left:16px;right:16px;bottom:16px;max-width:420px;margin:0 auto;background:#1c2230;color:#fff;padding:10px 14px;border-radius:8px;text-align:center}
+.oldsep{display:none;margin:18px 0 8px;padding-top:8px;border-top:2px solid var(--line);font-size:12px;color:var(--mut);font-weight:600}body.hl-new .oldsep{display:block}
+.sit{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:0 0 10px}.sit h3{margin:0 0 6px;font-size:13px;color:var(--mut)}
+.sit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px}
+.sit-grid>div{border:1px solid var(--line);border-radius:6px;padding:6px 8px;min-width:0}.sit-grid b{display:block;font-size:12px;color:var(--mut)}.sit-grid small{display:block;font-size:12px;color:var(--mut);margin-top:2px}
+.sit-grid .sit-need{background:var(--need);color:var(--needfg)}
+.sit-foot{display:flex;flex-direction:column;gap:2px;font-size:13px;margin:8px 0 0}.live{color:var(--run);font-weight:600}.idle{color:var(--mut)}
+.stg{display:inline-block;padding:0 8px;border-radius:10px;font-size:12px;font-weight:600;border:1px solid var(--line)}.stg.attn,.stg.fix{color:var(--blk);border-color:var(--blk)}.stg.doing,.stg.check{color:var(--run);border-color:var(--run)}.stg.accept,.stg.done{color:var(--acc);border-color:var(--acc)}.stg.todo{color:var(--mut)}
+.linkish{border:0;background:none;color:var(--run);padding:0;text-decoration:underline;font-size:13px}
+details.need{background:var(--need);color:var(--needfg);border-radius:8px;padding:8px 12px;margin:0 0 10px}details.need>summary{cursor:pointer;font-weight:600}.need .q{font-weight:600;margin-top:6px}
+.opt{margin:8px 0 0;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg)}
+.cmdbox{border:1px solid var(--line);border-radius:6px;margin:6px 0 0;background:var(--card)}
+.cmdhead{display:flex;justify-content:space-between;gap:6px;align-items:center;flex-wrap:wrap;padding:4px 8px;font-size:12px;color:var(--mut)}.cmdbox pre{margin:0;border:0;border-top:1px solid var(--line);border-radius:0 0 6px 6px}
+mark.ph{background:var(--phbg);color:var(--phfg);padding:0 3px;border-radius:3px}
+.hostbox,.hostplan{margin:12px 0;border:1px solid var(--line);border-radius:8px;background:var(--card);padding:8px 12px}.hostbox h3,.hostplan h3{margin:0 0 4px;font-size:14px}
+.host-note{font-size:12px;color:var(--mut);margin:4px 0}.host-proj{font-size:13px;margin:8px 0 2px;font-weight:600}
+.host-item,.res-item{border-top:1px solid var(--line);padding:6px 0;min-width:0;font-size:13px}.host-item h4,.res-item h4{font-size:13px;margin:0 0 4px}.host-item p,.res-item p{margin:2px 0}
+.hstate{display:inline-block;padding:0 8px;border-radius:10px;font-size:12px;font-weight:600;border:1px solid var(--line)}.hstate.running{color:var(--run);border-color:var(--run)}.hstate.waiting{color:var(--wait);border-color:var(--wait)}.hstate.finished{color:var(--acc);border-color:var(--acc)}.hstate.unknown{color:var(--mut);border-style:dashed}
+.host-out{color:var(--wait);font-weight:600}.res-free{color:var(--acc);font-weight:600}.res-held{color:var(--wait);font-weight:600}.res-row{margin:3px 0 3px 10px}
+details.tech{font-size:12px;padding:2px 8px;margin:4px 0 0}details.tech>summary{font-weight:400;color:var(--mut)}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:14px 0 8px}
+.tabs button{border-radius:6px 6px 0 0;border-bottom:0;font-size:13px;padding:5px 10px}.tabs button[aria-selected=true]{background:var(--sel);color:var(--run);font-weight:600;border-color:var(--run)}
+.tabp[hidden]{display:none}
+.work-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin:6px 0}
+.work-card{border:1px solid var(--line);border-radius:6px;padding:6px 8px;min-width:0;background:var(--card)}.work-card .eyebrow{font-size:12px;color:var(--mut)}.work-card .answer{font-weight:600}
+.work-row{border-top:1px solid var(--line);padding:6px 0}.work-row.old{opacity:.75}.work-warning{color:var(--warnfg);background:var(--warnbg);padding:4px 8px;border-radius:6px}
+.ms-strip{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:6px 0}
+.ms{display:inline-block;padding:0 8px;border-radius:10px;font-size:12px;border:1px solid var(--line)}.ms.pass{color:var(--acc);border-color:var(--acc)}.ms.fail{color:var(--blk);border-color:var(--blk)}.ms.recheck,.ms.inconclusive{color:var(--needfg);background:var(--need)}.ms.none{color:var(--mut)}
+ol.mslist{list-style:none;margin:6px 0;padding:0}.msitem{border-top:1px solid var(--line);padding:6px 0}
+.honest{border-left:4px solid var(--wait);background:var(--card);padding:6px 10px;margin:6px 0;border-radius:0 6px 6px 0}
+.agents{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}
+.agent{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--card);min-width:0}.agent p{margin:2px 0;font-size:13px}
+.scroll{overflow-x:auto;max-width:100%}
+table{border-collapse:collapse;font-size:13px;min-width:100%}th,td{text-align:left;vertical-align:top;padding:4px 6px;border-top:1px solid var(--line);white-space:nowrap}th{color:var(--mut);font-weight:600;border-top:0}
+.tline{border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--card)}
+.taxis{display:flex;justify-content:space-between;font-size:11px;color:var(--mut);border-bottom:1px solid var(--line);margin-bottom:4px}
+.trow{margin:6px 0}.tlab{font-size:12px}.ttrack{position:relative;height:14px;background:var(--bg);border:1px solid var(--line);border-radius:4px}
+.bar2{position:absolute;top:2px;height:8px;border-radius:3px}.bar2.pass,.sw.pass{background:var(--acc)}.bar2.fail,.sw.fail{background:var(--blk)}.bar2.inconclusive,.sw.inconclusive{background:var(--wait)}
+.bar2.running,.sw.running{background:repeating-linear-gradient(45deg,var(--run) 0 4px,transparent 4px 8px);border:1px solid var(--run)}
+.tnone{position:absolute;left:6px;top:-1px;font-size:11px;color:var(--mut)}
+.legend{display:flex;gap:4px 12px;flex-wrap:wrap;font-size:12px;color:var(--mut)}.legend span{display:inline-flex;gap:4px;align-items:center}.sw{display:inline-block;width:14px;height:8px;border-radius:2px}
+body.hl-new [data-new]{position:relative;outline:2px dashed var(--newc);outline-offset:3px}
+body.hl-new [data-new]::before{content:"Mới";position:absolute;top:-10px;right:8px;z-index:1;background:var(--newc);color:var(--newfg);font-size:11px;font-weight:700;line-height:16px;padding:0 6px;border-radius:8px}
+.toast{position:fixed;left:16px;right:16px;bottom:16px;max-width:420px;margin:0 auto;background:var(--toastbg);color:var(--toastfg);padding:10px 14px;border-radius:8px;text-align:center}
 .toast[hidden]{display:none}
 @media (max-width:899px){
  main{grid-template-columns:minmax(0,1fr)}
  #listpane{border-right:0}
  body.view-task #listpane{display:none}
  body.view-list #taskpane{display:none}
+ body.view-task header .tools,body.view-task header details.conn{display:none}
  #back{display:inline-block}
  .ba{grid-template-columns:minmax(0,1fr)}
 }
 </style></head>
-<body class="view-list">
-<header><h1>OneCrew — Công việc</h1><span class="sample" id="samplebar">Dữ liệu mẫu — không phải sổ thật</span></header>
+<body class="view-list hl-new">
+<header>
+<div class="bar"><h1>OneCrew — Công việc</h1><span class="sample" id="samplebar">Dữ liệu mẫu — không phải sổ thật</span><button type="button" id="newtoggle" class="newtog" aria-pressed="true" title="Chỉ có ở bản mẫu: bật/tắt viền đánh dấu phần mới">Tô màu phần mới</button></div>
+<p class="hl-legend">Viền tím chấm và nhãn <b>Mới</b> là phần thêm mới. Phần không có nhãn là phần trang hiện có, giữ nguyên.</p>
+<div class="tools">
+<label class="search"><input id="f-q" type="search" placeholder="Tìm công việc…" aria-label="Tìm theo tên việc, dự án, lý do"></label>
+<div id="viewsw" role="group" aria-label="Cách xem danh sách"><button type="button" data-mode="list" aria-pressed="true">Danh sách</button><button type="button" data-mode="board" aria-pressed="false">Bảng</button></div>
+<label>Dự án <select id="f-proj"><option value="">tất cả</option></select></label>
+<label>Giai đoạn <select id="f-stage"><option value="">tất cả</option><option value="attn">Cần chú ý</option><option value="todo">Chưa bắt đầu</option><option value="doing">Đang thực hiện</option><option value="fix">Cần sửa</option><option value="check">Chờ kiểm</option><option value="accept">Chờ nghiệm thu</option><option value="done">Hoàn tất</option></select></label>
+<label>Cập nhật <select id="f-time"><option value="">mọi lúc</option><option value="today">hôm nay</option><option value="3d">3 ngày gần đây</option></select></label>
+</div>
+<details class="conn"><summary>Thông tin kết nối và giới hạn</summary><p>Chỉ đọc: không có nút duyệt, trả lời, dừng hay tiếp tục việc; mở bằng chứng không phải là duyệt. Việc của chủ hiện thành mẫu lệnh để bạn sao chép và tự chạy trong PowerShell của bạn.</p><p>Kết nối "OK" chỉ nói trang đang nhận dữ liệu, không nói việc đã xong. Bản mẫu này không kết nối sổ nào.</p></details>
+</header>
 <main>
 <div id="listpane" class="pane" aria-label="Danh sách công việc"></div>
 <div id="taskpane" class="pane" aria-label="Chi tiết công việc"><button id="back" type="button">‹ Quay lại</button><div id="task"></div></div>
 </main>
 <div id="toast" class="toast" role="status" hidden></div>
 <script id="sample-data" type="application/json">
-{"sample":true,"projects":["Ứng dụng EMR","Ký số SignSDK"],"tasks":[
+{"sample":true,"today":"2026-11-19","now":"10:32","read_at":"19/11 10:32","projects":["Ứng dụng EMR","Ký số SignSDK"],"tasks":[
 {"id":"t01","case":"pass_then_edit","name":"Ký số trên phiếu cấp phép","project":"Ký số SignSDK","kind":"recheck","reason":"mã đổi sau lần kiểm","group":"check","owner_needed":false,
  "output":{"title":"Bản dựng thử ký số (commit 9f3a1c2)","when":"hôm nay 09:40"},
  "validity":{"state":"recheck","reason":"Lần đạt trước không còn được tính vì mã đã đổi sau lần kiểm."},
  "next":"Chạy lại bộ kiểm trên mã mới","who":"Bộ kiểm","repairs":null,"decision":null,
- "detail":{"result":{"command":"python -m unittest tests.test_sign","exit":0,"log":"Ran 14 tests ... OK (chạy trên commit 7b2e0d4, nay đã cũ)","file":"out/sign-7b2e0d4.log","hash":"sha256:5c1e…a90b"}}},
+ "detail":{"result":{"command":"python -m unittest tests.test_sign","exit":0,"log":"Ran 14 tests ... OK (chạy trên commit 7b2e0d4, nay đã cũ)","file":"out/sign-7b2e0d4.log","hash":"sha256:5c1e…a90b"}},
+ "stage":"check","updated":"2026-11-19","run":"plan","slug":"ky-so-phieu-cap-phep","contract":1,"last_update":{"at":"09:52","text":"AI sửa mã sau lần kiểm đạt"},
+ "sees":"Phiếu cấp phép có nút Ký; chữ ký hiện đúng sau khi ký.","how":"Mở một phiếu cấp phép, bấm Ký, thấy chữ ký và giờ ký.",
+ "milestones":[{"id":"M1","title":"Ký đúng trên phiếu cấp phép","state":"recheck","label":"Cần kiểm lại","checks":[{"r":"pass","s":"09:20","e":"09:34"}]},{"id":"M2","title":"Ký lại khi chứng thư đổi","state":"none","label":"Chưa kiểm","checks":[]}],
+ "history_outputs":[{"title":"Bản dựng thử ký số (commit 7b2e0d4)","level":"Đạt trên bản cũ: không chứng nhận bản hiện tại"}],
+ "actors":[{"role":"assigned","part":"Cả việc","who":"claude · claude-sonnet-5-5"},{"role":"executed","part":"Cả việc","who":"chưa biết"},{"role":"reviewed","part":"Mốc 1","who":"Bộ kiểm trên máy này"}]},
 {"id":"t02","case":"timeout","name":"Xuất báo cáo giường bệnh","project":"Ứng dụng EMR","kind":"inconclusive","reason":"bộ kiểm hết giờ","group":"check","owner_needed":false,
  "output":{"title":"Bản dựng thử báo cáo (wheel 2.5.0.dev31)","when":"hôm nay 10:05"},
  "validity":{"state":"inconclusive","reason":"Bộ kiểm hết giờ sau 20 phút nên chưa biết kết quả; đây chưa phải lỗi của bản làm."},
  "next":"Kiểm môi trường (máy bận, mạng) hoặc chạy lại bộ kiểm","who":"AI","repairs":null,"decision":null,
  "detail":{"wait":{"timeline":[{"who":"AI","waiting_for":"bộ kiểm trả kết quả","since":"19/11 10:05","how_long":"20 phút (hết giờ)"},{"who":"Bộ kiểm","waiting_for":"máy rảnh để chạy","since":"19/11 10:05","how_long":"20 phút"}]},
-  "error":{"loop":[{"t":"10:05","text":"Lần kiểm 1 bắt đầu"},{"t":"10:25","text":"Lần kiểm 1 hết giờ, chưa có kết luận (vẫn tính một lượt)"}],"used":1,"total":3}}},
+  "error":{"loop":[{"t":"10:05","text":"Lần kiểm 1 bắt đầu"},{"t":"10:25","text":"Lần kiểm 1 hết giờ, chưa có kết luận (vẫn tính một lượt)"}],"used":1,"total":3}},
+ "stage":"check","updated":"2026-11-19","run":"plan","slug":"bao-cao-giuong","contract":1,"last_update":{"at":"10:25","text":"Lần kiểm 1 của mốc 1 hết giờ"},
+ "sees":"Nút Xuất Excel trên trang báo cáo giường.",
+ "milestones":[{"id":"M1","title":"Xuất báo cáo giường ra tệp Excel","state":"inconclusive","label":"Chưa kết luận","checks":[{"r":"inconclusive","s":"10:05","e":"10:25"}]},{"id":"M2","title":"Đúng số giường từng khoa","state":"none","label":"Chưa kiểm","checks":[]}],
+ "actors":[{"role":"assigned","part":"Cả việc","who":"claude · claude-sonnet-5-5"},{"role":"executed","part":"Cả việc","who":"chưa biết"},{"role":"reviewed","part":"Mốc 1","who":"Bộ kiểm trên máy này (hết giờ)"}]},
 {"id":"t03","case":"real_fail","name":"Màn hình tìm bệnh nhân","project":"Ứng dụng EMR","kind":"fail","reason":"tìm theo mã trả về rỗng","group":"doing","owner_needed":false,
  "output":{"title":"Bản dựng thử màn tìm bệnh nhân (commit c41d77e)","when":"hôm nay 08:55"},
  "validity":{"state":"fail","reason":"Lần kiểm 3 không đạt: ô tìm theo mã bệnh nhân trả về danh sách rỗng."},
  "next":"Sửa theo lỗi rồi kiểm lại","who":"AI","repairs":{"used":3,"left":0,"total":3},"decision":null,
  "detail":{"error":{"loop":[{"t":"08:10","text":"Lần kiểm 1 không đạt: thiếu ô tìm theo mã"},{"t":"08:25","text":"Sửa (lượt 1)"},{"t":"08:40","text":"Lần kiểm 2 không đạt: danh sách rỗng"},{"t":"08:45","text":"Sửa (lượt 2)"},{"t":"08:55","text":"Lần kiểm 3 không đạt: danh sách rỗng"},{"t":"—","text":"Lần kiểm 4 là lần thử cuối"}],"used":3,"total":3},
-  "result":{"command":"python -m unittest tests.test_patient_search","exit":1,"log":"FAIL: test_search_by_code\nAssertionError: [] != ['BN001']","file":"out/search-c41d77e.log","hash":"sha256:b7d2…14fe"}}},
+  "result":{"command":"python -m unittest tests.test_patient_search","exit":1,"log":"FAIL: test_search_by_code\nAssertionError: [] != ['BN001']","file":"out/search-c41d77e.log","hash":"sha256:b7d2…14fe"}},
+ "stage":"fix","updated":"2026-11-19","run":"plan","slug":"tim-benh-nhan","contract":1,"last_update":{"at":"08:55","text":"Lần kiểm 3 của mốc 1 không đạt"},
+ "sees":"Ô tìm bệnh nhân theo mã hoặc tên ở đầu danh sách bệnh nhân.","how":"Gõ BN001, thấy đúng một bệnh nhân.",
+ "milestones":[{"id":"M1","title":"Tìm bệnh nhân theo mã","state":"fail","label":"Không đạt","checks":[{"r":"fail","s":"08:05","e":"08:10"},{"r":"fail","s":"08:35","e":"08:40"},{"r":"fail","s":"08:50","e":"08:55"}]}],
+ "findings":[{"id":"F-tim-1","text":"Ô tìm theo mã bệnh nhân trả về danh sách rỗng","state":"Đang mở","from":"Lần kiểm 3 của mốc 1"}],
+ "actors":[{"role":"assigned","part":"Cả việc","who":"claude · claude-sonnet-5-5"},{"role":"executed","part":"Cả việc","who":"chưa biết"},{"role":"reviewed","part":"Mốc 1","who":"Bộ kiểm trên máy này"}]},
 {"id":"t04","case":"owner_decision","name":"Gộp hai bước ký thành một","project":"Ký số SignSDK","kind":"need","reason":"hết lượt sửa, chờ bạn quyết","group":"doing","owner_needed":true,
  "output":{"title":"Bản dựng thử ký một bước (commit e08a5b1)","when":"hôm qua 17:30"},
  "validity":{"state":"fail","reason":"Đã dùng hết 3/3 lượt sửa mà bộ kiểm vẫn không đạt."},
@@ -93,44 +176,96 @@ ol.loop,ul.tl{margin:6px 0;padding-left:20px}
   {"label":"Kết thúc việc: giữ kết quả hiện có, không làm tiếp","consequence":"việc dừng ở trạng thái không đạt, không mất mã đã viết."}]},
  "detail":{"plan":{"fields":[{"name":"Phạm vi","before":"Gộp hai bước ký cho mọi loại phiếu","after":"Chỉ gộp cho phiếu cấp phép"},{"name":"Số lượt sửa","before":"3","after":"5"},{"name":"Thời gian dự kiến","before":"2 ngày","after":"3 ngày"}]},
   "error":{"loop":[{"t":"hôm qua 11:00","text":"Lần kiểm 1 không đạt"},{"t":"hôm qua 13:00","text":"AI sửa (lượt 1)"},{"t":"hôm qua 14:30","text":"Lần kiểm 2 không đạt"},{"t":"hôm qua 15:30","text":"AI sửa (lượt 2)"},{"t":"hôm qua 16:30","text":"Lần kiểm 3 không đạt"},{"t":"hôm qua 17:30","text":"AI sửa (lượt 3) rồi kiểm lần 4 không đạt"}],"used":3,"total":3},
-  "wait":{"timeline":[{"who":"Bạn","waiting_for":"quyết định hướng đi","since":"hôm qua 17:45","how_long":"16 giờ"},{"who":"AI","waiting_for":"bạn duyệt rồi mới làm tiếp","since":"hôm qua 17:45","how_long":"16 giờ"}]}}},
+  "wait":{"timeline":[{"who":"Bạn","waiting_for":"quyết định hướng đi","since":"hôm qua 17:45","how_long":"16 giờ"},{"who":"AI","waiting_for":"bạn duyệt rồi mới làm tiếp","since":"hôm qua 17:45","how_long":"16 giờ"}]}},
+ "stage":"stopped","updated":"2026-11-18","day":"hôm qua","run":"plan","slug":"gop-hai-buoc-ky","contract":1,"last_update":{"at":"hôm qua 17:45","text":"Việc dừng sau lượt sửa cuối; AI đề xuất bản sửa kế hoạch"},
+ "sees":"Người ký bấm Ký một lần thay vì hai lần.","not_doing":"Không đổi chứng thư, không đổi mẫu phiếu.",
+ "milestones":[{"id":"M1","title":"Ký một bước cho mọi loại phiếu","state":"fail","label":"Không đạt","checks":[{"r":"fail","s":"10:50","e":"11:00"},{"r":"fail","s":"14:20","e":"14:30"},{"r":"fail","s":"16:20","e":"16:30"},{"r":"fail","s":"17:20","e":"17:30"}]}],
+ "findings":[{"id":"F-gop-1","text":"Phiếu chỉ định không có ô chữ ký thứ hai nên gộp bước làm hỏng mẫu","state":"Đang mở","from":"Lần kiểm 4 của mốc 1"}],
+ "actors":[{"role":"assigned","part":"Cả việc","who":"claude · claude-sonnet-5-5"},{"role":"executed","part":"Cả việc","who":"chưa biết"},{"role":"reviewed","part":"Mốc 1","who":"Bộ kiểm trên máy này"}],
+ "need":{"title":"Quyết định sau khi dừng","question":"Việc dừng sau 3/3 lượt sửa. Chọn làm tiếp theo bản sửa kế hoạch hay kết thúc việc.","why":"Bộ kiểm vẫn không đạt sau lượt sửa cuối; AI đề xuất thu hẹp phạm vi.","placeholder":"<lý do của bạn>",
+  "options":[{"label":"Duyệt bản sửa kế hoạch: AI làm tiếp theo phạm vi mới","command":"onecrew --project D:/Work/signsdk owner answer REQ-gop-hai-buoc-ky --revision 1 --choice amend_plan --reference \"<lý do của bạn>\" --human"},
+   {"label":"Kết thúc việc: giữ kết quả hiện có, không làm tiếp","command":"onecrew --project D:/Work/signsdk owner answer REQ-gop-hai-buoc-ky --revision 1 --choice stop --reference \"<lý do của bạn>\" --human"}]}},
 {"id":"t05","name":"Màn hình đăng nhập mới","project":"Ứng dụng EMR","kind":"valid","reason":"còn đúng với bản hiện tại","group":"done","owner_needed":false,
  "output":{"title":"Bản dựng đăng nhập (wheel 2.5.0.dev31)","when":"hôm qua 15:00"},
  "validity":{"state":"valid","reason":"Còn đúng với bản hiện tại: mã chưa đổi từ lần kiểm cuối."},
  "next":"Không còn bước nào; chờ bạn nghiệm thu","who":"Bạn","repairs":null,"decision":null,
- "detail":{"result":{"command":"python -m unittest tests.test_login","exit":0,"log":"Ran 9 tests ... OK","file":"out/login-a11c9d0.log","hash":"sha256:09ab…3e77"}}},
+ "detail":{"result":{"command":"python -m unittest tests.test_login","exit":0,"log":"Ran 9 tests ... OK","file":"out/login-a11c9d0.log","hash":"sha256:09ab…3e77"}},
+ "stage":"accept","updated":"2026-11-18","day":"hôm qua","run":"plan","slug":"dang-nhap-moi","contract":1,"last_update":{"at":"hôm qua 15:00","text":"Mốc 2 kiểm đạt; mọi mốc đã đạt"},
+ "sees":"Trang đăng nhập bằng tài khoản HIS; khóa sau 5 lần sai.","how":"Đăng nhập đúng một lần, sai 5 lần với tài khoản thử.",
+ "milestones":[{"id":"M1","title":"Đăng nhập bằng tài khoản HIS","state":"pass","label":"Đạt","checks":[{"r":"pass","s":"14:10","e":"14:18"}]},{"id":"M2","title":"Khóa sau 5 lần sai","state":"pass","label":"Đạt","checks":[{"r":"fail","s":"14:25","e":"14:31"},{"r":"pass","s":"14:52","e":"15:00"}]}],
+ "findings":[{"id":"F-dn-1","text":"Chưa khóa tài khoản sau 5 lần sai","state":"Đã xử lý: kiểm lại đạt","from":"Lần kiểm 1 của mốc 2"}],
+ "actors":[{"role":"assigned","part":"Cả việc","who":"claude · claude-sonnet-5-5"},{"role":"executed","part":"Cả việc","who":"chưa biết"},{"role":"reviewed","part":"Mốc 1, Mốc 2","who":"Bộ kiểm trên máy này"}]},
 {"id":"t06","name":"Danh sách thuốc theo khoa","project":"Ứng dụng EMR","kind":"valid","reason":"còn đúng với bản hiện tại","group":"done","owner_needed":false,
  "output":{"title":"Bản dựng danh sách thuốc (commit 4d9f003)","when":"2 ngày trước"},
  "validity":{"state":"valid","reason":"Còn đúng với bản hiện tại."},
  "next":"Không còn bước nào","who":"Bạn","repairs":null,"decision":null,
- "detail":{"result":{"command":"python -m unittest tests.test_drugs","exit":0,"log":"Ran 22 tests ... OK","file":"out/drugs-4d9f003.log","hash":"sha256:77fe…c0d1"}}},
+ "detail":{"result":{"command":"python -m unittest tests.test_drugs","exit":0,"log":"Ran 22 tests ... OK","file":"out/drugs-4d9f003.log","hash":"sha256:77fe…c0d1"}},
+ "stage":"done","updated":"2026-11-17","day":"2 ngày trước","run":"plan","slug":"thuoc-theo-khoa","contract":1,"last_update":{"at":"17/11 16:30","text":"Bạn đã nghiệm thu"},
+ "milestones":[{"id":"M1","title":"Lọc danh sách thuốc theo khoa","state":"pass","label":"Đạt","checks":[{"r":"pass","s":"16:02","e":"16:20"}]}],
+ "actors":[{"role":"assigned","part":"Cả việc","who":"claude · claude-sonnet-5-5"},{"role":"executed","part":"Cả việc","who":"chưa biết"},{"role":"reviewed","part":"Mốc 1","who":"Bộ kiểm trên máy này"}]},
 {"id":"t07","name":"Báo cáo cuối ngày","project":"Ứng dụng EMR","kind":"running","reason":"AI đang viết","group":"doing","owner_needed":false,
- "output":{"title":"Chưa có đầu ra","when":"—"},
- "validity":{"state":"unknown","reason":"Chưa biết: việc đang làm, chưa có lần kiểm nào."},
- "next":"AI viết xong rồi gửi kiểm","who":"AI","repairs":null,"decision":null,"detail":{}},
+ "output":{"title":"Bảng số liệu giường và ca trực (phần 1)","when":"hôm nay 09:05"},
+ "validity":{"state":"unknown","reason":"Chưa biết: mới kiểm xong phần 1/3; cả việc chưa có lần kiểm tổng."},
+ "next":"AI viết xong rồi gửi kiểm","who":"AI","repairs":null,"decision":null,"detail":{},
+ "stage":"doing","updated":"2026-11-19","run":"engine","slug":"bao-cao-cuoi-ngay","contract":2,"last_update":{"at":"10:28","text":"Phần 2 báo tiến độ: đang viết phần tổng hợp theo khoa"},
+ "sees":"Báo cáo cuối ngày theo khoa, in được một trang.",
+ "activity":{"running":true,"text":"Sổ ghi lượt chạy đang mở: phần 2 (Dựng mẫu báo cáo theo khoa)","since":"09:58","signal":"10:28","signal_ago":"4 phút trước"},
+ "measure":{"elapsed":"2 giờ 2 phút","exec":"1 giờ 41 phút","wait":"18 phút (giữa hai lượt của phần 2)","eta":"khoảng 1 giờ (ước lượng theo phần đã xong)"},
+ "parts":[
+  {"id":"n1","name":"Lấy số liệu giường và ca trực","agent":"codex · gpt-5-codex","state":"done","label":"Đã kiểm đạt","generation":1,"attempts":[{"n":1,"s":"08:30","e":"09:05","r":"pass"}],"signal":{"at":"09:05","ago":"1 giờ 27 phút trước","text":"kết thúc lượt, đã gửi đầu ra"}},
+  {"id":"n2","name":"Dựng mẫu báo cáo theo khoa","agent":"claude · claude-sonnet-5-5","state":"running","label":"Đang chạy lượt 2","generation":2,"attempts":[{"n":1,"s":"09:08","e":"09:40","r":"fail"},{"n":2,"s":"09:58","e":null,"r":"running"}],"signal":{"at":"10:28","ago":"4 phút trước","text":"agent tự báo: đang viết phần tổng hợp theo khoa"}},
+  {"id":"n3","name":"Kiểm toàn bộ báo cáo","agent":"chưa biết","state":"todo","label":"Chưa bắt đầu: chờ phần 2","generation":0,"attempts":[],"signal":null}],
+ "actors":[{"role":"assigned","part":"Phần 1","who":"codex · gpt-5-codex"},{"role":"executed","part":"Phần 1","who":"codex · gpt-5-codex"},{"role":"reviewed","part":"Phần 1","who":"Bộ kiểm trên máy này"},
+  {"role":"assigned","part":"Phần 2","who":"claude · claude-sonnet-5-5"},{"role":"executed","part":"Phần 2","who":"claude · claude-sonnet-5-5 (lượt 2 đang chạy)"},{"role":"reviewed","part":"Phần 2","who":"chưa biết"},
+  {"role":"assigned","part":"Phần 3","who":"chưa biết"}]},
 {"id":"t08","name":"Nhắc lịch tái khám","project":"Ứng dụng EMR","kind":"running","reason":"AI đang viết","group":"doing","owner_needed":false,
  "output":{"title":"Bản nháp nhắc lịch (commit 12ab7d4)","when":"hôm nay 07:50"},
  "validity":{"state":"unknown","reason":"Chưa biết: bản nháp chưa qua bộ kiểm."},
- "next":"AI hoàn thiện bản nháp","who":"AI","repairs":null,"decision":null,"detail":{}},
+ "next":"AI hoàn thiện bản nháp","who":"AI","repairs":null,"decision":null,"detail":{},
+ "stage":"doing","updated":"2026-11-19","run":"plan","slug":"nhac-lich-tai-kham","contract":1,"last_update":{"at":"07:50","text":"AI ghi bản nháp đầu tiên"},
+ "sees":"Tin nhắn nhắc lịch gửi trước ngày tái khám một ngày.",
+ "milestones":[{"id":"M1","title":"Gửi nhắc lịch trước 1 ngày","state":"none","label":"Chưa kiểm","checks":[]}],
+ "actors":[{"role":"assigned","part":"Cả việc","who":"claude · claude-sonnet-5-5"},{"role":"executed","part":"Cả việc","who":"chưa biết"}]},
 {"id":"t09","name":"In phiếu chỉ định","project":"Ứng dụng EMR","kind":"waiting","reason":"bộ kiểm đang xếp hàng","group":"check","owner_needed":false,
  "output":{"title":"Bản dựng in phiếu (commit 6e0b9a4)","when":"hôm nay 10:20"},
  "validity":{"state":"unknown","reason":"Chưa biết: bộ kiểm chưa chạy lần nào trên bản này."},
  "next":"Bộ kiểm chạy khi có máy rảnh","who":"Bộ kiểm","repairs":null,"decision":null,
- "detail":{"wait":{"timeline":[{"who":"Bộ kiểm","waiting_for":"máy rảnh","since":"19/11 10:20","how_long":"12 phút"}]}}},
+ "detail":{"wait":{"timeline":[{"who":"Bộ kiểm","waiting_for":"máy rảnh","since":"19/11 10:20","how_long":"12 phút"}]}},
+ "stage":"check","updated":"2026-11-19","run":"plan","slug":"in-phieu-chi-dinh","contract":1,"last_update":{"at":"10:20","text":"Xin điện thoại kiểm thử để chạy bộ kiểm"},
+ "milestones":[{"id":"M1","title":"In phiếu chỉ định khổ A5","state":"none","label":"Chưa kiểm","checks":[]}],
+ "actors":[{"role":"assigned","part":"Cả việc","who":"claude · claude-sonnet-5-5"},{"role":"executed","part":"Cả việc","who":"chưa biết"}]},
 {"id":"t10","name":"Đồng bộ danh mục dịch vụ","project":"Ký số SignSDK","kind":"unknown","reason":"chưa có lần kiểm nào","group":"doing","owner_needed":false,
  "output":{"title":"Chưa có đầu ra","when":"—"},
  "validity":{"state":"unknown","reason":"Chưa biết: chưa có lần kiểm nào, không đoán trước kết quả."},
- "next":"Chưa biết","who":"Chưa biết","repairs":null,"decision":null,"detail":{}},
+ "next":"Chưa biết","who":"Chưa biết","repairs":null,"decision":null,"detail":{},
+ "stage":"unknown","updated":"2026-11-16","run":"plan","slug":"dong-bo-danh-muc","contract":1,"last_update":null,"milestones":null},
 {"id":"t11","name":"Trang cài đặt chữ ký","project":"Ký số SignSDK","kind":"valid","reason":"còn đúng với bản hiện tại","group":"done","owner_needed":false,
  "output":{"title":"Bản dựng cài đặt chữ ký (wheel 2.5.0.dev31)","when":"3 ngày trước"},
  "validity":{"state":"valid","reason":"Còn đúng với bản hiện tại."},
  "next":"Không còn bước nào","who":"Bạn","repairs":null,"decision":null,
- "detail":{"result":{"command":"python -m unittest tests.test_settings","exit":0,"log":"Ran 6 tests ... OK","file":"out/settings-d70c21b.log","hash":"sha256:e21c…88a5"}}},
+ "detail":{"result":{"command":"python -m unittest tests.test_settings","exit":0,"log":"Ran 6 tests ... OK","file":"out/settings-d70c21b.log","hash":"sha256:e21c…88a5"}},
+ "stage":"done","updated":"2026-11-16","day":"3 ngày trước","run":"plan","slug":"cai-dat-chu-ky","contract":1,"last_update":{"at":"16/11 11:20","text":"Bạn đã nghiệm thu"},
+ "milestones":[{"id":"M1","title":"Lưu cài đặt chữ ký theo người dùng","state":"pass","label":"Đạt","checks":[{"r":"pass","s":"11:00","e":"11:06"}]}],
+ "actors":[{"role":"assigned","part":"Cả việc","who":"claude · claude-sonnet-5-5"},{"role":"executed","part":"Cả việc","who":"chưa biết"},{"role":"reviewed","part":"Mốc 1","who":"Bộ kiểm trên máy này"}]},
 {"id":"t12","name":"Kiểm tra chứng thư hết hạn","project":"Ký số SignSDK","kind":"waiting","reason":"bộ kiểm đang xếp hàng","group":"check","owner_needed":false,
  "output":{"title":"Bản dựng kiểm chứng thư (commit 3fa10b8)","when":"hôm nay 09:10"},
  "validity":{"state":"unknown","reason":"Chưa biết: chờ bộ kiểm chạy."},
- "next":"Bộ kiểm chạy khi có máy rảnh","who":"Bộ kiểm","repairs":null,"decision":null,"detail":{}}
-]}
+ "next":"Bộ kiểm chạy khi có máy rảnh","who":"Bộ kiểm","repairs":null,"decision":null,"detail":{},
+ "stage":"check","updated":"2026-11-19","run":"plan","slug":"chung-thu-het-han","contract":1,"last_update":{"at":"10:24","text":"Xin điện thoại kiểm thử (dùng chung) để chạy bộ kiểm"},
+ "milestones":[{"id":"M1","title":"Báo trước 30 ngày khi chứng thư sắp hết hạn","state":"none","label":"Chưa kiểm","checks":[]}],
+ "actors":[{"role":"assigned","part":"Cả việc","who":"claude · claude-sonnet-5-5"},{"role":"executed","part":"Cả việc","who":"chưa biết"}]}
+],
+"host_work":{"note":"Quan sát qua hook của host (Claude Code): host báo, OneCrew chưa kiểm độc lập. Chỉ đọc: OneCrew không bắt đầu, dừng, tạm dừng hay chạy lại việc nền. Không có dòng nào không có nghĩa là không có việc nền.",
+ "items":[
+  {"id":"h1","kind":"subagent","agent_type":"general-purpose","agent_id":"a9c41e07","session":"s-7d2f40","task":"t07","plan":"bao-cao-cuoi-ngay","contract":2,"state":"running","summary":"Dựng mẫu báo cáo theo khoa (phần 2)","why":"host báo đã bắt đầu, chưa báo kết thúc","outcome":"chưa có","source":"hook","started":"09:58","last_observed":"10:28","finished":null,"next_step":"Chờ host báo subagent kết thúc"},
+  {"id":"h2","kind":"shell","tool_use":"toolu_01H8q","command":"gradlew assembleDebug installDebug","session":"s-7d2f40","task":"t08","plan":"nhac-lich-tai-kham","contract":1,"state":"running","summary":"Dựng và cài bản debug nhắc lịch lên điện thoại kiểm thử","why":"host báo lệnh chạy nền đã bắt đầu; hook không có tín hiệu kết thúc của lệnh shell nền","outcome":"chưa biết thành công hay thất bại","source":"hook","started":"09:40","last_observed":"10:31","finished":null,"next_step":"Xem output của lệnh trong phiên host; trang không mở output"},
+  {"id":"h3","kind":"subagent","agent_type":"Explore","agent_id":"b31d77c2","session":"s-1c0a9e","task":"t03","plan":"tim-benh-nhan","contract":1,"state":"finished","summary":"Rà nguyên nhân tìm theo mã trả về rỗng","why":"host báo subagent đã kết thúc","outcome":"host báo hoàn tất (chưa phải kết quả đã kiểm)","source":"hook","started":"08:41","last_observed":"08:47","finished":"08:47","next_step":"Không còn bước nào cho việc nền này"}],
+ "unobserved":["kết thúc và mã thoát của lệnh shell nền: hook không có tín hiệu này","việc con làm giữa lúc bắt đầu và kết thúc (chỉ thấy các lần gọi qua hook)","nội dung transcript, lập luận và output của việc con: không đọc","lệnh host tự chuyển sang chạy nền (quá thời gian chờ): không thấy","việc con không đi qua hook (chưa cài hook nền): không thấy","gắn với phần việc hay lượt chạy nào của OneCrew: hook không nói được"]},
+"resources":{"note":"Khóa dùng chung của máy (mọi phiên, kế hoạch và sổ). Chỉ đọc: trang không nhận, nhả hay gia hạn khóa. \"Đến lúc\" chỉ là gợi ý cho người, không tự nhả.",
+ "items":[{"resource":"android-device","label":"Điện thoại kiểm thử Android","free":false,"state_label":"đang được giữ",
+  "holders":[{"task":"t08","mode":"độc quyền (nặng)","since":"09:40","until":"10:40","state_label":"đang giữ","session":"s-7d2f40","pid":18244}],
+  "waiters":[{"task":"t09","position":1,"mode":"độc quyền (nặng)","since":"10:20","process":"còn chạy","session":"s-5b11e2","pid":20410},{"task":"t12","position":2,"mode":"dùng chung (nhẹ)","since":"10:24","process":"còn chạy","session":"s-91fa03","pid":20877}]}]},
+"untracked":["1 phiên hook ở dự án “Kho mẫu biểu” chưa gắn kế hoạch nào: trang không theo dõi việc của phiên đó"]}
 </script>
 <script>
 /* Pure logic: takes data, returns values / HTML strings. DOM wiring is at the bottom and only runs when a real document exists. */
@@ -140,13 +275,26 @@ var FILTERS=[['all','Tất cả'],['need','Cần bạn'],['doing','Đang làm'],
 var DETAIL_TITLE={plan:'Xem thay đổi kế hoạch (trước và sau)',error:'Xem vòng sửa và kiểm lại',wait:'Xem ai đang chờ ai',result:'Xem bằng chứng của kết quả'};
 var DETAIL_ORDER=['plan','error','wait','result'];
 var SAMPLE_LABEL='Dữ liệu mẫu — không phải sổ thật';
+/* Existing page vocabulary (tracking_work_web / tracking_host_web / tracking_situation), kept as is. */
+var STAGE_LABEL={stopped:'Đã dừng',unknown:'Chưa xác định',todo:'Chưa bắt đầu',doing:'Đang thực hiện',fix:'Cần sửa',check:'Chờ kiểm',accept:'Chờ nghiệm thu',done:'Hoàn tất'};
+var BOARD_LANES=[['attn','Cần chú ý'],['todo','Chưa bắt đầu'],['doing','Đang thực hiện'],['fix','Cần sửa'],['check','Chờ kiểm'],['accept','Chờ nghiệm thu'],['done','Hoàn tất']];
+var TIME_LABEL={today:'cập nhật hôm nay','3d':'cập nhật 3 ngày gần đây'};
+var TABS=[['overview','Tổng quan'],['solution','Solution'],['changes','Thay đổi'],['results','Kết quả & kiểm chứng'],['progress','Tiến độ']];
+var CHECK_WORD={pass:'Đạt',fail:'Không đạt',inconclusive:'Chưa kết luận (hết giờ)',running:'Đang chạy'};
+var ROLE_WORD={assigned:'Được giao',executed:'Đã thực hiện',reviewed:'Đã kiểm'};
+var HOST_STATE={running:'đang chạy',waiting:'đang chờ',finished:'đã kết thúc',unknown:'chưa rõ'};
+var LEVEL_WORD={valid:'Đã kiểm · đạt',fail:'Đã kiểm · không đạt',recheck:'Cần kiểm lại: lần đạt trước không còn được tính',inconclusive:'Đã kiểm · chưa kết luận',unknown:'Đã tạo, chưa kiểm'};
+var PART_CLS={done:'valid',running:'running',todo:'unknown',fail:'fail'};
+var NOTHING_RUNS='Không có lượt chạy hay lần kiểm nào đang diễn ra trong sổ.';
+var NEW_KEY='ui33.hl',OPTS_KEY='ui33.opts';
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function nw(){return ' data-new="1"';}   /* marks an element that is NEW in this design; the "Tô màu phần mới" toggle outlines and labels it */
 function orderTasks(tasks){var a=[],b=[];(tasks||[]).forEach(function(t){(t.owner_needed?a:b).push(t);});return a.concat(b);}
 function filterTasks(tasks,filter){var f=filter||'all';var r=(tasks||[]).filter(function(t){if(f==='all')return true;if(f==='need')return !!t.owner_needed;return t.group===f;});return orderTasks(r);}
 function countTasks(tasks){var c={all:0,need:0,doing:0,check:0,done:0};(tasks||[]).forEach(function(t){c.all++;if(t.owner_needed)c.need++;if(c[t.group]!==undefined)c[t.group]++;});return c;}
 function statusLine(t){var lab=KIND_LABEL[t.kind]||KIND_LABEL.unknown;var r=String(t.reason||'').replace(/\s+/g,' ').trim();return r?lab+': '+r:lab;}
 function needsProject(tasks){var seen={};(tasks||[]).forEach(function(t){seen[t.project]=1;});return Object.keys(seen).length>1;}
-function findTask(data,id){var r=(data.tasks||[]).filter(function(t){return t.id===id;});return r.length?r[0]:null;}
+function findTask(data,id){var r=((data&&data.tasks)||[]).filter(function(t){return t.id===id;});return r.length?r[0]:null;}
 function lastRepairWarning(t){if(t.repairs&&t.repairs.left===0&&!t.owner_needed&&t.validity&&t.validity.state==='fail')return 'Đã dùng hết '+t.repairs.total+' lượt sửa: nếu lần kiểm tới vẫn không đạt, việc sẽ dừng và chờ bạn quyết. Đây là cảnh báo, bạn chưa cần làm gì.';return '';}
 function validState(t){return (t.validity&&t.validity.state)||'unknown';}
 /* Plain hash names (letters, digits, hyphens) so a shared link keeps them: #viec, #viec-need, #viec-need-t04 (filter, then task id). */
@@ -155,50 +303,211 @@ function hrefOf(route){var f=route.filter||'all';if(route.view==='task')return '
 function listStateKey(filter){return 'ui33.list.'+(filter||'all');}
 function saveListState(store,filter,top){try{store.setItem(listStateKey(filter),JSON.stringify({filter:filter||'all',scrollTop:Math.max(0,Math.round(top||0))}));}catch(e){}}
 function loadListState(store,filter){try{var v=store.getItem(listStateKey(filter));if(v){var o=JSON.parse(v);return {filter:o.filter||filter||'all',scrollTop:o.scrollTop||0};}}catch(e){}return {filter:filter||'all',scrollTop:0};}
-function renderChips(counts,filter){return '<nav class="chips" aria-label="Lọc công việc">'+FILTERS.map(function(f){return '<a class="chip" href="'+hrefOf({view:'list',filter:f[0]})+'" data-filter="'+f[0]+'"'+(f[0]===filter?' aria-current="true"':'')+'>'+esc(f[1])+' ('+(counts[f[0]]||0)+')</a>';}).join('')+'</nav>';}
+/* "Tô màu phần mới": body class only; remembered per tab in sessionStorage, ON unless the viewer turned it off. */
+function bodyClass(route,hl){return (route&&route.view==='task'?'view-task':'view-list')+(hl?' hl-new':'');}
+function loadHl(store){try{if(store.getItem(NEW_KEY)==='0')return false;}catch(e){}return true;}
+function saveHl(store,on){try{store.setItem(NEW_KEY,on?'1':'0');}catch(e){}}
+/* Header controls (existing page: project, search, stage, time, list/board). */
+function defaultOpts(){return {project:'',q:'',stage:'',time:'',mode:'list'};}
+function loadOpts(store){var d=defaultOpts();try{var v=store.getItem(OPTS_KEY);if(v){var o=JSON.parse(v);return {project:o.project||'',q:o.q||'',stage:o.stage||'',time:o.time||'',mode:o.mode==='board'?'board':'list'};}}catch(e){}return d;}
+function saveOpts(store,o){try{store.setItem(OPTS_KEY,JSON.stringify(o));}catch(e){}}
+function laneOf(t){var s=t.stage||'unknown';return (s==='stopped'||s==='unknown')?'attn':s;}
+function daysBetween(a,b){var x=Date.parse(a),y=Date.parse(b);if(!isFinite(x)||!isFinite(y))return null;return Math.round((y-x)/86400000);}
+function applyFilters(tasks,opts,today){var o=opts||{};var q=String(o.q||'').trim().toLowerCase();return (tasks||[]).filter(function(t){
+ if(o.project&&t.project!==o.project)return false;
+ if(o.stage&&laneOf(t)!==o.stage)return false;
+ if(o.time){var d=daysBetween(t.updated,today);if(d===null)return false;if(o.time==='today'&&d!==0)return false;if(o.time==='3d'&&(d<0||d>2))return false;}
+ if(q&&[t.name,t.project,t.reason,t.next].join(' ').toLowerCase().indexOf(q)<0)return false;
+ return true;});}
+function filterWords(o){var p=[];o=o||{};if(o.project)p.push('dự án '+o.project);if(o.stage){var l=BOARD_LANES.filter(function(x){return x[0]===o.stage;})[0];p.push('giai đoạn '+(l?l[1]:o.stage));}if(o.time)p.push(TIME_LABEL[o.time]||o.time);if(String(o.q||'').trim())p.push('tìm “'+String(o.q).trim()+'”');return p.join(' · ');}
+function projectOptions(data,cur){return '<option value="">tất cả</option>'+((data&&data.projects)||[]).map(function(p){return '<option value="'+esc(p)+'"'+(p===cur?' selected':'')+'>'+esc(p)+'</option>';}).join('');}
+function renderChips(counts,filter){return '<nav class="chips" aria-label="Lọc công việc"'+nw()+'>'+FILTERS.map(function(f){return '<a class="chip" href="'+hrefOf({view:'list',filter:f[0]})+'" data-filter="'+f[0]+'"'+(f[0]===filter?' aria-current="true"':'')+'>'+esc(f[1])+' ('+(counts[f[0]]||0)+')</a>';}).join('')+'</nav>';}
 function renderRow(t,showProject,filter,selId){return '<a class="task'+(t.owner_needed?' need':'')+(t.id===selId?' sel':'')+'" href="'+hrefOf({view:'task',id:t.id,filter:filter})+'" data-id="'+esc(t.id)+'"><span class="tname">'+esc(t.name)+'</span>'+(showProject?'<span class="proj">'+esc(t.project)+'</span>':'')+'<span class="sline k-'+esc(t.kind)+'">'+esc(statusLine(t))+'</span></a>';}
-function renderList(data,filter,selId){var f=filter||'all';var all=data.tasks||[];var vis=filterTasks(all,f);var showP=needsProject(vis);var owner=vis.filter(function(t){return t.owner_needed;});var rest=vis.filter(function(t){return !t.owner_needed;});var h='<p class="sample">'+SAMPLE_LABEL+'</p>'+renderChips(countTasks(all),f);
- if(!vis.length)return h+'<p class="hint">Không có việc nào ở mục này.</p>';
- if(owner.length)h+='<div class="grp"><span class="needb">Cần bạn</span> '+owner.length+' việc đang chờ bạn</div>'+owner.map(function(t){return renderRow(t,showP,f,selId);}).join('');
- if(rest.length)h+=(owner.length?'<div class="grp">Các việc còn lại</div>':'')+rest.map(function(t){return renderRow(t,showP,f,selId);}).join('');
- return h;}
+function renderBoard(tasks,showP,filter,selId){return '<div class="board" aria-label="Bảng công việc theo giai đoạn">'+BOARD_LANES.map(function(l){var items=orderTasks(tasks.filter(function(t){return laneOf(t)===l[0];}));if(l[0]==='attn'&&!items.length)return '';
+  return '<section class="lane'+(l[0]==='attn'?' attn':'')+'" data-lane="'+l[0]+'" aria-label="'+esc(l[1])+'"><h3 class="lane-title">'+esc(l[1])+' <span>'+items.length+'</span></h3>'+(items.length?items.map(function(t){return renderRow(t,showP,filter,selId);}).join(''):'<p class="hint">Không có công việc</p>')+'</section>';}).join('')+'</div><p class="hint">Bảng chỉ để xem: giai đoạn do sổ tính; trang không kéo thả hay đổi trạng thái.</p>';}
+function renderList(data,filter,selId,opts){var f=filter||'all';var o=opts||{};var total=(data.tasks||[]).length;var all=applyFilters(data.tasks||[],o,data.today);var vis=filterTasks(all,f);var showP=needsProject(vis);var fw=filterWords(o);
+ var h='<p class="sample">'+SAMPLE_LABEL+'</p><p class="cnt">Đang hiện '+vis.length+' / '+total+' công việc'+(fw?' · <b>đang lọc:</b> '+esc(fw):'')+'</p>'+renderChips(countTasks(all),f);
+ if(!vis.length)h+='<p class="hint">Không có việc nào ở mục này.</p>';
+ else if(o.mode==='board')h+=renderBoard(vis,showP,f,selId);
+ else{var owner=vis.filter(function(t){return t.owner_needed;});var rest=vis.filter(function(t){return !t.owner_needed;});h+='<div class="rows"'+nw()+'>';
+  if(owner.length)h+='<div class="grp"><span class="needb">Cần bạn</span> '+owner.length+' việc đang chờ bạn</div>'+owner.map(function(t){return renderRow(t,showP,f,selId);}).join('');
+  if(rest.length)h+=(owner.length?'<div class="grp">Các việc còn lại</div>':'')+rest.map(function(t){return renderRow(t,showP,f,selId);}).join('');
+  h+='</div>';}
+ return h+renderHostBox(data)+renderResBox(data)+renderUntracked(data);}
+/* ---- host background work and shared resources (existing page: tracking_host_web) ---- */
+function hostCountLine(items){var c={running:0,waiting:0,finished:0,unknown:0};items.forEach(function(i){c[c[i.state]!==undefined?i.state:'unknown']++;});return ['running','waiting','finished','unknown'].map(function(s){return HOST_STATE[s]+' '+c[s];}).join(' · ');}
+function taskLink(data,id){var t=findTask(data,id);return t?'<a href="'+hrefOf({view:'task',id:t.id,filter:'all'})+'">'+esc(t.name)+'</a>':'<span class="host-out">ngoài hợp đồng</span>';}
+function hostItem(i,data){return '<article class="host-item" data-host-state="'+esc(i.state)+'" data-host-kind="'+esc(i.kind)+'" data-task="'+esc(i.task||'')+'">'
+ +'<h4><span class="hstate '+esc(i.state)+'">'+esc(HOST_STATE[i.state]||HOST_STATE.unknown)+'</span> '+(i.kind==='subagent'?'Subagent':'Lệnh shell nền')+' — '+esc(i.summary)+'</h4>'
+ +'<p><b>Thuộc việc:</b> '+taskLink(data,i.task)+'</p>'
+ +'<p><b>Vì sao:</b> '+esc(i.why)+'</p><p><b>Kết quả:</b> '+esc(i.outcome)+'</p>'
+ +'<p><b>Nguồn:</b> '+esc(i.source)+' · host báo, OneCrew chưa kiểm độc lập</p>'
+ +'<p><b>Bắt đầu:</b> '+esc(i.started||'chưa quan sát')+' · <b>quan sát gần nhất:</b> '+esc(i.last_observed)+(i.finished?' · <b>kết thúc:</b> '+esc(i.finished):'')+'</p>'
+ +'<p><b>Bước tiếp:</b> '+esc(i.next_step)+'</p>'
+ +'<details class="d tech"><summary>Chi tiết kỹ thuật</summary><p>'+(i.kind==='subagent'?'loại '+esc(i.agent_type)+' · mã <code>'+esc(i.agent_id)+'</code>':'mã lần gọi <code>'+esc(i.tool_use)+'</code> · lệnh <code>'+esc(i.command)+'</code>')+'</p><p>kế hoạch <code>'+esc(i.plan)+'</code> bản '+esc(i.contract)+' · phiên host <code>'+esc(i.session)+'</code> · lượt chạy: chưa rõ</p></details></article>';}
+function renderHostBox(data){var hw=data&&data.host_work;if(!hw)return '<section class="hostbox" id="hostbox"><h3>Việc nền của host</h3><p class="hint">Chưa đọc được việc nền.</p></section>';var items=hw.items||[];
+ var byProj={},order=[];items.forEach(function(i){var t=findTask(data,i.task);var p=t?t.project:'Ngoài hợp đồng';if(!byProj[p]){byProj[p]=[];order.push(p);}byProj[p].push(i);});
+ return '<section class="hostbox" id="hostbox" aria-label="Việc nền của host"><h3>Việc nền của host ('+items.length+')</h3><p class="host-note">'+esc(hw.note)+'</p><p class="hint">'+hostCountLine(items)+'</p>'
+  +(items.length?order.map(function(p){return '<div class="host-proj">'+esc(p)+' ('+byProj[p].length+')</div>'+byProj[p].map(function(i){return hostItem(i,data);}).join('');}).join(''):'<p class="hint">Chưa quan sát việc nền nào (không có nghĩa là không có).</p>')
+  +(items.length?'<p class="host-note">Mọi việc đã quan sát đều kết thúc: '+(items.every(function(i){return i.state==='finished';})?'có':'chưa')+'. Lượt của phiên mẹ kết thúc không làm việc con kết thúc.</p>':'')
+  +'<details class="d tech"><summary>OneCrew chưa quan sát ('+(hw.unobserved||[]).length+')</summary><ul>'+(hw.unobserved||[]).map(function(x){return '<li>'+esc(x)+'</li>';}).join('')+'</ul></details></section>';}
+function resRow(x,waiter,data){return '<div class="res-row" data-res-role="'+(waiter?'waiter':'holder')+'" data-task="'+esc(x.task||'')+'">'+(waiter?'Chờ, vị trí <b>'+esc(x.position)+'</b>: ':'Giữ: ')+'việc '+taskLink(data,x.task)+' · '+esc(x.mode)
+ +' · '+(waiter?'xin từ ':'từ ')+esc(x.since)+(x.until?' · đến lúc (gợi ý) '+esc(x.until):'')+(waiter?' · tiến trình: '+esc(x.process||'chưa rõ'):' · <b>'+esc(x.state_label||'chưa rõ')+'</b>')+'</div>';}
+function resItem(r,data,onlyTask){var hs=(r.holders||[]).filter(function(x){return !onlyTask||x.task===onlyTask;}),ws=(r.waiters||[]).filter(function(x){return !onlyTask||x.task===onlyTask;});
+ return '<article class="res-item" data-resource="'+esc(r.resource)+'" data-free="'+(r.free?'true':'false')+'"><h4>'+esc(r.label)+' · <span class="'+(r.free?'res-free':'res-held')+'">'+esc(r.state_label)+'</span></h4>'
+  +hs.map(function(x){return resRow(x,false,data);}).join('')+ws.map(function(x){return resRow(x,true,data);}).join('')+(r.free&&!ws.length?'<p class="hint">Không ai giữ, không ai chờ.</p>':'')
+  +'<details class="d tech"><summary>Chi tiết kỹ thuật</summary><p>khóa <code>'+esc(r.resource)+'</code></p>'+hs.concat(ws).map(function(x){return '<p>'+esc(findTask(data,x.task)?findTask(data,x.task).slug:'?')+' · phiên <code>'+esc(x.session)+'</code> · pid '+esc(x.pid)+'</p>';}).join('')+'</details></article>';}
+function renderResBox(data){var rs=data&&data.resources;if(!rs)return '<section class="hostbox" id="resbox"><h3>Tài nguyên dùng chung</h3><p class="hint">Chưa đọc được tài nguyên dùng chung.</p></section>';var items=rs.items||[];
+ return '<section class="hostbox" id="resbox" aria-label="Tài nguyên dùng chung"><h3>Tài nguyên dùng chung ('+items.length+')</h3><p class="host-note">'+esc(rs.note)+'</p>'+(items.length?items.map(function(r){return resItem(r,data);}).join(''):'<p class="hint">Chưa khai báo tài nguyên dùng chung nào.</p>')+'</section>';}
+function renderUntracked(data){var u=(data&&data.untracked)||[];return '<details class="d" id="untrackedbox"><summary>Chưa được theo dõi ('+u.length+')</summary>'+u.map(function(x){return '<p class="hint">· '+esc(x)+'</p>';}).join('')+'</details>';}
+function renderHostForTask(data,t){var hw=data&&data.host_work;var h='<section class="hostplan" id="hostplan" aria-label="Việc nền của host gắn với việc này"><h3>Việc nền của host gắn với việc này</h3>';
+ if(!hw)return h+'<p class="hint">Chưa đọc được việc nền.</p></section>';var items=(hw.items||[]).filter(function(i){return i.task===t.id;});
+ return h+'<p class="hint">'+hostCountLine(items)+'</p>'+(items.length?items.map(function(i){return hostItem(i,data);}).join(''):'<p class="hint">Chưa quan sát việc nền nào gắn với việc này (không có nghĩa là không có).</p>')+'</section>';}
+function renderResForTask(data,t){var rs=data&&data.resources;if(!rs)return '';var mine=(rs.items||[]).filter(function(r){return (r.holders||[]).concat(r.waiters||[]).some(function(x){return x.task===t.id;});});
+ if(!mine.length)return '';return '<section class="hostplan" id="resplan" aria-label="Tài nguyên dùng chung mà việc này giữ hoặc chờ"><h3>Tài nguyên dùng chung mà việc này giữ hoặc chờ</h3>'+mine.map(function(r){return resItem(r,data,t.id);}).join('')+'</section>';}
+/* ---- time helpers for the progress views ---- */
+function hm(s){var m=String(s==null?'':s).match(/(\d{1,2}):(\d{2})/);return m?(+m[1])*60+(+m[2]):null;}
+function fmtHm(n){var h=Math.floor(n/60),m=n%60;return (h<10?'0':'')+h+':'+(m<10?'0':'')+m;}
+function fmtMin(n){if(n===null||n===undefined||isNaN(n))return 'chưa đủ mốc đo';if(n<60)return n+' phút';var h=Math.floor(n/60),m=n%60;return h+' giờ'+(m?' '+m+' phút':'');}
+function durOf(s,e){var a=hm(s),b=hm(e);return (a===null||b===null)?null:b-a;}
+function spanPct(s,e,w0,w1){var a=hm(s);if(a===null||w1<=w0)return null;var b=hm(e);if(b===null)b=w1;var l=(a-w0)/(w1-w0)*100,r=(b-w0)/(w1-w0)*100;return {left:+Math.max(0,l).toFixed(2),width:+Math.max(0.8,r-l).toFixed(2)};}
+function renderTimeline(rows,w0,w1){if(w0===null||w1===null||w1<=w0)return '';var mid=Math.round((w0+w1)/2);
+ return '<div class="scroll"><div class="tline"><div class="taxis"><span>'+fmtHm(w0)+'</span><span>'+fmtHm(mid)+'</span><span>'+fmtHm(w1)+'</span></div>'+rows.map(function(r){return '<div class="trow"><div class="tlab">'+esc(r.name)+'</div><div class="ttrack">'+r.segs.map(function(s){var p=spanPct(s.s,s.e,w0,w1);if(!p)return '';return '<span class="bar2 '+esc(s.r)+'" style="left:'+p.left+'%;width:'+p.width+'%" title="'+esc(s.title+' · '+s.s+' → '+(s.e||'đang chạy'))+'"></span>';}).join('')+(r.segs.length?'':'<span class="tnone">chưa có lượt</span>')+'</div></div>';}).join('')+'</div></div>'
+  +'<p class="legend"><span><i class="sw pass"></i>đạt</span><span><i class="sw fail"></i>không đạt</span><span><i class="sw inconclusive"></i>chưa kết luận</span><span><i class="sw running"></i>đang chạy (tới lúc đọc sổ)</span></p>';}
+function checkRuns(t){var out=[];if(t.run==='engine'){(t.parts||[]).forEach(function(p,i){(p.attempts||[]).forEach(function(a){out.push({where:'Phần '+(i+1),name:p.name,n:a.n,r:a.r,s:a.s,e:a.e});});});}
+ else{(t.milestones||[]).forEach(function(m,i){(m.checks||[]).forEach(function(c,j){out.push({where:'Mốc '+(i+1),name:m.title,n:j+1,r:c.r,s:c.s,e:c.e});});});}return out;}
+function repairRounds(t){var runs=checkRuns(t),out=[];for(var i=1;i<runs.length;i++){var a=runs[i-1],b=runs[i];if(a.where===b.where&&a.r==='fail')out.push({where:a.where,name:a.name,after:a.n,recheck:b});}return out;}
+/* ---- NEW: the task-first layer ---- */
 function renderOutput(t){var o=t.output||{};return '<p>'+esc(o.title||'Chưa có đầu ra')+(o.when&&o.when!=='—'?' · '+esc(o.when):'')+'</p>';}
-function renderDecision(t){var d=t.decision;if(!d)return '';return '<section class="decision" aria-label="Quyết định của bạn"><h3>Bạn cần quyết</h3><p>'+esc(d.question)+'</p><ul>'+d.options.map(function(o){return '<li><button type="button" data-toast="1">'+esc(o.label)+'<span class="cons">Hệ quả: '+esc(o.consequence)+'</span></button></li>';}).join('')+'</ul></section>';}
+function renderDecision(t){var d=t.decision;if(!d)return '';return '<section class="decision" aria-label="Quyết định của bạn"'+nw()+'><h3>Bạn cần quyết</h3><p>'+esc(d.question)+'</p><ul>'+d.options.map(function(o,i){return '<li><button type="button" data-toast="1" data-goto="cmd-'+esc(t.id)+'-'+i+'">'+esc(o.label)+'<span class="cons">Hệ quả: '+esc(o.consequence)+'</span></button></li>';}).join('')+'</ul><p class="cons">Bấm một lựa chọn chỉ mở mẫu lệnh tương ứng bên dưới để bạn tự chạy trong PowerShell của bạn; trang không ghi quyết định.</p></section>';}
 function renderDetail(t,kind){var d=(t.detail||{})[kind];if(!d)return '<p class="hint">Chưa có dữ liệu phần này.</p>';
  if(kind==='plan'){return '<div class="ba"><div class="before"><b>Trước</b>'+d.fields.map(function(f){return '<p>'+esc(f.name)+': <span class="bv">'+esc(f.before)+'</span></p>';}).join('')+'</div><div class="after"><b>Sau</b>'+d.fields.map(function(f){return '<p>'+esc(f.name)+': <span class="av">'+esc(f.after)+'</span></p>';}).join('')+'</div></div>';}
  if(kind==='error'){return '<p>Đã dùng '+d.used+'/'+d.total+' lượt sửa'+(d.total>=d.used?', còn '+(d.total-d.used):'')+'.</p><ol class="loop">'+d.loop.map(function(s){return '<li><b>'+esc(s.t)+'</b> — '+esc(s.text)+'</li>';}).join('')+'</ol>';}
  if(kind==='wait'){return '<ul class="tl">'+d.timeline.map(function(s){return '<li><b>'+esc(s.who)+'</b> chờ '+esc(s.waiting_for)+' từ '+esc(s.since)+' — đã '+esc(s.how_long)+'</li>';}).join('')+'</ul>';}
  if(kind==='result'){return '<p>Lệnh đã chạy: <code>'+esc(d.command)+'</code></p><p>Kết thúc với mã: '+esc(d.exit)+'</p><pre>'+esc(d.log)+'</pre><p>Tệp: '+esc(d.file)+'<br>Dấu vân tay: '+esc(d.hash)+'</p>';}
  return '';}
-function renderTask(t){if(!t)return '<p class="hint">Không tìm thấy việc này.</p>';var vs=validState(t);var warn=lastRepairWarning(t);
+/* ---- EXISTING page sections, rebuilt on the same sample ---- */
+function stageBadge(t){return '<span class="stg '+esc(laneOf(t))+'">'+esc(STAGE_LABEL[t.stage]||STAGE_LABEL.unknown)+'</span>';}
+function whereText(t){if(t.run==='engine'){var p=t.parts||[];return p.filter(function(x){return x.state==='done';}).length+'/'+p.length+' phần việc đã kiểm';}var m=t.milestones;return m?'Đạt '+m.filter(function(x){return x.state==='pass';}).length+'/'+m.length+' mốc':'';}
+function currentOutputs(t){var o=t.output||{};return (o.title&&o.title!=='Chưa có đầu ra')?[{title:o.title,when:o.when,level:LEVEL_WORD[validState(t)]||LEVEL_WORD.unknown}]:[];}
+function renderSit(t,data){var a=t.activity||{running:false,text:NOTHING_RUNS};var lu=t.last_update;var outs=currentOutputs(t),hist=(t.history_outputs||[]).length;var checked=outs.filter(function(){return ['valid','fail','inconclusive'].indexOf(validState(t))>=0;}).length;
+ var ask=t.owner_needed&&t.need?'<button type="button" class="linkish" data-goto="need-'+esc(t.id)+'">'+esc(t.need.title)+'</button>':'Không có quyết định nào đang chờ bạn. Điều này không có nghĩa là việc đang tiến triển.';
+ return '<section class="sit" aria-label="Tóm tắt việc"><h3>Tóm tắt việc</h3><div class="sit-grid">'
+  +'<div><b>Đang ở đâu</b>'+stageBadge(t)+(whereText(t)?' <span>'+esc(whereText(t))+'</span>':'')+(t.milestones&&t.run!=='engine'?'<small>số mốc đạt, không phải phần trăm công việc</small>':'')+'</div>'
+  +'<div><b>Vướng gì</b>'+esc(t.reason||'chưa xác định')+'</div>'
+  +'<div><b>Ai làm tiếp</b>'+esc(t.who)+'<small>Bước tiếp theo: '+esc(t.next)+'</small></div>'
+  +'<div class="'+(t.owner_needed?'sit-need':'')+'"><b>Bạn cần làm gì</b>'+ask+'</div>'
+  +'<div><b>Kết quả ở đâu</b>'+(outs.length?outs.length+' đầu ra hiện hành · '+checked+' đã kiểm':'Chưa ghi nhận đầu ra')+(hist?' · '+hist+' bản cũ hoặc cần kiểm lại':'')+' <button type="button" class="linkish" data-tab="results">Mở Kết quả &amp; kiểm chứng</button></div>'
+  +'</div><p class="sit-foot"><span class="'+(a.running?'live':'idle')+'">'+esc(a.text)+(a.since?' · từ '+esc(a.since):'')+(a.signal?' · tín hiệu cuối '+esc(a.signal)+' ('+esc(a.signal_ago)+')':'')+'</span>'
+  +'<span>Hoạt động cuối của việc: '+(lu?esc(lu.at)+' · '+esc(lu.text):'chưa có')+'</span><span class="hint">Sổ đọc lúc '+esc((data&&data.read_at)||'chưa rõ')+'</span></p></section>';}
+function cmdHtml(c,ph){var t=esc(c);if(ph){var p=esc(ph);t=t.split(p).join('<mark class="ph">'+p+'</mark>');}return t;}
+function commandBox(command,ph,label){return '<div class="cmdbox"><div class="cmdhead"><span>PowerShell · '+esc(label)+'</span><button type="button" class="copy" data-copy="'+esc(command)+'">Sao chép lệnh</button></div><pre><code>'+cmdHtml(command,ph)+'</code></pre></div>';}
+function renderNeed(t){var n=t.need;if(!n)return '';return '<details class="need" id="need-'+esc(t.id)+'"><summary>'+esc(n.title)+' — xem nội dung và lệnh</summary><div class="q">'+esc(n.question)+'</div><p><b>Vì sao:</b> '+esc(n.why)+'</p>'
+ +'<p><b>Mở PowerShell của bạn trên máy này.</b> Không dán vào ô chat để nhờ AI duyệt.</p><p>Thay phần <mark class="ph">'+esc(n.placeholder)+'</mark> bằng lý do của bạn trước khi chạy. Mẫu chưa điền không phải quyết định đã duyệt.</p>'
+ +n.options.map(function(o,i){return '<div class="opt" id="cmd-'+esc(t.id)+'-'+i+'"><b>'+esc(o.label)+'</b>'+commandBox(o.command,n.placeholder,'Trả lời lựa chọn này')+'</div>';}).join('')
+ +'<p>Sao chép chưa phải duyệt. Chạy lệnh thành công mới ghi quyết định; trang cập nhật khi đọc được kết quả từ sổ.</p><p class="hint">Lệnh trong bản mẫu chỉ để minh họa, không chạy được.</p></details>';}
+function workCard(label,value,note){return '<div class="work-card"><div class="eyebrow">'+esc(label)+'</div><div class="answer">'+esc(value==null||value===''?'chưa có dữ liệu':value)+'</div>'+(note?'<p class="hint">'+esc(note)+'</p>':'')+'</div>';}
+function msStrip(t){var ms=t.milestones;if(!ms||!ms.length)return '';return '<div class="ms-strip" aria-label="Các mốc">'+ms.map(function(m,i){return '<span class="ms '+esc(m.state)+'" title="'+esc(m.title)+'"><b>Mốc '+(i+1)+'</b> '+esc(m.label)+'</span>';}).join('')+'<button type="button" class="linkish" data-tab="progress">Xem các mốc và lần kiểm</button></div>';}
+function checkMinutes(t){var tot=null;checkRuns(t).forEach(function(c){var d=durOf(c.s,c.e);if(d!==null)tot=(tot||0)+d;});return tot;}
+function tabOverview(t){var m=t.measure||{};var outs=currentOutputs(t);
+ return '<div class="work-grid">'+workCard('Việc này làm gì',t.request||t.name)+workCard('Xong bạn thấy gì',t.sees)+workCard('Làm sao biết đạt',t.how)+workCard('Không làm gì',t.not_doing)+'</div>'+msStrip(t)
+  +'<div class="work-grid">'+workCard('Kết quả đã có',outs.length?outs.length+' đầu ra hiện hành':'Chưa ghi nhận đầu ra','Lịch sử cũ không tính vào số này. Xem từng đầu ra trong Kết quả & kiểm chứng.')+workCard('Dự kiến còn lại',m.eta||'chưa ước lượng được','Ước lượng, không phải cam kết.')+'</div>'
+  +(t.run==='engine'?'<p class="hint">Thời gian đã trôi qua: '+esc(m.elapsed)+' · Thực hiện đã ghi nhận: '+esc(m.exec)+' · Chờ đã ghi nhận: '+esc(m.wait)+'. Không tự quy thời gian chưa rõ thành thời gian làm việc.</p>'
+   :'<p class="hint">Thời gian chạy bộ kiểm đã ghi: '+(checkMinutes(t)===null?'chưa có lần kiểm nào đủ mốc thời gian':fmtMin(checkMinutes(t)))+'. Đây là thời gian kiểm, không phải thời gian làm việc; việc không chạy qua engine nên không có số đo thực hiện.</p>')
+  +'<p class="hint"><b>Nguồn và quan hệ:</b> '+esc(t.origin||'Chủ giao')+(t.contract>1?' · hợp đồng đã sửa '+(t.contract-1)+' lần':'')+'.</p>';}
+function tabSolution(t){return '<p>'+esc(t.solution||'Chưa có solution riêng cho việc này: việc dùng nội dung hợp đồng đã duyệt (xem Tổng quan).')+'</p>';}
+function tabChanges(t){if((t.detail||{}).plan)return '<p>Bản sửa kế hoạch đang chờ bạn duyệt: bên trái là bản đang chạy, bên phải là bản AI đề xuất.</p>'+renderDetail(t,'plan');return '<p class="hint">Chưa ghi nhận thay đổi có nguồn. Trang không suy lịch sử từ hội thoại.</p>';}
+function evidenceDetails(t){var r=(t.detail||{}).result;return '<details class="d ev"><summary>Mở bằng chứng</summary>'+(r?renderDetail(t,'result'):'<p class="hint">Chưa có bằng chứng mở được từ việc này.</p>')+'</details>';}
+function tabResults(t){var cur=currentOutputs(t),hist=t.history_outputs||[],runs=checkRuns(t),fs=t.findings||[],rr=repairRounds(t),ac=t.actors||[];
+ var tally={};runs.forEach(function(c){tally[c.r]=(tally[c.r]||0)+1;});
+ var h='<h4>Kết quả hiện hành</h4>'+(cur.length?cur.map(function(o){return '<article class="work-row"><h5>'+esc(o.title)+' · '+esc(o.level)+'</h5><p class="hint">'+esc(o.when)+'</p>'+evidenceDetails(t)+'</article>';}).join(''):'<p class="hint">Chưa có đầu ra hiện hành được ghi nhận.</p>');
+ if(hist.length)h+='<h4>Đầu ra lịch sử ('+hist.length+')</h4>'+hist.map(function(o){return '<article class="work-row old"><h5>'+esc(o.title)+'</h5><p class="work-warning">'+esc(o.level)+'</p></article>';}).join('');
+ h+='<h4>Các lần kiểm</h4>'+(runs.length?'<p>'+runs.length+' lần kiểm · '+Object.keys(tally).map(function(k){return esc((CHECK_WORD[k]||k).toLowerCase())+' '+tally[k];}).join(' · ')+'</p>':'<p class="hint">Chưa có lần kiểm nào đọc được; không thể kết luận không có lỗi.</p>')
+  +'<p class="hint">Một lần kiểm có thể gồm nhiều testcase. Số lần kiểm hay số vấn đề không phải số lỗi độc lập. Giờ bắt đầu và kết thúc từng lần: xem Tiến độ.</p>';
+ h+='<h4>Vấn đề tìm thấy và xử lý</h4>'+(fs.length?fs.map(function(f,i){return '<article class="work-row"><h5>Vấn đề '+(i+1)+' · '+esc(f.state)+'</h5><p>'+esc(f.text)+'</p><p class="hint">Nguồn phát hiện: '+esc(f.from)+'</p></article>';}).join(''):'<p class="hint">Chưa ghi nhận vấn đề nào; không đồng nghĩa đã kiểm hết.</p>');
+ h+='<h4>Chuỗi sửa và kiểm lại</h4>'+(rr.length?rr.map(function(x,i){return '<article class="work-row"><h5>Vòng sửa '+(i+1)+' · '+esc(x.where)+' — '+esc(x.name)+'</h5><p>Sau lần '+x.after+' không đạt → sửa → kiểm lại lần '+x.recheck.n+': <b>'+esc(CHECK_WORD[x.recheck.r]||x.recheck.r)+'</b></p></article>';}).join(''):'<p class="hint">Chưa có vòng sửa nào.</p>');
+ h+='<h4>Ai được giao / ai đã thực hiện / ai đã kiểm</h4>'+(ac.length?'<div class="scroll"><table><thead><tr><th>Vai trò</th><th>Phần</th><th>Người / model</th></tr></thead><tbody>'+ac.map(function(x){return '<tr><td>'+esc(ROLE_WORD[x.role]||x.role)+'</td><td>'+esc(x.part)+'</td><td>'+esc(x.who||'chưa biết')+'</td></tr>';}).join('')+'</tbody></table></div><p class="hint">Chỉ ghi khi sổ có nguồn; thiếu nguồn ghi "chưa biết", không suy từ tên phiên chat.</p>':'<p class="hint">Chưa có định danh thực thi được ghi nhận. Không suy từ tên phiên chat.</p>');
+ return h;}
+function msItem(t,m,i){var c=m.checks||[],last=c.length?c[c.length-1]:null,fails=c.filter(function(x){return x.r==='fail';}).length,tot=null;c.forEach(function(x){var d=durOf(x.s,x.e);if(d!==null)tot=(tot||0)+d;});var day=t.day?t.day+' ':'';
+ return '<li class="msitem" data-ms="'+(i+1)+'"><div><b>Mốc '+(i+1)+'</b> '+esc(m.title)+' · <span class="ms '+esc(m.state)+'">'+esc(m.label)+'</span></div>'
+  +'<div class="hint">'+(c.length?c.length+' lần kiểm'+(fails?' · '+fails+' không đạt':'')+' · Gần nhất: '+esc(CHECK_WORD[last.r]||last.r)+' · '+esc(day+last.e)+' · Chạy bộ kiểm: '+fmtMin(tot):'Chưa có lần kiểm')+'</div>'
+  +(c.length?'<div class="scroll"><table class="checks"><thead><tr><th>Lần</th><th>Kết quả</th><th>Bắt đầu</th><th>Kết thúc</th><th>Thời gian</th></tr></thead><tbody>'+c.map(function(x,j){return '<tr><td>Lần '+(j+1)+'</td><td>'+esc(CHECK_WORD[x.r]||x.r)+'</td><td>'+esc(day+x.s)+'</td><td>'+esc(day+(x.e||'chưa kết thúc'))+'</td><td>'+fmtMin(durOf(x.s,x.e))+'</td></tr>';}).join('')+'</tbody></table></div>':'')+'</li>';}
+function agentCard(p,i,now){return'<article class="agent" data-part="'+esc(p.id)+'"><h5>Phần '+(i+1)+' · '+esc(p.name)+'</h5><p><b>Agent:</b> <span class="agent-who">'+esc(p.agent)+'</span></p><p><b>Trạng thái:</b> <span class="k-'+esc(PART_CLS[p.state]||'unknown')+'">'+esc(p.label)+'</span></p>'
+ +'<p><b>Tín hiệu cuối:</b> '+(p.signal?'<span class="sig">'+esc(p.signal.at)+'</span> ('+esc(p.signal.ago)+') — '+esc(p.signal.text):'chưa có')+'</p>'
+ +'<p><b>Đã chạy:</b> '+esc(partElapsed(p,now))+' · '+(p.attempts||[]).length+' lượt</p></article>';}
+function partElapsed(p,now){var a=p.attempts||[];if(!a.length)return 'chưa chạy';var last=a[a.length-1];var tot=0;a.forEach(function(x){var d=durOf(x.s,x.e||now);if(d!==null)tot+=d;});return fmtMin(tot)+(last.e?'':' · lượt '+last.n+' đang chạy được '+fmtMin(durOf(last.s,now)));}
+function tabProgress(t,data){var now=(data&&data.now)||null;
+ if(t.run==='engine'){var parts=t.parts||[];var starts=[];parts.forEach(function(p){(p.attempts||[]).forEach(function(a){if(hm(a.s)!==null)starts.push(hm(a.s));});});var w0=starts.length?Math.min.apply(null,starts):null,w1=hm(now);
+  var h='<div class="agentwrap"'+nw()+'><h4>Tiến độ của các agent</h4><p class="hint">Mỗi phần việc: agent nào (nhà cung cấp · model), đang ở đâu, tín hiệu cuối lúc nào. Tín hiệu cuối là lúc bắt đầu lượt hoặc lần agent tự báo tiến độ qua sổ; nó không chứng minh việc đang đúng.</p><div class="agents">'+parts.map(function(p,i){return agentCard(p,i,now);}).join('')+'</div></div>';
+  h+='<h4>Phần việc theo thời gian</h4>'+(renderTimeline(parts.map(function(p,i){return {name:'Phần '+(i+1)+' · '+p.name,segs:(p.attempts||[]).map(function(a){return {s:a.s,e:a.e,r:a.r,title:'Lượt '+a.n+' · '+(CHECK_WORD[a.r]||a.r)};})};}),w0,w1)||'<p class="hint">Chưa có lượt chạy nào có mốc thời gian.</p>')
+   +'<p class="hint">Thanh = một lượt chạy của phần việc, từ lúc khởi chạy tới khi kết thúc (hoặc tới lúc đọc sổ nếu còn chạy). Khoảng trống giữa hai lượt là chờ hoặc chuẩn bị, không phải thời gian làm việc.</p>';
+  var m=t.measure||{};h+='<div class="work-grid">'+workCard('Khoảng thực hiện đã ghi nhận',m.exec,'Hợp các khoảng lượt chạy, không cộng đôi phần chồng nhau.')+workCard('Khoảng chờ đã ghi nhận',m.wait,'Khoảng chờ mở hoặc thiếu mốc kết thúc vẫn chưa xác định.')+'</div>';
+  h+='<h4>Phần việc</h4><div class="scroll"><table><thead><tr><th>Phần việc</th><th>Trạng thái</th><th>Thế hệ</th><th>Quan sát gần nhất</th></tr></thead><tbody>'+parts.map(function(p,i){return '<tr><td>Phần '+(i+1)+' · '+esc(p.name)+'</td><td>'+esc(p.label)+'</td><td>'+esc(p.generation)+'</td><td>'+(p.signal?esc(p.signal.at+' · '+p.signal.text):'chưa có')+'</td></tr>';}).join('')+'</tbody></table></div>';
+  return h;}
+ var ms=t.milestones;if(!ms)return '<p class="hint">Chưa đọc được danh sách mốc của hợp đồng hiện hành.</p>';
+ var h2='<p class="honest"'+nw()+'>Việc này chạy theo kế hoạch thường, không qua engine: sổ chỉ biết các lần kiểm mốc. Giữa hai lần kiểm, trang không thấy AI đang làm gì; khoảng trống giữa hai lần kiểm không phải thời gian chờ hay thời gian làm việc.</p>';
+ h2+='<ol class="mslist">'+ms.map(function(m,i){return msItem(t,m,i);}).join('')+'</ol>';
+ var ts=[];ms.forEach(function(m){(m.checks||[]).forEach(function(c){[c.s,c.e].forEach(function(v){if(hm(v)!==null)ts.push(hm(v));});});});
+ h2+='<h4>Các lần kiểm theo thời gian</h4>'+(ts.length?renderTimeline(ms.map(function(m,i){return {name:'Mốc '+(i+1)+' · '+m.title,segs:(m.checks||[]).map(function(c,j){return {s:c.s,e:c.e,r:c.r,title:'Lần '+(j+1)+' · '+(CHECK_WORD[c.r]||c.r)};})};}),Math.min.apply(null,ts),Math.max.apply(null,ts)):'<p class="hint">Chưa có lần kiểm nào có đủ thời điểm bắt đầu và kết thúc, nên trang không dựng trục thời gian. Danh sách mốc phía trên là nguồn đầy đủ.</p>');
+ return h2;}
+function renderTech(t){return '<details class="d tech"><summary>Chi tiết kỹ thuật</summary><p>kế hoạch <code>'+esc(t.slug||'?')+'</code> · bản hợp đồng '+esc(t.contract||'?')+' · mã việc <code>'+esc(t.id)+'</code> · cách chạy: '+(t.run==='engine'?'engine':'kế hoạch thường')+'</p>'
+ +(t.milestones?'<p>mã mốc: '+t.milestones.map(function(m,i){return 'Mốc '+(i+1)+' = <code>'+esc(m.id)+'</code>';}).join(', ')+'</p>':'')+(t.parts?'<p>mã phần việc: '+t.parts.map(function(p,i){return 'Phần '+(i+1)+' = <code>'+esc(p.id)+'</code>';}).join(', ')+'</p>':'')+'</details>';}
+function renderTabs(t,data,active){var a=active||'overview';var body={overview:tabOverview(t),solution:tabSolution(t),changes:tabChanges(t),results:tabResults(t),progress:tabProgress(t,data)};
+ return '<div class="tabwrap"><nav class="tabs" role="tablist" aria-label="Chi tiết công việc">'+TABS.map(function(x){return '<button type="button" role="tab" data-tab="'+x[0]+'" aria-selected="'+(x[0]===a)+'">'+esc(x[1])+'</button>';}).join('')+'</nav>'
+  +TABS.map(function(x){return '<div class="tabp" role="tabpanel" data-panel="'+x[0]+'"'+(x[0]===a?'':' hidden')+'>'+body[x[0]]+'</div>';}).join('')+renderTech(t)+'</div>';}
+function renderTask(t,data){if(!t)return '<p class="hint">Không tìm thấy việc này.</p>';var vs=validState(t);var warn=lastRepairWarning(t);
  var h='<p class="sample">'+SAMPLE_LABEL+'</p><h2>'+esc(t.name)+'</h2>';
- h+='<section class="blk" id="s-out"><h3>Đầu ra mới nhất</h3>'+renderOutput(t)+'<details class="d out"><summary>Mở</summary><p>Đầu ra này là: '+esc((t.output||{}).title||'chưa có')+'.</p><p>Trang thật sẽ mở đúng tệp hoặc bản mã này; bản mẫu chỉ hiện tên.</p></details></section>';
- h+='<section class="blk" id="s-valid"><h3>Kết quả còn tin được không</h3><span class="vstate k-'+esc(vs)+'">'+esc(VALID_LABEL[vs])+'</span><p>'+esc((t.validity||{}).reason||'')+'</p>'+(t.repairs?'<p>Lượt sửa: đã dùng '+t.repairs.used+'/'+t.repairs.total+(t.repairs.left>0?', còn '+t.repairs.left:(t.owner_needed?', hết lượt':', lần kiểm tới là lần thử cuối'))+'.</p>':'')+'</section>';
- h+='<section class="blk" id="s-next"><h3>Bước tiếp theo</h3><p>'+esc(t.next)+' <span class="who">Ai làm: '+esc(t.who)+'</span></p></section>';
- if(warn)h+='<div class="warn" role="note">'+esc(warn)+'</div>';
+ h+='<section class="blk" id="s-out"'+nw()+'><h3>Đầu ra mới nhất</h3>'+renderOutput(t)+'<details class="d out"><summary>Mở</summary><p>Đầu ra này là: '+esc((t.output||{}).title||'chưa có')+'.</p><p>Trang thật sẽ mở đúng tệp hoặc bản mã này; bản mẫu chỉ hiện tên.</p></details></section>';
+ h+='<section class="blk" id="s-valid"'+nw()+'><h3>Kết quả còn tin được không</h3><span class="vstate k-'+esc(vs)+'">'+esc(VALID_LABEL[vs])+'</span><p>'+esc((t.validity||{}).reason||'')+'</p>'+(t.repairs?'<p>Lượt sửa: đã dùng '+t.repairs.used+'/'+t.repairs.total+(t.repairs.left>0?', còn '+t.repairs.left:(t.owner_needed?', hết lượt':', lần kiểm tới là lần thử cuối'))+'.</p>':'')+'</section>';
+ h+='<section class="blk" id="s-next"'+nw()+'><h3>Bước tiếp theo</h3><p>'+esc(t.next)+' <span class="who">Ai làm: '+esc(t.who)+'</span></p></section>';
+ if(warn)h+='<div class="warn" role="note"'+nw()+'>'+esc(warn)+'</div>';
  h+=renderDecision(t);
- DETAIL_ORDER.forEach(function(k){if((t.detail||{})[k])h+='<details class="d" data-kind="'+k+'"><summary>'+DETAIL_TITLE[k]+'</summary>'+renderDetail(t,k)+'</details>';});
+ var dets='';DETAIL_ORDER.forEach(function(k){if((t.detail||{})[k])dets+='<details class="d" data-kind="'+k+'"><summary>'+DETAIL_TITLE[k]+'</summary>'+renderDetail(t,k)+'</details>';});
+ if(dets)h+='<div class="newgrp"'+nw()+'>'+dets+'</div>';
+ h+='<p class="oldsep">Bên dưới: các phần trang hiện có, giữ nguyên.</p>';
+ h+=renderSit(t,data)+renderNeed(t)+renderHostForTask(data,t)+renderResForTask(data,t)+renderTabs(t,data,'overview');
  return h;}
 function loadSample(text){var d=JSON.parse(text);return d;}
 
-/* DOM wiring: skipped when there is no real document (Node tests). */
+/* DOM wiring: skipped when there is no real document (Node tests). Read-only: buttons only toast, copy, switch tabs or views, or move focus. */
 function ui33Wire(){
  var el=document.getElementById('sample-data');var lp=document.getElementById('listpane');var tk=document.getElementById('task');var back=document.getElementById('back');var toast=document.getElementById('toast');
  if(!el||!lp||!tk)return;
  var data=loadSample(el.textContent);var store;try{store=window.sessionStorage;store.getItem('x');}catch(e){var mem={};store={getItem:function(k){return mem[k]||null;},setItem:function(k,v){mem[k]=v;}};}
- var rendered=null,prev=null,pushed=false,timer=null;
- function render(){var r=routeOf(location.hash);var f=r.filter;document.body.className=r.view==='task'?'view-task':'view-list';
-  if(rendered!==f){lp.innerHTML=renderList(data,f,r.id);rendered=f;}
+ var rendered=null,prev=null,pushed=false,timer=null,hl=loadHl(store),opts=loadOpts(store);
+ var tb=document.getElementById('newtoggle'),fq=document.getElementById('f-q'),fp=document.getElementById('f-proj'),fs=document.getElementById('f-stage'),ft=document.getElementById('f-time');
+ if(fp)fp.innerHTML=projectOptions(data,opts.project);if(fq)fq.value=opts.q;if(fs)fs.value=opts.stage;if(ft)ft.value=opts.time;
+ function syncTools(){if(tb)tb.setAttribute('aria-pressed',String(hl));Array.prototype.forEach.call(document.querySelectorAll('#viewsw [data-mode]'),function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-mode')===opts.mode));});}
+ function showToast(msg){toast.textContent=msg;toast.hidden=false;clearTimeout(timer);timer=setTimeout(function(){toast.hidden=true;},2600);}
+ function render(){var r=routeOf(location.hash);var f=r.filter;document.body.className=bodyClass(r,hl);
+  var key=f+'|'+JSON.stringify(opts);if(rendered!==key){lp.innerHTML=renderList(data,f,r.id,opts);rendered=key;}
   Array.prototype.forEach.call(lp.querySelectorAll('a.task'),function(a){a.classList.toggle('sel',a.getAttribute('data-id')===r.id);});
-  tk.innerHTML=r.view==='task'?renderTask(findTask(data,r.id)):'<p class="sample">'+SAMPLE_LABEL+'</p><p class="hint">Chọn một việc ở bên trái để xem đầu ra, kết quả còn tin được không và ai làm bước tiếp theo.</p>';
+  tk.innerHTML=r.view==='task'?renderTask(findTask(data,r.id),data):'<p class="sample">'+SAMPLE_LABEL+'</p><p class="hint">Chọn một việc ở bên trái để xem đầu ra, kết quả còn tin được không và ai làm bước tiếp theo.</p>';
   pushed=!!(prev&&prev.view==='list'&&r.view==='task');prev=r;
   var top=loadListState(store,f).scrollTop;window.requestAnimationFrame(function(){lp.scrollTop=top;});}
+ function setOpts(patch){Object.keys(patch).forEach(function(k){opts[k]=patch[k];});saveOpts(store,opts);syncTools();render();}
+ function goTo(id){if(!id)return;var t=document.getElementById(id);if(!t)return;var d=t.closest('details');if(d)d.open=true;t.scrollIntoView({block:'center'});}
+ function showTab(b){var wrap=b.closest('.tabwrap')||tk.querySelector('.tabwrap');if(!wrap)return;var name=b.getAttribute('data-tab');
+  Array.prototype.forEach.call(wrap.querySelectorAll('.tabs [data-tab]'),function(x){x.setAttribute('aria-selected',String(x.getAttribute('data-tab')===name));});
+  Array.prototype.forEach.call(wrap.querySelectorAll('.tabp'),function(p){p.hidden=p.getAttribute('data-panel')!==name;});if(!b.closest('.tabwrap'))wrap.scrollIntoView({block:'start'});}
+ function copyText(text){function ok(){showToast('Đã sao chép lệnh. Chưa ghi nhận quyết định.');}function bad(){showToast('Không sao chép được; chọn khối lệnh để sao chép thủ công.');}
+  try{if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).then(ok,bad);else bad();}catch(e){bad();}}
  lp.addEventListener('scroll',function(){if(lp.offsetParent!==null&&prev)saveListState(store,prev.filter,lp.scrollTop);});
- document.addEventListener('click',function(e){var b=e.target.closest?e.target.closest('[data-toast]'):null;if(!b)return;toast.textContent='Mockup: chưa ghi gì';toast.hidden=false;clearTimeout(timer);timer=setTimeout(function(){toast.hidden=true;},2200);});
+ document.addEventListener('click',function(e){var c=e.target&&e.target.closest?e.target:null;if(!c)return;var b;
+  if((b=c.closest('[data-toast]'))){showToast('Mockup: chưa ghi gì — mở mẫu lệnh để bạn tự chạy');goTo(b.getAttribute('data-goto'));return;}
+  if((b=c.closest('[data-goto]'))){goTo(b.getAttribute('data-goto'));return;}
+  if((b=c.closest('[data-copy]'))){copyText(b.getAttribute('data-copy'));return;}
+  if((b=c.closest('[data-tab]'))){showTab(b);return;}
+  if((b=c.closest('[data-mode]'))){setOpts({mode:b.getAttribute('data-mode')==='board'?'board':'list'});return;}});
+ if(tb)tb.addEventListener('click',function(){hl=!hl;saveHl(store,hl);document.body.classList.toggle('hl-new',hl);syncTools();});
+ if(fq)fq.addEventListener('input',function(){setOpts({q:fq.value});});
+ if(fp)fp.addEventListener('change',function(){setOpts({project:fp.value});});
+ if(fs)fs.addEventListener('change',function(){setOpts({stage:fs.value});});
+ if(ft)ft.addEventListener('change',function(){setOpts({time:ft.value});});
  if(back)back.addEventListener('click',function(){if(pushed)history.back();else location.hash=hrefOf({view:'list',filter:prev?prev.filter:'all'});});
  window.addEventListener('hashchange',render);
  if(!location.hash)history.replaceState(null,'','#viec');
- render();}
+ syncTools();render();}
 if(typeof document!=='undefined'&&document.getElementById){ui33Wire();}
 </script>
 </body></html>
