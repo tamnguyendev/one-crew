@@ -30,6 +30,7 @@ returned model — tasks, untracked v1 tasks, hook sessions AND the registry lis
 path, state root or id (R2 of 03/11). Registry paths are compared with the scope, and with the projects that have a plan, by that identity,
 never by string or prefix. All-projects mode lists every registry project without a plan.
 """
+import copy
 import datetime as dt
 import functools
 import json
@@ -37,6 +38,8 @@ import os
 import re
 import sqlite3
 import subprocess
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 from ..ledger import LedgerError, utcnow
@@ -154,6 +157,22 @@ def _source(state_root):
     return reader, record
 
 
+class _Joined(report._Reader):
+    """UI3 (P1 of 19/11): the read-only reader of one root that JOINS the read transaction already open (`conn`) instead of opening a second ledger
+    connection. In rollback-journal mode a second reader opened while the first holds its SHARED lock waits behind a writer's PENDING lock, while that
+    writer waits for the first one to finish: both give up and the writer (`plan advise`, `plan approve`, `verdict run`) says "database is locked".
+    Every helper a tracking read hands a reader to (estimates, measure, engine, findings, holds, evidence reuse) reads through this one connection."""
+
+    def __init__(self, state_root, project_id, project_path, conn):
+        super().__init__(state_root, project_id, project_path)
+        self._conn = conn
+
+    @contextmanager
+    def transaction(self, write=False):
+        if write: raise LedgerError('plan report/digest are read-only: they never write the ledger.')
+        yield self._conn
+
+
 def _rows(conn, project_id):
     sql = 'SELECT id, project_id, project_path, request_key, revision, payload, created_at FROM tasks'
     args = []
@@ -218,25 +237,113 @@ def row_title(request, title, limit=ROW_TITLE):
 
 def _live_views(reader, contract, state):
     """#58: the task page reads the milestones as `plan report` does (plans.views_for): each pass judged against the project as it is now, so a pass
-    the code has left reads 'cần kiểm lại' and is not counted. One observation of the project for the whole read (observed_view). When the
-    project's current artifact cannot be read, a pass of a non-manual verifier is not counted and says so (current_unknown). -> (views, current)."""
+    the code has left reads 'cần kiểm lại' and is not counted. One observation of the project for the whole read (observed_view, opened by
+    _observed around every round of the read). When the project's current artifact cannot be read, a pass of a non-manual verifier is not counted
+    and says so (current_unknown). -> (views, current). UI3: it observes the project, so it is called only with no ledger transaction open (from
+    _Observations.make, with a reader that opens its own short transactions), never from inside a read."""
     from .verifiers import artifact as identities
+    here = None
+    if state['status'] not in ('accepted', 'closed') and getattr(reader, 'project', None):
+        try: here = identities.identity(reader.project)
+        except (LedgerError, OSError, subprocess.SubprocessError, ValueError): here = None
+    elif state['status'] in ('accepted', 'closed'):
+        return plans.views_for(reader, contract, state, state['latest']), 'compared'
+    if here is None:
+        return _unknown_views(contract, state), 'unknown'
+    return plans.views_for(reader, contract, state, state['latest']), 'compared'
+
+
+def _unknown_views(contract, state):
+    """The views from the ledger alone, a pass of a non-manual verifier not counted (current_unknown): the project's artifact was not compared."""
+    views = plans.milestone_views(contract, state, state['latest'])
+    for v in views:
+        if v['state'] == 'passed' and v['verifier'] != 'owner-manual': v.update(state='pending', current_unknown=True)
+    return views
+
+
+# ---- project observations, never inside a ledger transaction (UI3, P1 of 19/11) ----------------------------------------------------------
+# A tracking read used to hash the project (artifact identity, the scoped tree of declared inputs, the evidence binding: git subprocesses) inside
+# its read transaction, so every 2 s poll of an open task page held the ledger's SHARED lock for the whole hash, and the owner's own writers
+# (plan advise / approve, verdict run) failed with "database is locked". Now a read asks _Observations for what it needs; what is not at hand is
+# noted, the read closes its transaction, the noted observations are made with no transaction open, and the read is made again (a new short
+# transaction) with them. The ledger signature of the root (_compared_sig) is part of every key: an observation is never used for another state.
+# With a reuse window (the server's polls, REUSE_SECONDS) an observation of the same root and signature younger than the window is reused and
+# shown with the time it was made; a new ledger event for the root or the end of the window makes a new one. Without one (CLI, tests) every
+# read observes the project again, as before.
+REUSE_SECONDS = 20
+OBSERVE_ROUNDS = 4
+REUSE_CAP = 512
+_reused = {}
+_reused_lock = threading.Lock()
+_ARTIFACT = re.compile(r'[0-9a-f]{40}|[0-9a-f]{64}')
+
+
+class _Need(Exception):
+    """A read that stops at the first observation it does not have (the task page): its transaction closes before the observation is made."""
+
+
+class _Observations:
+    """The project observations of ONE read (task page, overview or list page). `get` never observes: it answers from this read's observations or
+    the reuse window, else notes the need and answers None (the caller goes on with what it shows without it; a read with needs is made again)
+    or, with `stop`, raises _Need. `make` runs the noted observations; the caller calls it only after the read's transaction is closed."""
+
+    def __init__(self, now, reuse_seconds=0, *, stop=False, final=False):
+        self.now, self.reuse, self.stop, self.final = now, reuse_seconds or 0, stop, final
+        self.values, self.needs = {}, {}
+
+    def get(self, key, sig, make):
+        """('ok', value, at) | ('raise', error, at) | None; `make` is called later, outside the transaction, never here."""
+        full = (key, sig)
+        if full in self.values: return self.values[full]
+        if self.reuse > 0:
+            with _reused_lock: hit = _reused.get(key)
+            made = _at(hit['at']) if hit else None
+            if hit and hit['sig'] == sig and made and 0 <= (self.now - made).total_seconds() < self.reuse:
+                self.values[full] = ('ok', hit['value'], hit['at'])
+                return self.values[full]
+        if self.final: return None
+        self.needs[full] = make
+        if self.stop: raise _Need()
+        return None
+
+    def make(self):
+        at = _iso(self.now)
+        for full, make in list(self.needs.items()):
+            try: got = ('ok', make(), at)
+            except Exception as error: got = ('raise', error, at)        # raised again where the read uses it, as when it was made in place
+            self.values[full] = got
+            if got[0] == 'ok':
+                with _reused_lock:
+                    if full[0] not in _reused and len(_reused) >= REUSE_CAP: _reused.pop(next(iter(_reused)))
+                    _reused[full[0]] = {'sig': full[1], 'value': copy.deepcopy(got[1]), 'at': at}
+        self.needs = {}
+
+
+def _taken(got):
+    """(value, at) of an observation, a copy the read may change; an observation that failed raises its error here."""
+    status, value, at = got
+    if status == 'raise': raise value
+    return copy.deepcopy(value), at
+
+
+def _observed(read, now, reuse_seconds=0, *, stop=False):
+    """Run `read(observe)` — which opens and closes its own short ledger transaction — until it needs no observation it does not have; the needed
+    observations are made between rounds, with no ledger transaction open, under ONE observed_view (one identity of the project for the whole read).
+    A ledger that moves on between rounds makes another round; the last round observes nothing and shows what it has (current unknown)."""
+    from .verifiers import artifact as identities
+    observe = _Observations(now, reuse_seconds, stop=stop)
 
     @identities.observed_view
-    def read():
-        here = None
-        if state['status'] not in ('accepted', 'closed') and getattr(reader, 'project', None):
-            try: here = identities.identity(reader.project)
-            except (LedgerError, OSError, subprocess.SubprocessError, ValueError): here = None
-        elif state['status'] in ('accepted', 'closed'):
-            return plans.views_for(reader, contract, state, state['latest']), 'compared'
-        if here is None:
-            views = plans.milestone_views(contract, state, state['latest'])
-            for v in views:
-                if v['state'] == 'passed' and v['verifier'] != 'owner-manual': v.update(state='pending', current_unknown=True)
-            return views, 'unknown'
-        return plans.views_for(reader, contract, state, state['latest']), 'compared'
-    return read()
+    def rounds():
+        result = None
+        for number in range(OBSERVE_ROUNDS):
+            observe.final = number == OBSERVE_ROUNDS - 1
+            try: result = read(observe)
+            except _Need: result = None
+            if not observe.needs: return result
+            observe.make()
+        return result
+    return rounds()
 
 
 # UI58 MC (D4): the list does not hash every project. The task page's comparison (_live_views) is kept here, per process, keyed by the ledger's
@@ -257,17 +364,19 @@ def _compared_sig(state, events):
     return (state.get('latest'), state.get('status'), events[-1][0] if events else 0)
 
 
-def _remember_compared(state_root, row, state, events, views, current, now):
+def _remember_compared(state_root, row, state, events, views, current, at):
+    """`at`: when the comparison was made (ISO text, or a datetime)."""
     if current not in ('compared', 'unknown'): return
-    if len(_compared) >= COMPARED_CAP: _compared.pop(next(iter(_compared)))
-    import copy
-    _compared[_compared_key(state_root, row)] = {'sig': _compared_sig(state, events), 'views': copy.deepcopy(views), 'current': current, 'at': _iso(now)}
+    key = _compared_key(state_root, row)
+    with _reused_lock:
+        if key not in _compared and len(_compared) >= COMPARED_CAP: _compared.pop(next(iter(_compared)))
+        _compared[key] = {'sig': _compared_sig(state, events), 'views': copy.deepcopy(views), 'current': current,
+                          'at': at if isinstance(at, str) else _iso(at)}
 
 
 def _recall_compared(state_root, row, state, events):
-    hit = _compared.get(_compared_key(state_root, row))
+    with _reused_lock: hit = _compared.get(_compared_key(state_root, row))
     if not hit or hit['sig'] != _compared_sig(state, events): return None
-    import copy
     return copy.deepcopy(hit['views']), hit['current'], hit['at']
 
 
@@ -399,8 +508,10 @@ def _bind_actions(needs, binding):
     return needs
 
 
-def _acceptance(reader, conn, state, contract, engine_view, level):
-    """Eligibility from recorded evidence only; the owner command rechecks the live artifact."""
+def _acceptance(reader, conn, state, contract, engine_view, level, *, free=None, observe=None, key=(), sig=None):
+    """Eligibility from recorded evidence only; the owner command rechecks the live artifact. UI3: the project is observed (the scoped tree of the
+    inputs' union, the milestone views at the delivered artifact) by `observe` with no transaction open, through `free` (a reader that opens its own
+    short transactions); `reader` and `conn` are the read's own transaction. Without an observation at hand the root is not shown as ready."""
     result = {'ready': False, 'artifact': None, 'basis': 'recorded evidence; CLI rechecks current project', 'reason': None}
     if state['status'] != 'approved' or level != 'verified' or not contract: return result
     try:
@@ -418,17 +529,35 @@ def _acceptance(reader, conn, state, contract, engine_view, level):
             return result
         from . import verdict
         union = verdict.inputs_union(reader, state) if getattr(reader, 'project', None) else None
-        if union:                                   # review of dev24d (P2): milestones of different inputs are accepted on the union tree, as `verdict artifact`
-            from .verifiers import command
-            with command.leaves_no_objects():
-                artifact = command.scoped_tree(reader.project, union)
-        else:
+        recorded = None
+        if not union:
             artifacts = {(v.get('last_verdict') or {}).get('artifact_sha') for v in views}
             if len(artifacts) != 1 or not next(iter(artifacts)):
                 result['reason'] = 'Chờ bộ thực thi kiểm các mốc trên cùng bản bàn giao.'
                 return result
-            artifact = next(iter(artifacts))
-        if not isinstance(artifact, str) or not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', artifact):
+            recorded = next(iter(artifacts))
+            if not isinstance(recorded, str) or not _ARTIFACT.fullmatch(recorded):
+                result['reason'] = 'Chưa xác minh định danh bản bàn giao để nghiệm thu.'
+                return result
+        free = free or report._Reader(reader.state_root, reader.project_id, reader.project_path)
+
+        def seen():                                 # UI3: made by _Observations.make, with no ledger transaction open
+            artifact = recorded
+            if union:                               # review of dev24d (P2): milestones of different inputs are accepted on the union tree, as `verdict artifact`
+                from .verifiers import command
+                with command.leaves_no_objects():
+                    artifact = command.scoped_tree(free.project, union)
+            if not isinstance(artifact, str) or not _ARTIFACT.fullmatch(artifact): return {'artifact': artifact, 'views': None}
+            # with a union the inputs are judged on the working files (the tree of their union, which the owner command makes again; not written here)
+            return {'artifact': artifact, 'views': plans.milestone_views(contract, state, state['latest'], free, artifact=None if union else artifact,
+                                                                         recorded_environment=True)}
+        got = observe.get(('acceptance',) + tuple(key) + (tuple(union or ()), recorded), sig, seen) if observe is not None else None
+        if got is None:
+            result['reason'] = 'Chưa xác minh đủ bằng chứng nghiệm thu; cần kiểm lại mốc và bàn giao.'
+            return result
+        observed, _ = _taken(got)
+        artifact = observed['artifact']
+        if not isinstance(artifact, str) or not _ARTIFACT.fullmatch(artifact):
             result['reason'] = 'Chưa xác minh định danh bản bàn giao để nghiệm thu.'
             return result
         if engine_view is not None:
@@ -437,8 +566,7 @@ def _acceptance(reader, conn, state, contract, engine_view, level):
             if not proof or proof.get('delivered_artifact') != artifact:
                 result['reason'] = 'Chờ bộ thực thi hoàn tất kiểm tích hợp và bằng chứng bàn giao; chưa đến bước nghiệm thu.'
                 return result
-        # with a union the inputs are judged on the working files (the tree of their union, which the owner command makes again; not written here)
-        views = plans.milestone_views(contract, state, state['latest'], reader, artifact=None if union else artifact, conn=conn, recorded_environment=True)
+        views = observed['views']
         result['views'] = views                     # review of dev24d (P3): the milestone rows show this live view, not the ledger-only one
         if any(v['state'] != 'passed' or v.get('stale') for v in views):
             result['reason'] = 'Chờ bộ thực thi kiểm lại bằng chứng các mốc của bản bàn giao.'
@@ -1073,8 +1201,13 @@ def _inherited(node, gen, attempt, started_seq, resumed, attempt_node, view=None
     return []
 
 
-def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
-    rd = report._Reader(reader.state_root, row['project_id'], row['project_path'])
+def _item(reader, conn, row, now, *, full=False, timeline_limit=200, observe=None):
+    """One root, read inside the caller's transaction `conn`. UI3: nothing here observes the project or opens a second ledger connection: `rd`
+    joins `conn`, and the comparisons with the project come from `observe` (made by _observed between rounds, with no transaction open, through
+    `free`). Without `observe` nothing is compared (current unknown)."""
+    rd = _Joined(reader.state_root, row['project_id'], row['project_path'], conn)
+    free = report._Reader(reader.state_root, row['project_id'], row['project_path'])
+    if observe is None: observe = _Observations(now, final=True)
     state = plans.derive(rd, conn, row['request_key'])
     payload = json.loads(row['payload'])
     events = _events(conn, row['id'])
@@ -1092,12 +1225,16 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
         except (LedgerError, OSError, ValueError, KeyError) as error:
             engine_error = clean(str(error), 200)
     views, current, compared_at = [], None, None
+    root_key, sig = _compared_key(reader.state_root, row), _compared_sig(state, events)
     if contract and not engine_root:
         try:
             if full:
-                views, current = _live_views(rd, contract, state)
-                compared_at = _iso(now)
-                _remember_compared(reader.state_root, row, state, events, views, current, now)
+                got = observe.get(('live',) + root_key, sig, lambda: _live_views(free, contract, state))
+                if got is None:                     # not at hand in this read: what the page shows when the project could not be compared
+                    views, current = _unknown_views(contract, state), 'unknown'
+                else:
+                    (views, current), compared_at = _taken(got)
+                    _remember_compared(reader.state_root, row, state, events, views, current, compared_at)
             else:
                 recalled = _recall_compared(reader.state_root, row, state, events)     # D4: the task page's last comparison, never a new hash
                 if recalled: views, current, compared_at = recalled
@@ -1119,7 +1256,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     # R7-2: work has begun once a node started, an attempt exists or a milestone check ran or was recorded (a failed one included, any
     # revision). A milestone-only root never writes node.started. Started is not progress toward acceptance: acceptance keeps its own rule.
     has_started = first_started is not None or bool(attempts) or bool(state.get('verdicts')) or bool(runs)
-    acceptance = _acceptance(rd, conn, state, contract, engine_view, level)
+    acceptance = _acceptance(rd, conn, state, contract, engine_view, level, free=free, observe=observe, key=root_key, sig=sig)
     live = acceptance.pop('views', None)
     if live is not None and not engine_root:
         views = live
@@ -1357,10 +1494,11 @@ def _untracked(conn, rows, state_root, projects_seen, children=frozenset(), *, p
 
 # ---- public -------------------------------------------------------------------------------------------------------------------------
 
-def overview(state_root, *, project_id=None, now=None):
+def overview(state_root, *, project_id=None, now=None, reuse_seconds=0):
     """The list: every plan root of the state root (or of one project), grouped by project, with its sourced status; plus what is not tracked.
-    A project scope covers the whole model (untracked registry included); everything returned passed the outbound guard."""
-    return outward(_overview(state_root, project_id=project_id, now=now))
+    A project scope covers the whole model (untracked registry included); everything returned passed the outbound guard. `reuse_seconds` (the
+    server's polls): a project observation of a root whose ledger is unchanged is reused for that long (UI3)."""
+    return outward(_overview(state_root, project_id=project_id, now=now, reuse_seconds=reuse_seconds))
 
 
 def _overview_shell(state_root, now, source):
@@ -1386,11 +1524,16 @@ def _unreadable(row, error):
             'read_only': True}
 
 
-def _overview(state_root, *, project_id=None, now=None):
+def _overview(state_root, *, project_id=None, now=None, reuse_seconds=0):
     now = _now(now)
     reader, source = _source(state_root)
+    if source['status'] != 'ok': return _overview_shell(state_root, now, source)
+    return _observed(lambda observe: _overview_read(state_root, reader, dict(source), project_id, now, observe), now, reuse_seconds)
+
+
+def _overview_read(state_root, reader, source, project_id, now, observe):
+    """One round of the overview: one short read transaction; the project observations it needs are made by _observed after it closes (UI3)."""
     result = _overview_shell(state_root, now, source)
-    if source['status'] != 'ok': return result
     try:
         with reader.transaction() as conn:
             if conn is None:
@@ -1403,7 +1546,7 @@ def _overview(state_root, *, project_id=None, now=None):
                 if not row['request_key'].startswith((namespaces.LEGACY, namespaces.NAMESPACED)): continue
                 children |= {r[0] for r in conn.execute("SELECT json_extract(payload,'$.child') FROM events WHERE task_id=? AND kind='node.started'", (row['id'],)) if r[0]}
                 try:
-                    item = _item(reader, conn, row, now)
+                    item = _item(reader, conn, row, now, observe=observe)
                 except (LedgerError, OSError, ValueError, KeyError, TypeError) as error:
                     item = _unreadable(row, error)
                 projects.setdefault(row['project_path'], []).append(item)
@@ -1433,23 +1576,27 @@ def _find(conn, reader, selector, project_id):
     return rows[0]
 
 
-def detail(state_root, selector, *, project_id=None, now=None, timeline_limit=200):
+def detail(state_root, selector, *, project_id=None, now=None, timeline_limit=200, reuse_seconds=0):
     """One root in full: nodes, attempts, requests, waits, notices, measured spans (union), ETA or unknown, holds, timeline, evidence keys.
-    Everything returned passed the outbound guard."""
-    return outward(_detail(state_root, selector, project_id=project_id, now=now, timeline_limit=timeline_limit))
+    Everything returned passed the outbound guard. `reuse_seconds` (the server's 2 s polls): the comparison with the project is reused while the
+    root's ledger is unchanged and it is younger than that, shown with its own time (compared_at); 0 (CLI, tests): compared on every read (UI3)."""
+    return outward(_detail(state_root, selector, project_id=project_id, now=now, timeline_limit=timeline_limit, reuse_seconds=reuse_seconds))
 
 
-def _detail(state_root, selector, *, project_id=None, now=None, timeline_limit=200):
+def _detail(state_root, selector, *, project_id=None, now=None, timeline_limit=200, reuse_seconds=0):
     now = _now(now)
     reader, source = _source(state_root)
     if source['status'] != 'ok': raise LedgerError(source['detail'])
-    with reader.transaction() as conn:
-        if conn is None: raise LedgerError('Sổ không mở được.')
-        row = _find(conn, reader, selector, project_id)
-        item = _item(reader, conn, row, now, full=True, timeline_limit=timeline_limit)
-        item.update(kind='onecrew-tracking-detail', version=VERSION, generated_at=_iso(now), state_root=str(reader.state_root), controls=CONTROLS,
-                    source=dict(source, last_seq=conn.execute('SELECT COALESCE(MAX(seq),0) FROM events').fetchone()[0]))
-        return item
+
+    def read(observe):          # UI3: a short read transaction per round; it stops at the first observation it lacks, made after it closes
+        with reader.transaction() as conn:
+            if conn is None: raise LedgerError('Sổ không mở được.')
+            row = _find(conn, reader, selector, project_id)
+            item = _item(reader, conn, row, now, full=True, timeline_limit=timeline_limit, observe=observe)
+            item.update(kind='onecrew-tracking-detail', version=VERSION, generated_at=_iso(now), state_root=str(reader.state_root), controls=CONTROLS,
+                        source=dict(source, last_seq=conn.execute('SELECT COALESCE(MAX(seq),0) FROM events').fetchone()[0]))
+            return item
+    return _observed(read, now, reuse_seconds, stop=True)
 
 
 def _names(conn, root_id, key):

@@ -241,7 +241,7 @@ def _index(reader, conn, roots):
                  'project': row['project_path'], 'project_id': row['project_id'], 'pending': pending.get(row['id'], 0), 'error': None}
         try:
             key = (row['project_id'], row['project_path'])
-            rd = readers.get(key) or readers.setdefault(key, report._Reader(reader.state_root, row['project_id'], row['project_path']))
+            rd = readers.get(key) or readers.setdefault(key, tracking._Joined(reader.state_root, row['project_id'], row['project_path'], conn))   # UI3: never a second connection
             state = plans.derive(rd, conn, row['request_key'])
             try: contract, error = plans.load(rd, state, state['latest'])[0], None
             except (LedgerError, OSError, ValueError) as e: contract, error = None, tracking.clean(str(e), 160)
@@ -340,17 +340,24 @@ def _public(entry):
 
 # ---- public ----------------------------------------------------------------------------------------------------------------------------------
 
-def page(state_root, query=None, *, project_id=None, now=None):
+def page(state_root, query=None, *, project_id=None, now=None, reuse_seconds=0):
     """The overview model of one list request (tracking.overview's shape: `projects` hold the rows of the scan region only) plus `list`: order,
-    coverage, filters, counts, the next cursor and the roots outside the region that wait for the owner. Passed through the outbound guard."""
+    coverage, filters, counts, the next cursor and the roots outside the region that wait for the owner. Passed through the outbound guard.
+    `reuse_seconds` (the server's polls): a project observation of a root whose ledger is unchanged is reused for that long (UI3)."""
     from .tracking import outward
-    return outward(_page(state_root, params(query), project_id=project_id, now=now))
+    return outward(_page(state_root, params(query), project_id=project_id, now=now, reuse_seconds=reuse_seconds))
 
 
-def _page(state_root, f, *, project_id=None, now=None):
+def _page(state_root, f, *, project_id=None, now=None, reuse_seconds=0):
+    """UI3: each round is one short read transaction; the project observations a round needs are made after it closes (tracking._observed)."""
     from . import tracking
     now = tracking._now(now)
     reader, source = tracking._source(state_root)
+    return tracking._observed(lambda observe: _page_read(state_root, f, reader, dict(source), project_id, now, observe), now, reuse_seconds)
+
+
+def _page_read(state_root, f, reader, source, project_id, now, observe):
+    from . import tracking
     listed = {'order': 'created_seq_desc', 'order_basis': ORDER_BASIS, 'total': 0, 'matched': 0, 'matched_exact': True, 'scanned': 0, 'shown': 0,
               'remaining': 0, 'floor': 0, 'next_cursor': None, 'complete': True, 'limit': f['limit'], 'as_of_seq': None,
               'filters': {k: (tracking._iso(v) if isinstance(v, dt.datetime) else v) for k, v in f.items()},
@@ -386,7 +393,7 @@ def _page(state_root, f, *, project_id=None, now=None):
             wanted = f['limit'] if floor is None else f['more']
             items, scanned, found, bottom = [], 0, 0, floor
             def read(entry):
-                try: item = tracking._item(reader, conn, entry['row'], now)
+                try: item = tracking._item(reader, conn, entry['row'], now, observe=observe)
                 except (LedgerError, OSError, ValueError, KeyError, TypeError) as error: item = tracking._unreadable(entry['row'], error)
                 item['list'] = _public(entry)
                 return item

@@ -175,9 +175,9 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
                     if any(k in q for k in tracking_list.LIST_KEYS):          # OBS-2C: one page of the list (stable order, filters on the ledger)
                         try: tracking_list.params(q)
                         except ValueError as error: return self._send(HTTPStatus.BAD_REQUEST, {'error': str(error), 'read_only': True})
-                        value = tracking_list.page(state_root, q, project_id=scope)
+                        value = tracking_list.page(state_root, q, project_id=scope, reuse_seconds=tracking.REUSE_SECONDS)   # UI3: one project observation per window per root
                     else:
-                        value = tracking.overview(state_root, project_id=scope)
+                        value = tracking.overview(state_root, project_id=scope, reuse_seconds=tracking.REUSE_SECONDS)
                     stats['last_read_ms'] = round((time.perf_counter() - started) * 1000, 1)
                     tracking_host_web.attach(value, state_root)                        # DEV31: host background work + machine leases, read-only, in the same JSON the page reads
                     value['server'] = {'pid': os.getpid(), 'instance': identity['instance'], 'version': identity['version'], 'read_ms': stats['last_read_ms'],
@@ -188,7 +188,7 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
                     limit = int(q.get('timeline') or 200)
                     if not 1 <= limit <= 5000: return self._send(HTTPStatus.BAD_REQUEST, {'error': 'timeline: 1-5000'})
                     started = time.perf_counter()
-                    value = tracking.detail(state_root, q['plan'], project_id=scope, timeline_limit=limit)
+                    value = tracking.detail(state_root, q['plan'], project_id=scope, timeline_limit=limit, reuse_seconds=tracking.REUSE_SECONDS)
                     value['server'] = {'pid': os.getpid(), 'instance': identity['instance'], 'read_ms': round((time.perf_counter() - started) * 1000, 1), 'poll_seconds': interval}
                     return self._send(HTTPStatus.OK, value)
                 if url.path == '/api/evidence':
