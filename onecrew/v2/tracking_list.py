@@ -252,7 +252,12 @@ def _index(reader, conn, roots):
             shown = (contract or {}).get('presentation') or {}
             o = origin(state, contract, error)
             payload = json.loads(row['payload']) if row.get('payload') else {}
-            entry.update(plan=state['name'], status=status, contract_error=error, origin=o,
+            mine = None             # UI58 MC: a root whose next step is the owner's own check of an owner-manual milestone also waits for the owner
+            if contract and status == 'approved' and not namespaces.has_capability(state, 'sequential-engine'):
+                from .tracking_situation import owner_try
+                try: mine = owner_try(plans.milestone_views(contract, state, state['latest']))
+                except (LedgerError, OSError, ValueError, KeyError, TypeError): mine = None     # the row itself is still read in full when shown
+            entry.update(plan=state['name'], status=status, contract_error=error, origin=o, owner_try=mine['id'] if mine else None,
                          ended=({'kind': end_kind, 'accepted': end_kind == 'accepted', 'at': (ends.get(row['id']) or {}).get('plan.' + end_kind)} if end_kind else None),
                          links={'repairs': len(rounds), 'children': len(kids), 'spawned': len(rounds) + len(kids)},
                          text=_text(state['name'], row['id'], (contract or {}).get('title'), ((contract or {}).get('understanding') or {}).get('restated_goal'),
@@ -402,12 +407,13 @@ def _page(state_root, f, *, project_id=None, now=None):
                           floor=bottom if left else 0, next_cursor=bottom if left else None,
                           matched_exact=stage is None or not left, stage_matched=len(items) if stage else None)
             if stage and not left: listed['matched'] = len(items)
-            outside = [e for e in entries if left and e['seq'] < bottom and (e['status'] in ('proposed', 'stopped_with_report') or e['pending'])]
+            outside = [e for e in entries if left and e['seq'] < bottom and (e['status'] in ('proposed', 'stopped_with_report') or e['pending'] or e.get('owner_try'))]
             listed['attention_outside'] = {'count': len(outside), 'items': [
                 {'plan': e['plan'], 'id': e['id'], 'project': e['project'], 'project_id': e['project_id'],
-                 'why': 'chờ bạn trả lời ' + str(e['pending']) + ' câu hỏi' if e['pending'] else 'chờ bạn duyệt' if e['status'] == 'proposed' else 'dừng có báo cáo, chờ bạn quyết định'}
+                 'why': 'chờ bạn trả lời ' + str(e['pending']) + ' câu hỏi' if e['pending'] else 'chờ bạn duyệt' if e['status'] == 'proposed'
+                        else 'dừng có báo cáo, chờ bạn quyết định' if e['status'] == 'stopped_with_report' else 'chờ bạn thử và ghi kết quả mốc ' + str(e['owner_try'])}
                 for e in outside[:10]],
-                'note': 'việc cũ hơn phần đã tải đang chờ bạn (theo sổ: chờ duyệt, câu hỏi chưa trả lời, dừng có báo cáo); chọn lọc "Cần bạn quyết định" để đọc đủ'}
+                'note': 'việc cũ hơn phần đã tải đang chờ bạn (theo sổ: chờ duyệt, câu hỏi chưa trả lời, dừng có báo cáo, mốc chờ bạn tự thử); chọn lọc "Cần bạn quyết định" để đọc đủ'}
             projects = {}
             for item in items: projects.setdefault(item['project'], []).append(item)
             result['projects'] = [{'path': path, 'tasks': group} for path, group in projects.items()]

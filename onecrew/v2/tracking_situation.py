@@ -28,7 +28,7 @@ NOTHING_RUNS = 'Không có lượt chạy hay lần kiểm nào đang diễn ra 
 MILESTONE_STATES = {'passed': 'Đạt', 'failed': 'Không đạt', 'recheck': 'Cần kiểm lại', 'checking': 'Đang kiểm', 'pending': 'Chưa kiểm',
                     'stopped': 'Đã dừng', 'inconclusive': 'Chưa kết luận', 'unknown': 'Chưa xác định bản hiện tại'}
 # #58: the words of a stage that says more than its column (the stage key stays one of STAGES, so filters and lanes do not change)
-LABELS = {'inconclusive': 'Chưa kết luận', 'recheck': 'Cần kiểm lại', 'unknown': 'Chưa xác định bản hiện tại'}
+LABELS = {'inconclusive': 'Chưa kết luận', 'recheck': 'Cần kiểm lại', 'unknown': 'Chưa xác định bản hiện tại', 'owner_try': 'Chờ bạn thử và nghiệm thu'}
 CURRENT_UNKNOWN = 'Chưa xác định bản hiện tại của dự án (không đọc được thư mục dự án), nên lần đạt này chưa được tính'
 STOP_WORDS = (('max_repairs_total exceeded', 'đã dùng hết tổng số lượt sửa của cả việc'), ('max_repairs exceeded', 'đã dùng hết lượt sửa mà vẫn không đạt'),
               ('max_stuck reached', 'không đạt nhiều lần liên tiếp trên cùng một bản'))
@@ -55,6 +55,23 @@ def _iso(value):
 def _names(ids):
     ids = [str(i) for i in ids if i]
     return ', '.join(ids[:4]) + (f' và {len(ids) - 4} mốc khác' if len(ids) > 4 else '')
+
+
+def owner_try(views):
+    """UI58 MC (regression of 19/11): the milestone the OWNER must try now, as `plan report` reads it (report._needs / _standing: the first milestone
+    not passed is pending with an owner-manual verifier -> 'nghiệm thu', 'chủ sở hữu'). Every milestone before it passed and still counts (no
+    recheck, no stale pass, no pass that could not be compared). Milestone roots only: an engine root names its next step itself. -> view or None."""
+    for v in views or []:
+        clean = not (v.get('stale') or v.get('needs_recheck') or v.get('current_unknown'))
+        if v.get('state') == 'passed' and clean: continue
+        return v if v.get('state') == 'pending' and v.get('verifier') == 'owner-manual' and clean else None
+    return None
+
+
+def owner_try_step(view):
+    """The owner's step for `owner_try(...)`, one sentence (the same words on the list row, the task page and the "Cần bạn" item)."""
+    title = ' '.join(str(view.get('title') or '').split())[:120]
+    return 'Bạn thử và ghi kết quả mốc ' + str(view['id']) + (': ' + title if title else '')
 
 
 def _who(pin):
@@ -204,6 +221,11 @@ def _plain(views, rows, acceptance, level, has_started):
     if unknown:
         return 'unknown', 'Mốc ' + _names(unknown) + ': ' + CURRENT_UNKNOWN, \
             'Mở lại khi đọc được thư mục dự án, hoặc kiểm lại mốc ' + _names(unknown), None, None, LABELS['unknown']
+    mine = owner_try(views)
+    if mine is not None:          # UI58 MC: an owner-manual milestone is the owner's to try and record, never AI work ("chưa rõ ai làm")
+        before = [v['id'] for v in views[:views.index(mine)]]
+        return 'accept', ('Các mốc ' + _names(before) + ' đã đạt; mốc ' if before else 'Mốc ') + str(mine['id']) \
+            + ' do bạn tự thử và ghi kết quả (bộ kiểm OneCrew không kiểm mốc này), rồi bạn nghiệm thu', owner_try_step(mine), OWNER, 'owner', LABELS['owner_try']
     plain = _plain_rest(views, left, acceptance, level, has_started)
     return plain + (None,)
 
@@ -258,7 +280,7 @@ def situation(*, state, views, checks, engine_view, attempts, active, requests, 
         stage, reason, next_text, by_text, by, label = _plain(views, rows, acceptance, level, has_started)
     else:
         stage, reason = 'unknown', status_reason or 'Hợp đồng không đọc được; không suy được trạng thái'
-    owner_needs = [n for n in (needs or []) if n.get('kind') in ('approve', 'request', 'accept', 'stopped')]
+    owner_needs = [n for n in (needs or []) if n.get('kind') in ('approve', 'request', 'accept', 'stopped', 'owner_try')]
     if owner_needs:
         n = owner_needs[0]
         by, by_text = 'owner', OWNER
@@ -266,7 +288,8 @@ def situation(*, state, views, checks, engine_view, attempts, active, requests, 
             next_text = OWNER_STEPS['owner_decision']          # #58: the stop question the verifier writes is in English; the decision in the owner's words
         else:
             next_text = n.get('owner_ask') or {'approve': 'Duyệt hoặc yêu cầu sửa kế hoạch', 'accept': 'Nghiệm thu hoặc nêu điều chưa đạt',
-                                              'stopped': 'Quyết định sau khi dừng', 'request': 'Trả lời câu hỏi'}[n['kind']] \
+                                              'stopped': 'Quyết định sau khi dừng', 'request': 'Trả lời câu hỏi',
+                                              'owner_try': 'Bạn thử và ghi kết quả mốc chờ bạn'}[n['kind']] \
                 + (': ' + str(n.get('question'))[:140] if n['kind'] == 'request' and n.get('question') else '')
         src.append('needs_user:' + n['kind'])
     if stage in ('done', 'closed'): next_text, by, by_text = None, None, None

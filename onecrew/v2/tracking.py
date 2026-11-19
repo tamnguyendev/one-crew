@@ -198,6 +198,24 @@ def short_title(title, limit=64):
     return (head[:cut] if cut > 0 else head).rstrip(' ,;:—-(') + '…'
 
 
+ROW_TITLE = 80
+
+
+def row_title(request, title, limit=ROW_TITLE):
+    """UI58 MC (regression of 19/11): the list row's short name. The first sentence of the owner's request (presentation.request), cut on a word
+    boundary with '…' when longer than `limit`; without a request, short_title of the contract title. The full request stays on the task page
+    ("Việc này làm gì"), in the row's title attribute and accessible name, and in the search text."""
+    text = ' '.join(str(request or '').split())
+    if not text: return short_title(title)
+    end = re.search(r'[.!?…](?=\s|$)', text)
+    first = text[:end.start() + 1] if end else text
+    if first.endswith('.') and not first.endswith('..'): first = first[:-1]
+    if len(first) <= limit: return first
+    head = first[:limit - 1]
+    cut = head.rfind(' ')
+    return (head[:cut] if cut > limit * 0.5 else head).rstrip(' ,;:—-(') + '…'
+
+
 def _live_views(reader, contract, state):
     """#58: the task page reads the milestones as `plan report` does (plans.views_for): each pass judged against the project as it is now, so a pass
     the code has left reads 'cần kiểm lại' and is not counted. One observation of the project for the whole read (observed_view). When the
@@ -331,6 +349,9 @@ def _waits(events, attempts):
 
 REFERENCE_PLACEHOLDER = '<lý do hoặc bằng chứng của bạn>'
 REPLY_SHELL = 'PowerShell'
+# UI58 MC: the tracking page builds no template for the owner's own result of a milestone; the command is in the plan's handover
+OWNER_TRY_NOTE = ('Trang chưa có mẫu lệnh cho bước này. Lệnh ghi kết quả của bạn nằm trong phần bàn giao của kế hoạch (tin "Xin nghiệm thu"); '
+                  'lệnh chỉ xem bên dưới in lại các mốc và cách nghiệm thu. Ghi kết quả đạt cho mốc này rồi mới đến bước nghiệm thu.')
 
 
 def _quote(value):
@@ -368,7 +389,7 @@ def _runtime_binding(project, state_root):
 def _bind_actions(needs, binding):
     for need in needs:
         need['runtime_binding'] = binding
-        if binding['verified']: continue
+        if binding['verified'] or need.get('kind') == 'owner_try': continue     # owner_try carries no template: its note stays the handover one
         for entry in [need, *need.get('options', [])]:
             entry['human_command'] = entry['reply_command'] = None
             entry['binding_reason'] = binding['reason']
@@ -517,6 +538,23 @@ def _needs_user(state, requests, views, level, engine_view, project=None, state_
                           'action': _action(template, {'task': state.get('task_id'), 'selector': selector,
                                                        'revision': revision, 'artifact_sha': artifact}, ['reference'] if template else [], note=why),
                           'source': ['milestone.passed' if views else 'node.verification:pass']})
+    elif state['status'] == 'approved' and engine_view is None and not namespaces.has_capability(state, 'sequential-engine'):
+        from .tracking_situation import owner_try, owner_try_step
+        mine = owner_try(views)
+        if mine is not None:     # UI58 MC: the owner-manual milestone waits for the owner (plan report: "Cần bạn làm: nghiệm thu"); no command is invented
+            owner = _owner_view(contract)
+            ask = owner_try_step(mine)
+            needs.append({'kind': 'owner_try', 'owner_ask': ask, 'id': state.get('task_id'), 'revision': state['latest'], 'milestone': mine['id'],
+                          'milestone_title': clean(mine.get('title'), 200),
+                          'question': ask + '; khi đạt, bạn nghiệm thu việc (mốc này do bạn tự kiểm, bộ kiểm OneCrew không chạy nó)',
+                          'source_kind': 'owner_manual', 'source_label': 'Mốc chờ bạn tự thử và ghi kết quả',
+                          'steps': owner['acceptance_steps'] if owner['present'] else [],
+                          'reply_command': None, 'human_command': None, 'placeholders': [], 'reply_shell': REPLY_SHELL,
+                          'binding_reason': OWNER_TRY_NOTE, 'note': OWNER_TRY_NOTE,
+                          'inspect_command': f'{prefix} plan report {_quote(selector)}' if complete and selector else None,
+                          'action': _action(None, {'task': state.get('task_id'), 'selector': selector, 'revision': state['latest'], 'milestone': mine['id']},
+                                            note=OWNER_TRY_NOTE),
+                          'source': ['milestone.pending:' + str(mine['id']), 'verifier:owner-manual']})
     return _bind_actions(needs, _runtime_binding(project, state_root))
 
 
@@ -608,6 +646,11 @@ def _status(state, engine_view, attempts, progress, waits, requests, views, veri
             return 'waiting', 'chờ bước tiếp theo cho ' + ', '.join(pending_nodes), ['engine.state']
         return 'unknown', 'không có node đang chạy, bị giữ hay chờ; không suy được từ sổ', ['engine.state']
     if views:
+        from .tracking_situation import owner_try
+        mine = owner_try(views)
+        if mine is not None:        # UI58 MC: the owner's own check of an owner-manual milestone, then acceptance (plan report: "nghiệm thu")
+            return 'waiting', f"chờ chủ sở hữu tự thử và ghi kết quả mốc {mine['id']}, rồi nghiệm thu (root không có engine: chỉ theo dõi mốc)", \
+                ['plan.approved', 'milestone.pending:' + str(mine['id'])]
         # R7-2: a milestone whose latest verdict on this revision failed is checked-and-not-passed, not "waiting for a verdict".
         failed = [v['id'] for v in views if v['state'] == 'failed']
         left = [v['id'] for v in views if v['state'] not in ('passed', 'failed')]
@@ -1124,6 +1167,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
             'goal': _goal(contract, payload), 'title': clean(payload.get('title'), 200), 'owner_view': _owner_view(contract), 'contract_revision': state['latest'],
             'headline': clean((contract or {}).get('title'), 200),     # mep6: the owner's line for the card; the AI's restated goal stays in 'goal'
             'short_title': short_title((contract or {}).get('title') or payload.get('title')),     # #58: the card's line; the full title stays in 'headline'
+            'row_title': row_title(_owner_view(contract)['request'], (contract or {}).get('title') or payload.get('title')),   # UI58 MC: the row's one-line name
             'validity': tracking_situation.validity(state, views, (checks or {}).get('rows'), engine_view, current, as_of=compared_at, reused=not full),
             'compared': current,
             'compared_at': compared_at,          # UI58 MC: when the views were compared with the project (the list: the task page's last comparison, or None)

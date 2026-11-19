@@ -154,8 +154,13 @@ function statusLine(t){var s=sit(t),vn=validityNote(t),needs=(t.needs_user||[]).
     +(s.next?' <span class="who1">· '+esc(whoShort(t))+'</span>':'')+'</span>'}
 function scopeProjects(){var L=(typeof last!=='undefined'&&last)?last:null;if(!L)return 0;var ps=(L.list&&L.list.projects)||L.projects||[];return ps.length}
 function showProject(){var p=typeof document!=='undefined'&&document.querySelector?document.querySelector('#proj'):null;return !(p&&p.value)&&scopeProjects()>1}
+// UI58 MC (regression of 19/11): the row shows a short name (the model's row_title: the first sentence of the owner's request, clipped); the full
+// text is the row's title attribute and accessible name, the task page's "Việc này làm gì", and what the search reads.
+function rowName(t){return t.row_title||workTitle(t)}
+function rowLabel(t){var s=sit(t),vn=validityNote(t),needs=(t.needs_user||[]).length;
+  return workTitle(t)+'. '+(needs?'Cần bạn. ':'')+(s.label||'Chưa xác định')+(vn?' ('+vn+')':'')+' → '+(s.next||(s.stage==='done'||s.stage==='closed'?'Không còn bước tiếp theo':'Chưa biết bước tiếp theo'))+(s.next?' · '+whoShort(t):'')}
 function workItem(t){var s=sit(t),needs=(t.needs_user||[]).length,lu=t.last_update,proj=showProject();
-  return '<div class="c-title"><span class="ttl">'+esc(workTitle(t))+'</span><span class="c-line">'+statusLine(t)+'</span><span class="sub">'+orgBadge(t.origin)+linksText(t)+(workNoOwner(t)?(t.origin||linksText(t)?' · ':'')+'<span class="name">'+esc(t.plan)+'</span> · '+workNoOwner(t):'')+(proj?((t.origin||linksText(t)||workNoOwner(t))?' · ':'')+'<span class="r3 mut proj" data-project-shown="1" title="'+esc(t.project)+'">'+esc(short(t.project))+'</span>':'')+'</span>'+(workDesc(t)?'<span class="c-desc">'+esc(workDesc(t))+'</span>':'')+'</div>'
+  return '<div class="c-title"><span class="ttl" title="'+esc(workTitle(t))+'">'+esc(rowName(t))+'</span><span class="c-line">'+statusLine(t)+'</span><span class="sub">'+orgBadge(t.origin)+linksText(t)+(workNoOwner(t)?(t.origin||linksText(t)?' · ':'')+'<span class="name">'+esc(t.plan)+'</span> · '+workNoOwner(t):'')+(proj?((t.origin||linksText(t)||workNoOwner(t))?' · ':'')+'<span class="r3 mut proj" data-project-shown="1" title="'+esc(t.project)+'">'+esc(short(t.project))+'</span>':'')+'</span>'+(workDesc(t)?'<span class="c-desc">'+esc(workDesc(t))+'</span>':'')+'</div>'
     +'<div class="c-state">'+workBadge(t)+'<span class="why">'+esc(workReason(t))+'</span></div>'
     +'<div class="c-next">'+(needs?'<span class="needb">Cần bạn</span> ':'')+'<span class="nx">'+esc(s.next||'Không còn bước tiếp theo')+'</span>'+(s.next?'<span class="who">Người xử lý: '+esc(workWho(t))+'</span>':'')+'</div>'
     +'<div class="c-res"><span class="lbl">Kết quả: </span>'+esc(workResult(t))+'</div>'
