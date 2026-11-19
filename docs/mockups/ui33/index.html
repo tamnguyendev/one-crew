@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup trang Công việc</title>
+<style>
+:root{--bg:#f4f6f8;--fg:#1c2230;--mut:#5b6572;--card:#fff;--line:#dde2e9;--run:#1d6fd6;--wait:#a86a0a;--blk:#c0392b;--acc:#2f855a;--need:#fff4cc;--needfg:#5c4400;--sel:#e8f0fb;--focus:#1d6fd6;--warnbg:#fde8d4;--warnfg:#7a3300;--okbg:#e6f4ea;--okfg:#1e4620;--badbg:#fde2e2;--badfg:#7a1f1f}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#12161d;--fg:#e6e9ef;--mut:#9aa4b2;--card:#1a2029;--line:#2b3442;--need:#3b3415;--needfg:#ffe9a8;--sel:#1f2d44;--focus:#79b0ff;--warnbg:#47280f;--warnfg:#ffd2a8;--okbg:#17321c;--okfg:#b6e4bd;--badbg:#4a1d1d;--badfg:#ffc9c9;color-scheme:dark}}
+:root[data-theme=dark]{--bg:#12161d;--fg:#e6e9ef;--mut:#9aa4b2;--card:#1a2029;--line:#2b3442;--need:#3b3415;--needfg:#ffe9a8;--sel:#1f2d44;--focus:#79b0ff;--warnbg:#47280f;--warnfg:#ffd2a8;--okbg:#17321c;--okfg:#b6e4bd;--badbg:#4a1d1d;--badfg:#ffc9c9;color-scheme:dark}
+*{box-sizing:border-box}html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,"Segoe UI",sans-serif;min-width:0;display:flex;flex-direction:column;overflow-wrap:anywhere}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+header{padding:8px 16px;border-bottom:1px solid var(--line);background:var(--card)}
+h1{font-size:16px;margin:0}
+.sample{display:inline-block;margin:4px 0 0;padding:2px 8px;border-radius:12px;font-size:12px;background:var(--need);color:var(--needfg);border:1px solid var(--line);max-width:100%}
+button,a.btn{font:inherit;padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);max-width:100%;min-width:0;cursor:pointer;text-align:left}
+main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,380px) minmax(0,1fr)}
+.pane{overflow:auto;min-height:0;min-width:0;padding:12px 16px}
+#listpane{border-right:1px solid var(--line)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.chip{font-size:12px;padding:3px 10px;border-radius:14px;border:1px solid var(--line);background:var(--card);color:var(--fg);text-decoration:none}
+.chip[aria-current=true]{background:var(--sel);border-color:var(--run);font-weight:600}
+.grp{margin:12px 0 6px;font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+.needb{display:inline-block;background:var(--need);color:var(--needfg);font-weight:600;padding:1px 8px;border-radius:10px;font-size:12px;text-transform:none;letter-spacing:0}
+a.task{display:block;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:0 0 8px;color:inherit;text-decoration:none}
+a.task.need{border-left:4px solid var(--wait)}
+a.task.sel{background:var(--sel);border-color:var(--run)}
+.tname{font-weight:600;display:block}.proj{display:block;font-size:12px;color:var(--mut)}
+.sline{display:block;font-size:13px;margin-top:2px}
+.k-need,.k-recheck,.k-inconclusive{color:var(--needfg)}.k-fail{color:var(--blk)}.k-valid{color:var(--acc)}.k-running,.k-waiting{color:var(--run)}.k-unknown{color:var(--mut)}
+#back{display:none;margin-bottom:10px}
+.hint{color:var(--mut)}
+section.blk{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:0 0 10px}
+section.blk h3{margin:0 0 4px;font-size:13px;color:var(--mut);font-weight:600}
+h2{font-size:18px;margin:4px 0 10px}
+.vstate{font-weight:700}
+.vstate.k-valid{color:var(--acc)}.vstate.k-recheck,.vstate.k-inconclusive{color:var(--needfg)}.vstate.k-fail{color:var(--blk)}.vstate.k-unknown{color:var(--mut)}
+.who{display:inline-block;margin-left:6px;padding:0 8px;border-radius:10px;background:var(--sel);font-size:12px}
+.warn{background:var(--warnbg);color:var(--warnfg);border:1px solid var(--warnfg);border-radius:8px;padding:8px 12px;margin:0 0 10px;font-weight:600}
+section.decision{background:var(--need);color:var(--needfg);border:2px solid var(--wait);border-radius:8px;padding:10px 12px;margin:0 0 10px}
+section.decision h3{margin:0 0 4px;font-size:15px}
+section.decision ul{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:8px}
+section.decision button{display:block;width:100%;white-space:normal}
+.cons{display:block;font-size:13px;margin-top:4px;color:var(--mut)}
+details.d{background:var(--card);border:1px solid var(--line);border-radius:8px;margin:0 0 8px;padding:6px 12px}
+details.d>summary{cursor:pointer;font-weight:600;padding:4px 0}
+.ba{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;margin-top:6px}
+.ba>div{border:1px solid var(--line);border-radius:6px;padding:6px 8px;min-width:0}
+.ba .before{background:var(--badbg);color:var(--badfg)}.ba .after{background:var(--okbg);color:var(--okfg)}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin:4px 0;font-size:12px}
+ol.loop,ul.tl{margin:6px 0;padding-left:20px}
+.toast{position:fixed;left:16px;right:16px;bottom:16px;max-width:420px;margin:0 auto;background:#1c2230;color:#fff;padding:10px 14px;border-radius:8px;text-align:center}
+.toast[hidden]{display:none}
+@media (max-width:899px){
+ main{grid-template-columns:minmax(0,1fr)}
+ #listpane{border-right:0}
+ body.view-task #listpane{display:none}
+ body.view-list #taskpane{display:none}
+ #back{display:inline-block}
+ .ba{grid-template-columns:minmax(0,1fr)}
+}
+</style></head>
+<body class="view-list">
+<header><h1>OneCrew — Công việc</h1><span class="sample" id="samplebar">Dữ liệu mẫu — không phải sổ thật</span></header>
+<main>
+<div id="listpane" class="pane" aria-label="Danh sách công việc"></div>
+<div id="taskpane" class="pane" aria-label="Chi tiết công việc"><button id="back" type="button">‹ Quay lại</button><div id="task"></div></div>
+</main>
+<div id="toast" class="toast" role="status" hidden></div>
+<script id="sample-data" type="application/json">
+{"sample":true,"projects":["Ứng dụng EMR","Ký số SignSDK"],"tasks":[
+{"id":"t01","case":"pass_then_edit","name":"Ký số trên phiếu cấp phép","project":"Ký số SignSDK","kind":"recheck","reason":"mã đổi sau lần kiểm","group":"check","owner_needed":false,
+ "output":{"title":"Bản dựng thử ký số (commit 9f3a1c2)","when":"hôm nay 09:40"},
+ "validity":{"state":"recheck","reason":"Lần đạt trước không còn được tính vì mã đã đổi sau lần kiểm."},
+ "next":"Chạy lại bộ kiểm trên mã mới","who":"Bộ kiểm","repairs":null,"decision":null,
+ "detail":{"result":{"command":"python -m unittest tests.test_sign","exit":0,"log":"Ran 14 tests ... OK (chạy trên commit 7b2e0d4, nay đã cũ)","file":"out/sign-7b2e0d4.log","hash":"sha256:5c1e…a90b"}}},
+{"id":"t02","case":"timeout","name":"Xuất báo cáo giường bệnh","project":"Ứng dụng EMR","kind":"inconclusive","reason":"bộ kiểm hết giờ","group":"check","owner_needed":false,
+ "output":{"title":"Bản dựng thử báo cáo (wheel 2.5.0.dev31)","when":"hôm nay 10:05"},
+ "validity":{"state":"inconclusive","reason":"Bộ kiểm hết giờ sau 20 phút nên chưa biết kết quả; đây chưa phải lỗi của bản làm."},
+ "next":"Kiểm môi trường (máy bận, mạng) hoặc chạy lại bộ kiểm","who":"AI","repairs":null,"decision":null,
+ "detail":{"wait":{"timeline":[{"who":"AI","waiting_for":"bộ kiểm trả kết quả","since":"19/11 10:05","how_long":"20 phút (hết giờ)"},{"who":"Bộ kiểm","waiting_for":"máy rảnh để chạy","since":"19/11 10:05","how_long":"20 phút"}]},
+  "error":{"loop":[{"t":"10:05","text":"Lần kiểm 1 bắt đầu"},{"t":"10:25","text":"Lần kiểm 1 hết giờ, chưa có kết luận (vẫn tính một lượt)"}],"used":1,"total":3}}},
+{"id":"t03","case":"real_fail","name":"Màn hình tìm bệnh nhân","project":"Ứng dụng EMR","kind":"fail","reason":"tìm theo mã trả về rỗng","group":"doing","owner_needed":false,
+ "output":{"title":"Bản dựng thử màn tìm bệnh nhân (commit c41d77e)","when":"hôm nay 08:55"},
+ "validity":{"state":"fail","reason":"Lần kiểm 3 không đạt: ô tìm theo mã bệnh nhân trả về danh sách rỗng."},
+ "next":"Sửa theo lỗi rồi kiểm lại","who":"AI","repairs":{"used":3,"left":0,"total":3},"decision":null,
+ "detail":{"error":{"loop":[{"t":"08:10","text":"Lần kiểm 1 không đạt: thiếu ô tìm theo mã"},{"t":"08:25","text":"Sửa (lượt 1)"},{"t":"08:40","text":"Lần kiểm 2 không đạt: danh sách rỗng"},{"t":"08:45","text":"Sửa (lượt 2)"},{"t":"08:55","text":"Lần kiểm 3 không đạt: danh sách rỗng"},{"t":"—","text":"Lần kiểm 4 là lần thử cuối"}],"used":3,"total":3},
+  "result":{"command":"python -m unittest tests.test_patient_search","exit":1,"log":"FAIL: test_search_by_code\nAssertionError: [] != ['BN001']","file":"out/search-c41d77e.log","hash":"sha256:b7d2…14fe"}}},
+{"id":"t04","case":"owner_decision","name":"Gộp hai bước ký thành một","project":"Ký số SignSDK","kind":"need","reason":"hết lượt sửa, chờ bạn quyết","group":"doing","owner_needed":true,
+ "output":{"title":"Bản dựng thử ký một bước (commit e08a5b1)","when":"hôm qua 17:30"},
+ "validity":{"state":"fail","reason":"Đã dùng hết 3/3 lượt sửa mà bộ kiểm vẫn không đạt."},
+ "next":"Bạn chọn một hướng đi","who":"Bạn","repairs":{"used":3,"left":0,"total":3},
+ "decision":{"question":"AI đã hết lượt sửa. AI đề xuất sửa kế hoạch vì phạm vi ban đầu quá rộng. Bạn chọn gì?","options":[
+  {"label":"Duyệt bản sửa kế hoạch: AI làm tiếp theo phạm vi mới","consequence":"thêm khoảng 1 ngày; các lần kiểm cũ không còn được tính."},
+  {"label":"Kết thúc việc: giữ kết quả hiện có, không làm tiếp","consequence":"việc dừng ở trạng thái không đạt, không mất mã đã viết."}]},
+ "detail":{"plan":{"fields":[{"name":"Phạm vi","before":"Gộp hai bước ký cho mọi loại phiếu","after":"Chỉ gộp cho phiếu cấp phép"},{"name":"Số lượt sửa","before":"3","after":"5"},{"name":"Thời gian dự kiến","before":"2 ngày","after":"3 ngày"}]},
+  "error":{"loop":[{"t":"hôm qua 11:00","text":"Lần kiểm 1 không đạt"},{"t":"hôm qua 13:00","text":"AI sửa (lượt 1)"},{"t":"hôm qua 14:30","text":"Lần kiểm 2 không đạt"},{"t":"hôm qua 15:30","text":"AI sửa (lượt 2)"},{"t":"hôm qua 16:30","text":"Lần kiểm 3 không đạt"},{"t":"hôm qua 17:30","text":"AI sửa (lượt 3) rồi kiểm lần 4 không đạt"}],"used":3,"total":3},
+  "wait":{"timeline":[{"who":"Bạn","waiting_for":"quyết định hướng đi","since":"hôm qua 17:45","how_long":"16 giờ"},{"who":"AI","waiting_for":"bạn duyệt rồi mới làm tiếp","since":"hôm qua 17:45","how_long":"16 giờ"}]}}},
+{"id":"t05","name":"Màn hình đăng nhập mới","project":"Ứng dụng EMR","kind":"valid","reason":"còn đúng với bản hiện tại","group":"done","owner_needed":false,
+ "output":{"title":"Bản dựng đăng nhập (wheel 2.5.0.dev31)","when":"hôm qua 15:00"},
+ "validity":{"state":"valid","reason":"Còn đúng với bản hiện tại: mã chưa đổi từ lần kiểm cuối."},
+ "next":"Không còn bước nào; chờ bạn nghiệm thu","who":"Bạn","repairs":null,"decision":null,
+ "detail":{"result":{"command":"python -m unittest tests.test_login","exit":0,"log":"Ran 9 tests ... OK","file":"out/login-a11c9d0.log","hash":"sha256:09ab…3e77"}}},
+{"id":"t06","name":"Danh sách thuốc theo khoa","project":"Ứng dụng EMR","kind":"valid","reason":"còn đúng với bản hiện tại","group":"done","owner_needed":false,
+ "output":{"title":"Bản dựng danh sách thuốc (commit 4d9f003)","when":"2 ngày trước"},
+ "validity":{"state":"valid","reason":"Còn đúng với bản hiện tại."},
+ "next":"Không còn bước nào","who":"Bạn","repairs":null,"decision":null,
+ "detail":{"result":{"command":"python -m unittest tests.test_drugs","exit":0,"log":"Ran 22 tests ... OK","file":"out/drugs-4d9f003.log","hash":"sha256:77fe…c0d1"}}},
+{"id":"t07","name":"Báo cáo cuối ngày","project":"Ứng dụng EMR","kind":"running","reason":"AI đang viết","group":"doing","owner_needed":false,
+ "output":{"title":"Chưa có đầu ra","when":"—"},
+ "validity":{"state":"unknown","reason":"Chưa biết: việc đang làm, chưa có lần kiểm nào."},
+ "next":"AI viết xong rồi gửi kiểm","who":"AI","repairs":null,"decision":null,"detail":{}},
+{"id":"t08","name":"Nhắc lịch tái khám","project":"Ứng dụng EMR","kind":"running","reason":"AI đang viết","group":"doing","owner_needed":false,
+ "output":{"title":"Bản nháp nhắc lịch (commit 12ab7d4)","when":"hôm nay 07:50"},
+ "validity":{"state":"unknown","reason":"Chưa biết: bản nháp chưa qua bộ kiểm."},
+ "next":"AI hoàn thiện bản nháp","who":"AI","repairs":null,"decision":null,"detail":{}},
+{"id":"t09","name":"In phiếu chỉ định","project":"Ứng dụng EMR","kind":"waiting","reason":"bộ kiểm đang xếp hàng","group":"check","owner_needed":false,
+ "output":{"title":"Bản dựng in phiếu (commit 6e0b9a4)","when":"hôm nay 10:20"},
+ "validity":{"state":"unknown","reason":"Chưa biết: bộ kiểm chưa chạy lần nào trên bản này."},
+ "next":"Bộ kiểm chạy khi có máy rảnh","who":"Bộ kiểm","repairs":null,"decision":null,
+ "detail":{"wait":{"timeline":[{"who":"Bộ kiểm","waiting_for":"máy rảnh","since":"19/11 10:20","how_long":"12 phút"}]}}},
+{"id":"t10","name":"Đồng bộ danh mục dịch vụ","project":"Ký số SignSDK","kind":"unknown","reason":"chưa có lần kiểm nào","group":"doing","owner_needed":false,
+ "output":{"title":"Chưa có đầu ra","when":"—"},
+ "validity":{"state":"unknown","reason":"Chưa biết: chưa có lần kiểm nào, không đoán trước kết quả."},
+ "next":"Chưa biết","who":"Chưa biết","repairs":null,"decision":null,"detail":{}},
+{"id":"t11","name":"Trang cài đặt chữ ký","project":"Ký số SignSDK","kind":"valid","reason":"còn đúng với bản hiện tại","group":"done","owner_needed":false,
+ "output":{"title":"Bản dựng cài đặt chữ ký (wheel 2.5.0.dev31)","when":"3 ngày trước"},
+ "validity":{"state":"valid","reason":"Còn đúng với bản hiện tại."},
+ "next":"Không còn bước nào","who":"Bạn","repairs":null,"decision":null,
+ "detail":{"result":{"command":"python -m unittest tests.test_settings","exit":0,"log":"Ran 6 tests ... OK","file":"out/settings-d70c21b.log","hash":"sha256:e21c…88a5"}}},
+{"id":"t12","name":"Kiểm tra chứng thư hết hạn","project":"Ký số SignSDK","kind":"waiting","reason":"bộ kiểm đang xếp hàng","group":"check","owner_needed":false,
+ "output":{"title":"Bản dựng kiểm chứng thư (commit 3fa10b8)","when":"hôm nay 09:10"},
+ "validity":{"state":"unknown","reason":"Chưa biết: chờ bộ kiểm chạy."},
+ "next":"Bộ kiểm chạy khi có máy rảnh","who":"Bộ kiểm","repairs":null,"decision":null,"detail":{}}
+]}
+</script>
+<script>
+/* Pure logic: takes data, returns values / HTML strings. DOM wiring is at the bottom and only runs when a real document exists. */
+var KIND_LABEL={need:'Cần bạn quyết',recheck:'Cần kiểm lại',inconclusive:'Chưa kết luận',fail:'Kiểm không đạt',running:'Đang làm',waiting:'Chờ kiểm',valid:'Xong',unknown:'Chưa biết'};
+var VALID_LABEL={valid:'Còn đúng với bản hiện tại',recheck:'Cần kiểm lại',inconclusive:'Chưa kết luận',fail:'Không đạt',unknown:'Chưa biết'};
+var FILTERS=[['all','Tất cả'],['need','Cần bạn'],['doing','Đang làm'],['check','Chờ kiểm'],['done','Xong']];
+var DETAIL_TITLE={plan:'Xem thay đổi kế hoạch (trước và sau)',error:'Xem vòng sửa và kiểm lại',wait:'Xem ai đang chờ ai',result:'Xem bằng chứng của kết quả'};
+var DETAIL_ORDER=['plan','error','wait','result'];
+var SAMPLE_LABEL='Dữ liệu mẫu — không phải sổ thật';
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function orderTasks(tasks){var a=[],b=[];(tasks||[]).forEach(function(t){(t.owner_needed?a:b).push(t);});return a.concat(b);}
+function filterTasks(tasks,filter){var f=filter||'all';var r=(tasks||[]).filter(function(t){if(f==='all')return true;if(f==='need')return !!t.owner_needed;return t.group===f;});return orderTasks(r);}
+function countTasks(tasks){var c={all:0,need:0,doing:0,check:0,done:0};(tasks||[]).forEach(function(t){c.all++;if(t.owner_needed)c.need++;if(c[t.group]!==undefined)c[t.group]++;});return c;}
+function statusLine(t){var lab=KIND_LABEL[t.kind]||KIND_LABEL.unknown;var r=String(t.reason||'').replace(/\s+/g,' ').trim();return r?lab+': '+r:lab;}
+function needsProject(tasks){var seen={};(tasks||[]).forEach(function(t){seen[t.project]=1;});return Object.keys(seen).length>1;}
+function findTask(data,id){var r=(data.tasks||[]).filter(function(t){return t.id===id;});return r.length?r[0]:null;}
+function lastRepairWarning(t){if(t.repairs&&t.repairs.left===0&&!t.owner_needed&&t.validity&&t.validity.state==='fail')return 'Đã dùng hết '+t.repairs.total+' lượt sửa: nếu lần kiểm tới vẫn không đạt, việc sẽ dừng và chờ bạn quyết. Đây là cảnh báo, bạn chưa cần làm gì.';return '';}
+function validState(t){return (t.validity&&t.validity.state)||'unknown';}
+/* Plain hash names (letters, digits, hyphens) so a shared link keeps them: #viec, #viec-need, #viec-need-t04 (filter, then task id). */
+function routeOf(hash){var h=String(hash||'').replace(/^#/,'');var m=h.match(/^viec(?:-([a-z]+))?(?:-([A-Za-z0-9]+))?$/);if(!m)return {view:'list',id:null,filter:'all'};var filter=FILTERS.some(function(f){return f[0]===m[1];})?m[1]:'all';if(m[2])return {view:'task',id:m[2],filter:filter};return {view:'list',id:null,filter:filter};}
+function hrefOf(route){var f=route.filter||'all';if(route.view==='task')return '#viec-'+f+'-'+String(route.id).replace(/[^A-Za-z0-9]/g,'');return f==='all'?'#viec':'#viec-'+f;}
+function listStateKey(filter){return 'ui33.list.'+(filter||'all');}
+function saveListState(store,filter,top){try{store.setItem(listStateKey(filter),JSON.stringify({filter:filter||'all',scrollTop:Math.max(0,Math.round(top||0))}));}catch(e){}}
+function loadListState(store,filter){try{var v=store.getItem(listStateKey(filter));if(v){var o=JSON.parse(v);return {filter:o.filter||filter||'all',scrollTop:o.scrollTop||0};}}catch(e){}return {filter:filter||'all',scrollTop:0};}
+function renderChips(counts,filter){return '<nav class="chips" aria-label="Lọc công việc">'+FILTERS.map(function(f){return '<a class="chip" href="'+hrefOf({view:'list',filter:f[0]})+'" data-filter="'+f[0]+'"'+(f[0]===filter?' aria-current="true"':'')+'>'+esc(f[1])+' ('+(counts[f[0]]||0)+')</a>';}).join('')+'</nav>';}
+function renderRow(t,showProject,filter,selId){return '<a class="task'+(t.owner_needed?' need':'')+(t.id===selId?' sel':'')+'" href="'+hrefOf({view:'task',id:t.id,filter:filter})+'" data-id="'+esc(t.id)+'"><span class="tname">'+esc(t.name)+'</span>'+(showProject?'<span class="proj">'+esc(t.project)+'</span>':'')+'<span class="sline k-'+esc(t.kind)+'">'+esc(statusLine(t))+'</span></a>';}
+function renderList(data,filter,selId){var f=filter||'all';var all=data.tasks||[];var vis=filterTasks(all,f);var showP=needsProject(vis);var owner=vis.filter(function(t){return t.owner_needed;});var rest=vis.filter(function(t){return !t.owner_needed;});var h='<p class="sample">'+SAMPLE_LABEL+'</p>'+renderChips(countTasks(all),f);
+ if(!vis.length)return h+'<p class="hint">Không có việc nào ở mục này.</p>';
+ if(owner.length)h+='<div class="grp"><span class="needb">Cần bạn</span> '+owner.length+' việc đang chờ bạn</div>'+owner.map(function(t){return renderRow(t,showP,f,selId);}).join('');
+ if(rest.length)h+=(owner.length?'<div class="grp">Các việc còn lại</div>':'')+rest.map(function(t){return renderRow(t,showP,f,selId);}).join('');
+ return h;}
+function renderOutput(t){var o=t.output||{};return '<p>'+esc(o.title||'Chưa có đầu ra')+(o.when&&o.when!=='—'?' · '+esc(o.when):'')+'</p>';}
+function renderDecision(t){var d=t.decision;if(!d)return '';return '<section class="decision" aria-label="Quyết định của bạn"><h3>Bạn cần quyết</h3><p>'+esc(d.question)+'</p><ul>'+d.options.map(function(o){return '<li><button type="button" data-toast="1">'+esc(o.label)+'<span class="cons">Hệ quả: '+esc(o.consequence)+'</span></button></li>';}).join('')+'</ul></section>';}
+function renderDetail(t,kind){var d=(t.detail||{})[kind];if(!d)return '<p class="hint">Chưa có dữ liệu phần này.</p>';
+ if(kind==='plan'){return '<div class="ba"><div class="before"><b>Trước</b>'+d.fields.map(function(f){return '<p>'+esc(f.name)+': <span class="bv">'+esc(f.before)+'</span></p>';}).join('')+'</div><div class="after"><b>Sau</b>'+d.fields.map(function(f){return '<p>'+esc(f.name)+': <span class="av">'+esc(f.after)+'</span></p>';}).join('')+'</div></div>';}
+ if(kind==='error'){return '<p>Đã dùng '+d.used+'/'+d.total+' lượt sửa'+(d.total>=d.used?', còn '+(d.total-d.used):'')+'.</p><ol class="loop">'+d.loop.map(function(s){return '<li><b>'+esc(s.t)+'</b> — '+esc(s.text)+'</li>';}).join('')+'</ol>';}
+ if(kind==='wait'){return '<ul class="tl">'+d.timeline.map(function(s){return '<li><b>'+esc(s.who)+'</b> chờ '+esc(s.waiting_for)+' từ '+esc(s.since)+' — đã '+esc(s.how_long)+'</li>';}).join('')+'</ul>';}
+ if(kind==='result'){return '<p>Lệnh đã chạy: <code>'+esc(d.command)+'</code></p><p>Kết thúc với mã: '+esc(d.exit)+'</p><pre>'+esc(d.log)+'</pre><p>Tệp: '+esc(d.file)+'<br>Dấu vân tay: '+esc(d.hash)+'</p>';}
+ return '';}
+function renderTask(t){if(!t)return '<p class="hint">Không tìm thấy việc này.</p>';var vs=validState(t);var warn=lastRepairWarning(t);
+ var h='<p class="sample">'+SAMPLE_LABEL+'</p><h2>'+esc(t.name)+'</h2>';
+ h+='<section class="blk" id="s-out"><h3>Đầu ra mới nhất</h3>'+renderOutput(t)+'<details class="d out"><summary>Mở</summary><p>Đầu ra này là: '+esc((t.output||{}).title||'chưa có')+'.</p><p>Trang thật sẽ mở đúng tệp hoặc bản mã này; bản mẫu chỉ hiện tên.</p></details></section>';
+ h+='<section class="blk" id="s-valid"><h3>Kết quả còn tin được không</h3><span class="vstate k-'+esc(vs)+'">'+esc(VALID_LABEL[vs])+'</span><p>'+esc((t.validity||{}).reason||'')+'</p>'+(t.repairs?'<p>Lượt sửa: đã dùng '+t.repairs.used+'/'+t.repairs.total+(t.repairs.left>0?', còn '+t.repairs.left:(t.owner_needed?', hết lượt':', lần kiểm tới là lần thử cuối'))+'.</p>':'')+'</section>';
+ h+='<section class="blk" id="s-next"><h3>Bước tiếp theo</h3><p>'+esc(t.next)+' <span class="who">Ai làm: '+esc(t.who)+'</span></p></section>';
+ if(warn)h+='<div class="warn" role="note">'+esc(warn)+'</div>';
+ h+=renderDecision(t);
+ DETAIL_ORDER.forEach(function(k){if((t.detail||{})[k])h+='<details class="d" data-kind="'+k+'"><summary>'+DETAIL_TITLE[k]+'</summary>'+renderDetail(t,k)+'</details>';});
+ return h;}
+function loadSample(text){var d=JSON.parse(text);return d;}
+
+/* DOM wiring: skipped when there is no real document (Node tests). */
+function ui33Wire(){
+ var el=document.getElementById('sample-data');var lp=document.getElementById('listpane');var tk=document.getElementById('task');var back=document.getElementById('back');var toast=document.getElementById('toast');
+ if(!el||!lp||!tk)return;
+ var data=loadSample(el.textContent);var store;try{store=window.sessionStorage;store.getItem('x');}catch(e){var mem={};store={getItem:function(k){return mem[k]||null;},setItem:function(k,v){mem[k]=v;}};}
+ var rendered=null,prev=null,pushed=false,timer=null;
+ function render(){var r=routeOf(location.hash);var f=r.filter;document.body.className=r.view==='task'?'view-task':'view-list';
+  if(rendered!==f){lp.innerHTML=renderList(data,f,r.id);rendered=f;}
+  Array.prototype.forEach.call(lp.querySelectorAll('a.task'),function(a){a.classList.toggle('sel',a.getAttribute('data-id')===r.id);});
+  tk.innerHTML=r.view==='task'?renderTask(findTask(data,r.id)):'<p class="sample">'+SAMPLE_LABEL+'</p><p class="hint">Chọn một việc ở bên trái để xem đầu ra, kết quả còn tin được không và ai làm bước tiếp theo.</p>';
+  pushed=!!(prev&&prev.view==='list'&&r.view==='task');prev=r;
+  var top=loadListState(store,f).scrollTop;window.requestAnimationFrame(function(){lp.scrollTop=top;});}
+ lp.addEventListener('scroll',function(){if(lp.offsetParent!==null&&prev)saveListState(store,prev.filter,lp.scrollTop);});
+ document.addEventListener('click',function(e){var b=e.target.closest?e.target.closest('[data-toast]'):null;if(!b)return;toast.textContent='Mockup: chưa ghi gì';toast.hidden=false;clearTimeout(timer);timer=setTimeout(function(){toast.hidden=true;},2200);});
+ if(back)back.addEventListener('click',function(){if(pushed)history.back();else location.hash=hrefOf({view:'list',filter:prev?prev.filter:'all'});});
+ window.addEventListener('hashchange',render);
+ if(!location.hash)history.replaceState(null,'','#viec');
+ render();}
+if(typeof document!=='undefined'&&document.getElementById){ui33Wire();}
+</script>
+</body></html>
