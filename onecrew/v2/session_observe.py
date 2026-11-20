@@ -138,6 +138,15 @@ def _rows(event, session, target):
                 yield row('owner_choice', 'owner', question_index=i, question_id=link, text=_clean(answers[question], 2000))
     elif name == 'PostToolUse' and tool in hook_cli.SHELL_TOOLS and inputs.get('run_in_background') is True:
         yield row('background_shell', label=_clean(inputs.get('description'), 160))
+    elif name == 'PostToolUse' and tool in ('Write', 'Edit', 'NotebookEdit'):
+        # Only the destination of a completed file edit, never its content or tool output.
+        path = inputs.get('file_path') if tool != 'NotebookEdit' else inputs.get('notebook_path')
+        if isinstance(path, str) and path and isinstance(event.get('cwd'), str):
+            location = Path(os.path.normpath(os.path.join(event['cwd'], path)))
+            if location.is_absolute() and not location.is_relative_to(target['project']):
+                yield row('external_artifact', label=_clean(str(location), 1024))
+                return
+        yield row('tool_call')
     else:
         yield row({'SubagentStart': 'subagent_start', 'SubagentStop': 'subagent_stop',
                    'SessionStart': 'session_start', 'SessionEnd': 'session_end', 'Stop': 'turn_end'}.get(name, 'tool_call'))

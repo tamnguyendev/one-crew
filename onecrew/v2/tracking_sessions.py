@@ -100,6 +100,7 @@ def page(state_root, selector, project_id, selected):
     scope = dict(plan=selector, project_id=task['project_id'])
     index = _url('/sessions', **scope)
     header = f'<header><b>OneCrew</b><nav aria-label="Trang"><a href="{_url("/", **scope)}">Trở về việc {_show(selector)}</a>'
+    header += f'<a href="{_url("/direction", **scope)}">Hướng đi</a>'
     if session is None:
         body = '<h1>Phiên Claude</h1>'
         items = ''.join(f'<li><a href="{_url("/sessions", **scope, session=_key(r["sid"]))}">{_show(r["sid"])}</a>'

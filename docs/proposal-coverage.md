@@ -1379,3 +1379,14 @@ Phiên chưa có đích chỉ lưu định danh và trạng thái trên máy. Kh
 | MP-2 · Làn phiên chính, agent con và lệnh nền, chi tiết bước đã lọc | `tracking_sessions._timeline` | `timeline_lanes_main_subagents_background`, `step_detail_filtered` |
 | MP-3 · Đọc nhật ký tại chỗ khi mở phiên, tách tóm tắt khỏi suy luận gốc | `session_transcript.read`, `_scan` | `reasoning_summary_only_when_present`, `secret_filter`, `transcript_missing_said`, `duplicate_transcript_is_ambiguous` |
 | MP-4 · Danh sách bước có nguồn và giờ, số liệu ước tính của phiên | `session_transcript._update_tasks`, `tracking_sessions._detail` | `task_list_marked_self_report`, `tokens_model_cost_estimate_labelled` |
+
+## OBS3 bản 5 · MH
+
+| Yêu cầu I4/O4 | Triển khai | Bằng chứng trong `tests/test_obs3_direction.py` |
+|---|---|---|
+| Giai đoạn mặc định, điểm rẽ và câu hỏi còn mở | `tracking_direction` đọc sự kiện của một anchor, ghép câu trả lời theo mã câu hỏi và phiên | `phases_default_view`, `turning_points_keep_open_questions`, `choice_answered_or_open` |
+| Lời chủ sau lọc, đề xuất và tóm tắt ghi tác giả | Trang dùng lời hook và lý do sửa do người lập bản ghi, giữ xuống dòng | `owner_words_verbatim`, `ai_proposal_labelled`, `phase_summary_marked_ai` |
+| Sản phẩm và các tín hiệu trôi phạm vi | Liên kết chứng cứ cùng việc; tín hiệu từ lời đổi hướng, lần kiểm bản mã khác sau khi đạt và đích ghi ngoài repo | `artifact_linked`, `drift_flag_without_amend` |
+| Lịch sử dài | Tìm trong toàn bộ sự kiện hướng đi của việc rồi chia trang 25 mục | `long_history_paged_and_searchable` |
+
+Phần nguồn đã thử trên sổ phát triển ở 375 và 1280 px. Kết quả đóng gói và receipt do verdict MH ghi trong sổ OBS3.
