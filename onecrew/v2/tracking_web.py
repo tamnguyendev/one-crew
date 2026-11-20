@@ -63,7 +63,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from ..ledger import LedgerError, utcnow
-from . import tracking, tracking_host_web, tracking_list
+from . import tracking, tracking_dashboard, tracking_host_web, tracking_list
 
 MARKER = 'tracking/server.json'
 LOCK = 'tracking/open.lock'
@@ -165,6 +165,8 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
                                                          'read_only': True, 'project_id': project_id})
             scope = q.get('project_id') or project_id
             try:
+                if url.path == '/overview':
+                    return self._send(HTTPStatus.OK, tracking_dashboard.page(state_root, scope), 'text/html; charset=utf-8')
                 if url.path in ('/', '/index.html'):
                     return self._send(HTTPStatus.OK, page, 'text/html; charset=utf-8')
                 if url.path == '/api/health':
@@ -862,13 +864,13 @@ details{margin:6px 0}summary{cursor:pointer;color:var(--mut)}summary:focus-visib
 
 </style></head><body>
 <header>
-<div class="bar"><h1>OneCrew · Công việc</h1><span id="health" role="status" class="small"></span><span id="dconn" role="status" hidden></span><span id="count" class="small mut"></span></div>
+<div class="bar"><h1>OneCrew</h1><nav aria-label="Trang"><a href="/overview">Tổng quan</a> · <a href="/" aria-current="page">Công việc</a></nav><span id="health" role="status" class="small"></span><span id="dconn" role="status" hidden></span><span id="count" class="small mut"></span></div>
 <div class="tools">
 <label class="search"><input id="q" type="search" placeholder="Tìm công việc…" aria-label="Tìm theo tên việc, mục tiêu, bước"></label>
 <div id="viewsw" role="group" aria-label="Cách xem danh sách"><button type="button" data-list-mode="list" aria-pressed="true">Danh sách</button><button type="button" data-list-mode="board" aria-pressed="false">Bảng</button></div>
 <details id="filters" data-k="filters"><summary>Bộ lọc <span id="fcount" class="small mut"></span></summary><div class="fbody">
 <label>Dự án <select id="proj"><option value="">tất cả</option></select></label>
-<label>Trạng thái <select id="kind"><option value="">tất cả</option><option value="need">Cần bạn quyết định</option><option value="running">Đang có lượt chạy</option><option value="recheck">Cần kiểm lại (việc đã so với bản hiện tại)</option><option value="todo">Chưa bắt đầu</option><option value="doing">Đang thực hiện</option><option value="fix">Cần sửa</option><option value="check">Chờ kiểm</option><option value="accept">Chờ nghiệm thu</option><option value="done">Hoàn tất</option><option value="stopped">Đã dừng</option><option value="unknown">Chưa xác định</option><option value="closed">Đã đóng</option><option value="ended">Đã kết thúc (nghiệm thu hoặc đóng)</option></select></label>
+<label>Trạng thái <select id="kind"><option value="">tất cả</option><option value="need">Cần bạn quyết định</option><option value="running">Đang có lượt chạy</option><option value="idle">Im hơn 3 ngày</option><option value="inconclusive">Chưa kết luận</option><option value="recheck">Cần kiểm lại (việc đã so với bản hiện tại)</option><option value="todo">Chưa bắt đầu</option><option value="doing">Đang thực hiện</option><option value="fix">Cần sửa</option><option value="check">Chờ kiểm</option><option value="accept">Chờ nghiệm thu</option><option value="done">Hoàn tất</option><option value="stopped">Đã dừng</option><option value="unknown">Chưa xác định</option><option value="closed">Đã đóng</option><option value="ended">Đã kết thúc (nghiệm thu hoặc đóng)</option></select></label>
 <label>Nguồn <select id="origin"><option value="">tất cả</option><option value="owner">Chủ giao</option><option value="ai">AI giao</option><option value="unknown">Chưa rõ nguồn</option><option value="spawned">Có việc AI phát sinh (việc sửa, việc con)</option></select></label>
 <label>Thời gian <select id="tfield"><option value="created">Ngày tạo</option><option value="updated">Cập nhật cuối</option><option value="ended">Ngày kết thúc</option></select></label>
 <label>Từ <input id="since" type="date" aria-label="Từ ngày"></label><label>Đến hết <input id="until" type="date" aria-label="Đến hết ngày"></label>
@@ -940,10 +942,12 @@ function ended(t){return t.root_status==='accepted'||t.root_status==='closed'}
 function isRecheck(t){return (t.validity||{}).kind==='recheck'||sit(t).label==='Cần kiểm lại'}     // UI58 MC: the same rule as the server's stage filter (tracking_list._stage_ok)
 function notCompared(t){return (t.validity||{}).kind==='not_compared'}
 function visible(){var cur=$('#proj').value,kind=$('#kind').value,src=$('#origin').value,raw=($('#q').value||'').trim(),q=raw.toLowerCase(),lf=last&&last.list&&last.list.filters,byServer=!!lf&&(lf.q||'')===raw;   // OBS-2C: the server already searched every root for this text (the client keeps filtering the loaded rows at once)
-  return workOrder(tasks().filter(function(t){if(cur&&t.project!==cur)return false;
+  return workOrder(tasks().filter(function(t){if(cur&&!(cur.startsWith('repo:')?cur.slice(5).split(',').includes(t.project_id):t.project===cur))return false;
     if(kind==='need'&&!(t.needs_user||[]).length)return false;if(kind==='running'&&!(sit(t).activity||{}).running)return false;
     if(kind==='recheck'&&!isRecheck(t))return false;
-    if(kind==='ended'){if(!ended(t))return false}else if(kind&&kind!=='need'&&kind!=='running'&&kind!=='recheck'&&workStage(t)!==kind)return false;
+    if(kind==='inconclusive'){if(sit(t).label!=='Chưa kết luận')return false}
+    else if(kind==='idle'){var age=Date.parse(last.generated_at)-Date.parse((t.last_update||{}).at||t.created_at);if(!(age>3*86400000)||['done','closed'].includes(workStage(t)))return false}
+    else if(kind==='ended'){if(!ended(t))return false}else if(kind&&kind!=='need'&&kind!=='running'&&kind!=='recheck'&&workStage(t)!==kind)return false;
     if(src==='spawned'){if(!((t.list||{}).links||{}).spawned)return false}else if(src&&(t.origin||{}).source!==src)return false;
     if(q&&!byServer&&workSearch(t).indexOf(q)<0)return false;return true}),$('#sort').value)}
 // OBS-2C: the list is read a page at a time in the ledger's stable order (creation seq, newest first). `listFloor` is the creation seq of the
@@ -972,10 +976,11 @@ function row(t){var sel=sameSel(selected,{plan:t.selector,project:t.project_id})
   return '<li class="task'+(lastv?' last':'')+'" role="option" tabindex="0" aria-selected="'+sel+'" aria-label="'+esc(rowLabel(t))+'" data-plan="'+esc(t.selector)+'" data-project="'+esc(t.project_id)+'" data-stage="'+esc(workStage(t))+'" data-k="task:'+esc(t.project_id)+':'+esc(t.selector)+'">'+workItem(t)+'</li>'}
 var listMode=(function(){try{return localStorage.getItem('onecrew-track-mode')==='board'?'board':'list'}catch(e){return 'list'}})();
 function setMode(m){listMode=m==='board'?'board':'list';try{localStorage.setItem('onecrew-track-mode',listMode)}catch(e){}render(true)}
-function filterSummary(){var parts=[],k=$('#kind'),p=$('#proj'),o=$('#origin'),q=($('#q').value||'').trim(),s=$('#since').value,u=$('#until').value,tf=$('#tfield');if(p.value)parts.push('dự án '+short(p.value));if(k.value)parts.push(k.options[k.selectedIndex].text);
+function filterSummary(){var parts=[],k=$('#kind'),p=$('#proj'),o=$('#origin'),q=($('#q').value||'').trim(),s=$('#since').value,u=$('#until').value,tf=$('#tfield');if(p.value)parts.push(p.value.startsWith('repo:')?'Các worktree của repo đã chọn':'dự án '+short(p.value));if(k.value)parts.push(k.options[k.selectedIndex].text);
   if(o.value)parts.push('nguồn: '+o.options[o.selectedIndex].text);if(s||u)parts.push(tf.options[tf.selectedIndex].text.toLowerCase()+(s?' từ '+s:'')+(u?' đến hết '+u:''));if(q)parts.push('tìm “'+q+'”');return parts}
 function render(force){
   if(!last)return;var ps=$('#proj'),cur=ps.value,opts='<option value="">tất cả</option>';
+  if(cur.startsWith('repo:'))opts+='<option selected value="'+esc(cur)+'">Các worktree của repo đã chọn</option>';
   ((last.list&&last.list.projects)||last.projects||[]).forEach(function(p){opts+='<option value="'+esc(p.path)+'"'+(p.path===cur?' selected':'')+'>'+esc(short(p.path))+'</option>'});if(ps.innerHTML!==opts)ps.innerHTML=opts;   // OBS-2C: every project of the scope, not only the loaded rows'
   var vis=visible(),all=tasks(),need=all.filter(function(t){return (t.needs_user||[]).length}).length,L=last.list,part=L&&!L.complete;
   $('#count').textContent=L?'Đang hiện '+vis.length+(vis.length!==all.length?' (đã tải '+all.length+')':'')+' / '+L.total+' công việc':all.length+' công việc'+(vis.length!==all.length?' · hiện '+vis.length:'');
@@ -1050,7 +1055,7 @@ function renderDetail(d){
   if(detailError)h.push('<div id="dstatus" class="dstatus stale" role="status" data-state="stale" data-k="dstatus" tabindex="-1">Chi tiết chưa cập nhật từ '+clockMs(detailOkAt)+': lỗi tải chi tiết ('+esc(detailError.message)+', lần thử gần nhất <span id="dlast">'+clockMs(detailError.last)+'</span>); đang hiện dữ liệu lúc '+(d.generated_at?clock(d.generated_at):clockMs(detailOkAt))+'. Mẫu lệnh trả lời bên dưới là của lúc đó: nếu câu hỏi đã được trả lời hoặc đổi bản, OneCrew từ chối lệnh nhờ --revision. <span id="dnote" data-cap="1">'+cap(noteHtml())+'</span>.</div>');
   h.push('<div class="small mut">Đang xem '+(workNoOwner(d)?'task <b>'+esc(d.plan)+'</b>':'việc này')+' của project <span title="'+esc(d.project)+'">'+esc(short(d.project))+'</span> · <a href="'+esc(urlOf({plan:d.selector,project:d.project_id}))+'">liên kết tới task này</a></div>');
   var needs=d.needs_user||[],nq=needs.filter(function(n){return n.kind==='request'}).length,nother=needs.length-nq;
-  h.push(taskTiles(d));                                                 // UI58 MC: output, still valid, next step, your decision; the five-question summary moved under "Xem sâu"
+  h.push(milestoneBar(d),taskTiles(d));                                                 // UI58 MC: output, still valid, next step, your decision; the five-question summary moved under "Xem sâu"
   var done=d.status.kind==='done';
   var nowKeys={};needs.forEach(function(n){nowKeys[needKey(n)]=n});
   if(copied&&!copiedStillValid(copied,d))copied=null;      // R7-1: feedback of a command this data no longer offers (binding lost, other runtime/state) is dropped, never shown again
@@ -1252,7 +1257,8 @@ function select(sel,opts){opts=opts||{};if(!sel){if(detailInflight){clearTimeout
     var was=selected;if(selected){lastViewed=selected}selected=null;selEv=null;evState={};copied=null;detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailSeq=null;detailTimeouts=0;$('#detail').innerHTML='<div id="nodetail">Chọn một task ở danh sách để xem chi tiết, timeline và bằng chứng.</div>';setView();render(true);dind();
     var row0=was&&document.querySelector('[data-k="task:'+String(was.project).replace(/"/g,'\\"')+':'+String(was.plan).replace(/"/g,'\\"')+'"]');if(row0)row0.focus({preventScroll:true});   // UI58 MC: every way back (button, Escape, browser back) lands on the row that was opened, filter and scroll kept
     window.scrollTo(0,listY);
-    if(!opts.silent&&location.search)history.pushState({},'',location.pathname);return}
+    if(!opts.silent&&location.search){var filters=new URLSearchParams();if($('#kind').value)filters.set('stage',$('#kind').value);if($('#proj').value)filters.set('project',$('#proj').value);
+      history.pushState({},'',location.pathname+(filters.size?'?'+filters:''))}return}
   var other=!sameSel(selected,sel);if(other)workTab='overview';detailTimeouts=0;if(!selected)listY=window.scrollY;      // a click on a task (the same one too) is the reader asking again: a new series of tries
   if(other){selEv=null;evState={};copied=null;detailSeq=null;selStep=null;gRange='current';gPinnedWindow=null;gFold={};staleNotes=[];knownNeeds={};detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailTimeouts=0}
   selected={plan:sel.plan,project:sel.project||'',focusDetail:!!opts.focusDetail};setView();render(true);
@@ -1321,7 +1327,10 @@ window.addEventListener('popstate',function(){var qs=new URLSearchParams(locatio
 window.matchMedia('(max-width:899px)').addEventListener('change',setView);
 if(!window.matchMedia('(max-width:760px)').matches)$('#filters').open=true;   // desktop: the filters are open; phone: folded, the active ones are listed under the search
 setInterval(tick,1000);
-var qs=new URLSearchParams(location.search);if(qs.get('plan'))select({plan:qs.get('plan'),project:qs.get('project_id')||''},{silent:true});
+var qs=new URLSearchParams(location.search);
+if(qs.has('project')){var project=qs.get('project');$('#proj').add(new Option(short(project),project,true,true))}
+if(qs.has('stage'))$('#kind').value=qs.get('stage');
+if(qs.get('plan'))select({plan:qs.get('plan'),project:qs.get('project_id')||''},{silent:true});
 poll();
 window.__track={state:function(){return {selected:selected,detailSeq:detailSeq,selEv:selEv,evOpen:Object.keys(evState),copied:copied,lastOk:lastOk,lost:!!lostSince,selStep:selStep,gRange:gRange,stale:staleNotes.map(function(x){return x.id}),axisNow:mine()&&mine().gantt&&mine().gantt.axis?mine().gantt.axis.now:null,
   detailFor:mine()?{plan:detailFor.plan,project:detailFor.project}:null,detailState:detailState(),detailError:detailError?{since:iso(detailError.since),last:iso(detailError.last),message:detailError.message}:null,detailOkAt:iso(detailOkAt),

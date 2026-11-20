@@ -126,10 +126,10 @@ def milestone_checks(views, history, revision, now, lost):
         elif kind == 'verdict.recorded':
             check = next((c for c in reversed(runs.get(mid, [])) if c['receipt'] and c['receipt'] == p.get('receipt') and c['result'] is None), None)
             if check is not None:
-                check.update(result=p.get('result'), recorded=_iso(_at(at)), by=p.get('by'), state='done')
+                check.update(result=p.get('result'), artifact=p.get('artifact_sha'), recorded=_iso(_at(at)), by=p.get('by'), state='done')
             else:
                 loose.append({'milestone': mid, 'seq': seq, 'run_id': None, 'started': None, 'ended': None, 'recorded': _iso(_at(at)),
-                              'result': p.get('result'), 'by': p.get('by'), 'state': 'done', 'receipt': p.get('receipt')})
+                              'result': p.get('result'), 'artifact': p.get('artifact_sha'), 'by': p.get('by'), 'state': 'done', 'receipt': p.get('receipt')})
     for check in loose: runs.setdefault(check['milestone'], []).append(check)
     rows, checking = [], set()
     for mid, items in runs.items():
@@ -148,7 +148,7 @@ def milestone_checks(views, history, revision, now, lost):
         timed = [c['seconds'] for c in mine if isinstance(c.get('seconds'), (int, float))]
         rows.append({'id': v['id'], 'title': v.get('title'), 'state': state, 'label': MILESTONE_STATES[state],
                      'reason': v.get('last_reason') if state in ('failed', 'inconclusive') else None, 'repairs': _repairs(v),
-                     'checks': [{k: c.get(k) for k in ('run_id', 'seq', 'started', 'ended', 'recorded', 'result', 'state', 'seconds', 'by', 'lost', 'reason')}
+                     'checks': [{k: c.get(k) for k in ('run_id', 'seq', 'started', 'ended', 'recorded', 'result', 'artifact', 'state', 'seconds', 'by', 'lost', 'reason')}
                                 for c in mine],
                      'failures': len([c for c in mine if c.get('result') and c['result'] != 'pass']),
                      'last_result': last.get('result') if last else None, 'last_at': (last.get('recorded') or last.get('ended')) if last else None,

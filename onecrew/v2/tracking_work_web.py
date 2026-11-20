@@ -101,6 +101,16 @@ li.task .links{font-size:12px;color:var(--mut);margin-right:2px}
 .rel-grid b{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}.rel-grid small{font-size:12.5px;color:var(--mut)}
 .rel-h{font-size:14px;margin:14px 0 4px}.rel-item{border-top:1px solid var(--line);padding:8px 0;min-width:0}.rel-item h4{font-size:14px;margin:0 0 4px}.rel-item p{margin:3px 0}
 .rel-kind{font-weight:700}.rel-noname{color:var(--mut);font-style:italic;font-weight:400}.rel-meta{font-size:13px;color:var(--mut)}.rel-state{color:var(--fg);font-weight:600}.rel-foot{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline}.rel-id{font-size:12px}
+
+.milestone-bar{display:flex;gap:2px;max-width:20rem;margin:.4rem 0;height:8px}
+.milestone-bar i{flex:1;min-width:0;border:1px solid var(--mut);border-radius:2px;background:var(--card)}
+.milestone-bar .passed{background:var(--acc)}.milestone-bar .failed{background:var(--blk)}.milestone-bar .checking{background:var(--run)}
+.milestone-bar .unknown,.milestone-bar .recheck,.milestone-bar .inconclusive,.seg.chk.inconclusive{background:repeating-linear-gradient(45deg,var(--wait) 0 2px,transparent 2px 4px)}
+.mk.inconclusive{color:var(--wait)}.milestone-bar .stopped{background:var(--mut)}
+#list[data-mode=list] .lhead,.lrows .c-state,.lrows .c-res,.lrows .c-last .mut,.lrows .stage-word{display:none}
+.lrows li.task{grid-template-columns:minmax(0,1fr) auto;align-items:center}.lrows .stg .g{font-size:1rem}
+.bar nav a{color:var(--fg);padding:.3em}.bar nav [aria-current]{font-weight:700}
+
 @media(max-width:760px){.stage-note{display:none}header{padding:10px 12px}h1{font-size:17px}main,main[data-view=list],main[data-view=detail]{padding:10px 12px}#detailpane{padding:12px}
   .tools{gap:8px}.tools .search{flex:1 1 100%;max-width:none}#filters .fbody{flex-direction:column;align-items:stretch}#filters .fbody label{justify-content:space-between}
   #list[data-mode=list] .lhead{display:none}.lrows li.task{display:block;padding:12px}.lrows li.task>div+div{margin-top:6px}.lrows li.task .lbl{display:inline}
@@ -135,7 +145,7 @@ function workOwnerSection(d){var o=ownerView(d);if(!o)return '<p class="small mu
   return '<div class="work-grid owner-view">'+card('Việc này làm gì',o.request)+card('Xong bạn thấy gì',o.user_sees)+card('Làm sao biết đạt',o.acceptance_steps)+card('Không làm gì',o.not_doing)+'</div>'+workTech(d)}
 function nextMilestone(t){var m=(t.milestones||[]).find(function(m){return m.state!=='passed'});return m?m.id+(m.title?' — '+m.title:''):''}   // mep6: shown in the detail
 var STAGE_GLYPH={todo:'○',doing:'▶',check:'◔',fix:'✕',accept:'✓',done:'✔',stopped:'■',closed:'□',unknown:'?'};
-function workBadge(t){var s=sit(t),k=s.stage||'unknown';return '<span class="stg '+esc(k)+'"><span class="g" aria-hidden="true">'+(STAGE_GLYPH[k]||'?')+'</span>'+esc(s.label||'Chưa xác định')+'</span>'}
+function workBadge(t){var s=sit(t),k=s.stage||'unknown',label=esc(s.label||'Chưa xác định');return '<span class="stg '+esc(k)+'" role="img" aria-label="'+label+'" title="'+label+'"><span class="g" aria-hidden="true">'+(STAGE_GLYPH[k]||'?')+'</span><span class="stage-word">'+label+'</span></span>'}
 function workReason(t){return sit(t).reason||''}
 function workWho(t){var s=sit(t);return s.next?(s.next_by_text||'Chưa có thông tin người xử lý'):''}
 function workResult(t){var s=sit(t),m=s.milestones;return m?m.text:((t.level||{}).label||'chưa có đầu ra')}   // a milestone root: the count of passed milestones (its 'level' would read "chưa có đầu ra" beside a pass)
@@ -159,8 +169,18 @@ function showProject(){var p=typeof document!=='undefined'&&document.querySelect
 function rowName(t){return t.row_title||workTitle(t)}
 function rowLabel(t){var s=sit(t),vn=validityNote(t),needs=(t.needs_user||[]).length;
   return workTitle(t)+'. '+(needs?'Cần bạn. ':'')+(s.label||'Chưa xác định')+(vn?' ('+vn+')':'')+' → '+(s.next||(s.stage==='done'||s.stage==='closed'?'Không còn bước tiếp theo':'Chưa biết bước tiếp theo'))+(s.next?' · '+whoShort(t):'')}
+var MS_WORD={passed:'Đạt',failed:'Không đạt',inconclusive:'Chưa kết luận',recheck:'Cần kiểm lại',pending:'Chưa kiểm',checking:'Đang kiểm',stopped:'Đã dừng',unknown:'Chưa xác định'};
+function milestoneBar(t){
+  var steps=(t.milestone_checks||{}).rows||t.milestones||[];
+  if(!steps.length)return '';
+  var labels=[],segments=steps.map(function(m){
+    var state=m.current_unknown?'unknown':m.needs_recheck||(m.stale&&m.state!=='failed')?'recheck':m.result==='inconclusive'?'inconclusive':m.state;
+    var label=m.id+' · '+(MS_WORD[state]||MS_WORD.unknown);
+    if(state==='passed'&&notCompared(t))label+=' (chưa so với bản hiện tại)';
+    labels.push(label);return '<i class="'+esc(state)+'" title="'+esc(label)+'"></i>'});
+  return '<span class="milestone-bar" role="img" aria-label="'+esc(labels.join(', '))+'">'+segments.join('')+'</span>'}
 function workItem(t){var s=sit(t),needs=(t.needs_user||[]).length,lu=t.last_update,proj=showProject();
-  return '<div class="c-title"><span class="ttl" title="'+esc(workTitle(t))+'">'+esc(rowName(t))+'</span><span class="c-line">'+statusLine(t)+'</span><span class="sub">'+orgBadge(t.origin)+linksText(t)+(workNoOwner(t)?(t.origin||linksText(t)?' · ':'')+'<span class="name">'+esc(t.plan)+'</span> · '+workNoOwner(t):'')+(proj?((t.origin||linksText(t)||workNoOwner(t))?' · ':'')+'<span class="r3 mut proj" data-project-shown="1" title="'+esc(t.project)+'">'+esc(short(t.project))+'</span>':'')+'</span>'+(workDesc(t)?'<span class="c-desc">'+esc(workDesc(t))+'</span>':'')+'</div>'
+  return '<div class="c-title"><span class="ttl" title="'+esc(workTitle(t))+'">'+esc(rowName(t))+'</span>'+milestoneBar(t)+'<span class="c-line">'+statusLine(t)+'</span><span class="sub">'+orgBadge(t.origin)+linksText(t)+(workNoOwner(t)?(t.origin||linksText(t)?' · ':'')+'<span class="name">'+esc(t.plan)+'</span> · '+workNoOwner(t):'')+(proj?((t.origin||linksText(t)||workNoOwner(t))?' · ':'')+'<span class="r3 mut proj" data-project-shown="1" title="'+esc(t.project)+'">'+esc(short(t.project))+'</span>':'')+'</span>'+(workDesc(t)?'<span class="c-desc">'+esc(workDesc(t))+'</span>':'')+'</div>'
     +'<div class="c-state">'+workBadge(t)+'<span class="why">'+esc(workReason(t))+'</span></div>'
     +'<div class="c-next">'+(needs?'<span class="needb">Cần bạn</span> ':'')+'<span class="nx">'+esc(s.next||'Không còn bước tiếp theo')+'</span>'+(s.next?'<span class="who">Người xử lý: '+esc(workWho(t))+'</span>':'')+'</div>'
     +'<div class="c-res"><span class="lbl">Kết quả: </span>'+esc(workResult(t))+'</div>'
@@ -257,9 +277,10 @@ function deepPlan(d,w){var rows=(w.changes||[]).filter(function(x){return x.kind
     +(diffs.length>6||x.diff_total>diffs.length?'<p class="work-meta">Còn '+((x.diff_total||diffs.length)-Math.min(6,diffs.length))+' mục thay đổi khác trong tab Thay đổi.</p>':'')+(x.diff_error?workEmpty(x.diff_error):'')+workSource(x)+'</article>'}).join('')
     +'<button type="button" class="linkish" data-work-tab="changes">Mở tab Thay đổi</button>'}
 function loopSteps(r){var out=[],fixes=0,checks=r.checks||[];
-  checks.forEach(function(c,i){var prev=checks[i-1];if(prev&&prev.result&&prev.result!=='pass'){fixes++;out.push({k:'fix',t:'Sửa (lượt '+fixes+') rồi kiểm lại'})}
+  checks.forEach(function(c,i){var prev=checks[i-1];if(prev&&prev.result==='fail'){fixes++;out.push({k:'fix',t:'Sửa (lượt '+fixes+') rồi kiểm lại'})}
     var k=c.state==='open'?'open':c.state==='lost'||c.state==='abandoned'?'lost':c.result==='pass'?'pass':c.result==='inconclusive'?'recheck':c.result?'fail':'open';
-    out.push({k:k,t:'Lần kiểm '+(i+1)+': '+checkWord(c)+((k==='fail'||k==='recheck')&&i===checks.length-1&&r.reason?' — '+r.reason:''),at:c.recorded||c.ended||c.started})});
+    var why=!prev?'Kiểm lần đầu':prev.result==='fail'?'Lần trước không đạt':prev.result==='inconclusive'?'Lần trước chưa kết luận':prev.artifact&&c.artifact&&prev.artifact!==c.artifact?'Bản được kiểm đã đổi':'Sổ chưa ghi lý do kiểm lại';
+    out.push({k:k,t:'Lần kiểm '+(i+1)+': '+checkWord(c)+((k==='fail'||k==='recheck')&&i===checks.length-1&&r.reason?' — '+r.reason:'')+' · '+why,at:c.recorded||c.ended||c.started})});
   if(r.state==='recheck')out.push({k:'recheck',t:'Mã hoặc quy tắc kiểm đã đổi sau lần đạt: cần kiểm lại trên bản đang xem'+(r.note?' ('+r.note+')':'')});
   if(r.repairs&&typeof r.repairs.left==='number'&&checks.length&&checks[checks.length-1].result&&checks[checks.length-1].result!=='pass')out.push({k:'next',t:r.repairs.text});
   return out}
@@ -281,7 +302,7 @@ function deepEvidence(d){var P=prov(d),keys=P.keys.slice().sort(function(a,b){va
 function deepSections(d){var w=d.work||{},ch=(w.changes||[]).filter(function(x){return x.kind==='contract'}).length,c=d.milestone_checks,
     nloop=c?(c.rows||[]).reduce(function(n,r){return n+(r.checks||[]).length},0):(w.repairs||[]).length,P=prov(d);
   return '<section class="deep" aria-label="Xem sâu"><h3>Xem sâu</h3>'+deep('plan','Thay đổi kế hoạch (trước / sau)',ch,deepPlan(d,w))
-    +deep('loop',c?'Lần kiểm: lỗi → sửa → kiểm lại':'Vòng sửa: lỗi → sửa → kiểm lại',nloop,deepLoop(d,w))
+    +deep('loop',c?'Các lần kiểm':'Vòng sửa: lỗi → sửa → kiểm lại',nloop,deepLoop(d,w))
     +deep('waits','Thời gian chờ và dòng thời gian',(d.waits||[]).length,deepWaits(d))
     +deep('evidence','Bằng chứng',P.keys.length,deepEvidence(d))
     +deep('summary','Tóm tắt: đang ở đâu, vướng gì, ai làm tiếp','',sitPanel(d))+'</section>'}
@@ -392,7 +413,7 @@ function workProgress(d){var m=d.measure||{},v=m.verification||[],a=m.attempts||
   +(v.length?workList(v.map(function(x){return nodeName(d,x.node)+' · thế hệ '+x.generation+' · '+hms(x.seconds)+' · '+x.result}), ''):workEmpty('Chưa có khoảng kiểm có nguồn.'))+'</details>'}
 var CHECK_WORDS={pass:'Đạt',fail:'Không đạt',error:'Lỗi bộ kiểm',inconclusive:'Chưa kết luận'};
 function checkWord(c){if(c.state==='open')return 'Đang kiểm';if(c.state==='lost')return 'Mất tín hiệu';if(c.state==='abandoned')return 'Bỏ dở';return CHECK_WORDS[c.result]||c.result||'Chưa có kết quả'}
-function checkCls(c){return c.state==='open'?'open':c.state==='lost'||c.state==='abandoned'?'lost':c.result==='pass'?'pass':c.result?'fail':'open'}
+function checkCls(c){if(c.result==='inconclusive')return 'inconclusive';return c.state==='open'?'open':c.state==='lost'||c.state==='abandoned'?'lost':c.result==='pass'?'pass':c.result?'fail':'open'}
 function msChart(c){var ts=[];(c.rows||[]).forEach(function(r){r.checks.forEach(function(x){[x.started,x.ended,x.recorded].forEach(function(v){var n=tms(v);if(n!==null)ts.push(n)})})});
   if(!ts.length)return '';var W={w0:Math.min.apply(null,ts),w1:Math.max.apply(null,ts)};if(W.w1-W.w0<1000){var mid=(W.w0+W.w1)/2;W.w0=mid-500;W.w1=mid+500}
   var ticks=gTicks(W),axis=ticks.map(function(t,i){return '<i style="left:'+t.pct+'%"></i><span class="'+(i===0?'first':t.pct>95?'last':'')+'" style="left:'+t.pct+'%">'+esc(t.label)+'</span>'}).join('');

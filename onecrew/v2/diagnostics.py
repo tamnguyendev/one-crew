@@ -66,6 +66,11 @@ _CONTROL = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)')
 
 def _assign(match):
     name = match.group('name')
+    # A status glossary in milestone titles uses this literal Vietnamese gloss.
+    # Keep scanning the rest of the line, including adjacent assignments.
+    if (name == 'pass' and match.group('sep') == ' = ' and match.group('value') == 'cần'
+            and re.match(r' kiểm lại(?=$|[,.;:)”"])', match.string[match.end():])):
+        return match.group(0)
     if not (_NAME.search(name) or _NAME.search(_CAMEL.sub('_', name))): return match.group(0)      # authToken, AccountKey, DB_PASS
     return match.group('name') + match.group('quote') + match.group('sep') + _SENTINEL
 

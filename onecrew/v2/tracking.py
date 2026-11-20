@@ -1524,14 +1524,14 @@ def _unreadable(row, error):
             'read_only': True}
 
 
-def _overview(state_root, *, project_id=None, now=None, reuse_seconds=0):
+def _overview(state_root, *, project_id=None, now=None, reuse_seconds=0, rhythm=False):
     now = _now(now)
     reader, source = _source(state_root)
     if source['status'] != 'ok': return _overview_shell(state_root, now, source)
-    return _observed(lambda observe: _overview_read(state_root, reader, dict(source), project_id, now, observe), now, reuse_seconds)
+    return _observed(lambda observe: _overview_read(state_root, reader, dict(source), project_id, now, observe, rhythm), now, reuse_seconds)
 
 
-def _overview_read(state_root, reader, source, project_id, now, observe):
+def _overview_read(state_root, reader, source, project_id, now, observe, rhythm=False):
     """One round of the overview: one short read transaction; the project observations it needs are made by _observed after it closes (UI3)."""
     result = _overview_shell(state_root, now, source)
     try:
@@ -1552,6 +1552,9 @@ def _overview_read(state_root, reader, source, project_id, now, observe):
                 projects.setdefault(row['project_path'], []).append(item)
             result['projects'] = [{'path': path, 'tasks': items} for path, items in projects.items()]
             result['tasks_total'] = sum(len(p['tasks']) for p in result['projects'])
+            if rhythm:
+                from .tracking_dashboard import check_days
+                result['check_days'] = check_days(conn, projects, now)
             seen_ids = {item.get('project_id') for items in projects.values() for item in items}
             result['untracked'] = _untracked(conn, rows, reader.state_root, {p.casefold() for p in projects}, children, project_id=project_id, seen_ids=seen_ids)
             try:

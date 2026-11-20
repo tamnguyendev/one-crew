@@ -39,7 +39,7 @@ SOURCES = ('owner', 'ai', 'unknown')
 SOURCE_WORDS = {'owner': 'Chủ giao', 'ai': 'AI giao', 'unknown': 'Chưa rõ nguồn'}
 SPAWNED = 'spawned'
 SPAWNED_WORD = 'Có việc AI phát sinh (việc sửa, việc con)'
-STAGES = ('need', 'running', 'recheck', 'todo', 'doing', 'fix', 'check', 'accept', 'done', 'stopped', 'unknown', 'closed')
+STAGES = ('need', 'running', 'recheck', 'inconclusive', 'idle', 'todo', 'doing', 'fix', 'check', 'accept', 'done', 'stopped', 'unknown', 'closed')
 NOT_COMPARED = ('Danh sách không băm từng dự án: việc chưa mở trang riêng thì kết quả kiểm chưa được so với bản hiện tại; '
                 'việc đã mở dùng lần so gần nhất của trang việc, kèm thời điểm. Mở việc để so.')
 ENDED = ('accepted', 'closed')
@@ -312,7 +312,10 @@ def params(query):
 
 def _cheap(entry, f):
     from .tracking import _at
-    if f['project'] and entry['project'] != f['project']: return False
+    project = f['project']
+    if project and project.startswith('repo:'):
+        if entry['project_id'] not in project[5:].split(','): return False
+    elif project and entry['project'] != project: return False
     if f['q'] and f['q'].casefold() not in entry['text']: return False
     if f['source'] == SPAWNED:
         if not entry['links']['spawned']: return False
@@ -325,10 +328,15 @@ def _cheap(entry, f):
     return True
 
 
-def _stage_ok(item, stage):
+def _stage_ok(item, stage, now=None):
     if stage in (None,) + STATES: return True
     if stage == 'need': return bool(item.get('needs_user'))
     situation = item.get('situation') or {}
+    if stage == 'inconclusive': return situation.get('label') == 'Chưa kết luận'
+    if stage == 'idle':
+        from .tracking import _at
+        updated = _at((item.get('last_update') or {}).get('at') or item.get('created_at'))
+        return bool(updated and now and situation.get('stage') not in ('done', 'closed') and now - updated > dt.timedelta(days=3))
     if stage == 'running': return bool((situation.get('activity') or {}).get('running'))
     if stage == 'recheck': return (item.get('validity') or {}).get('kind') == 'recheck' or situation.get('label') == 'Cần kiểm lại'   # UI58 MC: the card's word
     return (situation.get('stage') or 'unknown') == stage
@@ -399,12 +407,12 @@ def _page_read(state_root, f, reader, source, project_id, now, observe):
                 return item
             for e in region:
                 item = read(e); scanned += 1
-                if _stage_ok(item, stage): items.append(item)
+                if _stage_ok(item, stage, now): items.append(item)
             extra = 0
             for e in below:
                 if found >= wanted or extra >= SCAN_CAP: break
                 item = read(e); scanned += 1; extra += 1; bottom = e['seq']
-                if _stage_ok(item, stage): items.append(item); found += 1
+                if _stage_ok(item, stage, now): items.append(item); found += 1
             left = [e for e in candidates if e['seq'] < bottom] if bottom is not None else []     # matching rows below the region, not read
             validity = [(i.get('validity') or {}) for i in items]       # UI58 MC: how many shown results were compared with the project, and when
             listed['validity'] = {'not_compared': sum(1 for v in validity if v.get('kind') == 'not_compared'),

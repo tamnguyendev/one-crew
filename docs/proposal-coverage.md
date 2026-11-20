@@ -1345,3 +1345,14 @@ Baseline e6d58bb / final3 remains immutable. Scope: local repair, final wheel, n
 | F9 | Claude sol3 finding 9, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
 | F10 | Claude sol3 finding 10, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
 | F11 | Claude sol3 finding 11, attachment 9edd8c85 | Verified local | [Sol4 handoff](SOL4-CLAUDE-HANDOFF.vi.md); final wheel 40d7ba7, scope and limits explicit |
+
+## OBS3 revision 5 · MT · bản nháp chờ Claude soát
+
+| Yêu cầu | Mã và ca kiểm trong `tests/test_obs3_overview.py` |
+|---|---|
+| Việc cần chủ lên đầu, số trên ô khớp danh sách | `tracking_dashboard.page`, `tracking_list` · `owner_items_first`, `attention_counts_match_list`, `tile_opens_filtered_list` |
+| Repo chứa các worktree, thiếu dữ liệu phải nói rõ | `tracking_dashboard` · `per_repo_worktrees`, `not_compared_said`, `background_and_leases`, `placeholder_no_numbers` |
+| Nhịp kiểm theo ngày, bố cục điện thoại | `tracking_dashboard.check_days`, `rhythm_html` · `checks_per_day_scale`, `mobile_layout` |
+| Công việc và trang việc có icon, thanh mốc và biểu đồ | `tracking_work_web`, `tracking_web` · `mockup_look_list_and_task` |
+| Các lần kiểm và lý do kiểm lại | `tracking_situation.milestone_checks`, `tracking_work_web.loopSteps` · `checks_section_named_with_reason` |
+| Giữ nguyên lời giải thích trạng thái, che giá trị bí mật | `diagnostics.redact_line` · `no_false_redaction` |
