@@ -30,6 +30,7 @@ from ..ledger import Ledger, LedgerError
 from ..snapshots import control_part, is_link
 from . import claude_cli, hook_cli, where
 from .messages import TEXT, lang, t
+from .session_observe import OBSERVE_EVENTS
 
 EXE_NAMES = ('onecrew', 'onecrew.exe', 'onecrew.cmd')
 HOOK_VERBS = tuple(verb for _, verb, _, _, _ in hook_cli.HOOK_EVENTS) + ('background',)      # BG-A: `hook background` is ours too (opt-in events)
@@ -529,6 +530,39 @@ def check_hooks(root, state, exe):
 
 USER_MATCHER = 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell'
 USER_ARGS = ['hook', 'check', '--scope', 'user']
+OBSERVE_ARGS = ['hook', 'observe']
+
+
+def _observer(handler):
+    return (isinstance(handler, dict) and handler.get('type') == 'command' and handler.get('args') == OBSERVE_ARGS
+            and re.split(r'[\\/]', str(handler.get('command', '')).strip())[-1].casefold() in EXE_NAMES)
+
+
+def observed_events(settings):
+    hooks = settings.get('hooks')
+    if not isinstance(hooks, dict): return []
+    return [name for name in OBSERVE_EVENTS if isinstance(hooks.get(name), list)
+            and any(isinstance(entry, dict) and isinstance(entry.get('hooks'), list) and any(_observer(h) for h in entry['hooks'])
+                    for entry in hooks[name])]
+
+
+def merge_observers(hooks, exe):
+    for name in OBSERVE_EVENTS:
+        entries = hooks.get(name, [])
+        if not isinstance(entries, list): raise SettingsShape('hooks.' + name, 'list')
+        kept = []
+        for entry in entries:
+            handlers = entry.get('hooks') if isinstance(entry, dict) else None
+            if not isinstance(handlers, list) or not any(_observer(h) for h in handlers):
+                kept.append(entry)
+            else:
+                rest = [h for h in handlers if not _observer(h)]
+                if rest: kept.append(dict(entry, hooks=rest))
+        if exe:
+            kept.append({'hooks': [{'type': 'command', 'command': str(exe), 'args': list(OBSERVE_ARGS),
+                                    'timeout': 10, 'onFailure': 'continue'}]})
+        if kept: hooks[name] = kept
+        elif entries: hooks.pop(name)
 
 
 def user_settings_file(env=None):
@@ -567,13 +601,13 @@ def program_why_not(exe):
     return None if program_runs_scope(exe)[0] else 'user.why_scope'        # #25 (review 2, P3-2): the doctor's check, before anything is written
 
 
-def program_runs_scope(program):
+def program_runs_scope(program, hook_args=USER_ARGS):
     """#25 (review P2-7): (ok, why) of the hook's own program asked what Claude Code asks it: `hook check --scope user` with an empty event, started in a folder
     no plan governs. A OneCrew from before #25 refuses `--scope` (exit 2), which Claude Code reads as 'blocked' for every call."""
     env = {k: v for k, v in os.environ.items() if k not in ('CLAUDE_PROJECT_DIR', 'CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION')}
     try:
         with tempfile.TemporaryDirectory() as folder:
-            done = subprocess.run([str(program), *USER_ARGS], input=b'{}', capture_output=True, timeout=30, cwd=folder, env=env)
+            done = subprocess.run([str(program), *hook_args], input=b'{}', capture_output=True, timeout=30, cwd=folder, env=env)
     except (OSError, subprocess.SubprocessError) as error:
         return False, f'{type(error).__name__}'
     if done.returncode == 0: return True, ''
@@ -589,7 +623,7 @@ def _profile_form(path):
     return os.path.normcase(os.path.realpath(text))
 
 
-def user_hook(verb, settings_file=None, program=None):
+def user_hook(verb, settings_file=None, program=None, *, observe=False):
     """`onecrew hook user install|status|uninstall`. Exit code: 0 done (or nothing to do); 2 refused or nothing written (AI session on the user's own
     profile, bad settings file, no installed command)."""
     shown_path = Path(settings_file) if settings_file else user_settings_file()
@@ -604,7 +638,8 @@ def user_hook(verb, settings_file=None, program=None):
     if verb == 'status':
         handlers = user_handlers(data or {})
         shown = handlers[0]['command'] if handlers else (str(installed_exe()) if installed_exe() else None)
-        print(json.dumps({'configured': bool(handlers), 'settings_file': str(shown_path), 'program': shown, 'program_found': program_found(shown), 'error': bad}, ensure_ascii=False, indent=2))
+        print(json.dumps({'configured': bool(handlers), 'settings_file': str(shown_path), 'program': shown, 'program_found': program_found(shown),
+                          'observation_events': observed_events(data or {}), 'error': bad}, ensure_ascii=False, indent=2))
         return 0
     from .ownership import claude_session
     try:       # #25 (review P2-3): the owner's profile is ~/.claude/settings.json and, when CLAUDE_CONFIG_DIR is set, the settings.json of that folder
@@ -627,6 +662,9 @@ def user_hook(verb, settings_file=None, program=None):
         why = program_why_not(exe)
         if why:
             say(t('user.bad_program', program=exe, why=t(why)))
+            return 2
+        if (observe or observed_events(data)) and not program_runs_scope(exe, OBSERVE_ARGS)[0]:
+            say(t('user.bad_program', program=exe, why='hook observe'))
             return 2
     merged = copy.deepcopy(data)
     try:
@@ -652,6 +690,13 @@ def user_hook(verb, settings_file=None, program=None):
     else:
         if hooks.get('PreToolUse') is not None: hooks['PreToolUse'] = kept
         if not kept: hooks.pop('PreToolUse', None)
+        if not hooks: merged.pop('hooks', None)
+    if observe or observed_events(data):
+        try:
+            merge_observers(hooks, exe)
+        except SettingsShape as error:
+            say(t('init.bad_settings', reason=t('settings.shape', path=path, field=error.key, expected=t('shape.' + error.expected))))
+            return 2
         if not hooks: merged.pop('hooks', None)
     if merged == data:
         say(t('user.unchanged' if verb == 'install' else 'user.absent', path=shown_path))
@@ -755,6 +800,10 @@ def doctor_facts(project=None, state_root=None, exe=None, claude=claude_status):
             else: add('PASS', 'doctor.plan', t('doctor.plan_ok', name=plan.get('plan'), revision=plan.get('revision'), mode=plan.get('mode')))
     level, detail = check_user_hook()                                  # #25
     add(level, 'doctor.user', detail)
+    present = observed_events(read_settings(user_settings_file())[0] or {})
+    lines.append(('PASS' if len(present) == len(OBSERVE_EVENTS) else 'WARN',
+                  'Quan sát phiên Claude' if lang() == 'vi' else 'Claude session observation',
+                  f'{len(present)}/{len(OBSERVE_EVENTS)} · hook user install --observe'))
     if root is not None:
         seen = last_user_call(root)
         add('PASS', 'doctor.user_calls', t('doctor.user_seen', at=seen.get('at'), session=seen.get('session')) if seen else t('doctor.user_unseen'))

@@ -22,8 +22,6 @@ from pathlib import Path
 from ..display_core import SECRET
 from ..ledger import LedgerError, canonical, utcnow
 from ..snapshots import Snapshots, durable_write, is_link
-from . import namespaces, plan as plans, support
-from .report import _Reader
 
 FILE_CAP = 256 * 1024
 EVENT_CAP = 200
@@ -105,7 +103,7 @@ def _redact_line(line):
     return marked, changed
 
 
-def redact(text):
+def redact(text, *, line_limit=LINE_LIMIT):
     """(text, {lines_withheld, lines_cut, rule}): redact_line on every line (PEM private-key blocks withheld whole); the other lines stay;
     a line longer than 2000 characters is cut."""
     out, withheld, cut, block = [], 0, 0, False
@@ -116,8 +114,8 @@ def redact(text):
             continue
         clean, hidden = redact_line(line)
         if hidden: withheld += 1
-        if len(clean) > LINE_LIMIT:
-            clean, cut = clean[:LINE_LIMIT] + '…', cut + 1
+        if line_limit is not None and len(clean) > line_limit:
+            clean, cut = clean[:line_limit] + '…', cut + 1
         out.append(clean)
     return '\n'.join(out), {'lines_withheld': withheld, 'lines_cut': cut, 'rule': RULE}
 
@@ -195,6 +193,7 @@ def _json(value):
 def _tasks(conn, project_id, refs):
     """The task ids the refs prove: the referenced plan root and its child tasks (wf:<root>:...), all of this project. Never the support
     anchor (other reports live there) and never another kind of task (S1-R02)."""
+    from . import namespaces, support
     root = refs.get('root_task')
     row = conn.execute('SELECT request_key FROM tasks WHERE id=? AND project_id=?', (root, project_id)).fetchone() if root else None
     if row is None or not row['request_key'].startswith((namespaces.LEGACY, namespaces.NAMESPACED)): return []
@@ -263,6 +262,7 @@ def _ledger_sources(bundle, conn, state_root, project_id, refs):
 
 
 def _attempt_logs(bundle, state_root, attempts):
+    from . import support
     top = Path(state_root) / 'attempts'
     for order, attempt in enumerate(attempts):
         for stream in ('stdout', 'stderr'):
@@ -318,6 +318,7 @@ def _receipts(bundle, state_root, receipts):
 
 
 def _violations(bundle, project, refs):
+    from . import namespaces
     if not refs.get('plan'):
         bundle.add('hook.violations', None, 'not_applicable', reason='no plan referenced: hook lines are matched by plan')
         return
@@ -370,6 +371,8 @@ def _export(ledger, out):
 def bundle(ledger, ident, out=None):
     """Collect, store and (with out) export the bundle of feedback `ident`. Returns {feedback, manifest, manifest_blob, total_bytes, export}."""
     destination = _export(ledger, out) if out is not None else None
+    from . import plan as plans, support
+    from .report import _Reader
     shown = support.show(ledger, ident)
     feedback = shown['feedback']
     refs = feedback.get('refs') or {}

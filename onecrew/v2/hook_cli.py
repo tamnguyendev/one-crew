@@ -143,7 +143,7 @@ def claim_call(folder, plan, tool_use_id):
 
 
 @contextlib.contextmanager
-def appending(lock_path, wait=10.0):
+def appending(lock_path, wait=10.0, required=False):
     """FIX25B (Codex F5, decision D4): an OS lock (msvcrt.locking on Windows, fcntl.flock elsewhere) on a small lock file, held while a line is appended. The lock is
     taken by polling for up to `wait` seconds; a lock that cannot be had in that time (or at all) is skipped, so a record is never lost to a stuck lock: a rare torn line is
     better than none. The lock dies with the process, so a crashed hook leaves nothing behind."""
@@ -168,6 +168,8 @@ def appending(lock_path, wait=10.0):
     except OSError:
         pass
     try:
+        if required and not locked:
+            raise TimeoutError('Observation file is busy')
         yield
     finally:
         if handle is not None:
@@ -2355,7 +2357,9 @@ def sync(args):
             plans.emit(ledger, conn, state['task_id'], kind, dict({k: item.get(k) for k in ('plan', 'revision', 'tool', 'rule', 'reason', 'subject', 'mode', 'session', 'agent_id', 'agent_type', 'tool_use_id', 'scope')},
                                                                    spool_id=item['id'], recorded_at=item.get('at')))
             added += 1
-    return {'imported': added, 'skipped': skipped, 'lines': len(lines)}
+    from . import session_observe
+    observed = session_observe.flush(ledger)
+    return {'imported': added, 'skipped': skipped, 'lines': len(lines), 'observations_imported': observed}
 
 
 HOOK_EVENTS = (('PreToolUse', 'check', 15, 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', 'block'),     # only the tool gate fails closed: a crashing
@@ -2427,12 +2431,15 @@ def parser():
     p = verbs.add_parser('mode', help='Owner only: log or enforce.'); p.add_argument('mode', choices=['log', 'enforce']); p.add_argument('--by', required=True)
     p.add_argument('--plan'); p.add_argument('--reference', required=True)
     verbs.add_parser('background', help='PostToolUse/SubagentStart/SubagentStop/SessionEnd: record background work (BG-A); never blocks.')
+    verbs.add_parser('observe', help='Observe a local Claude session for its target plan (stdin JSON).')
+    verbs.add_parser('sessions', help='List local observed session bindings, including unbound sessions.')
     p = verbs.add_parser('install', help='Print the hooks and permissions.deny settings (never edits a settings file).')
     p.add_argument('--print', dest='show', action='store_true', required=True)
     p.add_argument('--background', action='store_true', help='BG-A: also print the hook events that record subagents and background commands.')
     p = verbs.add_parser('user', help='Owner only: install|status|uninstall the user-scope hook (#25).')
     p.add_argument('action', choices=['install', 'status', 'uninstall'])
     p.add_argument('--settings-file', type=Path); p.add_argument('--program', type=Path)
+    p.add_argument('--observe', action='store_true', help='Also install user-level session observation with filtered prompts.')
     return root
 
 
@@ -2440,11 +2447,24 @@ def main(argv=None):
     utf8_streams()          # before anything is printed, whichever way the hook was started (this module through `python -c`, or the installed `onecrew hook <verb>`)
     args = parser().parse_args(argv)
     if args.group != 'hook': return 2
+    if args.verb == 'observe':
+        try:
+            from . import session_observe
+            event, bad = read_stdin()
+            if not bad: session_observe.observe(event)
+        except Exception as error:
+            # Never echo the payload or an exception containing owner text.
+            print(f'OneCrew observation unavailable ({type(error).__name__})', file=sys.stderr)
+        return 0
+    if args.verb == 'sessions':
+        from . import session_observe
+        print(json.dumps(session_observe.bindings(), ensure_ascii=False))
+        return 0
     if args.verb in ('check', 'prompt', 'stop', 'session', 'background'):
         return {'check': check, 'prompt': prompt, 'stop': stop, 'session': session, 'background': background_hook}[args.verb](args)
     if args.verb == 'user':                  # #25: no ledger, no project: a file of the user's own
         from . import install
-        return install.user_hook(args.action, args.settings_file, args.program)
+        return install.user_hook(args.action, args.settings_file, args.program, observe=args.observe)
     from ..ledger import Ledger, LedgerError
     try:
         project = Path(args.project or os.environ.get('CLAUDE_PROJECT_DIR') or Path.cwd())

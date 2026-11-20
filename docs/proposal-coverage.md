@@ -1356,3 +1356,17 @@ Baseline e6d58bb / final3 remains immutable. Scope: local repair, final wheel, n
 | Công việc và trang việc có icon, thanh mốc và biểu đồ | `tracking_work_web`, `tracking_web` · `mockup_look_list_and_task` |
 | Các lần kiểm và lý do kiểm lại | `tracking_situation.milestone_checks`, `tracking_work_web.loopSteps` · `checks_section_named_with_reason` |
 | Giữ nguyên lời giải thích trạng thái, che giá trị bí mật | `diagnostics.redact_line` · `no_false_redaction` |
+
+## OBS3 bản 5 · MS
+
+Chủ có thể bật ghi nhận qua `onecrew hook user install --observe`. `onecrew hook user status` liệt kê các sự kiện đã cấu hình. `onecrew hook sessions` cho biết phiên nào đã gắn việc và lý do khi chưa gắn.
+
+| Yêu cầu | Tệp thực hiện | Ca kiểm trong `tests/test_obs3_observe.py` |
+|---|---|---|
+| MS-1 · Phiên mở ngoài repo tới plan đích, nhiều đích thì báo chưa gắn | `session_observe._binding`, registry dự án và bản xuất active-plan ở state-root | `session_other_folder_reaches_target_plan`, `unbound_session_said` |
+| MS-2 · Ghi agent con và lệnh nền, kèm nguồn host | `session_observe._rows` | `subagent_start_stop_recorded`, `background_shell_recorded` |
+| MS-3 · Phân biệt lời chủ, câu AI hỏi và lựa chọn thực nhận, giữ liên kết câu hỏi | `session_observe._rows` | `owner_prompt_recorded_filtered`, `ai_question_recorded_as_claim`, `owner_choice_linked` |
+| MS-4 · Lọc trước khi ghi, chỉ lấy trường cần dùng | `session_observe._clean`, `diagnostics.redact` | `secret_never_stored`, `no_transcript_text_in_ledger` |
+| MS-5 · Nối tệp trên đường gọi công cụ, gom lô cuối lượt hoặc qua `hook sync`; lỗi quan sát vẫn tiếp tục | `session_observe.observe/flush`, `hook_cli`, `install.merge_observers` | `hook_failure_does_not_block_work`, `interrupted_append_and_batch_replay`, `install_observer_in_private_home` |
+
+Phiên chưa có đích chỉ lưu định danh và trạng thái trên máy. Khi có đích, sự kiện ghi lên đúng anchor và revision tại thời điểm quan sát. Lời chủ đến trước lần xác định đích đầu tiên không được gán hồi tố. Thử bằng payload host trong HOME riêng; sự kiện từ ứng dụng desktop với gói mới chờ chủ thử ở MO.
