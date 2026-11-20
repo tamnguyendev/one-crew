@@ -63,7 +63,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from ..ledger import LedgerError, utcnow
-from . import tracking, tracking_dashboard, tracking_host_web, tracking_list
+from . import tracking, tracking_dashboard, tracking_host_web, tracking_list, tracking_sessions
 
 MARKER = 'tracking/server.json'
 LOCK = 'tracking/open.lock'
@@ -165,6 +165,13 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
                                                          'read_only': True, 'project_id': project_id})
             scope = q.get('project_id') or project_id
             try:
+                if url.path == '/sessions':
+                    host = urllib.parse.urlsplit('//' + self.headers.get('Host', '')).hostname
+                    if self.client_address[0] not in ('127.0.0.1', '::1') or host not in ('localhost', '127.0.0.1', '::1'):
+                        return self._send(HTTPStatus.FORBIDDEN, {'error': 'Chỉ mở phiên Claude trên máy này.'})
+                    if not q.get('plan'):
+                        return self._send(HTTPStatus.BAD_REQUEST, {'error': 'thiếu plan'})
+                    return self._send(HTTPStatus.OK, tracking_sessions.page(state_root, q['plan'], scope, q.get('session')), 'text/html; charset=utf-8')
                 if url.path == '/overview':
                     return self._send(HTTPStatus.OK, tracking_dashboard.page(state_root, scope), 'text/html; charset=utf-8')
                 if url.path in ('/', '/index.html'):
@@ -1054,6 +1061,7 @@ function renderDetail(d){
   var h=[crumbs(workTitle(d),d.work?crumbTab(d):''),'<div class="dhead"><h2 id="dtitle" data-k="dtitle" tabindex="-1">'+(workNoOwner(d)?'<span class="work-id">'+esc(d.plan)+' · </span>':'')+esc(workTitle(d))+' '+workBadge(d)+'</h2><button type="button" id="close" class="small" title="bỏ chọn task">Đóng</button></div>'];
   if(detailError)h.push('<div id="dstatus" class="dstatus stale" role="status" data-state="stale" data-k="dstatus" tabindex="-1">Chi tiết chưa cập nhật từ '+clockMs(detailOkAt)+': lỗi tải chi tiết ('+esc(detailError.message)+', lần thử gần nhất <span id="dlast">'+clockMs(detailError.last)+'</span>); đang hiện dữ liệu lúc '+(d.generated_at?clock(d.generated_at):clockMs(detailOkAt))+'. Mẫu lệnh trả lời bên dưới là của lúc đó: nếu câu hỏi đã được trả lời hoặc đổi bản, OneCrew từ chối lệnh nhờ --revision. <span id="dnote" data-cap="1">'+cap(noteHtml())+'</span>.</div>');
   h.push('<div class="small mut">Đang xem '+(workNoOwner(d)?'task <b>'+esc(d.plan)+'</b>':'việc này')+' của project <span title="'+esc(d.project)+'">'+esc(short(d.project))+'</span> · <a href="'+esc(urlOf({plan:d.selector,project:d.project_id}))+'">liên kết tới task này</a></div>');
+  h.push('<nav aria-label="Phiên của việc"><a href="/sessions'+esc(urlOf({plan:d.selector,project:d.project_id}))+'">Phiên Claude</a></nav>');
   var needs=d.needs_user||[],nq=needs.filter(function(n){return n.kind==='request'}).length,nother=needs.length-nq;
   h.push(milestoneBar(d),taskTiles(d));                                                 // UI58 MC: output, still valid, next step, your decision; the five-question summary moved under "Xem sâu"
   var done=d.status.kind==='done';

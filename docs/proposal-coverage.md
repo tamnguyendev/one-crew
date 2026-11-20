@@ -1370,3 +1370,12 @@ Chủ có thể bật ghi nhận qua `onecrew hook user install --observe`. `one
 | MS-5 · Nối tệp trên đường gọi công cụ, gom lô cuối lượt hoặc qua `hook sync`; lỗi quan sát vẫn tiếp tục | `session_observe.observe/flush`, `hook_cli`, `install.merge_observers` | `hook_failure_does_not_block_work`, `interrupted_append_and_batch_replay`, `install_observer_in_private_home` |
 
 Phiên chưa có đích chỉ lưu định danh và trạng thái trên máy. Khi có đích, sự kiện ghi lên đúng anchor và revision tại thời điểm quan sát. Lời chủ đến trước lần xác định đích đầu tiên không được gán hồi tố. Thử bằng payload host trong HOME riêng; sự kiện từ ứng dụng desktop với gói mới chờ chủ thử ở MO.
+
+## OBS3 bản 5 · MP
+
+| Yêu cầu | Nơi thực hiện | Ca kiểm trong `tests/test_obs3_session_page.py` |
+|---|---|---|
+| MP-1 · Mở phiên từ đúng việc và dự án | `tracking_sessions.page`, liên kết từ Tổng quan và trang việc | `session_list_by_task`, `mobile_layout` |
+| MP-2 · Làn phiên chính, agent con và lệnh nền, chi tiết bước đã lọc | `tracking_sessions._timeline` | `timeline_lanes_main_subagents_background`, `step_detail_filtered` |
+| MP-3 · Đọc nhật ký tại chỗ khi mở phiên, tách tóm tắt khỏi suy luận gốc | `session_transcript.read`, `_scan` | `reasoning_summary_only_when_present`, `secret_filter`, `transcript_missing_said`, `duplicate_transcript_is_ambiguous` |
+| MP-4 · Danh sách bước có nguồn và giờ, số liệu ước tính của phiên | `session_transcript._update_tasks`, `tracking_sessions._detail` | `task_list_marked_self_report`, `tokens_model_cost_estimate_labelled` |

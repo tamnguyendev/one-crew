@@ -158,7 +158,15 @@ def page(state_root, project_id=None):
         content += '<h2>Theo repo và worktree</h2><div class="grid">' + (projects_html(value['projects']) or 'Chưa có việc trong sổ') + '</div>'
         content += '<h2>Nhịp kiểm 14 ngày</h2>' + rhythm_html(value['check_days'])
         content += '<h2>Việc nền và tài nguyên</h2><div class="grid">' + background_html(value['host_work'], value['shared_resources']) + '</div>'
-        content += '<h2>Phiên Claude</h2><article>Chưa có dữ liệu phiên, token, model và chi phí.</article>'
+        session_tasks = value.get('session_tasks', {})
+        session_links = []
+        for task in tasks:
+            count = session_tasks.get(task.get('id'))
+            if count:
+                query = urlencode({'plan': task['selector'], 'project_id': task['project_id']})
+                session_links.append(f'<li><a href="/sessions?{escape(query)}">{escape(task["plan"])} · {count} phiên</a></li>')
+        content += '<h2>Phiên Claude</h2><article>' + ('<ul>' + ''.join(session_links) + '</ul>' if session_links
+                    else 'Chưa có dữ liệu phiên, token, model và chi phí.') + '</article>'
     return (f'<!doctype html><html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
             f'<title>Tổng quan · OneCrew</title><style>{STYLE}</style><header><b>OneCrew</b><nav aria-label="Trang">'
             f'<a href="{escape(overview_url)}" aria-current="page">Tổng quan</a>{link("Công việc", **list_scope)}</nav></header>'

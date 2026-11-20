@@ -1554,7 +1554,13 @@ def _overview_read(state_root, reader, source, project_id, now, observe, rhythm=
             result['tasks_total'] = sum(len(p['tasks']) for p in result['projects'])
             if rhythm:
                 from .tracking_dashboard import check_days
+                from .tracking_sessions import KINDS
                 result['check_days'] = check_days(conn, projects, now)
+                result['session_tasks'] = {r['task_id']: r['n'] for r in conn.execute(
+                    "SELECT e.task_id, count(DISTINCT json_extract(e.payload,'$.session')) AS n "
+                    "FROM events e JOIN tasks t ON t.id=e.task_id WHERE e.kind IN (?,?,?,?) "
+                    "AND json_type(e.payload,'$.session')='text' AND json_extract(e.payload,'$.session')<>'' "
+                    "AND (? IS NULL OR t.project_id=?) GROUP BY e.task_id", (*KINDS, project_id, project_id))}
             seen_ids = {item.get('project_id') for items in projects.values() for item in items}
             result['untracked'] = _untracked(conn, rows, reader.state_root, {p.casefold() for p in projects}, children, project_id=project_id, seen_ids=seen_ids)
             try:
