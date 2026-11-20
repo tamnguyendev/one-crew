@@ -50,7 +50,8 @@ def repo_dir(project):
 
 
 def link(label, **filters):
-    return '<a href="/?' + escape(urlencode(filters)) + '">' + label + '</a>'
+    query = '?' + urlencode(filters) if filters else ''
+    return f'<a href="/{escape(query)}">{label}</a>'
 
 
 def projects_html(projects):
@@ -131,6 +132,12 @@ def page(state_root, project_id=None):
     tracking_host_web.attach(value, state_root)
     value = tracking.outward(value)
     now = tracking._at(value['generated_at'])
+    # The list can run on a shared server even when this dashboard was opened for one project.
+    list_scope = {}
+    if project_id:
+        projects = value['projects']
+        list_scope['project'] = projects[0]['path'] if len(projects) == 1 else 'repo:' + project_id
+    overview_url = '/overview?' + urlencode({'project_id': project_id}) if project_id else '/overview'
     content = f'<small>Đọc lúc {now.astimezone():%H:%M %d/%m/%Y} · <a href="">Đọc lại</a></small>'
     if value['source']['status'] != 'ok':
         content += '<p role="status">' + escape(value['source']['detail']) + '</p>'
@@ -139,7 +146,7 @@ def page(state_root, project_id=None):
         content += '<h2>Cần chú ý trong sổ</h2><nav class="attention" aria-label="Cần chú ý">'
         for stage, label in ATTENTION:
             count = sum(tracking_list._stage_ok(t, stage, now) for t in tasks)
-            content += link(f'<strong>{count}</strong>{label}', stage=stage)
+            content += link(f'<strong>{count}</strong>{label}', stage=stage, **list_scope)
         content += '</nav>'
         owners = [t for t in tasks if t.get('needs_user')]
         if owners:
@@ -154,5 +161,5 @@ def page(state_root, project_id=None):
         content += '<h2>Phiên Claude</h2><article>Chưa có dữ liệu phiên, token, model và chi phí.</article>'
     return (f'<!doctype html><html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
             f'<title>Tổng quan · OneCrew</title><style>{STYLE}</style><header><b>OneCrew</b><nav aria-label="Trang">'
-            f'<a href="/overview" aria-current="page">Tổng quan</a><a href="/">Công việc</a></nav></header>'
+            f'<a href="{escape(overview_url)}" aria-current="page">Tổng quan</a>{link("Công việc", **list_scope)}</nav></header>'
             f'<main><h1>Tổng quan</h1>{content}</main></html>').encode('utf-8')

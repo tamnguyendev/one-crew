@@ -1350,7 +1350,7 @@ Baseline e6d58bb / final3 remains immutable. Scope: local repair, final wheel, n
 
 | Yêu cầu | Mã và ca kiểm trong `tests/test_obs3_overview.py` |
 |---|---|
-| Việc cần chủ lên đầu, số trên ô khớp danh sách | `tracking_dashboard.page`, `tracking_list` · `owner_items_first`, `attention_counts_match_list`, `tile_opens_filtered_list` |
+| Việc cần chủ lên đầu, số trên ô khớp danh sách, kể cả khi mở riêng một dự án trên sổ chung | `tracking_dashboard.page`, `tracking_list` · `owner_items_first`, `attention_counts_match_list`, `attention_counts_match_list_for_scoped_overview`, `tile_opens_filtered_list` |
 | Repo chứa các worktree, thiếu dữ liệu phải nói rõ | `tracking_dashboard` · `per_repo_worktrees`, `not_compared_said`, `background_and_leases`, `placeholder_no_numbers` |
 | Nhịp kiểm theo ngày, bố cục điện thoại | `tracking_dashboard.check_days`, `rhythm_html` · `checks_per_day_scale`, `mobile_layout` |
 | Công việc và trang việc có icon, thanh mốc và biểu đồ | `tracking_work_web`, `tracking_web` · `mockup_look_list_and_task` |

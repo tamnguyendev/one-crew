@@ -27,20 +27,20 @@ BROWSERS = (r'C:\Program Files\Google\Chrome\Application\chrome.exe', r'C:\Progr
             r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe', r'C:\Program Files\Microsoft\Edge\Application\msedge.exe')
 
 
-def find_browser(profile_dir):
+def find_browser(profile_dir, *, flags=()):
     """A headless browser that really executes a page's script here (some Edge builds dump nothing while Edge is open), or None."""
     for exe in [e for e in BROWSERS if Path(e).is_file()] + [shutil.which('chrome'), shutil.which('msedge')]:
         if not exe: continue
         try:
-            dom = dump_dom(exe, 'data:text/html,<b id=x>static</b><script>document.getElementById("x").textContent="jsran"</script>', profile_dir, budget=500)
+            dom = dump_dom(exe, 'data:text/html,<b id=x>static</b><script>document.getElementById("x").textContent="jsran"</script>', profile_dir, budget=500, flags=flags)
         except (OSError, subprocess.SubprocessError):
             continue
         if 'jsran' in dom: return exe
     return None
 
 
-def dump_dom(exe, url, profile_dir, budget=4000):
-    done = subprocess.run([exe, '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', f'--user-data-dir={profile_dir}',
+def dump_dom(exe, url, profile_dir, budget=4000, *, flags=()):
+    done = subprocess.run([exe, '--headless=new', *flags, '--disable-gpu', '--no-first-run', '--no-default-browser-check', f'--user-data-dir={profile_dir}',
                           '--window-size=1400,1000', f'--virtual-time-budget={budget}', '--dump-dom', url],
                          capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=90)
     return done.stdout
@@ -53,8 +53,8 @@ def badge(dom):
     return (found.group(1), found.group(2)) if found else (None, None)
 
 
-def screenshot(exe, url, profile_dir, path, budget=4000):
-    subprocess.run([exe, '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', f'--user-data-dir={profile_dir}',
+def screenshot(exe, url, profile_dir, path, budget=4000, *, flags=()):
+    subprocess.run([exe, '--headless=new', *flags, '--disable-gpu', '--no-first-run', '--no-default-browser-check', f'--user-data-dir={profile_dir}',
                     '--window-size=1400,1000', f'--virtual-time-budget={budget}', f'--screenshot={path}', url], capture_output=True, timeout=90)
     return Path(path).is_file()
 
@@ -183,7 +183,9 @@ class BrowserTests(WebFixture):
     def setUp(self):
         super().setUp()
         self.profile = Path(self.temp.name) / 'browser profile'
-        self.browser = find_browser(self.profile)
+        from tests.test_ui33_task_first import local_chromium_flags
+        self.flags = local_chromium_flags([self.url])
+        self.browser = find_browser(self.profile, flags=self.flags)
         if not self.browser: self.skipTest('no headless Chrome/Edge executes script on this machine')
 
     def test_the_page_renders_the_task_its_status_and_the_connection_state(self):
@@ -193,7 +195,7 @@ class BrowserTests(WebFixture):
         bind(self, self.ledger)
         self.revise([node('A'), node('I', ['A'], integration=True, write=())])
         self.ledger.create_request(self.root_view['anchor_task'], 'retention', __import__('tests.test_obs1_tracking', fromlist=['QUESTION']).QUESTION)
-        dom = dump_dom(self.browser, self.url, self.profile)
+        dom = dump_dom(self.browser, self.url, self.profile, flags=self.flags)
         cls, text = badge(dom)
         self.assertEqual(cls, 'ok', text); self.assertIn('kết nối OK', text); self.assertIn('seq', text)
         body = dom.split('</script>')[-1] if '</script>' in dom else dom
@@ -201,16 +203,16 @@ class BrowserTests(WebFixture):
         self.assertIn('P1', dom); self.assertIn('class="stg todo"', dom); self.assertIn('Chưa bắt đầu</span>', dom); self.assertIn('class="needb">Cần bạn', dom)
         self.assertIn('Trả lời câu hỏi', dom); self.assertIn('Người xử lý: Bạn', dom)
         self.assertNotIn('hunter2', dom)
-        detail = dump_dom(self.browser, self.url + '?plan=P1', self.profile)              # the reply commands live in the task detail (UX-03), one per option
+        detail = dump_dom(self.browser, self.url + '?plan=P1', self.profile, flags=self.flags)   # the reply commands live in the task detail (UX-03), one per option
         self.assertIn('owner answer', detail); self.assertIn("--choice 'seven'", detail); self.assertIn("--choice 'thirty'", detail); self.assertNotIn('hunter2', detail)
         self.assertIn('Sao chép lệnh', detail); self.assertIn('--reference', detail)
         self.assertIn('chưa được theo dõi', dom)
         evidence = Path(os.environ.get('OBS1_EVIDENCE_DIR') or self.temp.name)
-        if screenshot(self.browser, self.url, self.profile, evidence / 'obs1-page.png'): pass
+        if screenshot(self.browser, self.url, self.profile, evidence / 'obs1-page.png', flags=self.flags): pass
 
     def test_the_page_says_disconnected_when_the_api_stops_answering(self):
         self.revise([node('A'), node('I', ['A'], integration=True, write=())])
         self.server.track_stats['refuse_api'] = True            # test-only: the API connection is dropped without a response; the page itself still loads
-        dom = dump_dom(self.browser, self.url, self.profile)
+        dom = dump_dom(self.browser, self.url, self.profile, flags=self.flags)
         cls, text = badge(dom)
         self.assertEqual(cls, 'bad', text); self.assertIn('MẤT KẾT NỐI', text); self.assertIn('worker không bị ảnh hưởng', text)

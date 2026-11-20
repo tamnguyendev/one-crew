@@ -172,14 +172,30 @@ class Served:
 
 # ---- the CDP driver: a real headless Chromium, driven over its DevTools port (Node 22+ has WebSocket and fetch built in) ---------------------
 
+def local_chromium_flags(urls):
+    """Allow headless fixture pages to render inside a restricted Windows CI process."""
+    if os.name != 'nt' or os.environ.get('CI') != 'true' or not urls:
+        return []
+    for url in urls:
+        target = urllib.parse.urlsplit(url)
+        if target.scheme != 'http' or target.hostname not in ('localhost', '127.0.0.1', '::1'):
+            return []
+    import ctypes
+    # Windows defines GetCurrentProcessToken() as the pseudo-handle ((HANDLE)-4).
+    if not ctypes.windll.advapi32.IsTokenRestricted(ctypes.c_void_p(-4)):
+        return []
+    # Nested renderer startup fails with ACCESS_DENIED under this token. The disposable
+    # browser inherits the restricted token and uses an unreachable proxy off loopback.
+    return ['--no-sandbox', '--disable-background-networking', '--proxy-server=http://127.0.0.1:0']
+
 CDP = r'''
 const {spawn}=require('child_process'),fs=require('fs'),path=require('path');
-const [exe,profile,width,height]=process.argv.slice(2);
+const [exe,profile,width,height,...fixtureFlags]=process.argv.slice(2);
 let input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>main().catch(e=>{console.log(JSON.stringify({error:String(e&&e.stack||e)}));process.exit(3)}));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function main(){
   const steps=JSON.parse(input),portFile=path.join(profile,'DevToolsActivePort');try{fs.unlinkSync(portFile)}catch(e){}
-  const p=spawn(exe,['--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--disable-extensions','--user-data-dir='+profile,'--remote-debugging-port=0','about:blank'],{stdio:'ignore'});
+  const p=spawn(exe,['--headless=new',...fixtureFlags,'--disable-gpu','--no-first-run','--no-default-browser-check','--disable-extensions','--user-data-dir='+profile,'--remote-debugging-port=0','about:blank'],{stdio:'ignore'});
   const kill=setTimeout(()=>{console.log(JSON.stringify({error:'timeout'}));try{p.kill()}catch(e){}process.exit(2)},240000);
   let port=null;for(let i=0;i<400&&!port;i++){try{port=fs.readFileSync(portFile,'utf8').split(/\r?\n/)[0]||null}catch(e){}if(!port)await sleep(100)}
   if(!port)throw new Error('the browser wrote no DevToolsActivePort');
@@ -216,7 +232,8 @@ def drive(temp, url_steps, width, height):
     work.mkdir(exist_ok=True)
     script = work / 'cdp.cjs'; script.write_text(CDP, encoding='utf-8')
     steps = [s if 'nav' in s else {'eval': PRELUDE + s['eval']} for s in url_steps]
-    done = subprocess.run([node(), str(script), browser(), str(work / 'profile'), str(width), str(height)], input=json.dumps(steps), text=True,
+    flags = local_chromium_flags([step['nav'] for step in steps if 'nav' in step])
+    done = subprocess.run([node(), str(script), browser(), str(work / 'profile'), str(width), str(height), *flags], input=json.dumps(steps), text=True,
                           encoding='utf-8', capture_output=True, timeout=300)
     lines = [l for l in done.stdout.strip().splitlines() if l.startswith('{')]
     if not lines: raise AssertionError('the browser driver returned nothing: ' + done.stderr[-1500:])

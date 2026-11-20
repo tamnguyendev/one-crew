@@ -11,7 +11,7 @@ from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from onecrew.v2 import diagnostics, tracking, tracking_dashboard as dash, tracking_list
-from tests.test_ui33_task_first import Project, Served, drive, js, milestone
+from tests.test_ui33_task_first import Project, Served, drive, js, local_chromium_flags, milestone
 
 
 class Overview(unittest.TestCase):
@@ -63,6 +63,30 @@ class Overview(unittest.TestCase):
             self.assertEqual(int(count), actual['matched'], stage)
         self.assertEqual(dict(tiles)['need'], '1')
         self.assertEqual(dict(tiles)['inconclusive'], '1')
+
+    def test_attention_counts_match_list_for_scoped_overview(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            state = base / 'ledger'
+            first = Project(base, 'first', state)
+            second = Project(base, 'second', state)
+            for project in (first, second):
+                project.plan('ASK', [milestone()], approve=False)
+            with Served(state) as server:
+                for project_id, expected in ((first.ledger.project_id, 1), ('0' * 64, 0)):
+                    with self.subTest(project_id=project_id):
+                        status, body = server.get('/overview?project_id=' + project_id)
+                        self.assertEqual(status, 200)
+                        html = body.decode()
+                        href, count = re.search(r'href="([^"]*stage=need[^"]*)"><strong>(\d+)</strong>', html).groups()
+                        self.assertEqual(int(count), expected)
+                        work_link = re.search(r'href="([^"]*)">Công việc</a>', html)[1]
+                        for target in (href, work_link):
+                            query = urlsplit(unescape(target)).query
+                            status, page = server.json('/api/overview?list=1&' + query)
+                            self.assertEqual((status, page['list']['matched']), (200, expected))
+                            rows = [t['project_id'] for group in page['projects'] for t in group['tasks']]
+                            self.assertEqual(rows, [project_id] * expected)
 
     def test_tile_opens_filtered_list(self):
         href = unescape(re.search(r'href="(/\?project=(?!repo%3A)[^"]+&amp;stage=need)"', self.html)[1])
@@ -116,6 +140,12 @@ class Overview(unittest.TestCase):
         panel = self.html.split('<h2>Phiên Claude</h2>', 1)[1].split('</article>', 1)[0]
         self.assertIn('Chưa có dữ liệu', panel)
         self.assertNotRegex(panel, r'\d')
+
+    def test_browser_fixture_flags_stay_on_loopback_in_ci(self):
+        with patch.dict(os.environ, {'CI': 'true'}):
+            self.assertEqual(local_chromium_flags([self.server.url, 'https://example.org/']), [])
+        with patch.dict(os.environ, {'CI': 'false'}):
+            self.assertEqual(local_chromium_flags([self.server.url]), [])
 
     def test_mobile_layout(self):
         steps = [{'nav': self.server.url.rstrip('/') + '/overview'},
