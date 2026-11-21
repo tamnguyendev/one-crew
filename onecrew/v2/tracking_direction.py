@@ -66,7 +66,7 @@ def _records(state_root, selector, project_id):
 
 def _entries(events):
     entries, questions, requests, passed = [], {}, {}, {}
-    last_amend = max((stamp for stamp, _, kind, _ in events if kind == 'plan.amended'), default=None)
+    last_amend = max(((stamp, seq) for stamp, seq, kind, _ in events if kind == 'plan.amended'), default=None)
     phase = 'Trước đề xuất'
     revision = None
     for stamp, seq, kind, p in events:
@@ -140,7 +140,7 @@ def _entries(events):
             entry.label, entry.turn = 'Lời chủ', bool(direction)
         if direction:
             entry.note = 'Nhắc phạm vi · lời chủ nhắc đổi hướng; đối chiếu với bản sửa kế hoạch.'
-            if last_amend is None or last_amend < stamp:
+            if last_amend is None or last_amend < (stamp, seq):
                 entry.note += ' Chưa thấy bản sửa sau lời này.'
         entries.append(entry)
     return entries

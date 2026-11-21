@@ -4,24 +4,33 @@ import io
 import json
 import os
 import sys
+import tempfile
+import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from onecrew.v2 import active_plan, hook_cli, install, session_observe, where
-from tests.test_issue25_user_hook import UserHookBase
-from tests.test_v2_l1 import Fixture
+from tests.test_ui33_task_first import Project, milestone
 
 
-class Observe(Fixture):
+class Observe(unittest.TestCase):
     def setUp(self):
-        super().setUp()
-        base = Path(self.temp.name)
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        base = Path(temp.name)
+        env = patch.dict(os.environ)
+        env.start()
+        self.addCleanup(env.stop)
+        for key in ('ONECREW_ACTOR', 'ONECREW_V2_REQUIRE_PLAN', 'CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION'):
+            os.environ.pop(key, None)
         self.other = base / 'unrelated'
         self.other.mkdir()
         self.home = base / 'home'
         os.environ.update(HOME=str(self.home), USERPROFILE=str(self.home), CLAUDE_CONFIG_DIR=str(self.home / '.claude'),
                           LOCALAPPDATA=str(base / 'local'), APPDATA=str(base / 'roaming'), CLAUDE_PROJECT_DIR=str(self.other))
-        self.approved()
+        self.project = Project(base, 'project', base / 'state')
+        self.root, self.ledger = self.project.root, self.project.ledger
+        self.project.plan('P1', [milestone()])
         active_plan.export(self.ledger, 'P1', strict=True)
         where.register_project(self.root, self.ledger.state_root)
 
@@ -38,7 +47,8 @@ class Observe(Fixture):
                                    tool_input={'file_path': str(self.root / 'a.txt')}), '')
 
     def observed(self):
-        return [p for k, p in self.events() if k == 'hook.observed']
+        task = self.project.state('P1')['task_id']
+        return [e['payload'] for e in self.ledger.events(task) if e['kind'] == 'hook.observed']
 
     def test_session_other_folder_reaches_target_plan(self):
         self.bind()
@@ -129,7 +139,7 @@ class Observe(Fixture):
         self.assertNotIn('private text', str(item))
         self.assertEqual(self.observed(), [])
         self.bind()
-        self.approved('P2')
+        self.project.plan('P2', [milestone()])
         active_plan.export(self.ledger, 'P2', take_over=True, strict=True)
         self.call('UserPromptSubmit', prompt='ambiguous private text')
         self.assertEqual(session_observe.bindings()[0]['reason'], 'multiple plans')
@@ -158,7 +168,10 @@ class Observe(Fixture):
         self.assertEqual(len(self.observed()), 3)
 
     def test_install_observer_in_private_home_and_remove_only_our_handlers(self):
-        exe = UserHookBase.stub(self.home / 'bin')
+        exe = self.home / ('onecrew.cmd' if os.name == 'nt' else 'onecrew')
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_text('@exit /b 0\n' if os.name == 'nt' else '#!/bin/sh\nexit 0\n', encoding='ascii')
+        exe.chmod(0o755)
         settings = install.user_settings_file()
         seed = {'hooks': {'Stop': [{'hooks': [{'command': 'another-hook'}]}]}}
         install.write_text(settings, json.dumps(seed))

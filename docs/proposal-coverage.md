@@ -1386,7 +1386,8 @@ Phiên chưa có đích chỉ lưu định danh và trạng thái trên máy. Kh
 |---|---|---|
 | Giai đoạn mặc định, điểm rẽ và câu hỏi còn mở | `tracking_direction` đọc sự kiện của một anchor, ghép câu trả lời theo mã câu hỏi và phiên | `phases_default_view`, `turning_points_keep_open_questions`, `choice_answered_or_open` |
 | Lời chủ sau lọc, đề xuất và tóm tắt ghi tác giả | Trang dùng lời hook và lý do sửa do người lập bản ghi, giữ xuống dòng | `owner_words_verbatim`, `ai_proposal_labelled`, `phase_summary_marked_ai` |
-| Sản phẩm và các tín hiệu trôi phạm vi | Liên kết chứng cứ cùng việc; tín hiệu từ lời đổi hướng, lần kiểm bản mã khác sau khi đạt và đích ghi ngoài repo | `artifact_linked`, `drift_flag_without_amend` |
+| Sản phẩm và các tín hiệu trôi phạm vi | Liên kết chứng cứ cùng việc. Khi lời đổi hướng và bản sửa cùng giờ, dùng thứ tự ghi sổ để xác định lời nào còn chờ bản sửa | `artifact_linked`, `drift_flag_without_amend`, `same_time_amend_only_covers_earlier_direction_changes` |
 | Lịch sử dài | Tìm trong toàn bộ sự kiện hướng đi của việc rồi chia trang 25 mục | `long_history_paged_and_searchable` |
+| Wheel MH chứa đủ năm module OBS3 | Danh sách `tool.setuptools.py-modules` trong `pyproject.toml` | `test_obs3_modules_in_source_manifest_and_installed_distribution` kiểm danh sách trên nguồn và bản ghi tệp của wheel khi cài sạch |
 
 Phần nguồn đã thử trên sổ phát triển ở 375 và 1280 px. Kết quả đóng gói và receipt do verdict MH ghi trong sổ OBS3.

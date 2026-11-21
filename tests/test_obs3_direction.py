@@ -1,14 +1,31 @@
 """MH through the read-only HTTP routes and real hook row format on temporary ledgers."""
 import re
 import tempfile
+import tomllib
 import unittest
+from datetime import datetime, timezone
 from html import unescape
+from importlib.metadata import files
 from pathlib import Path
 from urllib.parse import urlencode
 
 from onecrew.snapshots import Snapshots
 from onecrew.v2 import plan, session_observe, tracking_direction
 from tests.test_ui33_task_first import Project, Served, milestone
+
+
+class Packaging(unittest.TestCase):
+    def test_obs3_modules_in_source_manifest_and_installed_distribution(self):
+        modules = {'session_observe', 'session_transcript', 'tracking_dashboard',
+                   'tracking_direction', 'tracking_sessions'}
+        manifest = Path(__file__).resolve().parents[1] / 'pyproject.toml'
+        if manifest.exists():
+            config = tomllib.loads(manifest.read_text(encoding='utf-8'))
+            declared = config['tool']['setuptools']['py-modules']
+            self.assertLessEqual({'onecrew.v2.' + name for name in modules}, set(declared))
+        else:  # The wheel verifier copies the tests to a directory outside the checkout.
+            installed = {path.as_posix() for path in files('onecrew')}
+            self.assertLessEqual({f'onecrew/v2/{name}.py' for name in modules}, installed)
 
 
 class Direction(unittest.TestCase):
@@ -122,6 +139,17 @@ class Direction(unittest.TestCase):
         self.assertNotIn('method="post"', page.lower())
         self.assertNotIn('Không chuyển sang trang khác.', self.html(view='turns'))
         self.assertNotIn('Mở rộng phạm vi để làm gì?', self.html(view='turns'))
+
+    def test_same_time_amend_only_covers_earlier_direction_changes(self):
+        when = datetime(2026, 11, 20, tzinfo=timezone.utc)
+        prompt = {'observation': 'owner_prompt', 'text': 'Chuyển sang giao diện mới'}
+        before, _, after = tracking_direction._entries([
+            (when, 1, 'hook.observed', prompt),
+            (when, 2, 'plan.amended', {'revision': 2}),
+            (when, 3, 'hook.observed', prompt),
+        ])
+        self.assertNotIn('Chưa thấy bản sửa sau lời này', before.note)
+        self.assertIn('Chưa thấy bản sửa sau lời này', after.note)
 
     def test_long_history_paged_and_searchable(self):
         first = self.html(view='all', q='Nhật ký riêng')
