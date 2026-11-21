@@ -192,6 +192,7 @@ def lang():
 
 # The owner --human output is Vietnamese regardless of the general CLI language.
 OWNER_HUMAN = {
+    'recorded': 'Đã ghi kết quả {result} của mốc {milestone} trong {plan}.',
     'approved': 'Đã ghi nhận duyệt {plan}, bản {revision}. Việc duyệt không xác nhận worker đã bắt đầu.',
     'accepted': 'Đã ghi nhận nghiệm thu {plan}, bản {revision}. Đại diện bởi artifact {artifact}.',
     'answered': 'Đã ghi nhận lựa chọn {choice} cho câu hỏi {request}. Đây không phải là duyệt phương án.',

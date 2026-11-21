@@ -62,6 +62,13 @@ def main(argv):
         p.add_argument('--all-projects', action='store_true')
         if name == 'pull': p.add_argument('--from-now', action='store_true')
         else: p.add_argument('--batch', required=True)
+    for name in ('follow-owner', 'ack-owner'):
+        p = notices.add_parser(name, help='Bind a waiting session or acknowledge its delivered owner receipt.')
+        p.add_argument('--plan', required=True)
+        p.add_argument('--revision', type=int, required=True)
+        p.add_argument('--host', required=True)
+        p.add_argument('--session', required=True)
+        if name == 'ack-owner': p.add_argument('--receipt', required=True)
     desktop = groups.add_parser('desktop').add_subparsers(dest='command', required=True)
     for name in ('enable', 'disable', 'status', 'show', 'retry'):
         p = desktop.add_parser(name)
@@ -70,7 +77,10 @@ def main(argv):
     args = parser.parse_args(argv)
     try:
         ledger = Ledger(args.project, state_root_for(args.project, args.state_root))
-        if args.group == 'notifications':
+        if args.group == 'notifications' and args.command in ('follow-owner', 'ack-owner'):
+            from . import owner_results
+            result = owner_results.follow(ledger, args.plan, args.revision, args.host, args.session, getattr(args, 'receipt', None))
+        elif args.group == 'notifications':
             result = (pull(ledger, args.consumer, args.all_projects, args.from_now) if args.command == 'pull'
                       else ack(ledger, args.consumer, args.batch, args.all_projects))
         elif args.command in ('enable', 'disable'): result = configure(ledger, args.command == 'enable')

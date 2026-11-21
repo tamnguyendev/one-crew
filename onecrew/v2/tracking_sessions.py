@@ -6,7 +6,7 @@ from html import escape
 from urllib.parse import urlencode
 
 from ..ledger import LedgerError
-from . import session_transcript, tracking, tracking_dashboard
+from . import owner_results, report, session_transcript, tracking, tracking_dashboard
 
 KINDS = ('hook.observed', 'hook.logged', 'hook.blocked', 'hook.stop_blocked')
 LABELS = {'owner_prompt': 'Lời chủ', 'owner_choice': 'Chủ đã chọn', 'ai_question': 'Câu hỏi của Claude',
@@ -85,6 +85,7 @@ def page(state_root, selector, project_id, selected, *, comparison=True):
         if conn is None:
             raise LedgerError('Sổ không mở được.')
         task = tracking._find(conn, reader, selector, project_id)
+        revision = owner_results.latest_revision(conn, task['id'])
         args = (task['id'], *KINDS)
         where = (" FROM events WHERE task_id=? AND kind IN (?,?,?,?) "
                  "AND json_type(payload,'$.session')='text' AND json_extract(payload,'$.session')<>''")
@@ -116,6 +117,15 @@ def page(state_root, selector, project_id, selected, *, comparison=True):
             rows.append(row)
         rows.sort(key=lambda r: r['time'])
         body = '<h1>Phiên Claude</h1><p>' + _show(session) + '</p>' + _detail(session, rows, comparison=comparison)
+    if revision:
+        scoped_reader = report._Reader(state_root, task['project_id'], task['project_path'])
+        receipts = owner_results.status(scoped_reader, task['id'], revision)
+        if session is not None:
+            receipts = [r for r in receipts if r['session'] == session]
+        if receipts:
+            body += '<h2>Kết quả lệnh chủ</h2><ul>' + ''.join(
+                f'<li>{_show(owner_results.LABELS[r["kind"]])} {_show(r["detail"])} · {_show(owner_results.STAGES[r["stage"]])}'
+                f'<small>{_show(r["host"] or "")} {_show(r["session"] or "")}</small></li>' for r in receipts) + '</ul>'
     style = tracking_dashboard.STYLE + """
 main{max-width:1080px;overflow-wrap:anywhere}.lanes{display:grid;gap:.7rem}ol,ul{padding-inline-start:1.5rem}
 li{padding:.4rem .15rem;border-bottom:1px solid var(--line)}li:last-child{border:0}li small{display:block}

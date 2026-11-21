@@ -10,6 +10,7 @@ They are refused inside an AI tool session: ownership.OWNER_VERBS names these fo
 """
 import argparse
 import contextlib
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -93,6 +94,16 @@ def _human_result(parsed, code, output, errors='', *, refused=False):
             success = OWNER_HUMAN['answered'].format(choice=parsed.choice, request=parsed.request)
         elif parsed.verb == 'enforce' and value.get('mode') == parsed.mode and value.get('exported') is True:
             success = OWNER_HUMAN['enforced'].format(mode=parsed.mode, plan=parsed.plan)
+        elif parsed.verb == 'record':
+            last = next((m.get('last_verdict') or {} for m in value.get('milestones', [])
+                         if m.get('id') == parsed.milestone), {})
+            try:
+                receipt = hashlib.sha256(parsed.receipt_file.read_bytes()).hexdigest()
+            except OSError:
+                receipt = None
+            if (receipt and receipt == last.get('receipt') and last.get('by') == 'owner' and
+                    last.get('result') == parsed.result and last.get('artifact_sha') == parsed.artifact_sha):
+                success = OWNER_HUMAN['recorded'].format(plan=parsed.plan, milestone=parsed.milestone, result=parsed.result)
     if success:
         print(safe(success, 1000))
         for _code, text in value.get('warnings') or ():           # dev14: words that may be technical; a warning, never a refusal

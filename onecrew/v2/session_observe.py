@@ -161,6 +161,9 @@ def observe(event):
     if not session or event.get('hook_event_name') not in OBSERVE_EVENTS: return
     target = _binding(event, session)
     if not target: return
+    if event['hook_event_name'] == 'PostToolUse':
+        from . import owner_results
+        owner_results.hook(dict(target, anchor_task=target['task']), target['project'], event)
     rows = list(_rows(event, session, target))
     if not rows: return
     folder = _outbox(target['project'], target['state_root'])

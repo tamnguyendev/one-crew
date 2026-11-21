@@ -2088,7 +2088,25 @@ def check(args):
     code = 0
     for (plan, root, bad_plan, source), role in governed:
         if plan is not None and judge_call(plan, root, bad_plan, source, event, bad_input, limited=role != SESSION, refuse_unresolvable=role == CWD and not watched) == 2: code = 2
+    if code == 0 and not bad_input:
+        for (plan, root, bad_plan, _), role in governed:
+            if role == SESSION and plan and not bad_plan:
+                owner_context(plan, root, event, 'PreToolUse')
+                break
     return code
+
+
+def owner_context(plan, root, event, name, context=''):
+    from . import owner_results
+    sent = False
+    def output(notice):
+        nonlocal sent
+        text = '\n'.join(part for part in (context, notice) if part)
+        print(json.dumps({'hookSpecificOutput': {'hookEventName': name, 'additionalContext': text}}, ensure_ascii=False), flush=True)
+        sent = True
+    owner_results.hook(plan, root, event, output)
+    if context and not sent:
+        output('')
 
 
 def judge_call(plan, root, bad_plan, source, event, bad_input, limited=False, refuse_unresolvable=False):
@@ -2151,14 +2169,14 @@ def prompt(args):
     rules = Path(plan.get('state_root') or '.') / 'plans' / 'owner-rules.md'
     line = f"The owner's rules are in {rules}; read them before proposing or presenting anything." if rules.is_file() else None
     if hit is None:
-        if line: print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': line}}, ensure_ascii=False))
+        owner_context(None if bad else plan, root, event, 'UserPromptSubmit', line)
         return 0
     budget = plan.get('budget') or {}
     pending = next((m['id'] for m in plan.get('milestones', []) if m.get('state') != 'passed'), None)
     note = (f"Contract v{plan.get('revision')} says: {budget.get('max_calls')} calls, {budget.get('time')} minutes, next milestone {pending or 'none'}. "
             f"Spoken words are not in the ledger; change the contract with `onecrew plan amend` or file a CREQ.")
     record(root, plan, 'reminded', 'UserPromptSubmit', note, 'prompt_keyword:' + str(hit), session=event.get('session_id'))
-    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': note + (' ' + line if line else '')}}, ensure_ascii=False))
+    owner_context(None if bad else plan, root, event, 'UserPromptSubmit', note + (' ' + line if line else ''))
     return 0
 
 
@@ -2245,6 +2263,9 @@ def background_hook(args):
         return 0
     if plan is not None and _bad: plan = None          # an unreadable plan binds nothing
     note_background(event, root, plan)
+    if event.get('hook_event_name') == 'PostToolUse':
+        from . import owner_results
+        owner_results.hook(plan, root, event)
     return 0
 
 
@@ -2329,7 +2350,7 @@ def session(args):
     text = '\n'.join(lines[:25])
     name = event.get('hook_event_name') or 'SessionStart'
     if name != 'SessionStart': return 0                 # PreCompact has no documented way to add context; SessionStart(source=compact) follows it
-    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'SessionStart', 'additionalContext': text}}, ensure_ascii=False))
+    owner_context(None if bad else plan, root, event, 'SessionStart', text)
     return 0
 
 
@@ -2496,8 +2517,13 @@ def main(argv=None):
                 out = {'mode': active_plan.set_mode(ledger, args.mode), 'mode_committed': True,
                        'plan': document['plan'], 'revision': document['revision'], 'exported': False}
                 try:
-                    out['exported'] = bool(active_plan.export(ledger, name, take_over=True))      # dev25: the owner chooses the governing plan
+                    exported = active_plan.export(ledger, name, take_over=True)      # dev25: the owner chooses the governing plan
+                    out['exported'] = bool(exported)
                     if not out['exported']: raise LedgerError('Active-plan export did not complete; see the retained export warning for its cause. The mode was already written.')
+                    from . import plan as plans
+                    with ledger.transaction(write=True) as conn:
+                        plans.emit(ledger, conn, exported['anchor_task'], 'hook.mode_recorded',
+                                   dict(plan=exported['plan'], revision=exported['revision'], mode=exported['mode'], by='owner'))
                 except (LedgerError, ValueError, OSError) as error:
                     print(json.dumps(dict(out, error=str(error), type=type(error).__name__), ensure_ascii=False))
                     return 2

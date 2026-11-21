@@ -85,6 +85,7 @@ py-modules = [
     "onecrew.v2.lint",
     "onecrew.v2.messages",
     "onecrew.v2.owner_cli",
+    "onecrew.v2.owner_results",
     "onecrew.v2.ownership",
     "onecrew.v2.plan",
     "onecrew.v2.policy_epoch",

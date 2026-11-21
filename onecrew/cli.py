@@ -64,6 +64,8 @@ def main(argv=None):
         from .learning import main as learning_main
         return learning_main(args)
     if len(args)>index and args[index]=='notifications':
+        if args[index+1:index+2] in (['follow-owner'], ['ack-owner']):
+            return route(args, index)
         from .notifications import main as notifications_main
         return notifications_main(args)
     if len(args)>index and args[index]=='monitor':

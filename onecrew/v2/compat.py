@@ -26,6 +26,7 @@ CLASS_0 = (
 )
 CLASS_A = (
     'hook.observed',  # Filtered local Claude host event on the target plan. No execution or approval authority.
+    'hook.mode_recorded',
     'executor.managed',
     'review.observed',
     'review.run_started', 'review.run_result', 'review.run_finished', 'review.run_held',  # optional observations, never milestone/node authority

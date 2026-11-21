@@ -398,15 +398,102 @@ def _milestones(f):
     return lines
 
 
+def _question_blocks(question):
+    action = question['action']
+    params = action['parameters']
+    if isinstance(params.get('blocking'), bool):
+        return params['blocking']
+    if action['type'] == 'v2.decision_card':
+        return True if params['card']['decide_by'] == 'before_start' else None
+    if action['type'] == 'authorize':
+        return False if not params.get('nodes') or params.get('still_running') else None
+    if action['type'] in ('v2.workflow_hold', 'v2.item_budget'):
+        # Only part of the root is held. Without evidence about the remaining work the
+        # report cannot charge this whole interval or classify all of it as owner wait.
+        return None
+    return True
+
+
+def _budget_time(f, cutoff):
+    """Integrate once on the task clock. Only evidenced root-wide waits suspend the budget."""
+    latest = approved = 0
+    questions, passed = {}, set()
+    runnable = None
+    start = previous = None
+    waiting = 0.0
+    uncertain = False
+    reader = _Reader(f['state_root'], f['row']['project_id'], f['row']['project_path'])
+    for kind, stamp, payload in [*f['events'], ('cutoff', cutoff.isoformat(), {})]:
+        at = _when(stamp)
+        if at.tzinfo is None or (previous and at < previous):
+            raise ValueError('Incomplete clock')
+        if start is not None and at > previous:
+            if not approved or any(questions.values()) or (runnable is not None and not (runnable - passed)):
+                waiting += (at - previous).total_seconds()
+            elif None in questions.values():
+                uncertain = True
+        previous = at
+        if kind in ('plan.proposed', 'plan.amended'):
+            revision = payload['revision']
+            if revision != latest + 1 or (kind == 'plan.proposed') != (latest == 0):
+                raise ValueError('Missing revision')
+            latest = revision
+            if start is None:
+                start = at
+            if approved:
+                old = plans.load(reader, f['state'], approved)[0]
+                new = {m['id']: m for m in plans.load(reader, f['state'], latest)[0]['milestones']}
+                runnable = {m['id'] for m in old['milestones'] if m['id'] in new and
+                            (m['title'], m['verifier']) == (new[m['id']]['title'], new[m['id']]['verifier'])
+                            and m['verifier']['type'] != 'owner-manual'}
+        elif kind == 'plan.approved':
+            if not latest or payload['revision'] != latest:
+                raise ValueError('Missing proposal')
+            approved, runnable = latest, None
+            passed.clear()
+        elif kind == 'verdict.recorded' and not approved:
+            raise ValueError('Missing approval')
+        elif kind == 'verdict.recorded' and payload.get('revision') == approved:
+            if payload['result'] == 'pass':
+                passed.add(payload['milestone'])
+            else:
+                passed.discard(payload['milestone'])
+        elif kind in ('request.created', 'request.revised'):
+            if kind == 'request.revised' and payload['id'] not in questions:
+                raise ValueError('Missing original question')
+            questions[payload['id']] = _question_blocks(payload['question'])
+        elif kind in ('request.answered', 'request.superseded'):
+            del questions[payload['request_id']]
+        elif kind in ('plan.accepted', 'plan.closed'):
+            if not approved:
+                raise ValueError('Missing approval')
+            break
+    if start is None:
+        raise ValueError('Missing start')
+    elapsed = (previous - start).total_seconds()
+    return elapsed, None if uncertain else waiting, None if uncertain else elapsed - waiting, start, previous
+
+
 def _minutes(f):
-    if not f['events']: return [f'  {NO_DATA}', '  Lệnh: chưa đếm được']
-    first, last = f['events'][0][1], f['events'][-1][1]
-    spent = (_when(last) - _when(first)).total_seconds() / 60
+    try:
+        elapsed, waiting, charge, start, end = _budget_time(f, f.get('cutoff') or dt.datetime.now(dt.timezone.utc))
+    except (KeyError, ValueError, TypeError, OSError, LedgerError):
+        elapsed = waiting = charge = start = end = None
     budget = f['contract']['budget']['time'] if f['contract'] else None
-    line = f'đã chạy {spent:.0f} phút (từ {_stamp(first)} đến {_stamp(last)}, giờ máy này)'
-    if budget: line += f' / ngân sách {budget} phút' + (' — VƯỢT' if spent > budget else '')
-    else: line += f' / ngân sách: {NO_DATA}'
-    return _wrap(line) + ['  Lệnh: chưa đếm được']
+    def minutes(seconds):
+        return 'chưa đo' if seconds is None else f'{seconds / 60:.2f}'.rstrip('0').rstrip('.') + ' phút'
+    line = ('chưa đo được phút tính ngân sách' if charge is None else f'đã chạy {round(charge / 60)} phút tính ngân sách')
+    if budget is not None:
+        line += f' / ngân sách {budget} phút'
+        if charge is not None and charge > budget * 60:
+            line += ' — VƯỢT'
+    else:
+        line += f' / ngân sách: {NO_DATA}'
+    lines = _wrap(line) + ['  Lệnh: chưa đếm được', f'  Thời gian lịch: {minutes(elapsed)} · Chờ chủ: {minutes(waiting)}',
+                           f'  Phút tính ngân sách: {minutes(charge)} · Tổng thời gian lệnh đã đo: {minutes(f.get("command_seconds"))}']
+    if start is not None:
+        lines += _wrap(f'từ {_stamp(start.isoformat())} đến {_stamp(end.isoformat())}, giờ máy này')
+    return lines
 
 
 def _cwds(f):
@@ -524,7 +611,14 @@ def _report(f):
     lines = _conclusion(f) + ['', f'BÁO CÁO: {f["name"]} — bản {f["revision"]}/{state["latest"]}, trạng thái {state["status"]}' + (f', cỡ {c["size"]}' if c else '')]
     lines += _wrap(f'Tiêu đề: «{c["title"]}»' if c else f'Tiêu đề: {NO_DATA}', '', '  ')
     lines += _wrap(f'Dự án: {f["row"]["project_path"]}', '', '  ')
-    lines += _forecast_lines(f)
+    try:
+        estimate = _estimate(f)
+    except (LedgerError, OSError, ValueError) as error:
+        lines.append('Ước lượng: không đọc được dữ liệu (' + str(error) + ').')
+    else:
+        seconds = estimate['execution_seconds']
+        f['command_seconds'] = seconds if isinstance(seconds, (int, float)) else None
+        lines += _format_forecast(estimate)
     for unknown in f.get('runtime_unknowns', []):
         lines += _wrap(f'Chưa rõ {unknown["unknown"]}: {unknown["question"]}; giữ {", ".join(unknown["required_by"])}; chủ thể giải: {unknown["resolver"]}.', '', '  ')
     for line in _hold_lines(f) + _blocker_lines(f) + _choice_lines(f): lines += _wrap(line, '', '  ')
@@ -548,8 +642,10 @@ def _stores_nothing(function):
 
 
 @_stores_nothing
-def render_report(state_root, name, revision=None, project_id=None):
-    return _report(_lookup(state_root, name, revision, project_id))
+def render_report(state_root, name, revision=None, project_id=None, *, now=None):
+    facts = _lookup(state_root, name, revision, project_id)
+    facts['cutoff'] = now
+    return _report(facts)
 
 
 # ---- digest -----------------------------------------------------------------------------------------------------------
@@ -915,13 +1011,20 @@ def forecast_lines(state_root, name, revision=None, project_id=None):
     return _forecast_lines(_lookup(state_root, name, revision, project_id))
 
 
-def _forecast_lines(f):
+def _estimate(f):
     from . import estimates
+    row = f['row']
+    return estimates.read(_Reader(f['state_root'], row['project_id'], row['project_path']), row['request_key'])
+
+
+def _forecast_lines(f):
     try:
-        row = f['row']
-        out = estimates.read(_Reader(f['state_root'], row['project_id'], row['project_path']), row['request_key'])
+        return _format_forecast(_estimate(f))
     except (LedgerError, OSError, ValueError) as error:
         return ['Ước lượng: không đọc được dữ liệu (' + str(error) + ').']
+
+
+def _format_forecast(out):
     warnings = [w for item in out.get('budget_warnings', [])
                 for w in _wrap('Cảnh báo 70% ngân sách (trong quyền, không cần bạn làm gì): ' + item['reason'] +
                                ' Bằng chứng: ' + ', '.join(item['evidence']), '', '  ')]
@@ -929,9 +1032,11 @@ def _forecast_lines(f):
     def span(value):
         return 'chưa có dữ liệu' if value is None else f'{value[0] / 3600:g}–{value[1] / 3600:g} giờ'
     def elapsed(value):
-        return 'chưa đo được' if value == 'unknown' else f'{value / 3600:g} giờ'
+        if value == 'unknown': return 'chưa đo được'
+        if value >= 3600: return f'{round(value / 3600, 2):g} giờ'
+        return f'{round(value / 60, 2):g} phút'
     lines = [f'Ước lượng công thực thi ban đầu: {span(out["baseline"]["execution_seconds"])}; công còn lại: {span(out["remaining_seconds"])} (chưa hiệu chỉnh).',
-             f'Thực thi: {elapsed(out["execution_seconds"])}; chờ: {elapsed(out["waiting_seconds"])}; deadline: {out["deadline"] or "chưa đặt"}.']
+             f'Các lượt lệnh được đo · Thực thi: {elapsed(out["execution_seconds"])}; chờ: {elapsed(out["waiting_seconds"])}; deadline: {out["deadline"] or "chưa đặt"}.']
     left = out.get('wall_clock_remaining_seconds')
     if left is not None:
         lines.append((f'Đã quá deadline {-left / 3600:.1f} giờ' if out.get('deadline_passed') else f'Còn {left / 3600:.1f} giờ lịch tới deadline') +

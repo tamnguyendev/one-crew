@@ -1428,4 +1428,11 @@ Verdict MC kiểm lại ba module VER60 trên wheel cài trong môi trường s�
 | I7 · #26 | `goal_history` ghim lời gốc trên bản 1 và kiểm nguồn theo việc, bản và số sự kiện. `tests.test_rm1_goal_origin` đối chiếu lịch sử qua hai bản sửa, nội dung Q1, phần trình bày cho chủ và chênh lệch tích lũy. |
 | I7 · #9 | Ca `test_amend_receipt_marks_removed_inputs_and_added_unscanned_as_acceptance` kiểm hai lần sửa qua `plan.amend` và đọc phân loại U1 trong sổ. |
 
+## RM1 bản 3 · MB
+
+| Yêu cầu | Đường chạy và bằng chứng |
+|---|---|
+| I2 · #30 | `notifications follow-owner` gắn phiên với sổ, dự án, việc và bản. Hook trả receipt từ sự kiện chủ đã ghi. ACK và lần hoàn tất công cụ sau ACK được đối chiếu riêng trên trang Phiên Claude. `tests.test_rm1_owner_result` kiểm CLI, hook, đọc lại sau khởi động, sai phạm vi và host rỗi. |
+| I8 · #18 | `plan report` cộng thời gian lịch theo các sự kiện, hợp khoảng chờ, so đúng hạn mức bằng thời gian tính ngân sách và đọc số đo lệnh từ các attempt. `tests.test_rm1_time_budget` kiểm trước duyệt, chờ duyệt lại, câu hỏi còn mở, lệnh song song, giới hạn và sổ thiếu dữ liệu. |
+
 Các phép kiểm của MG chạy trên cây nguồn. MF kiểm gói cài, MO dành cho chủ thử.

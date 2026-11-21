@@ -41,6 +41,12 @@ Thử giao diện đang phát triển với `onecrew --project <dự-án-nguồn
 
 Trong phiên AI, dùng `onecrew owner help approve` hoặc `onecrew owner help accept` để đọc đúng cú pháp, kể cả khi công cụ shell đang áp dụng luật chặn lệnh duyệt.
 
+Phiên đang chờ kết quả chạy `onecrew notifications follow-owner --plan P --revision N --host claude --session ID` trên đúng dự án và sổ, với ID phiên do Claude Code cung cấp. Khi chủ duyệt, trả lời hoặc ghi kết quả, hook kế tiếp của phiên đưa tin và lệnh xác nhận kèm receipt. Chủ chỉ cần chạy lệnh ban đầu. Sau khi hợp đồng đổi bản, phiên đăng ký bản mới.
+
+Mở **Phiên Claude → Kết quả lệnh chủ** để xem sự kiện đã ghi, đã gửi, đã được phiên xác nhận và đã làm tiếp. Bước cuối cần một công cụ của phiên bắt đầu sau xác nhận và một sự kiện `PostToolUse` tương ứng từ hook nền hoặc hook quan sát. Khi phiên rỗi hoặc host chưa hỗ trợ, kết quả chờ trong sổ.
+
+Mục **Phút so ngân sách** trong `plan report` ghi khoảng thời gian lịch từ lúc đề xuất, phần chờ chủ, số phút tính vào ngân sách sau duyệt và tổng thời gian các lệnh có số đo. Các khoảng chờ trùng nhau chỉ tính một lần. Hai lệnh chạy song song có thể đóng góp vào tổng thời gian lệnh trong cùng một phút lịch.
+
 Khi cần ghim lời gốc trước khi cố vấn đọc bản 1, chủ gõ `onecrew plan goal-pin <tên> --words "<mục tiêu>"` khi bản 1 còn chờ duyệt. Chủ chỉ ghim được một lần. Lệnh này tự nó không duyệt bản 1. Với hợp đồng cũ chỉ có trích dẫn do người soạn ghi, nguồn lời gốc hiện là “chưa rõ”.
 
 Khi sửa kế hoạch theo lời mới của chủ, người soạn có thể thêm `--goal-source <số sự kiện>` vào `plan amend` cho từng lời gõ hoặc lựa chọn đã ghi trên cùng việc. Nguồn của một lựa chọn gồm câu AI hỏi và phương án chủ bấm. Xem phần đối chiếu với bản 1 bằng `plan present <tên>` trước khi duyệt.
