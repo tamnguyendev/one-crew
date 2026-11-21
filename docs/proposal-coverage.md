@@ -1391,3 +1391,11 @@ Phiên chưa có đích chỉ lưu định danh và trạng thái trên máy. Kh
 | Wheel MH chứa đủ năm module OBS3 | Danh sách `tool.setuptools.py-modules` trong `pyproject.toml` | `test_obs3_modules_in_source_manifest_and_installed_distribution` kiểm danh sách trên nguồn và bản ghi tệp của wheel khi cài sạch |
 
 Phần nguồn đã thử trên sổ phát triển ở 375 và 1280 px. Kết quả đóng gói và receipt do verdict MH ghi trong sổ OBS3.
+
+## VER60 bản 1 · ML
+
+| Yêu cầu I1/O1 | Triển khai | Bằng chứng trong `tests/test_ver60_lint.py` |
+|---|---|---|
+| Nhắc xem xét `inputs` khi các lệnh kiểm có đích khác nhau | `lint.check` trả cảnh báo theo mốc, nêu test, gói import và tệp dựng gói. | `warns_command_milestone_without_inputs`, `warning_names_tests_and_imports`, `same_files_and_different_verbosity_do_not_suggest_splitting` |
+| Nhắc đường ngoài repo chưa khai, miễn hợp đồng một mốc | `lint._command_input_warnings` xét đối số đường dẫn với thư mục chạy của mốc và thư mục đã khai trong `env_inputs`. | `warns_path_outside_repo_not_in_env_inputs`, `relative_external_path_uses_command_working_directory`, `no_warning_single_milestone` |
+| Mẫu có cả hai trường và tính skip là trượt | `onecrew/templates/command-inputs.vi.md` kèm lệnh chạy từng module và chạy toàn bộ. | `template_has_inputs_and_env_inputs`, `skip_counts_as_failure_in_template` |

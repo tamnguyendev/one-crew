@@ -3,6 +3,7 @@ A small repository with a large folder the verifier does not read. The counter i
 import hashlib
 import json
 import os
+import platform
 import subprocess
 import sys
 import tempfile
@@ -242,7 +243,7 @@ class Inputs(HookFixture):
         temp = self.scratch
         dead, alive, unmarked = temp / 'ocv-chet', temp / 'ocv-song', temp / 'ocv-khong-dau'
         q = subprocess.Popen([PY, '-c', 'pass']); q.wait()
-        host = os.environ.get('COMPUTERNAME') or os.uname().nodename
+        host = os.environ.get('COMPUTERNAME') or platform.node()
         for d, pid in ((dead, q.pid), (alive, os.getppid()), (unmarked, None)):
             d.mkdir(exist_ok=True)
             if pid: (d / 'owner.json').write_text(json.dumps({'pid': pid, 'host': host}))

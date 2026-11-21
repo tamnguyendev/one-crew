@@ -33,6 +33,8 @@ R1 chỉ build DEBUG khi đang phát triển, RELEASE là bước giao riêng sa
 
 **Hai tin duy nhất**, mỗi tin theo 5 mục: *Yêu cầu / Người dùng sẽ thấy / Cách bạn nghiệm thu / Không làm / Rủi ro*, cộng "Quyết định của tôi mà bạn chưa yêu cầu" và dòng của cố vấn. Lựa chọn trả lời là câu đầy đủ, kèm hệ quả. Tối đa 6 dòng cho báo cáo.
 
+Với hợp đồng có nhiều mốc lệnh, xem [mẫu khai tệp phụ thuộc và bộ kiểm unittest](../onecrew/templates/command-inputs.vi.md). Khi các lệnh có đích kiểm khác nhau, lint nhắc tác giả xem xét `inputs`. Với đường dẫn ngoài repo trên dòng lệnh, lint nhắc khai `env_inputs`. Hai cảnh báo giữ nguyên hợp đồng và mã thoát của lint.
+
 ## 5. Động từ chỉ chủ sở hữu được gõ
 `owner approve`, `owner accept`, `owner enforce`, `owner record`, `owner answer`, cùng `hook mode` và `hook user`. Phiên AI bị từ chối: CLI nhận ra phiên AI (biến `CLAUDE_CODE_CHILD_SESSION`), tiến trình do bộ kiểm hay lệnh tiền điều kiện của OneCrew khởi chạy (`ONECREW_VERIFIER`), và tiến trình khai `ONECREW_ACTOR` không phải `user|owner`; đây vẫn là lớp mềm, xem LOI-DA-BIET. Đúng bất biến 5–6: người viết hợp đồng không tự duyệt, AI không tự nghiệm thu.
 - Chủ sở hữu gõ trong terminal của chính mình; thêm `--human` để đọc được. `--human` có lúc báo "Chưa xác nhận được kết quả" dù sổ đã ghi: đọc lại `plan show` trước khi chạy lại.

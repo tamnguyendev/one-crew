@@ -12,6 +12,7 @@ import os
 import re
 import subprocess
 from contextlib import contextmanager
+from pathlib import Path
 
 from ..ledger import Ledger, LedgerError, content_hash, text_field
 from . import contract as contracts, step0
@@ -274,6 +275,57 @@ def _warnings(ledger, raw, contract):
     return out
 
 
+def _command_operands(argv):
+    """Literal operands only. Executables have their own fingerprint, and inline programs are opaque."""
+    words = iter(argv[1:])
+    for word in words:
+        if word in ('-c', '-e', '--eval') or word.lower() == '-command':
+            next(words, None)
+        elif word.startswith('-'):
+            if '=' in word:
+                yield word.split('=', 1)[1]
+        else:
+            yield word
+
+
+def _command_input_warnings(project, contract):
+    milestones = contract['milestones']
+    if len(milestones) < 2:
+        return []
+    commands = [(m['id'], m['verifier']['config']) for m in milestones if m['verifier']['type'] == 'command']
+    if not commands:
+        return []
+    root = Path(command.project_top(project))
+    # Different test targets (including named modes of a shared verifier) can have separate dependencies.
+    # This is a prompt to inspect them. The argv cannot establish a complete set of imports.
+    targets = set()
+    for _, config in commands:
+        operands = frozenset(_command_operands(config['argv']))
+        program = Path(config['argv'][0])
+        local_program = program if not program.is_absolute() and len(program.parts) > 1 else None
+        targets.add((config['cwd'] or '.', local_program, operands))
+    warnings = []
+    for mid, config in commands:
+        if len(targets) > 1 and not config.get('inputs'):
+            warnings.append(('command_inputs_missing',
+                             f'{mid}: nếu các mốc dùng tệp tách nhau, hãy khai inputs gồm test, test hồi quy, '
+                             'mọi gói test import và các tệp dựng gói nếu lệnh dựng gói. '
+                             'Để trống khi cần kiểm cả cây mã.'))
+        declared = [Path(os.path.normpath(p)) for p in config.get('env_inputs', ())]
+        missing = set()
+        for word in _command_operands(config['argv']):
+            path = Path(word)
+            if not path.is_absolute() and '..' not in path.parts:
+                continue
+            path = Path(os.path.normpath(Path(project) / (config['cwd'] or '.') / path))
+            if not path.is_relative_to(root) and not any(path.is_relative_to(p) for p in declared):
+                missing.add(str(path))
+        for path in sorted(missing):
+            warnings.append(('command_env_input_missing', f'{mid}: đường dẫn ngoài repo «{path}» trên dòng lệnh. '
+                             'Nếu kết quả phụ thuộc vào tệp này, hãy khai tệp hoặc thư mục chứa nó trong env_inputs.'))
+    return warnings
+
+
 def check(ledger, raw, author=None, ack_criteria=False):
     """(reasons, warnings): reasons make `plan lint` exit 1, warnings are printed and change nothing. `ack_criteria` silences the two criteria
     warnings (the author has read them); the missing "fail if" is a reason either way."""
@@ -282,7 +334,8 @@ def check(ledger, raw, author=None, ack_criteria=False):
         contract = contracts.validate(raw)
     except LedgerError:
         return reasons, []
-    return reasons, ([] if ack_criteria else _warnings(ledger, raw, contract)) + owner_view_warnings(contract)
+    warnings = [] if ack_criteria else _warnings(ledger, raw, contract)
+    return reasons, warnings + owner_view_warnings(contract) + _command_input_warnings(ledger.project, contract)
 
 
 def notes(raw):
