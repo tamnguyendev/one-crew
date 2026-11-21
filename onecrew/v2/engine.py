@@ -502,12 +502,12 @@ def _leases_after(ledger, control, attempt_id, held):
         launched, settled = row['identity'] is not None, row['status'] == 'settled'
     except BaseException:
         resource_lease.node_bind_attempt(ledger.state_root, held, attempt_id); return
-    if settled or not launched:
+    if (settled and _row_json(row, 'result').get('tree_stopped') is True) or not launched:
         resource_lease.node_release(ledger.state_root, held); return
     recorded = _row_json(row, 'identity')
     if resource_lease.launch_unidentified(recorded):
         resource_lease.node_bind_attempt(ledger.state_root, held, attempt_id); return
-    worker = resource_lease.worker_identity(recorded)
+    worker = resource_lease.worker_identity(recorded, scoped=True)
     if not (worker and resource_lease.node_rebind(ledger.state_root, held, worker)):
         resource_lease.node_release(ledger.state_root, held)          # its worker's death is confirmed
 
@@ -993,7 +993,9 @@ def _step(ledger, selector, executor, *, control=None, slots=1, _target=None, _s
                                        session=f'{nid}@{task["id"]}', plan=namespaces.parse(root['selector'])[0],
                                        ttl=max(int(item['execution_cap_seconds']) + 300, 600),
                                        project_id=ledger.project_id, project=ledger.project_path,
-                                       attempt_ref={'state_root': str(ledger.state_root), 'task_id': task['id'], 'unit': 'task:' + nid})
+                                       attempt_ref={'state_root': str(ledger.state_root), 'task_id': task['id'], 'unit': 'task:' + nid,
+                                                    'root': root['task_id'], 'selector': root['selector'], 'node': nid,
+                                                    'node_generation': view['nodes'][nid]['generation']})
     if leased and leased['status'] == 'waiting':
         from ..control_core import CapacityWait
         if mode is None: raise CapacityWait(leased['reason'])
@@ -1017,8 +1019,12 @@ def _step(ledger, selector, executor, *, control=None, slots=1, _target=None, _s
         # a second time: one attempt has exactly one executor body; the owner of the attempt (or reconciliation) settles it.
         return {'node': nid, 'state': 'waiting', 'attempt': attempt['id'], 'attempt_status': attempt['status'],
                 'reason': 'Attempt already admitted by another caller; one executor body per attempt, reconcile instead of re-running.'}
-    live_worker = None       # DEV31-C: a worker that may still run after a settled attempt (paused/unknown executor state) keeps the lease
+    executor_completed = False
     try:
+        if held_leases:
+            leases = resource_lease.Leases()
+            for name, claim, token in held_leases:
+                leases.bind_attempt(name, claim, token, attempt['id'], starting_generation=attempt['generation'])
         if hasattr(executor, 'declaration'):
             produced = executors.Dispatcher().send(executor, 'start', ledger, control, task, item, attempt)
         else:
@@ -1038,7 +1044,6 @@ def _step(ledger, selector, executor, *, control=None, slots=1, _target=None, _s
         if callable(getattr(executor,'state',None)):
             execution_state=executor.state(attempt['id'])
             if execution_state['state'] in ('paused','pause_requested','stopped','stop_requested','unknown'):
-                if held_leases: live_worker = resource_lease.worker_identity(_row_json(observed, 'identity'))   # a worker that may still run keeps the lease
                 with ledger.transaction(write=True) as conn:
                     current=state(ledger,root['selector'],conn)
                     if _publication_current(current,view,nid):
@@ -1047,6 +1052,7 @@ def _step(ledger, selector, executor, *, control=None, slots=1, _target=None, _s
                     else:
                         _retain(ledger,conn,view,nid,'Managed result held after root/input change',candidate=produced,attempt=attempt['id'])
                 return {'node':nid,'state':'held','executor_state':execution_state['state'],'candidate':produced}
+        executor_completed = True  # settled attempt and matching synchronous return, with no ambiguous executor state
         if partial:
             # W36 (T07b E16): the worker stopped at a safe point with work left: the candidate is kept, never published as the node's
             # result, and the node continues with a NEW attempt from it (generation + 1; spent budget stays spent).
@@ -1121,8 +1127,11 @@ def _step(ledger, selector, executor, *, control=None, slots=1, _target=None, _s
         return {'node': nid, 'state': 'retained' if lost else 'held', 'reason': failure.get('reason', str(error))}
     finally:
         # whatever ended this step (a result, an Exception, Ctrl+C / SystemExit, a busy ledger inside the handler): the ledger decides
-        if held_leases and not (live_worker and resource_lease.node_rebind(ledger.state_root, held_leases, live_worker)):
-            _leases_after(ledger, control, attempt['id'], held_leases)
+        if held_leases:
+            if executor_completed:
+                resource_lease.node_release(ledger.state_root, held_leases)
+            else:
+                _leases_after(ledger, control, attempt['id'], held_leases)
     with ledger.transaction(write=True) as conn:
         current = state(ledger, root['selector'], conn)
         mine = current['nodes'].get(nid) or {}

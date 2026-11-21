@@ -55,6 +55,10 @@ Khi sửa kế hoạch theo lời mới của chủ, người soạn có thể t
 - Script ngắn cho bốn động từ, trong `scripts/owner/`: `approve.ps1` (duyệt), `enforce.ps1` (bật giám sát hay chỉ ghi), `record.ps1` (ghi kết quả một mốc thủ công kèm tệp biên nhận), `accept.ps1` (nghiệm thu trên artifact đã kiểm). Mỗi script gọi `onecrew owner …` của runtime dev30, mặc định sổ thật và dự án là thư mục đang đứng (`-Project`, `-StateRoot`, `-OneCrew` để đổi; `-MachineDir D:\OneCrewRuns\onecrew-development\machine` cho sổ phát triển), rồi đọc lại sổ và báo ĐẠT/KHÔNG ĐẠT theo sổ; trong phiên AI thì dừng, không ghi gì. Hướng dẫn và ví dụ ở đầu mỗi script. Với từng việc, người điều phối vẫn có thể soạn script riêng ghim bản và sha.
 
 ## 6. Phát triển chính OneCrew
+
+Trong đúng dự án và sổ đang dùng, chạy `onecrew track open --plan RM1` để mở việc RM1. Lưu lại lệnh này để dùng sau khi trang tự thoát. Nếu dùng sổ riêng, giữ `--project` và `--state-root` trước `track`. Thêm `--port 8765` để giữ một cổng cho bookmark. Với `--no-browser`, trường `task_url` dẫn tới việc, `url` dẫn tới đầu trang. Lệnh chỉ mở viewer cục bộ.
+
+Khi engine chờ tài nguyên đã khai báo, vị trí trong hàng đợi gắn với sổ, việc và thế hệ của bước. Mở phần tài nguyên dùng chung hoặc chạy `python -m onecrew.resource_lease status` để xem ai giữ và ai chờ. Nếu một lượt đã mất liên lạc, Supervisor ghi xác nhận cây tiến trình đã dừng qua `Control.finish` cho đúng attempt và generation. `python -m onecrew.resource_lease reconcile` đối chiếu sổ và chuyển lượt khi có bằng chứng. Việc chạy lại reconcile giữ nguyên kết quả đã ghi.
 - Chỗ làm việc: worktree `D:\TamNT\Workspace\11.OneCrew\wf-dev30` (nhánh `claude/dev30`, tách từ `main` = 2.5.0.dev30), đã `onecrew init` vào sổ phát triển; hook giám sát chạy runtime dev30 đã phát hành, không chạy mã đang sửa.
 - Thư mục `D:\TamNT\Workspace\11.OneCrew\onecrew` giữ nhánh `main`. Các worktree cũ đã gỡ ngày 18/11/2026; thay đổi dở của chúng lưu ở `D:\OneCrewRuns\luu-tru-worktree-20261118`.
 - Phát hành: commit phát hành đổi version, dựng wheel một lần, chủ chạy script phát hành (push, tag, prerelease); AI không push hay tag.

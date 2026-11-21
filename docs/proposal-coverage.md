@@ -1436,3 +1436,10 @@ Verdict MC kiểm lại ba module VER60 trên wheel cài trong môi trường s�
 | I8 · #18 | `plan report` cộng thời gian lịch theo các sự kiện, hợp khoảng chờ, so đúng hạn mức bằng thời gian tính ngân sách và đọc số đo lệnh từ các attempt. `tests.test_rm1_time_budget` kiểm trước duyệt, chờ duyệt lại, câu hỏi còn mở, lệnh song song, giới hạn và sổ thiếu dữ liệu. |
 
 Các phép kiểm của MG chạy trên cây nguồn. MF kiểm gói cài, MO dành cho chủ thử.
+
+## RM1 bản 3 · ML
+
+| Yêu cầu | Đường chạy và phép kiểm |
+|---|---|
+| I3 · #24 | `track open --plan` tạo đường dẫn có dự án và việc, đối chiếu viewer qua health và cấp cổng loopback. `tests.test_rm1_tracking_entry` mở lại sau idle, thử viewer khác phạm vi, cổng bận và quyền chỉ đọc. |
+| I9 · #32 | `engine.step` xếp hàng trong kho lease hiện có. Lượt chờ theo thế hệ, quyền chạy chuyển sang đúng lần gọi, attempt được ghim trước khi launch. `tests.test_rm1_lease_recovery` kiểm hai sổ, tiến trình ngắn, hủy, đổi thế hệ, mất liên lạc, bằng chứng kết thúc và trang theo dõi. |

@@ -23,7 +23,8 @@ HOST_NOTE = ('Quan sát qua hook của host (Claude Code): host báo, OneCrew ch
 LEASE_NOTE = ('Khóa dùng chung của máy (mọi phiên, plan và sổ). Chỉ đọc: trang không nhận, nhả hay gia hạn khóa. "Đến lúc" chỉ là gợi ý cho người, '
               'không tự nhả; khóa chỉ được nhả khi bên giữ nhả, khi tiến trình của bên giữ đã chết được xác nhận, hoặc (lượt chạy không ghi '
               'tiến trình) khi sổ ghi lượt chạy đã kết thúc.')
-STATE_LABELS = {'held': 'đang giữ', 'expired_holder_alive': 'quá hạn nhưng tiến trình còn sống: vẫn giữ',
+STATE_LABELS = {'awaiting_node_retry': 'đã đến lượt, chờ bước engine kế tiếp',
+                'held': 'đang giữ', 'expired_holder_alive': 'quá hạn nhưng tiến trình còn sống: vẫn giữ',
                 'held_holder_unknown': 'đang giữ, chưa kiểm được tiến trình', 'expired_holder_unknown': 'quá hạn, chưa kiểm được tiến trình: vẫn giữ',
                 'dead_unreleased': 'tiến trình đã chết, chưa nhả (sẽ nhả khi đối chiếu)',
                 'holder_dead_worker_alive': 'tiến trình điều phối đã dừng; worker của lượt chạy còn chạy — khóa chuyển sang worker và vẫn giữ',
@@ -106,7 +107,9 @@ def shared_resources(page_state_root=None):
                 'state_label': 'trống' if row['free'] else 'đang được giữ',
                 'holders': [_who(h, state=h.get('state'), state_label=STATE_LABELS.get(h.get('state'), h.get('state')),
                                  mode_label=MODE_LABELS.get(h.get('mode'), h.get('mode'))) for h in row['holders']],
-                'waiters': [_who(w, position=w.get('position'), mode_label=MODE_LABELS.get(w.get('mode'), w.get('mode'))) for w in row['waiters']]})
+                'waiters': [_who(w, position=w.get('position'),
+                                 state_label='tài nguyên đang được giữ' if w.get('reason') == 'resource_held' else 'chờ đến lượt',
+                                 mode_label=MODE_LABELS.get(w.get('mode'), w.get('mode'))) for w in row['waiters']]})
         if not declared: out['empty_note'] = 'chưa khai báo tài nguyên dùng chung nào (managed.json rỗng)'
     except Exception as error:                      # an unreadable store is shown as such, never as "free"
         out['error'] = clean(f'{type(error).__name__}: {error}', 300)
@@ -182,7 +185,7 @@ function leaseMatch(d,rs){var out={mine:[],unsure:[]};if(!rs||!(rs.resources||[]
     if(all.some(unsure))out.unsure.push(Object.assign({},r,{holders:(r.holders||[]).filter(unsure),waiters:(r.waiters||[]).filter(unsure)}))});
   return out}
 function resRow(x,waiter){return '<div class="res-row" data-res-role="'+(waiter?'waiter':'holder')+'">'+(waiter?'Chờ, vị trí <b>'+esc(x.position)+'</b>: ':'Giữ: ')+'kế hoạch '+esc(x.plan||'chưa rõ')+' · phiên '+esc(x.session||'chưa rõ')+' · dự án '+esc(x.project||'chưa xác định dự án')+' · sổ '+esc(x.state_root||'chưa rõ')+' · pid '+esc(x.pid==null?'chưa rõ':x.pid)+' · '+esc(x.mode_label||x.mode)
-    +' · '+(waiter?'xin từ ':'từ ')+when(x.since)+(x.until?' · đến '+when(x.until):'')+(waiter?' · tiến trình: '+esc(({alive:'còn chạy',dead:'đã dừng, sẽ bị bỏ khỏi hàng chờ ở lần đối chiếu sau',unknown:'chưa kiểm được'})[x.process]||x.process||'chưa rõ'):' · <b>'+esc(x.state_label||x.state||'chưa rõ')+'</b>')+'</div>'}
+    +' · '+(waiter?'xin từ ':'từ ')+when(x.since)+(x.until?' · đến '+when(x.until):'')+(waiter?' · '+esc(x.state_label||'chờ đến lượt')+' · tiến trình: '+esc(({alive:'còn chạy',dead:'đã dừng, sẽ bị bỏ khỏi hàng chờ ở lần đối chiếu sau',unknown:'chưa kiểm được'})[x.process]||x.process||'chưa rõ'):' · <b>'+esc(x.state_label||x.state||'chưa rõ')+'</b>')+'</div>'}
 function resItemHtml(r){return '<article class="res-item" data-resource="'+esc(r.resource)+'" data-free="'+(r.free?'true':'false')+'"><h4><code>'+esc(r.resource)+'</code> · <span class="'+(r.free?'res-free':'res-held')+'">'+esc(r.state_label)+'</span>'+(r.declared===false?' <span class="mut">(không còn trong danh sách khai báo)</span>':'')+'</h4>'
   +(r.holders||[]).map(function(x){return resRow(x,false)}).join('')+(r.waiters||[]).map(function(x){return resRow(x,true)}).join('')
   +(r.free&&!(r.waiters||[]).length?'<p class="work-meta">Không ai giữ, không ai chờ.</p>':'')+'</article>'}

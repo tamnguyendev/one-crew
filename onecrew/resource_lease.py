@@ -31,6 +31,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import sqlite3
 import sys
 import time
 import uuid
@@ -194,6 +195,8 @@ class Leases:
 
     # --- state of one holder ---------------------------------------------------------------------------------------------
     def _alive(self, who):
+        if who.get('fifo_ticket'):
+            return 'unknown'  # the pending node owns this place across short engine processes
         if who.get('bound_to') == 'attempt':
             # the ledger decides (Codex review of 48a938b P2): 'dead' frees (settled / never launched / its worker's death confirmed),
             # anything else keeps; a launched worker with a pid is moved onto the row by the reconcile
@@ -201,6 +204,8 @@ class Leases:
             if verdict == 'free': return 'dead'
             return 'unknown'
         ident = who.get('identity')
+        if isinstance(ident, dict) and ident.get('uncertain_pid'):
+            return 'unknown'
         if isinstance(ident, dict) and ident.get('job_name'):
             # a contained worker (independent review of abcd7 F3/E1): its whole process tree, not only the top process
             from .process_core import tree_state
@@ -210,6 +215,12 @@ class Leases:
             return self._unidentified(ident)          # no creation time (an unidentified marker, or a rebind given {pid, host}): pid only
         try: state = self._probe(ident)
         except Exception: return 'unknown'
+        if (state == 'dead' and who.get('bound_to') == 'worker'
+                and 'attempt_generation' in (who.get('attempt_ref') or {})):
+            from .process_core import exists
+            try:
+                if exists(ident['pid']) != 'dead': return 'unknown'
+            except Exception: return 'unknown'
         # a pid-only record identified later describes whoever owns that pid now: never "confirmed alive" (review of abcd7 F6)
         return 'unknown' if state == 'alive' and isinstance(ident, dict) and ident.get('pid_only') else state
 
@@ -224,6 +235,8 @@ class Leases:
         except Exception: return 'unknown'
 
     def _state(self, holder):
+        if holder.get('fifo_ticket'):
+            return 'unknown', 'awaiting_node_retry'
         proc = self._alive(holder)
         expired = self.clock() >= _stamp(holder['until'])
         if holder.get('bound_to') == 'attempt':
@@ -260,6 +273,19 @@ class Leases:
         for who, label in (('holders', 'released_after_death'), ('waiters', 'waiter_gone')):
             keep = []
             for row in entry[who]:
+                if row.get('fifo_ticket'):
+                    if self._obsolete_ticket(row):
+                        self._log('withdrawn', key, claim=row['claim'], plan=row.get('plan'),
+                                  note='waiting node was cancelled or superseded')
+                        changed = True
+                    else:
+                        keep.append(row)
+                    continue
+                ref = row.get('attempt_ref') or {}
+                if who == 'holders' and row.get('bound_to') != 'attempt' and 'attempt_generation' in ref and self._terminal_proof(row):
+                    self._log('released_after_completion', key, claim=row['claim'], attempt=ref['attempt'])
+                    changed = True
+                    continue
                 if who == 'holders' and row.get('bound_to') == 'attempt':
                     verdict, worker = self._attempt_verdict(row)
                     if verdict == 'worker':
@@ -296,12 +322,57 @@ class Leases:
             self._log('granted', key, claim=row['claim'], session=row.get('session'), plan=row.get('plan'), mode=row['mode'])
         return changed
 
+    @staticmethod
+    def _obsolete_ticket(row):
+        from .ledger import Ledger
+        from .v2 import engine
+        ref = row['attempt_ref']
+        try:
+            ledger = Ledger(row['project'], ref['state_root'])
+            with ledger.transaction() as conn:
+                if conn is None:
+                    return False
+                cancelled = conn.execute('SELECT 1 FROM executions WHERE task_id IN (?,?) AND cancel_requested=1',
+                                         (ref['root'], ref['task_id'])).fetchone()
+                if cancelled:
+                    return True
+                view = engine.state(ledger, ref['selector'], conn)
+                node = view['nodes'].get(ref['node'])
+                return (view['root'] == ref['root'] and
+                        (view['root_status'] in ('closed', 'accepted') or node is None
+                         or node['generation'] != ref['node_generation']))
+        except (LedgerError, OSError, ValueError, KeyError, sqlite3.Error):
+            return False
+
+    @staticmethod
+    def _attempt_row(ref):
+        db = Path(ref['state_root']) / 'ledger.sqlite3'
+        with contextlib.closing(sqlite3.connect(db.resolve().as_uri() + '?mode=ro', uri=True, timeout=1)) as conn:
+            conn.row_factory = sqlite3.Row
+            return conn.execute("""SELECT * FROM attempts WHERE id=? AND task_id=?
+                AND json_extract(operation,'$.unit')=?""", (ref['attempt'], ref['task_id'], ref['unit'])).fetchone()
+
+    @classmethod
+    def _terminal_proof(cls, row):
+        ref = row['attempt_ref']
+        try:
+            attempt = cls._attempt_row(ref)
+            return bool(attempt and attempt['generation'] == ref['attempt_generation']
+                        and attempt['status'] == 'settled' and
+                        json.loads(attempt['result'] or '{}').get('tree_stopped') is True)
+        except (OSError, ValueError, AttributeError, sqlite3.Error):
+            return False
+
     def _attempt_worker(self, row):
         """A dead holder row that names its attempt (state root + task + node unit): the worker Control recorded for that attempt, when it
         is alive (identity dict) or the lookup cannot say ('unknown': the row is kept). None = no launched worker is left, free the row.
         Read-only: the ledger is opened with mode=ro."""
         ref = row.get('attempt_ref')
         if not isinstance(ref, dict): return None
+        if 'attempt' in ref:
+            verdict, worker = self._attempt_verdict(row)
+            if verdict == 'worker': return worker
+            return None if verdict == 'free' else 'unknown'
         try:
             import sqlite3
             db = Path(ref['state_root']) / 'ledger.sqlite3'
@@ -345,12 +416,21 @@ class Leases:
             self._reconcile(key, entry)
             claim_id = claim_id or 'LS-' + uuid.uuid4().hex[:12]
             mine = next((r for r in entry['holders'] if r['claim'] == claim_id), None)
+            collecting = mine and mine.get('fifo_ticket')
+            if collecting:
+                self._require_token(mine, token, 'Collect queued claim')
+                if mine.get('attempt_ref') != attempt_ref or mine['mode'] != mode:
+                    raise LedgerError('Queued claim belongs to a different node or mode.')
+                me = os.getpid() if pid is None else int(pid)
+                mine.update(pid=me, identity=self._identity(me))
+                del mine['fifo_ticket']
             if mine and only_own:
                 me = os.getpid() if pid is None else int(pid)
                 try: my_identity = self._identity(me)
                 except Exception: my_identity = None
                 theirs = mine.get('identity')
-                other = (mine.get('pid') != me or (theirs is not None and my_identity is not None and theirs != my_identity)
+                other = ((attempt_ref and 'node_generation' in attempt_ref and not collecting)
+                         or mine.get('pid') != me or (theirs is not None and my_identity is not None and theirs != my_identity)
                          or mine.get('bound_to') == 'attempt')     # kept for an earlier unsettled launch, even by this same process
                 # the row survived the reconcile above, so whatever process it names is alive, cannot be told, or is dead but kept for
                 # the worker of its attempt: in every case it is someone else's, and renewing it would hand that lease to this step
@@ -388,13 +468,15 @@ class Leases:
                 entry['holders'].append(row); self._log('claimed', key, claim=claim_id, session=session, plan=plan, mode=mode, pid=pid)
                 result = {'status': 'granted', 'claim': claim_id, 'token': secret, 'resource': key, 'mode': mode, 'until': row['until']}
             else:
+                if only_own and attempt_ref and 'node_generation' in attempt_ref:
+                    row['fifo_ticket'] = True
                 entry['waiters'].append(row); self._log('waiting', key, claim=claim_id, session=session, plan=plan, mode=mode, pid=pid)
                 result = {'status': 'waiting', 'claim': claim_id, 'token': secret, 'resource': key, 'mode': mode, 'position': len(entry['waiters']),
                           'held_by': [self._who(h) for h in entry['holders']]}
             self._save(data)
             return result
 
-    def release(self, resource, claim_id, token):
+    def release(self, resource, claim_id, token, *, claim_file=None):
         """The holder's explicit release (or a waiter withdrawing), with the claim's token. Anyone else is refused; expiry never releases."""
         key = self._key(resource)
         with self._locked():
@@ -405,6 +487,8 @@ class Leases:
                     self._require_token(row, token, 'Release')
                     entry[who].remove(row); self._log(label, key, claim=claim_id, session=row.get('session'), plan=row.get('plan'))
                     self._reconcile(key, entry); data['resources'][key] = entry; self._save(data)
+                    if claim_file is not None:
+                        with contextlib.suppress(OSError): claim_file.unlink()
                     return {'status': label, 'claim': claim_id}
             raise LedgerError(f'{claim_id} holds nothing on {key!r}; only the holder releases (a lease is never freed by expiry).')
 
@@ -426,7 +510,7 @@ class Leases:
             data['resources'][key] = entry; self._save(data)
             return {'status': 'rebound', 'claim': claim_id, 'pid': row['pid']}
 
-    def bind_attempt(self, resource, claim_id, token, attempt_id):
+    def bind_attempt(self, resource, claim_id, token, attempt_id, *, starting_generation=None):
         """The holder (with its token) keeps its claim for a LAUNCHED attempt whose worker cannot be followed (no pid recorded): the
         claim no longer depends on the holder process and is freed by `reconcile` only once the ledger shows that attempt settled."""
         key = self._key(resource)
@@ -436,7 +520,12 @@ class Leases:
             if row is None: raise LedgerError(f'{claim_id} holds nothing on {key!r}; nothing was bound.')
             self._require_token(row, token, 'Bind')
             if not isinstance(row.get('attempt_ref'), dict): raise LedgerError('Bind refused: the claim names no attempt; nothing was changed.')
-            row['attempt_ref'] = dict(row['attempt_ref'], attempt=attempt_id); row['bound_to'] = 'attempt'
+            row['attempt_ref'] = dict(row['attempt_ref'], attempt=attempt_id)
+            if starting_generation is not None:
+                row['attempt_ref']['attempt_generation'] = starting_generation
+                self._save(data)
+                return
+            row['bound_to'] = 'attempt'
             self._log('bound_to_attempt', key, claim=claim_id, session=row.get('session'), plan=row.get('plan'), attempt=attempt_id,
                       note='launched without a trackable worker; kept until the ledger shows the attempt settled')
             data['resources'][key] = entry; self._save(data)
@@ -451,21 +540,18 @@ class Leases:
         'unsettled' (launched, no usable pid: kept until settled), 'unread' (ledger or attempt row unreadable or missing: kept)."""
         ref = row.get('attempt_ref')
         try:
-            import sqlite3
-            db = Path(ref['state_root']) / 'ledger.sqlite3'
-            if not db.is_file(): return 'unread', None
-            conn = sqlite3.connect(db.resolve().as_uri() + '?mode=ro', uri=True, timeout=1)
-            try: found = conn.execute('SELECT status, identity FROM attempts WHERE id=?', (ref['attempt'],)).fetchone()
-            finally: conn.close()
+            found = Leases._attempt_row(ref)
         except Exception:
             return 'unread', None
         if not found: return 'unread', None
-        status, identity = found
-        if status == 'settled' or identity is None: return 'free', None
+        if 'attempt_generation' in ref and ref['attempt_generation'] != found['generation']: return 'unread', None
+        status, identity = found['status'], found['identity']
+        if identity is None: return 'free', None
+        if status == 'settled' and ('attempt_generation' not in ref or Leases._terminal_proof(row)): return 'free', None
         try: recorded = json.loads(identity)
         except ValueError: recorded = None
         if launch_unidentified(recorded): return 'unsettled', None
-        try: worker = worker_identity(recorded)
+        try: worker = worker_identity(recorded, scoped='attempt_generation' in ref)
         except Exception: return 'unread', None
         return ('free', None) if worker is None else ('worker', worker)
 
@@ -487,7 +573,9 @@ class Leases:
             for h in entry['holders']:
                 proc, state = self._state(h)
                 holders.append(dict(self._who(h), process=proc, state=state))
-            waiters = [dict(self._who(w), position=i + 1, process=self._alive(w)) for i, w in enumerate(entry['waiters'])]
+            waiters = [dict(self._who(w), position=i + 1, process=self._alive(w),
+                            reason='resource_held' if i == 0 and holders else 'fifo_queue')
+                       for i, w in enumerate(entry['waiters'])]
             out.append({'resource': key, 'free': not holders, 'holders': holders, 'waiters': waiters})
         return {'managed': self.managed(), 'resources': out}
 
@@ -579,9 +667,7 @@ def node_release(state_root, held):
     leases = Leases()
     for name, claim_id, token in held:
         with contextlib.suppress(LedgerError):
-            leases.release(name, claim_id, token)
-        with contextlib.suppress(OSError):
-            _claim_file(state_root, claim_id).unlink()
+            leases.release(name, claim_id, token, claim_file=_claim_file(state_root, claim_id))
 
 
 def launch_unidentified(recorded):
@@ -605,7 +691,7 @@ def node_bind_attempt(state_root, held, attempt_id):
     return True
 
 
-def worker_identity(recorded):
+def worker_identity(recorded, *, scoped=False):
     """The live worker an attempt recorded with Control.launched (`recorded` = the decoded identity): its `worker` identity, else the
     record itself when it names a pid. A record without a creation time gets one from the running process now. Returns None when no
     worker was recorded or it is not alive (then nothing is left to protect)."""
@@ -631,7 +717,11 @@ def worker_identity(recorded):
         # the recorded creation time is the identity; a missing host means this machine (review of abcd7 F5: it was re-read from
         # whatever owns the pid now)
         rec = dict(rec, host=rec.get('host') or here)
-        try: return rec if probe(rec) != 'dead' else None
+        try:
+            if probe(rec) != 'dead': return rec
+            if scoped and exists(rec['pid']) != 'dead':
+                return dict(rec, uncertain_pid=True)
+            return None
         except Exception: return rec                                            # cannot tell: kept
     try:
         # pid only: identified now, so a later pid reuse is told apart; marked so it is never called confirmed alive (review F6)

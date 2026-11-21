@@ -52,6 +52,7 @@ import os
 import re
 import secrets
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -112,6 +113,15 @@ def _page(interval):
 
 
 COPY_NOTE = 'Bản sao sổ · Chỉ đọc · Đã tắt so với bản hiện tại'
+
+
+class _ViewerServer(ThreadingHTTPServer):
+    def server_bind(self):
+        if os.name == 'nt':
+            # SO_REUSEADDR on Windows can bind a second listener to an occupied port.
+            self.allow_reuse_address = False
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
 def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0, idle_exit=None, instance=None, comparison=True):
@@ -232,7 +242,7 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
                 stats['errors'] += 1
                 return self._send(HTTPStatus.SERVICE_UNAVAILABLE, {'error': 'nguồn lỗi: ' + tracking.clean(str(error), 300), 'generated_at': utcnow()})
 
-    server = ThreadingHTTPServer((host, port), Handler)
+    server = _ViewerServer((host, port), Handler)
     server.daemon_threads = True
     server.track_stats = stats
     server.track_identity = identity
@@ -602,7 +612,7 @@ def _unlock(fd, path):
 
 
 def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0, project=None, explicit_state_root=None, idle_exit=1800,
-              browser=True, spawn=True, wait=30.0):
+              browser=True, spawn=True, wait=30.0, plan=None):
     """Reuse the live detached server of this state root when its identity matches (see `reusable`), else start one; then open the page.
     `spawn=False` only reports (no server is started). Concurrent calls serialise on the open lock.
     R5 round 4: the marker's server is asked again with longer timeouts while its process is exactly still running (a slow server is reused,
@@ -613,10 +623,14 @@ def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval
     state_root = Path(state_root).resolve()
     marker, lock = marker_paths(state_root)
     here = version()
+    if plan and (not project_id or host not in ('localhost', '127.0.0.1')):
+        raise ValueError('Mở lại việc cần đúng dự án và địa chỉ loopback.')
 
     def check(patient=False):
         record = _read_marker(marker)
         health = None
+        if plan and record and not _LOOPBACK_URL.fullmatch(str(record.get('url', ''))):
+            return record, None, False, 'URL ngoài loopback'
         if record and patient:
             proc = _Proc.open(record.get('pid'))
             try:
@@ -626,11 +640,17 @@ def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval
         elif record:
             health = identity(record['url'])
         ok, why = reusable(record, health, state_root, project_id, here)
+        if ok and port and urllib.parse.urlsplit(record['url']).port != port:
+            return record, health, False, 'cổng khác với cổng yêu cầu'
         return record, health, ok, why
 
     def opened(record, reused, **more):
+        url = record['url']
+        if plan:
+            url += '?' + urllib.parse.urlencode({'plan': plan, 'project_id': project_id})
+            more['task_url'] = url
         if browser:
-            import webbrowser; webbrowser.open(record['url'])
+            import webbrowser; webbrowser.open(url)
         return dict(record, reused=reused, version_here=here, **more)
 
     record, health, ok, why = check(patient=True)
@@ -652,9 +672,11 @@ def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval
             refused = {'marker': record, 'reason': why}
         if not spawn:
             return {'error': 'không có server dùng lại được', 'refused': refused, 'version_here': here}
+        if port and record and health and urllib.parse.urlsplit(record['url']).port == port:
+            return {'error': 'Cổng yêu cầu đang phục vụ một trang có định danh khác.', 'refused': refused}
         old_instance = (record or {}).get('instance')
         current = _read_marker(marker)               # the lock is held: only a server can write it now; remove exactly the marker that failed `reusable`
-        if (current is None and marker.exists()) or (current is not None and record is not None and current.get('instance') == old_instance):
+        if (current is None and marker.exists()) or (not health and current is not None and record is not None and current.get('instance') == old_instance):
             try: marker.unlink()
             except OSError: pass
         # R5 round 5: the child runs with cwd=TEMP, so it gets absolute paths (a relative --state-root/--project would name a folder under TEMP);

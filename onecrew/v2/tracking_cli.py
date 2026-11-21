@@ -46,6 +46,7 @@ def _parser():
             a.add_argument('--announce', help=argparse.SUPPRESS)
             a.add_argument('--idle-exit', type=float, default=None, help='Tự thoát sau N giây không có request (mặc định: không; `track open` đặt 1800).')
         else:
+            a.add_argument('--plan', help='Mở lại đúng việc của dự án này, kể cả sau khi trang đã tự thoát.')
             a.add_argument('--no-browser', action='store_true', help='Khởi động/dùng lại server và in URL, không mở trình duyệt.')
     a = sub.add_parser('copy-view', help='Mở trang thử trên bản sao tạm của sổ, tắt so mã hiện tại.')
     a.add_argument('--clone', required=True, type=Path, help='Bản clone Git riêng của --project.')
@@ -117,7 +118,8 @@ def main(argv=None):
             import os
             idle = opts.idle_exit if opts.idle_exit is not None else (float(os.environ['ONECREW_TRACK_IDLE_EXIT']) if os.environ.get('ONECREW_TRACK_IDLE_EXIT') else None)
             return tracking_web.serve(state_root, host=opts.host, port=opts.port, project_id=scope, interval=opts.interval, announce=opts.announce, idle_exit=idle)
-        result = tracking_web.open_page(state_root, host=opts.host, port=opts.port, project_id=scope, interval=opts.interval,
+        result = tracking_web.open_page(state_root, host=opts.host, port=opts.port, project_id=project_id if opts.plan else scope,
+                                        plan=opts.plan, interval=opts.interval,
                                         project=opts.project.resolve(), explicit_state_root=opts.state_root, browser=not opts.no_browser)
         print(json.dumps(result, ensure_ascii=False, indent=1))
         return 0 if result.get('url') else 2
