@@ -311,7 +311,8 @@ function msStrip(d){var c=d.milestone_checks;if(!c||!(c.rows||[]).length)return 
   return '<div class="ms-strip" aria-label="Các mốc">'+c.rows.map(function(m){return '<span class="ms '+esc(m.state)+'" title="'+esc(m.title||'')+'"><b>'+esc(m.id)+'</b> '+esc(m.label)+'</span>'}).join('')+'<button type="button" class="linkish" data-work-tab="progress">Xem các mốc và lần kiểm</button></div>'}
 function workOverview(d,w){var o=(w.outputs||[]).filter(function(x){return !x.stale}),f=w.findings||[],open=f.filter(function(x){return (x.status||x.state)==='open'}).length,c=d.milestone_checks,m=d.measure||{};
   var checkTime=c?(c.rows||[]).reduce(function(t,r){return typeof r.check_seconds==='number'?(t||0)+r.check_seconds:t},null):null;
-  return workOwnerSection(d)+msStrip(d)
+  var history=(d.goal_history_lines||[]).map(function(line){return '<p>'+esc(line)+'</p>'}).join('');
+  return workOwnerSection(d)+(history?'<section><h3>Mục tiêu và phạm vi</h3>'+history+'</section>':'')+msStrip(d)
     +'<div class="work-grid">'+workCard('Kết quả đã có',o.length?o.length+' đầu ra hiện hành · '+o.filter(function(x){return x.level==='verified'||x.level==='accepted'}).length+' đã kiểm':((w.outputs||[]).length?'Không có đầu ra hiện hành · '+(w.outputs||[]).length+' bản cũ hoặc cần kiểm lại':'Chưa ghi nhận đầu ra'),'Lịch sử cũ không tính vào số này. Xem từng đầu ra trong Kết quả & kiểm chứng.')
     +workCard('Dự kiến còn lại',d.eta&&d.eta.label,d.eta&&d.eta.reason)+'</div>'
     +(open?'<p class="work-warning">Còn '+open+' finding đang mở. Đây chưa phải số bug độc lập.</p>':'')

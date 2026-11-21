@@ -19,7 +19,7 @@ KINDS = ('plan.proposed', 'plan.amended', 'plan.approved', 'plan.accepted', 'ver
 # `plan:` anchor may carry (00 section 6.1, T13a). compat.check_write refuses them on a `plan:` anchor.
 NS_KINDS = ('plan.closed',)
 BASELINE_KIND = 'plan.baseline_recorded'       # P1-D: class A; the old reader ignores it, the new one reads it when base_artifact is missing
-READ_KINDS = KINDS + NS_KINDS + (BASELINE_KIND,)
+READ_KINDS = KINDS + NS_KINDS + (BASELINE_KIND, 'plan.goal_pinned')
 OWNER_ACTORS = ('user', 'owner')
 
 
@@ -77,6 +77,9 @@ def derive(ledger, conn, name):
         elif kind == 'plan.approved':
             # the ledger's own time of the approval row is provenance even when an old build's payload carries no 'at'
             state['approved'] = dict(p, recorded_at=event['created_at']) if event['created_at'] and not p.get('at') else p
+        elif kind == 'plan.goal_pinned':
+            state['goal_pin'] = dict(p, seq=event['seq'])
+            state['advice'].pop(1, None)
         elif kind == BASELINE_KIND:
             if state['approved'] is not None and p.get('revision') == state['approved'].get('revision'):
                 state['approved'] = dict(state['approved'], baseline=p)
@@ -525,7 +528,7 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None, reuse_
     return with_warnings(_show(ledger, selector), contract)
 
 
-def amend(ledger, name, raw, reason, author, events=None, keep_content_author=False, check_form=False):
+def amend(ledger, name, raw, reason, author, events=None, keep_content_author=False, check_form=False, goal_sources=()):
     """A new revision, never an edit. Approval and verdicts belong to a revision, so an amendment needs a new approval.
     `events(revision)` -> [(kind, payload)] are written in the same transaction (step 0: unknown.closed, poc.answered).
     `content_author` is who wrote the text of the revision (step 0 judges evidence by it, C12): the author, except when closing an unknown only
@@ -549,10 +552,19 @@ def amend(ledger, name, raw, reason, author, events=None, keep_content_author=Fa
         # before (rev 2 unapproved inserts M0, rev 3 only retitles: rev 3 is still a change of acceptance from rev 1). No approval yet: the latest.
         base = state['approved']['revision'] if state.get('approved') else latest
         previous_contract = load(ledger, state, base)[0]
+        from . import goal_history
+        if len(set(goal_sources)) != len(goal_sources):
+            raise LedgerError('Each goal source may be cited once.')
+        sources = [goal_history.source(conn, state, seq) for seq in goal_sources]
+        latest_contract = previous_contract if base == latest else load(ledger, state, latest)[0]
+        stale = (contract.get('presentation') == latest_contract.get('presentation') and
+                 (state['revisions'][latest].get('presentation_stale') or contract['items'] != latest_contract['items']
+                  or contract['scope'] != latest_contract['scope']))
         diff = acceptance_diff.classify_contract(previous_contract, contract)        # W05/T21: recorded with the amendment; the owner still approves it
         sha = contracts.write_revision(ledger, state['selector'], revision, contract)
         emit(ledger, conn, state['task_id'], 'plan.amended', {'plan': state['name'], 'revision': revision, 'from_revision': latest, 'sha': sha,
                                                                'parent_sha': state['revisions'][latest]['sha'], 'reason': reason,
+                                                               'goal_sources': sources, 'presentation_stale': bool(stale),
                                                                'acceptance_diff': {'classification': diff['classification'], 'summary': diff['summary'], 'compared_with': base,
                                                                                    'changes': [{k: c[k] for k in ('path', 'kind', 'acceptance')} for c in diff['changes'][:20]]},
                                                                'author': author, 'title': contract['title'],
@@ -624,6 +636,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
         solution_link.validate_root(ledger, conn, state, contract, sha, revision)
         written_by = state['revisions'][revision].get('content_author') or state['revisions'][revision].get('author')
         advice = state['advice'].get(revision)
+        goal_pin = state.get('goal_pin')
         proposal_check = step0.latest_proposal_check(conn, state['task_id'], revision)      # W47
     if approved and approved['revision'] == revision and approved['sha'] == sha:   # a repeat is a no-op, but the choice is made once
         if choose is not None and choose != approved.get('chosen'):
@@ -651,7 +664,8 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
     base_artifact, base_tracked = (None if inputs_only else _base_artifact(ledger)), _base_tracked(ledger, walk=not inputs_only)
     with ledger.transaction(write=True) as conn:
         state = anchor_events(ledger, conn, name)
-        if state['latest'] != revision or state['revisions'][revision]['sha'] != sha:
+        if (state['latest'] != revision or state['revisions'][revision]['sha'] != sha
+                or state.get('goal_pin') != goal_pin or state['advice'].get(revision) != advice):
             raise LedgerError('The plan changed while step 0 was being checked; run approve again.')
         from . import policy_epoch
         policy_epoch.ensure(ledger, state['task_id'], conn)       # dev22 (A-lite): a write of this OneCrew marks the plan's policy epoch
@@ -770,7 +784,8 @@ def accept(ledger, name, by, reference, artifact_sha, *, expected_revision=None)
             emit(ledger, conn, state['task_id'], 'plan.accepted', {'plan': name, 'revision': revision, 'sha': sha, 'by': by, 'reference': reference,
                                                                     'artifact_sha': artifact_sha, 'receipts': {v['id']: v['last_verdict']['receipt'] for v in views},
                                                                     **({'carried': carried} if carried else {}), **session_info()})
-    from . import outcome
+    from . import active_plan, outcome
+    active_plan.export(ledger, name)
     outcome.note(ledger, name)
     return _show(ledger, name)
 
@@ -815,6 +830,10 @@ def _show(ledger, name, revision=None):
                               'exceeded': state['exceeded']},
                 'questions': [{'request': r['id'], 'revision': r['revision'], 'state': r['state']} for r in requests],
                 'anchor_task': state['task_id'], 'state_root': str(ledger.state_root)}
+        from . import goal_history
+        out['goal_history'] = goal_history.view(ledger, state, revision, contract)
+        if state['status'] == 'proposed' and revision == state['latest'] and step0.advice_pending(ledger, contract, sha, state['advice'].get(revision)):
+            out['next_step'] = f'onecrew plan advise {state["selector"]}'
         if frozen: out['frozen'] = frozen
         out.update({key: state[key] for key in ('workflow_version', 'capabilities') if key in state})
         if state.get('closed'): out['closed'] = state['closed']

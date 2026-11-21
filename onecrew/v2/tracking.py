@@ -585,7 +585,7 @@ def _action(template, expected, placeholders=(), note=None):
             'placeholders': list(placeholders), 'expected': expected, 'note': note}
 
 
-def _needs_user(state, requests, views, level, engine_view, project=None, state_root=None, contract=None, acceptance=None, *, comparison=True):
+def _needs_user(state, requests, views, level, engine_view, project=None, state_root=None, contract=None, acceptance=None, *, comparison=True, advice_pending=False):
     needs = []
     prefix = _runtime() + (f' --project {_quote(project)}' if project else '') + (f' --state-root {_quote(state_root)}' if state_root else '')
     complete = bool(project and state_root)
@@ -627,12 +627,16 @@ def _needs_user(state, requests, views, level, engine_view, project=None, state_
                     + (f' --choose {_quote("<option-id>")}' if choices else '')
                     + f' --reference {_quote(REFERENCE_PLACEHOLDER)} --human') if complete and selector and contract else None
         owner = _owner_view(contract)
+        reason = clean(written.get('reason'))
+        if advice_pending:
+            template = None
+            reason = (reason + '. ' if reason else '') + f'Chờ kết quả cố vấn. AI chạy onecrew plan advise {selector} trước khi chủ duyệt.'
         needs.append({**({'owner_ask': 'Duyệt việc: ' + owner['request']} if owner['present'] else {}),
                       'source_kind': 'scope_change' if revision > 1 else 'plan_approval',
                       'source_label': (f'Đề xuất đổi phạm vi: bản {revision} chờ bạn duyệt' if revision > 1 else 'Kế hoạch chờ bạn duyệt'),
                       'kind': 'approve','question': f"Duyệt bản {state['latest']} của plan {state['name']} (plan approve, lệnh của chủ sở hữu)",
                       'id': state.get('task_id'), 'revision': revision, 'title': clean((contract or {}).get('title')),
-                      'reason': clean(written.get('reason')), 'impact': clean((written.get('acceptance_diff') or {}).get('summary')),
+                      'reason': reason, 'impact': clean((written.get('acceptance_diff') or {}).get('summary')),
                       'reply_command': template, 'human_command': template, 'reply_shell': REPLY_SHELL,
                       'reference_placeholder': REFERENCE_PLACEHOLDER, 'placeholders': placeholders,
                       'plan_choices': [{'id': o.get('id'), 'title': clean(o.get('title')), 'summary': clean(o.get('summary'))} for o in choices],
@@ -1293,8 +1297,11 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200, observe=Non
     stopped_now = kind == 'blocked' and (state['status'] == 'stopped_with_report' or (guidance or {}).get('state') == 'stopped')    # the fifth state: nothing runs until the owner decides; a block has a next step
     active_rows = [{'attempt': a['id'], 'status': a['status'], 'since': a['created_at'], 'unit': a['unit'], 'stage': a['stage'],
                     'node': next((nid for nid, r in nodes.items() if r['attempt'] == a['id']), None)} for a in attempts if a['status'] in ('reserved', 'running', 'unknown')]
+    from . import step0
+    advice_pending = contract and state['status'] == 'proposed' and step0.advice_pending(
+        rd, contract, state['revisions'][state['latest']]['sha'], state['advice'].get(state['latest']))
     needs = _needs_user(state, requests, views, level, engine_view, project=row['project_path'], state_root=str(reader.state_root),
-                        contract=contract, acceptance=acceptance, comparison=observe.comparison)
+                        contract=contract, acceptance=acceptance, comparison=observe.comparison, advice_pending=advice_pending)
     from . import tracking_situation
     checks = None
     if engine_view is None and views:
@@ -1341,6 +1348,12 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200, observe=Non
             'evidence_gaps': gaps,
             'read_only': True}
     if not full: return item
+    if contract:
+        from . import goal_history
+        item['goal_history_lines'] = goal_history.lines(goal_history.view(rd, state, state['latest'], contract))
+        for need in needs:
+            if need['kind'] == 'approve':
+                need['goal_history_lines'] = item['goal_history_lines']
     item['milestone_checks'] = checks
     item['nodes'] = nodes
     item['attempts'] = attempts

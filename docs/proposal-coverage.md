@@ -1418,3 +1418,14 @@ Phần nguồn đã thử trên sổ phát triển ở 375 và 1280 px. Kết qu
 | Ghi rõ trạng thái so hiện tại | Banner trên bốn trang, API health và nhãn trạng thái của lần kiểm đã ghi. | `compare_off_mode_said` |
 
 Verdict MC kiểm lại ba module VER60 trên wheel cài trong môi trường sạch.
+
+## RM1 bản 3 · MG
+
+| Yêu cầu | Mã và bằng chứng |
+|---|---|
+| I1 · #17 | `doctor_facts` đọc bản hook đang áp dụng và trạng thái trong sổ. `tests.test_rm1_readiness` kiểm bản đã nghiệm thu, hết hạn, đóng, dừng, chờ duyệt và bản đang mở. |
+| I1 · #21, #22 | `owner help approve/accept` đọc cú pháp từ argparse. Lint, propose và thẻ duyệt dùng điều kiện cố vấn của step 0. Ca CLI phân biệt thiếu cố vấn, thiếu lựa chọn, từ chối trong phiên AI và kết quả chưa xác định. |
+| I7 · #26 | `goal_history` ghim lời gốc trên bản 1 và kiểm nguồn theo việc, bản và số sự kiện. `tests.test_rm1_goal_origin` đối chiếu lịch sử qua hai bản sửa, nội dung Q1, phần trình bày cho chủ và chênh lệch tích lũy. |
+| I7 · #9 | Ca `test_amend_receipt_marks_removed_inputs_and_added_unscanned_as_acceptance` kiểm hai lần sửa qua `plan.amend` và đọc phân loại U1 trong sổ. |
+
+Các phép kiểm của MG chạy trên cây nguồn. MF kiểm gói cài, MO dành cho chủ thử.

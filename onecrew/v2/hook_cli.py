@@ -2371,7 +2371,7 @@ BACKGROUND_EVENTS = (('PostToolUse', 'background', 10, 'Agent|Task|Bash|PowerShe
                      ('SubagentStart', 'background', 10, None, 'continue'),
                      ('SubagentStop', 'background', 10, None, 'continue'),
                      ('SessionEnd', 'background', 5, None, 'continue'))
-OWNER_DENY = ('plan approve', 'plan accept', 'plan enforce', 'verdict record', 'hook mode', 'plan unknown close*owner', 'plan poc record*owner',
+OWNER_DENY = ('plan approve', 'plan accept', 'plan enforce', 'plan goal-pin', 'verdict record', 'hook mode', 'plan unknown close*owner', 'plan poc record*owner',
               'owner approve', 'owner accept', 'owner enforce', 'owner record', 'owner answer', 'question answer',
               'support confirm', 'support target add', 'support rollback', 'support cleanup*--v')    # owner-only entry points
 

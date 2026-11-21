@@ -25,6 +25,8 @@ def _parser():
     p.add_argument('--file', required=True, type=Path); p.add_argument('--author', help='Check it is a model id, as the reviewer needs.')
     p.add_argument('--ack-criteria', action='store_true', help='Silence the two criteria warnings (a quoted literal already in the base tree; a word shared with a non_goal). A missing "fail if" is still refused.')
     p = plan.add_parser('show'); p.add_argument('name'); p.add_argument('--revision', type=int)
+    p = plan.add_parser('goal-pin', help='The owner types the immutable original goal on the proposed first revision.')
+    p.add_argument('name'); p.add_argument('--words', required=True)
     p = plan.add_parser('report', help='One page of text from the ledger (read-only, no model): seven sections, Vietnamese labels.')
     p.add_argument('name'); p.add_argument('--revision', type=int); p.add_argument('--out', type=Path, help='The only write: save the page here instead of printing it (refused inside the state root).')
     p.add_argument('--handover', action='store_true', help='Evidence and remaining work for each acceptance criterion.')
@@ -42,6 +44,8 @@ def _parser():
     p.add_argument('--artifact-sha', required=True, help='The artifact accepted; must be what the final milestone verified.')
     p.add_argument('--revision', type=int, help='Expected current revision; checked inside the acceptance write transaction.')
     p = plan.add_parser('amend', help='A new revision (needs a new approval); the old one is kept.')
+    p.add_argument('--goal-source', type=int, action='append', default=[], metavar='EVENT',
+                   help='Sequence number of a typed prompt or answered AI choice on this plan (repeatable).')
     p.add_argument('name'); p.add_argument('--file', required=True, type=Path)
     p.add_argument('--reason', required=True, help='At most 200 characters (Unicode characters, not UTF-8 bytes).'); p.add_argument('--author', required=True)
     p = plan.add_parser('precheck', help='Run the preconditions and the target check (0 AI calls) without approving.'); p.add_argument('name')
@@ -137,6 +141,9 @@ def _dispatch(ledger, args):
             return report.write_out(text, args.out, ledger.state_root) if args.out else text
         if args.command == 'propose': return plans.propose(ledger, args.name, read_json(args.file), args.author, workflow=args.workflow, capabilities=args.capability, reuse_existing=args.reuse_existing, check_form=True)
         if args.command == 'show': return plans.show(ledger, args.name, args.revision)
+        if args.command == 'goal-pin':
+            from . import goal_history
+            return goal_history.pin(ledger, args.name, args.words)
         if args.command == 'approve': return plans.approve(ledger, args.name, args.by, args.reference, args.revision, args.tick, args.choose,
                                                          estimate=read_json(args.estimate_file) if args.estimate_file else None)
         if args.command == 'precheck': return step0.precheck(ledger, args.name)
@@ -177,7 +184,8 @@ def _dispatch(ledger, args):
                 chosen = (state['approved'] or {}).get('chosen') if state['approved'] and state['approved']['revision'] == state['latest'] else None
             return step0.brainstorm_table(plans.load(ledger, state)[0], chosen)
         if args.command == 'accept': return plans.accept(ledger, args.name, args.by, args.reference, args.artifact_sha, expected_revision=args.revision)
-        if args.command == 'amend': return plans.amend(ledger, args.name, read_json(args.file), args.reason, args.author, check_form=True)
+        if args.command == 'amend': return plans.amend(ledger, args.name, read_json(args.file), args.reason, args.author,
+                                                       check_form=True, goal_sources=args.goal_source)
         plans.require_owner(args.by, 'Changing enforcement')
         return gate.set_enforced(ledger, args.state == 'on', args.by, args.reference)
     if args.command == 'run': return verdict.run(ledger, args.plan, args.milestone, args.cwd)

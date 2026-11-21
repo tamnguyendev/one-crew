@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 
 from ..display_core import safe
-from .messages import t
+from .messages import OWNER_HUMAN, t
 
 
 def _parser():
@@ -40,6 +40,22 @@ def _parser():
     for command in verbs.choices.values():
         command.add_argument('--human', action='store_true', default=argparse.SUPPRESS)
     return parser
+
+
+def syntax(rest):
+    """Render argparse help only. 'owner help approve' also works under the host's owner-command deny patterns."""
+    parser = _parser()
+    if rest[:1] == ['help']:
+        if len(rest) > 2:
+            parser.print_usage()
+            return 2
+        rest = rest[1:] + ['--help']
+    try:
+        parser.parse_args(rest)
+    except SystemExit as result:
+        return result.code
+    # For example, '-- --help' supplied as a positional value. No mutation route here.
+    return 2
 
 
 def translate(args):
@@ -70,41 +86,48 @@ def _human_result(parsed, code, output, errors='', *, refused=False):
     if code == 0 and isinstance(value, dict) and not value.get('error'):
         revision = value.get('approved_revision')
         if parsed.verb == 'approve' and value.get('status') in ('approved', 'accepted') and revision is not None and (parsed.revision is None or parsed.revision == revision):
-            success = f'Đã ghi nhận duyệt {parsed.plan}, bản {revision}. Việc duyệt không xác nhận worker đã bắt đầu.'
+            success = OWNER_HUMAN['approved'].format(plan=parsed.plan, revision=revision)
         elif parsed.verb == 'accept' and value.get('status') == 'accepted':
-            success = f'Đã ghi nhận nghiệm thu {parsed.plan}, bản {value.get("revision")}. Đại diện bởi artifact {parsed.artifact_sha}.'
+            success = OWNER_HUMAN['accepted'].format(plan=parsed.plan, revision=value.get('revision'), artifact=parsed.artifact_sha)
         elif parsed.verb == 'answer' and value.get('request_id') == parsed.request and str(value.get('revision')) == str(parsed.revision) and value.get('choice') == parsed.choice:
-            success = f'Đã ghi nhận lựa chọn {parsed.choice} cho câu hỏi {parsed.request}. Đây không phải là duyệt phương án.'
+            success = OWNER_HUMAN['answered'].format(choice=parsed.choice, request=parsed.request)
         elif parsed.verb == 'enforce' and value.get('mode') == parsed.mode and value.get('exported') is True:
-            success = f'Đã bật chế độ {parsed.mode} và xuất quyền của {parsed.plan}. Cấu hình này chưa chứng minh hook đã chạy trong phiên làm việc.'
+            success = OWNER_HUMAN['enforced'].format(mode=parsed.mode, plan=parsed.plan)
     if success:
         print(safe(success, 1000))
         for _code, text in value.get('warnings') or ():           # dev14: words that may be technical; a warning, never a refusal
-            print(safe('Cảnh báo (không chặn): ' + str(text), 1000))
+            print(safe(OWNER_HUMAN['warning'].format(text=text), 1000))
         if value.get('post_commit_errors'):
-            print(safe('Phần đồng bộ sau khi ghi chưa hoàn tất: ' + json.dumps(value['post_commit_errors'], ensure_ascii=False), 2000))
-        print('Bước tiếp theo: xem lại task trên trang theo dõi; trạng thái dựa trên lần đọc sổ mới.')
-        if value.get('state_root'): print(safe('Sổ: ' + str(value['state_root']), 1000))
+            print(safe(OWNER_HUMAN['sync_error'].format(error=json.dumps(value['post_commit_errors'], ensure_ascii=False)), 2000))
+        print(OWNER_HUMAN['next'])
+        if value.get('state_root'): print(safe(OWNER_HUMAN['ledger'].format(root=value['state_root']), 1000))
     else:
         detail = value.get('error') if isinstance(value, dict) else output
         if parsed.verb == 'enforce' and isinstance(value, dict) and value.get('mode_committed') is True:
-            print(safe('Chế độ ' + str(value.get('mode')) + ' đã ghi; quyền của plan chưa xuất xong. Đọc lại sổ và xử lý lỗi xuất trước khi tiếp tục.', 1000))
+            print(safe(OWNER_HUMAN['export_error'].format(mode=value.get('mode')), 1000))
         elif parsed.verb == 'enforce' and 'no mode was changed' in str(detail):
-            print('Chưa đổi chế độ: plan chưa đủ điều kiện. Sửa nguyên nhân bên dưới rồi chạy lại.')
-        elif parsed.verb == 'approve' and '[owner_view_' in str(detail):
-            print('Chưa duyệt: phần viết cho người theo dõi (việc này làm gì, xong bạn thấy gì, làm sao biết đạt, không làm gì) chưa có '
-                  'hoặc còn chữ kỹ thuật. AI cần viết lại bằng plan amend rồi bạn duyệt bản mới; lý do bên dưới.')
+            print(OWNER_HUMAN['mode_refused'])
+        elif parsed.verb == 'approve' and code and isinstance(value, dict) and value.get('type') == 'LedgerError' and (
+                str(detail).startswith('Approve refused: step 0 is not done') or '[owner_view_' in str(detail)):
+            if '[owner_view_' in detail:
+                print(OWNER_HUMAN['presentation'])
+            else:
+                print(OWNER_HUMAN['step0'])
+            if '[advice_missing]' in detail:
+                print(safe(OWNER_HUMAN['advice'].format(plan=parsed.plan), 1000))
+            if '[options_not_chosen]' in detail or '[choose_unknown]' in detail:
+                print(OWNER_HUMAN['choose'])
         elif refused and 'AI tool session' in str(detail):
-            print('Chưa ghi nhận: thao tác này cần terminal của chủ sở hữu.')
+            print(OWNER_HUMAN['terminal'])
         elif refused:
-            print('Chưa ghi nhận: cần điền lựa chọn và lý do của chính bạn.')
+            print(OWNER_HUMAN['missing'])
         elif str(detail).startswith(('Only the latest revision (', 'Cannot accept: expected revision ', 'Stale request revision')):
-            print('Chưa ghi nhận lựa chọn ở bản cũ; hãy đọc lại bản hiện tại.')
+            print(OWNER_HUMAN['stale'])
         else:
-            print('Chưa xác nhận được kết quả của lệnh; cần đọc lại sổ trước khi thử lại.')
+            print(OWNER_HUMAN['unknown'])
         if detail: print(safe(detail, 2000))
         if errors: print(safe(errors, 2000))
-        if refused: print('Chạy lệnh đã điền đầy đủ trong terminal của bạn; giữ nguyên các chốt quyền hiện có.')
+        if refused: print(OWNER_HUMAN['retry'])
         if code == 0: code = 1  # No valid receipt: never offer a successful process exit to another consumer.
     return code
 
@@ -121,7 +144,7 @@ def main(args):
             with contextlib.redirect_stderr(errors): parsed = _parser().parse_args(rest)
         except SystemExit as result:
             if result.code:
-                print('Chưa ghi nhận: tham số lệnh chưa đầy đủ hoặc không hợp lệ.')
+                print(OWNER_HUMAN['invalid'])
                 print(safe(errors.getvalue(), 2000))
             return result.code
     else:
@@ -141,7 +164,7 @@ def main(args):
     if refused: return _human_result(parsed, refused, output.getvalue(), refused=True)
     from .tracking import REFERENCE_PLACEHOLDER
     if getattr(parsed, 'reference', None) == REFERENCE_PLACEHOLDER or getattr(parsed, 'choose', None) == '<option-id>':
-        return _human_result(parsed, 2, json.dumps({'error': 'Điền lựa chọn và --reference của chính bạn thay cho placeholder trước khi chạy.'}), refused=True)
+        return _human_result(parsed, 2, json.dumps({'error': OWNER_HUMAN['placeholder']}), refused=True)
     try:
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors): code = run(glob + argv)
     except SystemExit as result:

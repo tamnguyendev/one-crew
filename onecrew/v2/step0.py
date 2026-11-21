@@ -261,6 +261,15 @@ def is_strict(ledger, contract):
             or rules_path(ledger).exists())
 
 
+def needs_advice(ledger, contract):
+    return bool(contract.get('decisions')) or (contract['size'] in ('M', 'L') and is_strict(ledger, contract))
+
+
+def advice_pending(ledger, contract, sha, advice):
+    return needs_advice(ledger, contract) and (
+        not advice or advice.get('sha') != sha or not (advice.get('provider_error') or advice.get('usable')))
+
+
 def check_provenance(ledger, contract, sha, advice):
     """Where the contract comes from (origin, item sources, decisions) and whether the advisor looked at it. The full check applies to a contract
     that uses any of those fields and to every contract once the owner-rules file exists in this state root (`plan rules init`); a contract
@@ -277,13 +286,10 @@ def check_provenance(ledger, contract, sha, advice):
     for item in items:
         if item.get('source') not in (None, 'origin') and item['source'] not in known:
             reasons.append(('unknown_decision', f'item {item["id"]} has source {item["source"]}, which is not in decisions ({", ".join(sorted(known)) or "none"}).'))
-    if decisions or (strict and contract['size'] in ('M', 'L')):
+    if advice_pending(ledger, contract, sha, advice):
         if not advice or advice.get('sha') != sha:
             reasons.append(('advice_missing', 'no plan.advised event for this revision: run plan advise (decisions or size M/L need the advisor\'s three answers; objections do not block).'))
-        elif advice.get('provider_error'):
-            pass    # W27a: a typed provider error (unavailable / timeout / invalid_response) makes the advice inconclusive, with the reason
-                    # recorded on plan.advised; it does NOT block approval and never becomes advice_missing (T09a). The pinned provider is unchanged.
-        elif not advice.get('usable'):
+        else:
             reasons.append(('advice_missing', 'the advice recorded for this revision is inconclusive (' + str(advice.get('problems') or advice.get('note') or 'no usable answers')[:100]
                             + '); run plan advise again.'))
     return reasons

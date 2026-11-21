@@ -28,7 +28,7 @@ import tempfile
 from ..ledger import LedgerError
 
 AI_MARKERS = ('CLAUDE_CODE_CHILD_SESSION',)
-OWNER_VERBS = {('plan', 'approve'), ('plan', 'accept'), ('plan', 'enforce'), ('hook', 'mode'),
+OWNER_VERBS = {('plan', 'approve'), ('plan', 'accept'), ('plan', 'goal-pin'), ('plan', 'enforce'), ('hook', 'mode'),
                ('question', 'answer'), ('owner', 'answer'),
                ('owner', 'approve'), ('owner', 'accept'), ('owner', 'enforce'), ('owner', 'record'),
                ('support', 'confirm'), ('support', 'target'), ('support', 'rollback')}                    # 2.4-S1: the user's own confirmation of a feedback     # G2: `onecrew owner ...` is the same verbs under one name

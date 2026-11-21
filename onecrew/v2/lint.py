@@ -335,6 +335,8 @@ def check(ledger, raw, author=None, ack_criteria=False):
     except LedgerError:
         return reasons, []
     warnings = [] if ack_criteria else _warnings(ledger, raw, contract)
+    if step0.needs_advice(ledger, contract):
+        warnings.append(('advice_required', 'Trước khi chủ duyệt, chạy onecrew plan advise <tên kế hoạch>.'))
     return reasons, warnings + owner_view_warnings(contract) + _command_input_warnings(ledger.project, contract)
 
 

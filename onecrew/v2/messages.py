@@ -124,6 +124,15 @@ TEXT = {
     'doctor.hook_stale': {'en': '{path} points at {command}, which does not exist; run `onecrew init` again from the current install', 'vi': '{path} trỏ vào {command}, file này không tồn tại; chạy lại `onecrew init` từ bản cài hiện tại'},
     'doctor.plan': {'en': 'active plan', 'vi': 'plan đang mở'},
     'doctor.plan_ok': {'en': '{name} revision {revision}, hook mode {mode}', 'vi': '{name} bản {revision}, hook ở chế độ {mode}'},
+    'doctor.plan_pending': {'en': ', revision {revision} awaits approval', 'vi': ', bản {revision} đang chờ duyệt'},
+    'doctor.observation': {'en': 'Claude session observation', 'vi': 'Quan sát phiên Claude'},
+    'doctor.plan_outdated': {'en': ', ledger approved revision {revision}. Refresh: onecrew hook export {name}',
+                             'vi': ', sổ đã duyệt bản {revision}. Làm mới bằng onecrew hook export {name}'},
+    'doctor.plan_accepted': {'en': 'none ({name} accepted in the ledger)', 'vi': 'không có ({name} đã nghiệm thu trong sổ)'},
+    'doctor.plan_stopped': {'en': ', status {status}', 'vi': ', trạng thái {status}'},
+    'doctor.plan_blocks': {'en': '. The hook blocks writes.', 'vi': '. Hook chặn lệnh ghi.'},
+    'doctor.plan_expired': {'en': ', expired at {expires}. Refresh: onecrew hook export {name}',
+                            'vi': ', hết hạn lúc {expires}. Làm mới bằng onecrew hook export {name}'},
     'doctor.plan_none': {'en': 'none (no .onecrew/active-plan.json)', 'vi': 'không có (không có .onecrew/active-plan.json)'},
     'doctor.plan_bad': {'en': 'active-plan.json cannot be read ({why})', 'vi': 'không đọc được active-plan.json ({why})'},
     'doctor.project': {'en': 'project', 'vi': 'dự án'},
@@ -179,6 +188,32 @@ TEXT = {
 def lang():
     """'vi' when ONECREW_LANG=vi, else 'en'."""
     return 'vi' if os.environ.get('ONECREW_LANG', '').strip().lower() == 'vi' else 'en'
+
+
+# The owner --human output is Vietnamese regardless of the general CLI language.
+OWNER_HUMAN = {
+    'approved': 'Đã ghi nhận duyệt {plan}, bản {revision}. Việc duyệt không xác nhận worker đã bắt đầu.',
+    'accepted': 'Đã ghi nhận nghiệm thu {plan}, bản {revision}. Đại diện bởi artifact {artifact}.',
+    'answered': 'Đã ghi nhận lựa chọn {choice} cho câu hỏi {request}. Đây không phải là duyệt phương án.',
+    'enforced': 'Đã bật chế độ {mode} và xuất quyền của {plan}. Cấu hình này chưa chứng minh hook đã chạy trong phiên làm việc.',
+    'warning': 'Cảnh báo (không chặn): {text}',
+    'sync_error': 'Phần đồng bộ sau khi ghi chưa hoàn tất: {error}',
+    'next': 'Bước tiếp theo: xem lại task trên trang theo dõi; trạng thái dựa trên lần đọc sổ mới.',
+    'ledger': 'Sổ: {root}',
+    'export_error': 'Chế độ {mode} đã ghi; quyền của plan chưa xuất xong. Đọc lại sổ và xử lý lỗi xuất trước khi tiếp tục.',
+    'mode_refused': 'Chưa đổi chế độ: plan chưa đủ điều kiện. Sửa nguyên nhân bên dưới rồi chạy lại.',
+    'presentation': 'Chưa duyệt: phần viết cho người theo dõi (việc này làm gì, xong bạn thấy gì, làm sao biết đạt, không làm gì) chưa có hoặc còn chữ kỹ thuật. AI cần viết lại bằng plan amend rồi bạn duyệt bản mới; lý do bên dưới.',
+    'step0': 'Chưa duyệt vì còn điều kiện ở bước chuẩn bị.',
+    'advice': 'Cần kết quả cố vấn cho bản này. AI chạy onecrew plan advise {plan}.',
+    'choose': 'Chủ chọn một phương án có trong bản này bằng --choose <mã phương án>.',
+    'terminal': 'Chưa ghi nhận: thao tác này cần terminal của chủ sở hữu.',
+    'missing': 'Chưa ghi nhận: cần điền lựa chọn và lý do của chính bạn.',
+    'stale': 'Chưa ghi nhận lựa chọn ở bản cũ; hãy đọc lại bản hiện tại.',
+    'unknown': 'Chưa xác nhận được kết quả của lệnh; cần đọc lại sổ trước khi thử lại.',
+    'retry': 'Chạy lệnh đã điền đầy đủ trong terminal của bạn; giữ nguyên các chốt quyền hiện có.',
+    'invalid': 'Chưa ghi nhận: tham số lệnh chưa đầy đủ hoặc không hợp lệ.',
+    'placeholder': 'Điền lựa chọn và --reference của chính bạn thay cho placeholder trước khi chạy.',
+}
 
 
 def t(key, **values):

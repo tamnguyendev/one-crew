@@ -17,10 +17,12 @@ All wording comes from messages.py (English by default, ONECREW_LANG=vi for Viet
 """
 import argparse
 import copy
+import datetime as dt
 import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -742,6 +744,39 @@ def last_user_call(root):
     return None
 
 
+def _plan_readiness(document, root, state_root):
+    from ..specs import digest
+    from . import plan as plans
+    from .report import _Reader
+
+    name, revision, mode = (document.get(key) for key in ('plan', 'revision', 'mode'))
+    status, pending = document.get('status'), document.get('pending_revision')
+    project = os.path.normcase(str(root.resolve()))
+    reader = _Reader(state_root, digest(project), project)
+    with reader.transaction() as conn:
+        state = plans.derive(reader, conn, document.get('anchor') or name) if name else None
+    if state:
+        approved = state['approved']
+        pending = state['latest'] if not approved or state['latest'] > approved['revision'] else None
+        status = state['status']
+        if status == 'proposed' and approved:
+            status = 'stopped_with_report' if approved['revision'] in state['stopped'] else 'approved'
+    detail = t('doctor.plan_ok', name=name, revision=revision, mode=mode)
+    if pending:
+        detail += t('doctor.plan_pending', revision=pending)
+    if status == 'accepted':
+        return 'PASS', t('doctor.plan_accepted', name=name)
+    if status in ('stopped_with_report', 'closed'):
+        return 'WARN', detail + t('doctor.plan_stopped', status=status) + (t('doctor.plan_blocks') if mode == 'enforce' else '')
+    expires = document.get('expires')
+    if expires and dt.datetime.fromisoformat(expires) < dt.datetime.now(dt.timezone.utc):
+        return ('FAIL' if mode == 'enforce' else 'WARN', detail + t('doctor.plan_expired', expires=expires, name=name)
+                + (t('doctor.plan_blocks') if mode == 'enforce' else ''))
+    if state and approved and revision != approved['revision']:
+        return 'WARN', detail + t('doctor.plan_outdated', revision=approved['revision'], name=name)
+    return ('PASS' if status == 'approved' else 'WARN'), detail
+
+
 def doctor_facts(project=None, state_root=None, exe=None, claude=claude_status):
     """The doctor checks as [(level, name, detail)], printing nothing. claude=None skips the two Claude CLI checks (they start a program);
     the support bundle (diagnostics.py) uses that form."""
@@ -793,17 +828,29 @@ def doctor_facts(project=None, state_root=None, exe=None, claude=claude_status):
         level, detail = check_hooks(root, chosen, exe or installed_exe())
         add(level, 'doctor.hook', detail)
         plan_file = root / '.onecrew' / hook_cli.FILE
-        if not plan_file.is_file(): add('PASS', 'doctor.plan', t('doctor.plan_none'))
+        copy = hook_cli.state_copy(chosen, root)
+        if not plan_file.is_file() and copy is None: add('PASS', 'doctor.plan', t('doctor.plan_none'))
         else:
-            plan, bad = hook_cli.load_plan(plan_file)
+            if plan_file.is_file() and copy:
+                plan, _, bad, _ = hook_cli.govern(plan_file, root, copy)
+            else:
+                # The hook may restore a missing project file. Doctor only reads its governing copy.
+                plan, bad = hook_cli.load_plan(copy or plan_file)
             if bad: add('FAIL', 'doctor.plan', t('doctor.plan_bad', why=bad.split(':')[0]))
-            else: add('PASS', 'doctor.plan', t('doctor.plan_ok', name=plan.get('plan'), revision=plan.get('revision'), mode=plan.get('mode')))
+            else:
+                try:
+                    level, detail = _plan_readiness(plan, root, chosen)
+                except (OSError, ValueError, sqlite3.Error, TypeError) as error:
+                    level, detail = 'FAIL', t('doctor.plan_bad', why=str(error))
+                add(level, 'doctor.plan', detail)
     level, detail = check_user_hook()                                  # #25
-    add(level, 'doctor.user', detail)
     present = observed_events(read_settings(user_settings_file())[0] or {})
-    lines.append(('PASS' if len(present) == len(OBSERVE_EVENTS) else 'WARN',
-                  'Quan sát phiên Claude' if lang() == 'vi' else 'Claude session observation',
-                  f'{len(present)}/{len(OBSERVE_EVENTS)} · hook user install --observe'))
+    coverage = f'{t("doctor.observation")}: {len(present)}/{len(OBSERVE_EVENTS)}'
+    if len(present) != len(OBSERVE_EVENTS):
+        coverage += ' · hook user install --observe'
+        if level == 'PASS':
+            level = 'WARN'
+    add(level, 'doctor.user', f'{detail}. {coverage}')
     if root is not None:
         seen = last_user_call(root)
         add('PASS', 'doctor.user_calls', t('doctor.user_seen', at=seen.get('at'), session=seen.get('session')) if seen else t('doctor.user_unseen'))

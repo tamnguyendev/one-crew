@@ -799,7 +799,10 @@ def _present_request(f):
     if c is None: return _wrap(NO_DATA)
     shown = c.get('presentation') or {}
     lines = _wrap(shown['request'] if shown.get('request') else 'Mục tiêu (AI diễn đạt lại): ' + c['understanding']['restated_goal'])
-    if c.get('origin'): lines += _wrap(f'Lời gốc ({c["origin"]["by"]}, {c["origin"]["at"]}): «{c["origin"]["quote"]}»')
+    from . import goal_history
+    reader = _Reader(f['state_root'], f['row']['project_id'], f['row']['project_path'])
+    for line in goal_history.lines(goal_history.view(reader, f['state'], f['revision'], c)):
+        lines += _wrap(line)
     lines += _wrap('Không làm: ' + (shown['not_doing'] if shown.get('not_doing') else '; '.join(c['non_goals']) or 'không ghi'))
     if shown.get('guard'): lines += _wrap('Giữ nguyên: ' + shown['guard'])
     return lines
