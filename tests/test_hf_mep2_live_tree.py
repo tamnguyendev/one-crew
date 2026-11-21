@@ -52,7 +52,7 @@ class LiveTree(HookFixture):
         m = milestone('M1', argv=argv)
         if inputs: m['verifier']['config']['inputs'] = list(inputs)
         if max_minutes: m['verifier']['config']['max_minutes'] = max_minutes
-        self.enforce(value=owned_plan(milestones=[m]))
+        self.enforce(value=owned_plan(milestones=[m, milestone('Delivery')]))
 
     def receipt(self):
         with self.ledger.transaction() as conn:

@@ -1399,3 +1399,12 @@ Phần nguồn đã thử trên sổ phát triển ở 375 và 1280 px. Kết qu
 | Nhắc xem xét `inputs` khi các lệnh kiểm có đích khác nhau | `lint.check` trả cảnh báo theo mốc, nêu test, gói import và tệp dựng gói. | `warns_command_milestone_without_inputs`, `warning_names_tests_and_imports`, `same_files_and_different_verbosity_do_not_suggest_splitting` |
 | Nhắc đường ngoài repo chưa khai, miễn hợp đồng một mốc | `lint._command_input_warnings` xét đối số đường dẫn với thư mục chạy của mốc và thư mục đã khai trong `env_inputs`. | `warns_path_outside_repo_not_in_env_inputs`, `relative_external_path_uses_command_working_directory`, `no_warning_single_milestone` |
 | Mẫu có cả hai trường và tính skip là trượt | `onecrew/templates/command-inputs.vi.md` kèm lệnh chạy từng module và chạy toàn bộ. | `template_has_inputs_and_env_inputs`, `skip_counts_as_failure_in_template` |
+
+## VER60 bản 1 · MR
+
+| I2/O2 | Điểm kiểm chứng trong `tests/test_ver60_reuse.py` |
+|---|---|
+| Biên nhận mốc giữa còn hiệu lực khi tệp liên quan và môi trường khớp | Sửa tệp mốc khác và đổi một env_input. Đối chiếu báo cáo và trang theo dõi. |
+| Mốc cũ và thứ tự | Chạy mốc sau khi mốc trước đã cũ, kiểm tra chỉ dẫn trước nghiệm thu. |
+| Mốc giao cuối chạy đầy đủ, kể cả hợp đồng một mốc | Kiểm phạm vi snapshot và việc sửa tệp ngoài inputs. Kiểm mốc lệnh đứng trước bước chủ thử. Quyết định chủ `REQ-8fdedde1c186449b859e59d5cecf5766`, lựa chọn `final`. |
+| Thu hẹp inputs qua amend | Phân loại khi thêm phạm vi tường minh hoặc thay thư mục bằng một tệp con. |

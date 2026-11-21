@@ -102,7 +102,7 @@ class Run(HookFixture):
         m = milestone('M1', argv=[program, '-c', COUNT, str(self.counter)])
         m['verifier']['config']['inputs'] = ['tool']
         if unscanned is not None: m['verifier']['config']['inputs_unscanned'] = list(unscanned)
-        self.enforce(value=owned_plan(milestones=[m]))
+        self.enforce(value=owned_plan(milestones=[m, milestone('Delivery')]))
 
     def runs(self):
         return len(self.counter.read_text().splitlines()) if self.counter.exists() else 0

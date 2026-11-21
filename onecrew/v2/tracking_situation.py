@@ -153,9 +153,9 @@ def milestone_checks(views, history, revision, now, lost):
                      'failures': len([c for c in mine if c.get('result') and c['result'] != 'pass']),
                      'last_result': last.get('result') if last else None, 'last_at': (last.get('recorded') or last.get('ended')) if last else None,
                      'check_seconds': sum(timed) if timed else None, 'untimed_checks': len(mine) - len(timed),
-                     'note': v.get('recheck_note') or (CURRENT_UNKNOWN if v.get('current_unknown') else None)
+                     'note': v.get('recheck_note') or (CURRENT_UNKNOWN if v.get('current_unknown') else None) or v.get('reuse_note')
                              or (('bằng chứng không còn khớp bản hiện tại' + (': ' + '; '.join(map(str, v['stale_reasons'])) if v.get('stale_reasons') else '')
-                                  + ('' if v.get('stale_reasons') else ' (mã đã đổi sau lần kiểm)'))[:200] if v.get('stale') else None)})
+                                  + ('' if v.get('stale_reasons') else ' (mã đã đổi sau lần kiểm)'))[:200] + (' ' + v['order_note'] if v.get('order_note') else '') if v.get('stale') else None)})
     return {'revision': revision, 'rows': rows, 'timed': any(c.get('started') and c.get('ended') for r in rows for c in r['checks']),
             'basis': 'verdict.run_started → verdict.receipt_issued (thời gian chạy bộ kiểm) và verdict.recorded (kết quả); '
                      'không phải thời gian làm việc; khoảng trống giữa hai lần kiểm không phải thời gian chờ'}

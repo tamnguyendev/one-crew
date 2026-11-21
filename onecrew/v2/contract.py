@@ -125,8 +125,14 @@ def verifier_inputs(milestone):
     return ((verifier.get('config') or {}).get('inputs') or None) if verifier.get('type') == 'command' else None
 
 
+def delivery_milestone(contract):
+    """The last executable check before the owner's manual handover, including a sole check."""
+    return next((m['id'] for m in reversed(contract.get('milestones', []))
+                 if m['verifier']['type'] != 'owner-manual'), None)
+
+
 def all_inputs_declared(contract):
-    """Every milestone is a command with declared inputs: then nothing in this contract needs the identity of the whole working tree before acceptance."""
+    """When all checks declare inputs, approval can defer the full snapshot until delivery."""
     milestones = contract.get('milestones') or []
     return bool(milestones) and all(verifier_inputs(m) for m in milestones)
 

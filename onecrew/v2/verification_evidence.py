@@ -203,6 +203,9 @@ def receipt_assessment(ledger, contract, milestone, revision, receipt, current_a
     except (LedgerError, OSError, ValueError, TypeError) as error:
         return {'status': 'stale', 'reusable': False, 'reasons': ['receipt missing or malformed: ' + str(error)],
                 'checks_to_rerun': [milestone['id']], 'reuse_basis': None, 'requires_record': False, 'recorded': False}
+    if milestone['id'] == contracts.delivery_milestone(contract) and ('input_scope' in body or body.get('reused_from')):
+        return {'status': 'stale', 'reusable': False, 'reasons': ['mốc giao cuối cần chạy trực tiếp trên toàn cây'],
+                'checks_to_rerun': [milestone['id']], 'reuse_basis': None, 'requires_record': False, 'recorded': False}
     old = body.get('evidence_binding')
     if old is None and not require_bound: return None
     try:

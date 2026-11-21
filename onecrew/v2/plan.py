@@ -247,7 +247,9 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=
                 current[0] = None
         return current[0]
     views = []
+    final = contracts.delivery_milestone(contract)
     for m in contract['milestones']:
+        delivery = m['id'] == final
         mine = [v for v in state['verdicts'] if v['revision'] == revision and v['milestone'] == m['id']]
         failures = len([v for v in mine if v['result'] != 'pass'])
         passed = bool(mine) and mine[-1]['result'] == 'pass'
@@ -259,25 +261,29 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=
                 passed = False
                 extra.update(stale=True, needs_recheck=True, recheck_note=policy_epoch.NOTE, stale_reasons=[policy_epoch.REASON], checks_to_rerun=[m['id']])
         if ledger is not None or artifact is not None:
-            candidate = mine[-1] if passed else (_inherited(ledger, state, revision, m, contract) if not mine and carries else None)
-            if candidate is not None and contracts.verifier_inputs(m):
+            candidate = mine[-1] if passed else (_inherited(ledger, state, revision, m, contract) if not mine and carries and not delivery else None)
+            if candidate is not None and not delivery and contracts.verifier_inputs(m):
                 if ledger is not None and getattr(ledger, 'project', None):      # no project to look at (a reader of the ledger alone): as any verdict there, not judged
                     how, why = _covers_inputs(ledger, m, candidate, artifact, keep_history=state.get('status') in ('accepted', 'closed'))
                     if how is None:
                         if passed: passed = False
                         extra.update(stale=True, stale_reasons=why, checks_to_rerun=[m['id']])
                     else:
+                        extra['reuse_note'] = 'Giữ từ lần kiểm trước vì các tệp liên quan không đổi.'
                         if not passed: passed, verdict = True, candidate
                         if candidate['revision'] != revision: extra['carried_from'] = candidate['revision']
                 elif artifact is not None:
                     if passed: passed = False
                     extra.update(stale=True, stale_reasons=['no project to judge the inputs in'])
+            elif candidate is not None and delivery and now() is None:
+                passed = False
+                extra.update(stale=True, stale_reasons=['chưa xác minh được toàn cây của mốc giao cuối'])
             elif candidate is not None and now() is not None:
                 from .verifiers import artifact as identities
                 if m['verifier']['type'] == 'owner-manual' and ledger is not None and not identities.is_git(ledger.project):
                     how = 'same'        # without Git the owner's artifact is an opaque document hash; a snapshot identity cannot contradict it
                 else:
-                    how = covers(ledger, candidate['artifact_sha'], now(), m['verifier']['type'], neutral)
+                    how = covers(ledger, candidate['artifact_sha'], now(), m['verifier']['type'], () if delivery else neutral)
                 if ledger is not None and m['verifier']['type'] != 'owner-manual':
                     from . import policy_epoch, verification_evidence
                     made = state.get('issued_at', {}).get(candidate['receipt'], candidate.get('seq'))
@@ -308,8 +314,10 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=
                     if not passed: passed, verdict = True, candidate
                     if candidate['revision'] != revision or how == 'neutral': extra['carried_from'] = candidate['revision']
                     if how == 'neutral': extra['neutral_diff'] = True
+        if extra.get('stale') and not delivery and m['verifier']['type'] != 'owner-manual':
+            extra['order_note'] = 'Mốc cũ vẫn cho chạy mốc sau. Kiểm lại một lần trên cây cuối trước khi nghiệm thu.'
         views.append({'id': m['id'], 'title': m['title'], 'mode': m['mode'], 'verifier': m['verifier']['type'],
-                      'max_repairs': m['max_repairs'], 'state': 'passed' if passed else 'stopped' if stopped else 'failed' if failures else 'pending',
+                      'max_repairs': m['max_repairs'], 'state': 'passed' if passed else 'stopped' if stopped else 'failed' if mine and mine[-1]['result'] != 'pass' else 'pending',
                       'runs': len(mine), 'failures': failures, 'repairs_left': max(0, m['max_repairs'] - failures) if not passed else None,
                       'last_verdict': ({k: verdict.get(k) for k in ('result', 'by', 'artifact_sha', 'receipt', 'cwd')} if verdict else None), **extra})
     return views
@@ -628,7 +636,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
                               f'({len(today)} reason{"s" if len(today) != 1 else ""}); the approval it has stays recorded. Write the fix with plan amend '
                               '(the four sentences of the owner part), then approve the new revision:' +''.join(f'\n - [{c}] {t}' for c, t in today))
         return with_warnings(_show(ledger, name), contract)       # review of dev14 (P3): a repeat shows the warnings too
-    # every milestone declares its inputs: nothing reads the whole tree, so the whole tree is neither walked nor stored in the project here (MEP hotfix)
+    # Defer the full snapshot to delivery when every command declares its inputs.
     inputs_only = contracts.all_inputs_declared(contract)
     if not inputs_only: _refuse_hard_links(ledger)
     from . import root_writer
@@ -747,8 +755,8 @@ def accept(ledger, name, by, reference, artifact_sha, *, expected_revision=None)
                 raise LedgerError(f'Cannot accept artifact {artifact_sha}: every milestone must have passed on exactly that artifact; '
                                    + '; '.join(f'{v["id"]}: ' + ', '.join(v.get('stale_reasons') or ['artifact changed']) for v in elsewhere)
                                    + '. Inspect plan show and re-run only the named stale milestones in their execution environment.'
-                                   + (f' The milestones declare inputs: a receipt\'s artifact_sha holds only its own milestone\'s inputs; take the sha from '
-                                      f'`verdict artifact --plan {name}` (one tree holding every milestone\'s inputs).'
+                                   + (f' The milestones declare inputs: an intermediate receipt may cover only its declared inputs; take the full delivery sha from '
+                                      f'`verdict artifact --plan {name}`.'
                                       if any(contracts.verifier_inputs(m) for m in contract['milestones']) else ''))
             if namespaces.has_capability(state, 'finding-register'):
                 from .findings import list_findings

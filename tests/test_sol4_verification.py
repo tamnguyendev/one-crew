@@ -54,7 +54,7 @@ class ProjectionCases(Fixture):
 class CandidateCases(LoopFixture):
     paths = ('a.txt',)
     bad = {'a.txt': b'candidate\n'}
-    milestones = (milestone('M1', argv=[sys.executable, '-c', 'print("checked")']),)
+    milestones = (milestone('M1', argv=[sys.executable, '-c', 'print("checked")']), milestone('Delivery'))
     def prepare(self): pass
 
     def delivered(self):
@@ -81,6 +81,9 @@ class CandidateCases(LoopFixture):
         checked = verdict._check_receipt(self.ledger, 'P1', 1, sha, contract['milestones'][0], 'pass',
             'command', delivered['artifact'], last['receipt'], {(1, 'M1', last['receipt'])})
         self.assertEqual(checked['reused_from'], proof['reused_from'])
+        with patch.object(command, 'run', wraps=command.run) as checked_delivery:
+            verdict.run(self.ledger, 'P1', 'Delivery')
+            self.assertEqual(checked_delivery.call_count, 1)
         with self.assertRaisesRegex(LedgerError, 'AI cannot approve or accept'):
             plan.accept(self.ledger, 'P1', 'owner', 'fixture', delivered['artifact'])
         with patch.dict(os.environ, {'ONECREW_ACTOR': 'owner'}):

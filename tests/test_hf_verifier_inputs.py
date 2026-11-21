@@ -47,7 +47,9 @@ class Inputs(HookFixture):
         m = milestone('M1', argv=argv or [PY, '-c', CHECK, str(self.counter)])
         if inputs: m['verifier']['config']['inputs'] = inputs
         m['verifier']['config'].update(config)
-        self.enforce(value=owned_plan(milestones=[m]))
+        delivery = milestone('M2')
+        delivery['verifier']['config']['inputs'] = ['a.txt']
+        self.enforce(value=owned_plan(milestones=[m, delivery] if inputs else [m]))
 
     def run_m1(self):
         return verdict.run(self.ledger, 'P1', 'M1')
@@ -191,7 +193,8 @@ class Inputs(HookFixture):
     def test_accept_inside_a_tree_that_holds_the_inputs(self):
         self.plan()
         self.run_m1()
-        self.git('add', '-A', '--', 'tool', 'spec'); self.git('commit', '-qm', 'x', '--allow-empty')
+        self.git('add', '-A', '--', '.', ':!.onecrew'); self.git('commit', '-qm', 'delivery tree', '--allow-empty')
+        verdict.run(self.ledger, 'P1', 'M2')
         head = self.git('rev-parse', 'HEAD').strip()
         shown = plans.accept(self.ledger, 'P1', 'owner', 'thu', head)
         self.assertEqual(shown['status'], 'accepted')
@@ -199,6 +202,7 @@ class Inputs(HookFixture):
     def test_accept_refuses_a_tree_with_other_inputs(self):
         self.plan()
         self.run_m1()
+        verdict.run(self.ledger, 'P1', 'M2')
         (self.root / 'tool' / 'cfg.txt').write_text('khac\n'); self.git('add', '-A', '--', 'tool'); self.git('commit', '-qm', 'khac')
         with self.assertRaisesRegex(LedgerError, 'Cannot accept'):
             plans.accept(self.ledger, 'P1', 'owner', 'thu', self.git('rev-parse', 'HEAD').strip())

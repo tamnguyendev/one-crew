@@ -46,7 +46,7 @@ class Unscanned(HookFixture):
         if not inputs: m['verifier']['config'].pop('inputs')
         if unscanned is not None: m['verifier']['config']['inputs_unscanned'] = list(unscanned)
         if cwd: m['verifier']['config']['cwd'] = cwd
-        self.enforce(value=owned_plan(milestones=[m]))
+        self.enforce(value=owned_plan(milestones=[m, milestone('Delivery')]))
 
     def receipt(self):
         with self.ledger.transaction() as conn:

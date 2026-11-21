@@ -123,7 +123,7 @@ class Carry(Fixture):
         self.assertEqual(plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())['status'], 'accepted')
 
     def test_a_commit_that_touches_only_neutral_paths_keeps_a_command_milestone_passed(self):
-        value = plan_json(scope={'owned': ['a.txt'], 'neutral': ['docs/**']})
+        value = plan_json(milestones=[milestone('M1'), milestone('Delivery')], scope={'owned': ['a.txt'], 'neutral': ['docs/**']})
         self.approved(value=value)
         verdict.run(self.ledger, 'P1', 'M1', self.root)
         before = self.tree()
@@ -131,6 +131,7 @@ class Carry(Fixture):
         self.assertNotEqual(self.tree(), before)
         m1 = self.view('M1')
         self.assertEqual((m1['state'], m1['carried_from'], m1.get('neutral_diff'), m1['last_verdict']['artifact_sha']), ('passed', 1, True, before))
+        verdict.run(self.ledger, 'P1', 'Delivery', self.root)
         self.assertEqual(plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())['status'], 'accepted')
 
     def test_a_commit_that_touches_a_neutral_and_a_real_path_does_not(self):
@@ -181,7 +182,7 @@ class Carry(Fixture):
 
     def test_an_owner_manual_pass_is_carried_on_the_same_artifact_only(self):
         manual = {'id': 'M2', 'title': 'Looks right', 'verifier': {'type': 'owner-manual'}, 'covers': ['O1']}
-        value = plan_json(milestones=[milestone('M1'), manual], scope={'owned': ['a.txt'], 'neutral': ['docs/**']})
+        value = plan_json(milestones=[milestone('M1'), manual, milestone('Delivery')], scope={'owned': ['a.txt'], 'neutral': ['docs/**']})
         self.approved(value=value)
         verdict.run(self.ledger, 'P1', 'M1', self.root)
         from onecrew.snapshots import Snapshots

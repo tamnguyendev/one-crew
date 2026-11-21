@@ -358,6 +358,9 @@ def _verdict_word(view, short=False):
     if not last: return 'chưa có verdict'
     if view.get('stale'): return 'cũ' if short else ('cũ (' + '; '.join(view['stale_reasons']) + ')' if view.get('stale_reasons') else
                                                    f'cũ ({last["result"]} trên artifact khác, cần chạy lại)')
+    if view.get('reuse_note'):
+        carried = f" · kế thừa từ bản {view['carried_from']}" if view.get('carried_from') else ''
+        return last['result'] + carried + ' · ' + view['reuse_note']
     if view.get('neutral_diff'): return f'{last["result"]} (chỉ khác đường dẫn trung lập)' if not short else f'{last["result"]} trung lập'
     if view.get('carried_from'): return f'{last["result"]} (kế thừa từ bản {view["carried_from"]})' if not short else f'{last["result"]} kế thừa'
     return last['result']
@@ -391,6 +394,7 @@ def _milestones(f):
         used = f'sửa {v["failures"]}/{v["max_repairs"]}'
         if last: lines += _wrap(f'{v["id"]} {_verdict_word(v)} · by {last["by"]} · {_short(last["artifact_sha"])} · {used}{mark} · «{v["title"]}»', '  ', '      ')
         else: lines += _wrap(f'{v["id"]} chưa có verdict · {used} · «{v["title"]}»', '  ', '      ')
+        if v.get('order_note'): lines += _wrap(v['order_note'])
     return lines
 
 
@@ -635,14 +639,10 @@ CHECKER = {'command': 'lệnh tự chạy trên artifact, bạn không phải l�
            'owner-manual': 'bạn tự thử rồi ghi kết quả (verdict của chủ sở hữu)'}
 
 
-INPUTS_ONLY = 'theo inputs đã khai của từng mốc'
-
-
 def _artifact_now(f):
     """The artifact the evidence is judged against: the one accepted, else the project's tree now (None when it cannot be made)."""
     accepted = f['state']['accepted']
     if accepted and accepted['revision'] == f['revision']: return accepted.get('artifact_sha')
-    if contracts.all_inputs_declared(f.get('contract') or {}): return INPUTS_ONLY    # each milestone is judged on its own inputs (milestone_views): the whole tree is not walked for a report
     if 'artifact_now' not in f:
         from .verifiers import artifact as identities
         try:

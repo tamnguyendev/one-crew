@@ -1837,7 +1837,7 @@ class NotStarted(LedgerError):
     verifier_started = False
 
 
-def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context=None, *, effective_environment=None, deadline=None):
+def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context=None, *, effective_environment=None, deadline=None, full_tree=False):
     """Execute the milestone's command; returns (receipt_blob, receipt)."""
     with before_verifier():                            # issue #2 (dev14): the directory check and the scratch directory too; MEP inputs as well
         argv, limit = milestone['verifier']['config']['argv'], milestone['verifier']['config']['max_minutes']
@@ -1857,7 +1857,7 @@ def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context
                 except HardLinked as refused:
                     refused.verifier_started = False
                     raise
-            else:
+            if not inputs or full_tree:
                 before = verified_sha(directory)
         timing = {'before_seconds': round(time.monotonic() - begin, 2), 'limit_seconds': round(snapshot_seconds(), 1)}
         with before_verifier():                        # mep7 hole (a), 2.5.0.dev24: the scratch directory is made before any dispatch
@@ -1865,12 +1865,12 @@ def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context
             _own_scratch(scratch)
         try:
             return _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context,
-                        effective_environment=effective_environment, deadline=deadline, timing=timing)
+                        effective_environment=effective_environment, deadline=deadline, timing=timing, full_tree=full_tree)
         finally:
             _remove_scratch(scratch)
 
 
-def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context=None, *, effective_environment=None, deadline=None, timing=None):
+def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context=None, *, effective_environment=None, deadline=None, timing=None, full_tree=False):
     timing = dict(timing or {})
     begin = time.monotonic()
     with before_verifier():                            # up to the Popen below the verifier has not been called, whatever fails here
@@ -1901,7 +1901,7 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
         from .. import verification_evidence
         binding = verification_evidence.for_receipt(ledger, evidence_context, milestone, before, env) if evidence_context else None
         scope = None
-        if inputs:
+        if inputs and not full_tree:
             try:
                 head = _git(directory, 'rev-parse', '--verify', '-q', 'HEAD')
             except LedgerError:
@@ -1942,7 +1942,7 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
     finished = time.monotonic()
     try:
         with _snapshot('after the verifier', floor=STEP_SECONDS):
-            after = scoped_tree(directory, inputs, verified=True) if inputs else verified_sha(directory)            # made the way the before one is: a link the command made is not hashed into a tree (D-R05)
+            after = scoped_tree(directory, inputs, verified=True) if inputs and not full_tree else verified_sha(directory)            # made the way the before one is: a link the command made is not hashed into a tree (D-R05)
     except LedgerError as problem:                     # the command ran: its receipt is kept, inconclusive, with the reason (review E-R01)
         after, error = None, error or f'the artifact after the command cannot be identified: {problem}'[:300]
         if isinstance(problem, SnapshotFailed):
@@ -1956,7 +1956,7 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
                'stdout': store.blob(out[-OUTPUT_CAP:]), 'stderr': store.blob(err[-OUTPUT_CAP:]),
                'stdout_bytes': len(out), 'stderr_bytes': len(err), 'output_truncated': len(out) > OUTPUT_CAP or len(err) > OUTPUT_CAP,
                'program': program, **({'env_inputs': outside} if outside is not None else {}),       # review of dev24c (P1): every command receipt
-               **({'input_scope': scope} if scope else {})}
+               **({'delivery_scan': scanned} if full_tree else {}), **({'input_scope': scope} if scope else {})}
     rule = suspicious_rule(receipt)
     if binding is not None: receipt['evidence_binding'] = binding
     if rule: receipt['suspicious'] = rule            # the receipt names the rule that made the verdict inconclusive

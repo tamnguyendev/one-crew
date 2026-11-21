@@ -509,8 +509,8 @@ def _bind_actions(needs, binding):
 
 
 def _acceptance(reader, conn, state, contract, engine_view, level, *, free=None, observe=None, key=(), sig=None):
-    """Eligibility from recorded evidence only; the owner command rechecks the live artifact. UI3: the project is observed (the scoped tree of the
-    inputs' union, the milestone views at the delivered artifact) by `observe` with no transaction open, through `free` (a reader that opens its own
+    """Eligibility from recorded evidence only; the owner command rechecks the live artifact. UI3: the project is observed (the
+    delivery tree and the milestone views at that artifact) by `observe` with no transaction open, through `free` (a reader that opens its own
     short transactions); `reader` and `conn` are the read's own transaction. Without an observation at hand the root is not shown as ready."""
     result = {'ready': False, 'artifact': None, 'basis': 'recorded evidence; CLI rechecks current project', 'reason': None}
     if state['status'] != 'approved' or level != 'verified' or not contract: return result
@@ -527,31 +527,26 @@ def _acceptance(reader, conn, state, contract, engine_view, level, *, free=None,
         if not views or missing:
             result['reason'] = 'Chờ bộ thực thi kiểm mốc ' + ', '.join(missing) + '; chưa đến bước nghiệm thu.'
             return result
-        from . import verdict
-        union = verdict.inputs_union(reader, state) if getattr(reader, 'project', None) else None
-        recorded = None
-        if not union:
-            artifacts = {(v.get('last_verdict') or {}).get('artifact_sha') for v in views}
-            if len(artifacts) != 1 or not next(iter(artifacts)):
-                result['reason'] = 'Chờ bộ thực thi kiểm các mốc trên cùng bản bàn giao.'
-                return result
-            recorded = next(iter(artifacts))
-            if not isinstance(recorded, str) or not _ARTIFACT.fullmatch(recorded):
-                result['reason'] = 'Chưa xác minh định danh bản bàn giao để nghiệm thu.'
-                return result
+        from .contract import delivery_milestone
+        final = delivery_milestone(contract)
+        # The final check's whole tree anchors the scoped intermediate receipts.
+        delivery = next((v for v in views if v['id'] == final), views[-1])
+        recorded = delivery['last_verdict']['artifact_sha']
+        if any(v['verifier'] == 'owner-manual' and v['last_verdict']['artifact_sha'] != recorded for v in views):
+            result['reason'] = 'Chờ bộ thực thi kiểm các mốc trên cùng bản bàn giao.'
+            return result
+        if not isinstance(recorded, str) or not _ARTIFACT.fullmatch(recorded):
+            result['reason'] = 'Chưa xác minh định danh bản bàn giao để nghiệm thu.'
+            return result
         free = free or report._Reader(reader.state_root, reader.project_id, reader.project_path)
 
-        def seen():                                 # UI3: made by _Observations.make, with no ledger transaction open
-            artifact = recorded
-            if union:                               # review of dev24d (P2): milestones of different inputs are accepted on the union tree, as `verdict artifact`
-                from .verifiers import command
-                with command.leaves_no_objects():
-                    artifact = command.scoped_tree(free.project, union)
-            if not isinstance(artifact, str) or not _ARTIFACT.fullmatch(artifact): return {'artifact': artifact, 'views': None}
-            # with a union the inputs are judged on the working files (the tree of their union, which the owner command makes again; not written here)
-            return {'artifact': artifact, 'views': plans.milestone_views(contract, state, state['latest'], free, artifact=None if union else artifact,
-                                                                         recorded_environment=True)}
-        got = observe.get(('acceptance',) + tuple(key) + (tuple(union or ()), recorded), sig, seen) if observe is not None else None
+        def seen():
+            from .verifiers import artifact as identities
+            with identities.command.leaves_no_objects():
+                current = identities.identity(free.project) if final or identities.is_git(free.project) else recorded
+                checked = plans.milestone_views(contract, state, state['latest'], free, artifact=current, recorded_environment=True)
+            return {'artifact': current, 'views': checked}
+        got = observe.get(('acceptance',) + tuple(key) + (recorded,), sig, seen) if observe is not None else None
         if got is None:
             result['reason'] = 'Chưa xác minh đủ bằng chứng nghiệm thu; cần kiểm lại mốc và bàn giao.'
             return result

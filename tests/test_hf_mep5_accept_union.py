@@ -1,10 +1,4 @@
-"""MEP hotfix, fifth pass (mep5): accepting a plan whose milestones declare different inputs.
-
-On a trial project (08/11, a plan at rev 4) M1, M2 and M3 passed, each with its own inputs. A receipt's artifact_sha is the tree of
-that milestone's inputs only, and `owner accept` judges every milestone inside the one tree it is given: M3's sha refused with "M1: a declared input changed"
-although nothing had changed. `verdict artifact --plan` then gave the whole working tree (tens of GB there). mep5: when every milestone declares inputs,
-`verdict artifact` answers with the tree of the union of the inputs, and the refusal says where to get it. A change to any input still refuses.
-Owner steps use the suite's own fixture (the suite's process is not an AI session): fixture evidence, not an owner's approval."""
+"""Scoped intermediate checks are judged inside the final check's full delivery tree (VER60 D2)."""
 import os
 import subprocess
 import sys
@@ -61,28 +55,28 @@ class AcceptUnion(HookFixture):
         self.plan()
         shas = self.receipt_artifacts()
         self.assertNotEqual(shas['M1'], shas['M2'])
-        with self.assertRaisesRegex(LedgerError, r'M1: a declared input changed.*verdict artifact --plan P1'): self.accept(shas['M2'])
+        with self.assertRaisesRegex(LedgerError, r'M2: artifact changed.*verdict artifact --plan P1'): self.accept(shas['M1'])
         self.assertNotEqual(self.status(), 'accepted')
 
-    def test_verdict_artifact_gives_the_union_and_accept_takes_it(self):
+    def test_verdict_artifact_gives_the_full_delivery_tree_and_accept_takes_it(self):
         self.plan()
         got = verdict.artifact(self.ledger, 'P1')
-        self.assertEqual((got['scope'], got['inputs']), ('inputs', ['hai', 'mot']))
-        self.assertEqual(got['artifact_sha'], command.scoped_tree(self.root, ['hai', 'mot']))
+        self.assertEqual(got['artifact_sha'], command.artifact_sha(self.root))
+        self.assertEqual(got['artifact_sha'], self.receipt_artifacts()['M2'])
         self.accept(got['artifact_sha'])
         self.assertEqual(self.status(), 'accepted')
 
-    def test_a_changed_input_still_refuses_with_the_union(self):
+    def test_a_changed_input_still_refuses_on_the_delivery_tree(self):
         self.plan()
         (self.root / 'mot' / 'a.txt').write_text('doi\n', encoding='utf-8')
         with self.assertRaisesRegex(LedgerError, 'M1: a declared input changed'): self.accept(verdict.artifact(self.ledger, 'P1')['artifact_sha'])
         self.assertNotEqual(self.status(), 'accepted')
 
-    def test_a_change_outside_every_input_leaves_the_union_alone(self):
+    def test_a_change_outside_every_input_changes_the_delivery_tree(self):
         self.plan()
         before = verdict.artifact(self.ledger, 'P1')['artifact_sha']
         (self.root / 'ngoai' / 'c.txt').write_text('doi\n', encoding='utf-8')
-        self.assertEqual(verdict.artifact(self.ledger, 'P1')['artifact_sha'], before)
+        self.assertNotEqual(verdict.artifact(self.ledger, 'P1')['artifact_sha'], before)
 
     def test_a_milestone_without_inputs_keeps_the_whole_tree(self):
         self.plan(second_inputs=None)
@@ -91,9 +85,13 @@ class AcceptUnion(HookFixture):
         self.assertEqual(got['artifact_sha'], command.artifact_sha(self.root))
 
     def test_a_folder_without_git_never_takes_the_union(self):
-        from types import SimpleNamespace
+        from onecrew.ledger import Ledger
+        from onecrew.v2.verifiers import artifact
         plain = Path(self.temp.name) / 'khong_git'; plain.mkdir()
-        self.assertIsNone(verdict.inputs_union(SimpleNamespace(project=str(plain)), {}))     # scoped_tree needs Git; such a folder keeps its manifest identity
+        (plain / 'a.txt').write_text('sample')
+        ledger = Ledger(plain, self.ledger.state_root)
+        plans.propose(ledger, 'Plain', owned_plan(), 'claude')
+        self.assertEqual(verdict.artifact(ledger, 'Plain')['artifact_sha'], artifact.identity(plain))
 
 
 if __name__ == '__main__':

@@ -80,6 +80,7 @@ class MissingEnvInput(mep.Inputs):
         self.plan(env_inputs=[str(rules)])
         self.run_m1()
         self.assertEqual(self.view()['state'], 'passed', self.view())
+        mep.verdict.run(self.ledger, 'P1', 'M2')
         rules.unlink()
         view = self.view()
         self.assertNotEqual(view['state'], 'passed', view)

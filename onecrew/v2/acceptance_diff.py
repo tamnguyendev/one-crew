@@ -127,6 +127,13 @@ def _milestone_changes(mid, m, n):
     for key in sorted((set(oc) | set(nc)) - CONFIG_SPECIAL):
         before, after = oc.get(key, CONFIG_DEFAULTS.get(key)), nc.get(key, CONFIG_DEFAULTS.get(key))
         if before == after: continue
+        if key == 'inputs' and after:
+            # No declaration covers the whole repository. A child path covers less than its parent.
+            removed = [p for p in (before or []) if not any(p == q or p.startswith(q + '/') for q in after)]
+            if not before or removed:
+                changes.append({'path': f'milestones.{mid}.inputs', 'kind': 'narrowed', 'acceptance': True,
+                                'why': 'verifier inputs narrowed: ' + (', '.join(removed) if removed else 'whole repository to declared paths')})
+                continue
         numeric = all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in (before, after))
         changes.append({'path': f'milestones.{mid}.{key}', 'kind': 'threshold' if numeric or key == 'max_minutes' else 'obligation', 'acceptance': True,
                         'why': f'the approved verifier setting {key} changed' + ('' if key in oc and key in nc else ' (added)' if key in nc else ' (removed)')})
