@@ -19,7 +19,7 @@ KINDS = ('plan.proposed', 'plan.amended', 'plan.approved', 'plan.accepted', 'ver
 # `plan:` anchor may carry (00 section 6.1, T13a). compat.check_write refuses them on a `plan:` anchor.
 NS_KINDS = ('plan.closed',)
 BASELINE_KIND = 'plan.baseline_recorded'       # P1-D: class A; the old reader ignores it, the new one reads it when base_artifact is missing
-READ_KINDS = KINDS + NS_KINDS + (BASELINE_KIND, 'plan.goal_pinned')
+READ_KINDS = KINDS + NS_KINDS + (BASELINE_KIND, 'plan.goal_pinned', 'verdict.run_started')
 OWNER_ACTORS = ('user', 'owner')
 
 
@@ -60,7 +60,7 @@ def derive(ledger, conn, name):
     if not row: return None
     state = {'name': namespaces.parse(row['request_key'])[0], 'selector': row['request_key'], 'anchor': row['request_key'],
              'task_id': row['id'], 'revisions': {}, 'latest': 0, 'approved': None, 'accepted': None, 'verdicts': [],
-             'stopped': {}, 'issued': set(), 'issued_seq': {}, 'issued_at': {}, 'policy_epoch': None, 'exceeded': 0, 'advice': {}}
+             'stopped': {}, 'issued': set(), 'issued_seq': {}, 'issued_at': {}, 'run_starts': {}, 'run_receipts': {}, 'receipt_runs': {}, 'policy_epoch': None, 'exceeded': 0, 'advice': {}}
     from . import policy_epoch
     state['policy_epoch'] = policy_epoch.seq(conn, row['id'])          # dev22 (A-lite): the plan's epoch for the running checkout policy
     marks = ','.join('?' * len(READ_KINDS))
@@ -85,7 +85,16 @@ def derive(ledger, conn, name):
                 state['approved'] = dict(state['approved'], baseline=p)
         elif kind == 'plan.accepted': state['accepted'] = p
         elif kind == 'plan.closed' and namespaces.has_capability(state, 'sequential-engine'): state['closed'] = p
+        elif kind == 'verdict.run_started' and p.get('run_id'):
+            label = p.get('plan')
+            if label == state['selector']:
+                label = state['name']
+            origin = (label if isinstance(label, str) else None, p.get('revision'), p.get('milestone'), p.get('kind'))
+            state['run_starts'].setdefault(p['run_id'], set()).add(origin)
         elif kind == 'verdict.receipt_issued':
+            if p.get('run_id'):
+                state['run_receipts'].setdefault(p['run_id'], set()).add(p['receipt'])
+                state['receipt_runs'].setdefault(p['receipt'], set()).add(p['run_id'])
             state['issued'].add((p['revision'], p['milestone'], p['receipt']))
             state['issued_seq'][(p['revision'], p['milestone'])] = event['seq']      # the latest issuance, to tell a receipt that still waits for its verdict
             state['issued_at'].setdefault(p['receipt'], event['seq'])                # dev22 (A-lite): when the evidence was made, for the policy epoch
@@ -137,6 +146,55 @@ def covers(ledger, verdict_artifact, current, kind, neutral):
     except (LedgerError, OSError, subprocess.SubprocessError):
         return None
     return 'neutral' if paths and all(contracts.neutral_match(p, neutral) for p in paths) else None
+
+
+def _receipt_origin(ledger, state, milestone, candidate):
+    """Check the immutable receipt against this root's publication and attempt, including conflicting records."""
+    from ..snapshots import Snapshots
+    from .verdict import KINDS, _result, integrity_result
+    from .verifiers import port
+    ref = candidate.get('receipt')
+    try:
+        body = json.loads(Snapshots(ledger.state_root).read_blob(ref))
+    except (OSError, ValueError, LedgerError):
+        return 'missing', 'Thiếu biên nhận có thể xác minh.'
+    if not isinstance(body, dict):
+        return 'missing', 'Thiếu nội dung biên nhận.'
+    rev, mid = candidate['revision'], milestone['id']
+    keys = ('plan', 'revision', 'plan_sha', 'milestone', 'artifact_sha')
+    expected = (state['name'], rev, state['revisions'][rev]['sha'], mid, candidate.get('artifact_sha'))
+    if any(k not in body for k in keys):
+        return 'missing', 'Biên nhận cũ thiếu liên kết với công việc hoặc phép kiểm.'
+    if tuple(body[k] for k in keys) != expected:
+        return 'conflicting', 'Biên nhận mâu thuẫn với công việc, phiên bản, mốc hoặc artifact.'
+    kind = milestone['verifier']['type']
+    if body.get('kind') != (KINDS.get(kind) or port.receipt_kind(kind)):
+        return 'conflicting', 'Loại biên nhận khác bộ kiểm của mốc.'
+    others = [v for v in state['verdicts'] if v.get('receipt') == ref]
+    if any(tuple(v.get(k) for k in keys) != expected or v.get('result') != candidate['result'] or v.get('by') != kind for v in others):
+        return 'conflicting', 'Các bản ghi cùng biên nhận mâu thuẫn.'
+    if (rev, mid, ref) not in state['issued'] or not state['receipt_runs'].get(ref):
+        return 'missing', 'Thiếu liên kết từ biên nhận đến lượt kiểm đã phát hành.'
+    if any(r == ref and (revision, milestone_id) != (rev, mid) for revision, milestone_id, r in state['issued']):
+        return 'conflicting', 'Một biên nhận được gắn với nhiều phiên bản hoặc mốc.'
+    identity = (state['name'], rev, mid, kind)
+    for run in state['receipt_runs'][ref]:
+        starts = state['run_starts'].get(run)
+        if not starts:
+            return 'missing', 'Thiếu lượt kiểm đã phát hành biên nhận.'
+        if starts != {identity} or state['run_receipts'][run] != {ref}:
+            return 'conflicting', 'Định danh lượt kiểm gắn với bằng chứng mâu thuẫn.'
+    if kind == 'command' and body.get('argv') != milestone['verifier']['config']['argv']:
+        return 'stale', 'Cấu hình lệnh kiểm đã đổi.'
+    if kind == 'reviewer' and body.get('config') != milestone['verifier']['config']:
+        return 'stale', 'Tiêu chí hoặc cấu hình reviewer đã đổi.'
+    try:
+        result = integrity_result(_result(kind, body), candidate.get('test_integrity'))
+    except (ValueError, TypeError, KeyError, LedgerError):
+        return 'missing', 'Thiếu kết quả của phép kiểm.'
+    if result != candidate['result']:
+        return 'conflicting', 'Kết quả đã ghi mâu thuẫn với biên nhận.'
+    return None
 
 
 def _covers_inputs(ledger, milestone, candidate, artifact, keep_history=False):
@@ -265,6 +323,11 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=
                 extra.update(stale=True, needs_recheck=True, recheck_note=policy_epoch.NOTE, stale_reasons=[policy_epoch.REASON], checks_to_rerun=[m['id']])
         if ledger is not None or artifact is not None:
             candidate = mine[-1] if passed else (_inherited(ledger, state, revision, m, contract) if not mine and carries and not delivery else None)
+            if candidate is not None and ledger is not None and m['verifier']['type'] != 'owner-manual':
+                issue = _receipt_origin(ledger, state, m, candidate)
+                if issue:
+                    passed, candidate = False, None
+                    extra.update(stale=True, evidence_status=issue[0], stale_reasons=[issue[1]])
             if candidate is not None and not delivery and contracts.verifier_inputs(m):
                 if ledger is not None and getattr(ledger, 'project', None):      # no project to look at (a reader of the ledger alone): as any verdict there, not judged
                     how, why = _covers_inputs(ledger, m, candidate, artifact, keep_history=state.get('status') in ('accepted', 'closed'))
@@ -319,6 +382,21 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=
                     if how == 'neutral': extra['neutral_diff'] = True
         if extra.get('stale') and not delivery and m['verifier']['type'] != 'owner-manual':
             extra['order_note'] = 'Mốc cũ vẫn cho chạy mốc sau. Kiểm lại một lần trên cây cuối trước khi nghiệm thu.'
+        if m['verifier']['type'] != 'owner-manual':
+            if extra.get('stale'):
+                extra.setdefault('evidence_status', 'stale')
+                reasons = extra.get('stale_reasons') or ['Artifact không còn khớp lần kiểm.']
+                extra['evidence_reason'] = '; '.join(reasons)
+            elif not verdict:
+                extra.update(evidence_status='missing', evidence_reason='Chưa có biên nhận của mốc.')
+            elif ledger is None and passed:
+                extra.update(evidence_status='unknown', evidence_reason='Chưa đối chiếu bằng chứng với dự án.')
+            elif passed and (extra.get('reuse_note') or extra.get('neutral_diff') or extra.get('carried_from')):
+                extra.update(evidence_status='reused', evidence_reason=extra.get('reuse_note') or 'Bằng chứng trước còn khớp phạm vi được duyệt.')
+            elif passed:
+                extra.update(evidence_status='current', evidence_reason='Biên nhận đạt khớp bản đang kiểm.')
+            else:
+                extra.update(evidence_status='failed', evidence_reason='Lần kiểm gần nhất chưa đạt.')
         views.append({'id': m['id'], 'title': m['title'], 'mode': m['mode'], 'verifier': m['verifier']['type'],
                       'max_repairs': m['max_repairs'], 'state': 'passed' if passed else 'stopped' if stopped else 'failed' if mine and mine[-1]['result'] != 'pass' else 'pending',
                       'runs': len(mine), 'failures': failures, 'repairs_left': max(0, m['max_repairs'] - failures) if not passed else None,
@@ -339,6 +417,7 @@ def _accepted_views(contract, state, revision, accepted):
         wanted = receipts.get(view['id'])
         matching = [v for v in state['verdicts'] if v['milestone'] == view['id'] and wanted and v.get('receipt') == wanted]
         if not matching: continue             # nothing recorded for it: the view stays what the revision itself recorded
+        view.update(evidence_status='accepted', evidence_reason='Biên nhận đã được chủ nghiệm thu.')
         view.update(state='passed', repairs_left=None, last_verdict={k: matching[-1].get(k) for k in ('result', 'by', 'artifact_sha', 'receipt', 'cwd')})
     return views
 
@@ -816,13 +895,10 @@ def _show(ledger, name, revision=None):
         requests = [r for r in ledger.requests(state['task_id']) if r['question'].get('action', {}).get('type') == 'v2.plan_stopped']
         target = resolve(ledger, state)
         frozen = target['frozen'] if target and revision in (state['latest'], target['revision']) else None
-        views = views_for(ledger, contract, state, revision)   # an accepted plan is read at the artifact accepted
-        if frozen:       # a newer revision waits for the owner: which milestones stay runnable on the approved one, which are blocked
-            views = [dict(v, frozen=v['id'] in frozen['frozen']) for v in views]
         out = {'plan': state['name'], 'anchor': state['selector'], 'status': state['status'], 'revision': revision, 'latest_revision': state['latest'], 'sha': sha,
                 'approved_revision': state['approved']['revision'] if state['approved'] else None,
                 'revisions': [{'revision': r, 'sha': p['sha'], 'reason': p.get('reason')} for r, p in sorted(state['revisions'].items())],
-                'contract': dict(contract, items=items), 'milestones': views,
+                'contract': dict(contract, items=items),
                 'step0': step0.step0_status(conn, state['task_id'], revision), 'size': contract['size'],
                 'origin': contract.get('origin'), 'decisions': contract.get('decisions'), 'advice': _advice_view(state['advice'].get(revision), sha),
                 'stop': dict(contracts.stop_limits(contract), repairs_used=sum(v['failures'] for v in milestone_views(contract, state, revision))),
@@ -830,6 +906,9 @@ def _show(ledger, name, revision=None):
                               'exceeded': state['exceeded']},
                 'questions': [{'request': r['id'], 'revision': r['revision'], 'state': r['state']} for r in requests],
                 'anchor_task': state['task_id'], 'state_root': str(ledger.state_root)}
+        if namespaces.has_capability(state, 'finding-register'):
+            from . import findings
+            out['open_findings'] = [item['id'] for item in findings.list_findings(ledger, name, task_id=state['task_id'], open_only=True)]
         from . import goal_history
         out['goal_history'] = goal_history.view(ledger, state, revision, contract)
         if state['status'] == 'proposed' and revision == state['latest'] and step0.advice_pending(ledger, contract, sha, state['advice'].get(revision)):
@@ -837,4 +916,8 @@ def _show(ledger, name, revision=None):
         if frozen: out['frozen'] = frozen
         out.update({key: state[key] for key in ('workflow_version', 'capabilities') if key in state})
         if state.get('closed'): out['closed'] = state['closed']
-        return out
+    # Git and verifier input comparisons must not hold a rollback-journal reader.
+    views = views_for(ledger, contract, state, revision)
+    if frozen:
+        views = [dict(v, frozen=v['id'] in frozen['frozen']) for v in views]
+    return dict(out, milestones=views)

@@ -11,7 +11,7 @@ GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner', 'compat', 'findi
 OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enforce (v2 AI work contract; owner-only approval and acceptance)\n'
                   '  verdict    record / run (v2 milestone verdicts with receipts)\n'
                   '  hook       check / prompt / stop / session / sync / export / mode / install --print (v2 Claude Code hooks)\n'
-                  '  findings   list / review / resolve / recheck / reject (namespaced plan finding register)\n'
+                  '  findings   list / review / import-review / resolve / recheck / reject (namespaced plan finding register)\n'
                   '  outcome    record / show / missing / reconcile / intervene (recorded results)\n'
                   '  continue   read-only resume pack; grants no authority\n'
                   '  context    add / observe / retrieve (project and shared knowledge)\n'

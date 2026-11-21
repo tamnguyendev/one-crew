@@ -249,6 +249,7 @@ def _standing(f):
     if any(r['state'] == 'pending' for r in f['requests']): return 'open', 'chủ sở hữu'
     if f.get('runtime_unknowns'):
         return 'open', 'chủ sở hữu' if any(u['resolver']=='owner' for u in f['runtime_unknowns']) else 'AI'
+    if _open_findings(f): return 'open', 'AI'
     if pending is None: return 'open', 'chủ sở hữu'                              # every milestone passed: acceptance is the owner's
     if pending['state'] == 'failed': return 'open', 'AI'                          # a repair round remains
     if pending['verifier'] == 'owner-manual': return 'open', 'chủ sở hữu'
@@ -335,11 +336,15 @@ def _conclusion(f):
         waiting = next(v for v in f['views'] if v['state'] != 'passed')
         why = f'mốc {waiting["id"]} ' + ('cũ: ' + '; '.join(waiting['stale_reasons']) if waiting.get('stale_reasons') else
                                             'cũ: đạt trên artifact khác, cần chạy lại' if waiting.get('stale') else 'chưa có verdict')
+    opened = _open_findings(f)
+    if opened and kind == 'open':
+        why = 'Finding còn mở: ' + ', '.join(item['id'] for item in opened)
     parked = _parked_data(f)
     if rows is None or parked is None: left = NO_DATA
     else:
         parts = []
         if [r[0] for r in rows if not r[3]]: parts.append('output chưa đạt: ' + ', '.join(r[0] for r in rows if not r[3]))
+        if opened: parts.append('sửa và kiểm lại finding còn mở')
         if parked[0]: parts.append('should chưa có mốc đạt: ' + ', '.join(i['id'] for i in parked[0]))
         if parked[1]: parts.append('unknown còn mở: ' + ', '.join(u['id'] for u in parked[1]))
         left = '; '.join(parts) or 'không còn gì'
@@ -392,8 +397,12 @@ def _milestones(f):
     for v in f['views']:
         last, mark = v['last_verdict'], ' · DỪNG' if v['state'] == 'stopped' else ''
         used = f'sửa {v["failures"]}/{v["max_repairs"]}'
-        if last: lines += _wrap(f'{v["id"]} {_verdict_word(v)} · by {last["by"]} · {_short(last["artifact_sha"])} · {used}{mark} · «{v["title"]}»', '  ', '      ')
-        else: lines += _wrap(f'{v["id"]} chưa có verdict · {used} · «{v["title"]}»', '  ', '      ')
+        if last:
+            reason = ' · ' + v['evidence_reason'] if v.get('evidence_status') == 'current' else ''
+            lines += _wrap(f'{v["id"]} {_verdict_word(v)} · by {last["by"]} · {_short(last["artifact_sha"])} · {used}{mark} · «{v["title"]}»{reason}', '  ', '      ')
+        else:
+            reason = v.get('evidence_reason') or 'chưa có verdict'
+            lines += _wrap(f'{v["id"]} chưa có verdict · {used} · «{v["title"]}» · {reason}', '  ', '      ')
         if v.get('order_note'): lines += _wrap(v['order_note'])
     return lines
 

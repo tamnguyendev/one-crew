@@ -15,32 +15,9 @@ from onecrew import cli
 from onecrew.ledger import LedgerError
 from onecrew.snapshots import Snapshots
 from onecrew.v2 import contract as contracts, plan as plans, step0, verdict
-from tests.test_v2_l1 import BAD, OK, PY, Fixture, milestone, plan_json
+from tests.v2_fixture import BAD, OK, PY, Fixture, milestone, option, options, plan_json, step0_json
 
 DOC = 'onecrew/conversations.py:167'
-
-
-def option(oid, evidence=('x/y.py:1',), **extra):
-    return dict({'id': oid, 'summary': f'Option {oid}', 'evidence': list(evidence), 'strengths': ['simple'], 'weaknesses': ['slow'],
-                 'unknowns': [], 'cost': '3 calls', 'risk': 'low'}, **extra)
-
-
-def options(*ids, recommended=None):
-    return {'recommended': recommended or ids[0], 'reason': 'cheapest that works', 'items': [option(i) for i in ids]}
-
-
-def step0_json(size='M', unknowns=(), assumptions=(('the file is text', 'a.txt:1'),), confidence='high', opts='default', pre=None, **extra):
-    value = plan_json(size=size)
-    value['understanding'] = {'restated_goal': 'Prove the sample.', 'target': {'repo': '.', 'ref': 'HEAD', 'paths': ['a.txt']},
-                              'assumptions': [{'text': t, 'evidence': e} for t, e in assumptions], 'confidence': confidence,
-                              'unknowns': [{'id': u, 'question': f'What about {u}?', 'status': 'open', 'closed_by': None, 'evidence': None,
-                                            'affected': ['O1'], 'required_by': 'approval'} for u in unknowns]}   # W31a: an open unknown is scoped at proposal
-    if size != 'S' and not unknowns:      # 2.2.0.dev2: size M/L with no unknowns says what was checked (unknowns_missing)
-        value['understanding']['no_unknowns_because'] = 'read a.txt:1 and the sample has one path; nothing is open'
-    value['options'] = options('A', 'B') if opts == 'default' and size != 'S' else (None if opts == 'default' else opts)
-    if value['options'] is None: del value['options']
-    value['preconditions'] = pre or value['preconditions']
-    return dict(value, **extra)
 
 
 def reasons(error):

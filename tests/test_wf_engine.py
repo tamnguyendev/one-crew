@@ -10,11 +10,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from onecrew import dependency_core
-from onecrew.control import Control, migrate
 from onecrew.ledger import LedgerError, content_hash
 from onecrew.snapshots import Snapshots
 from onecrew.v2 import contract as contracts, estimates, namespaces, plan as plans
-from tests.test_v2_l1 import Fixture, plan_json
+from tests.v2_fixture import Fixture, plan_json
 
 
 def node(nid, dependencies=(), requires='verified', integration=False, write=('a.txt',)):
@@ -27,6 +26,7 @@ def node(nid, dependencies=(), requires='verified', integration=False, write=('a
 
 class EngineFixture(Fixture):
     def setUp(self):
+        from onecrew.control import Control, migrate
         super().setUp()
         from onecrew.v2 import internal_plan, engine
         self.ip, self.engine = internal_plan, engine

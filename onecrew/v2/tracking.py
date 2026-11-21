@@ -516,8 +516,16 @@ def _acceptance(reader, conn, state, contract, engine_view, level, *, free=None,
     delivery tree and the milestone views at that artifact) by `observe` with no transaction open, through `free` (a reader that opens its own
     short transactions); `reader` and `conn` are the read's own transaction. Without an observation at hand the root is not shown as ready."""
     result = {'ready': False, 'artifact': None, 'basis': 'recorded evidence; CLI rechecks current project', 'reason': None}
-    if state['status'] != 'approved' or level != 'verified' or not contract: return result
+    if state['status'] != 'approved' or not contract: return result
     try:
+        if namespaces.has_capability(state, 'finding-register'):
+            from .findings import list_findings
+            opened = list_findings(reader, state['selector'], task_id=state['task_id'], open_only=True)
+            if opened:
+                ids = [item['id'] for item in opened]
+                result.update(open_findings=ids, reason='Cần xử lý finding còn mở trước khi nghiệm thu: ' + ', '.join(ids))
+                return result
+        if level != 'verified': return result
         if engine_view is not None:
             from . import engine
             guidance = engine.next_action(reader, state['selector'], conn=conn, view=engine_view, observe_project=False)
@@ -569,11 +577,6 @@ def _acceptance(reader, conn, state, contract, engine_view, level, *, free=None,
         if any(v['state'] != 'passed' or v.get('stale') for v in views):
             result['reason'] = 'Chờ bộ thực thi kiểm lại bằng chứng các mốc của bản bàn giao.'
             return result
-        if namespaces.has_capability(state, 'finding-register'):
-            from .findings import list_findings
-            if list_findings(reader, state['selector'], task_id=state['task_id'], open_only=True):
-                result['reason'] = 'Chờ bộ thực thi xử lý finding còn mở trước khi nghiệm thu.'
-                return result
         result.update(ready=True, artifact=artifact, reason='Đủ bằng chứng trong sổ để trình nghiệm thu; lệnh sẽ kiểm lại hiện trạng project.')
     except (LedgerError, OSError, ValueError, KeyError, TypeError):
         result['reason'] = 'Chưa xác minh đủ bằng chứng nghiệm thu; cần kiểm lại mốc và bàn giao.'
@@ -1340,6 +1343,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200, observe=Non
                          'errors': [e for e in (contract_error and 'hợp đồng: ' + contract_error, engine_error and 'engine: ' + engine_error) if e]},
             'milestones': [{'id': v['id'], 'title': clean(v['title'], 120), 'state': v['state'], 'stale': bool(v.get('stale')),
                             'result': (v.get('last_verdict') or {}).get('result'), 'reason': v.get('last_reason'),
+                            'evidence_status': v.get('evidence_status'), 'evidence_reason': v.get('evidence_reason'),
                             **({'needs_recheck': True, 'state_text': 'cần kiểm lại', 'note': v.get('recheck_note')} if v.get('needs_recheck') else {}),
                             **({'current_unknown': True, 'note': tracking_situation.CURRENT_UNKNOWN} if v.get('current_unknown') else {})}
                            for v in views],

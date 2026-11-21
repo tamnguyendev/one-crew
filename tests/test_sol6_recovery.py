@@ -19,7 +19,7 @@ from onecrew.v2 import (active_plan, engine, findings, internal_plan, plan, ques
 from onecrew.v2.verifiers import command                                      # noqa: E402
 from tests import test_review_b2_e2e as loop                                  # noqa: E402
 from tests.test_review_b2_e2e import LoopFixture                              # noqa: E402
-from tests.test_v2_l1 import Fixture, milestone, plan_json                    # noqa: E402
+from tests.v2_fixture import Fixture, milestone, plan_json                    # noqa: E402
 from tests.test_wf_engine import node                                         # noqa: E402
 from tests import wf_oldversion as ov                                         # noqa: E402
 

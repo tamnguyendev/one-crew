@@ -102,6 +102,7 @@ def _release_repairs(ledger, conn, held, open_findings, nodes, root):
                 continue
             if body.get('kind') != REPAIR_KIND: continue
             answered = [f for receipt in _sources_of(body) for f in by_receipt.get(receipt, [])]
+            answered = [f for f in answered if not f.get('external_review') or f['id'] in body.get('answered_findings', [])]
             external = [f for f in answered if not f.get('internal')]
             authentic = bool(external) and _issued(conn, root, store, body, marker, node)
             released = {f['id'] for f in answered if f.get('internal') or authentic}

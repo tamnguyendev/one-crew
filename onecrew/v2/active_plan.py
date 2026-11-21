@@ -103,7 +103,6 @@ def build(ledger, name):
         revision = state['approved']['revision']
         if state['approved']['sha'] != state['revisions'].get(revision, {}).get('sha'): return None
         contract, sha = plans.load(ledger, state, revision)
-        views = plans.views_for(ledger, contract, state, revision)         # the hooks see what plan show sees: a carried-over milestone as passed, a stale one as not
         status = state['status'] if revision == state['latest'] else 'approved'
         if state['accepted'] and state['accepted']['revision'] == revision: status = 'accepted'
         elif revision in state['stopped']: status = 'stopped_with_report'
@@ -120,6 +119,8 @@ def build(ledger, name):
             from . import finding_scope
             workflow_holds = finding_scope.write_scope(ledger, state['selector'], conn)
             workflow_holds['register_seq'] = register_seq(conn, task_id)      # the register generation this export reflects
+    # Compare the same approval and register generation without holding a reader while Git runs.
+    views = plans.views_for(ledger, contract, state, revision)
     questions = [r['id'] for r in ledger.requests(task_id, pending=True)]
     chosen = policy(ledger)
     root = Path(ledger.state_root).resolve()

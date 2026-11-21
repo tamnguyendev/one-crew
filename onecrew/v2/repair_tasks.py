@@ -76,13 +76,19 @@ def final_failures(ledger, conn, view):
     for finding in register['findings']:
         if finding['status'] != 'open' or finding.get('internal'): continue
         source = (finding.get('last_observed') or finding['source'])['receipt']
+        if finding.get('external_review'):
+            observation = json.loads(Snapshots(ledger.state_root).read_blob(source))
+            if (observation.get('result') == 'changes_requested' and observation.get('task_id') == view['root']
+                    and observation.get('revision') == (finding.get('last_observed') or finding)['revision']):
+                found.append((finding, source, (finding.get('last_observed') or finding['source'])['verdict_seq']))
+            continue
         latest = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='verdict.recorded' AND json_extract(payload,'$.milestone')=? ORDER BY seq DESC LIMIT 1",
                               (view['root'], finding['node'])).fetchone()
         if latest is None or json.loads(latest['payload']).get('receipt') != source: continue
         try:
             recorded = (finding.get('last_observed') or {}).get('revision') or finding['revision']
-            _, revision, sha, written = findings._context(ledger, conn, view['selector'], revision=recorded)
-            _, result, seq, _, _ = findings._receipt_facts(ledger, conn, root, view['selector'], revision, sha, written, finding, source)
+            _, recorded_revision, sha, written = findings._context(ledger, conn, view['selector'], revision=recorded)
+            _, result, seq, _, _ = findings._receipt_facts(ledger, conn, root, view['selector'], recorded_revision, sha, written, finding, source)
         except LedgerError:
             continue                  # stale/unreadable proof releases no hold
         if result == 'fail': found.append((finding, source, seq))
@@ -212,6 +218,9 @@ def prepare(ledger, selector, target, failed_node, *, reason, evidence, receipt=
         if failed_node not in affected:
             raise LedgerError('The chosen owner is outside the failed node dependency/read/write scope.')
         answered = answered_findings(ledger, conn, view, [target], affected)
+        external = [f for f, ref, _ in final_failures(ledger, conn, view) if ref == source and f.get('external_review')]
+        if external and not any(dependency_core.owned_overlap(f['scope']['write'], owner['write']) for f in external):
+            raise LedgerError('The repair target does not own a path of the external finding.')
         sources = list(dict.fromkeys([source] + [r for f in answered for r in finding_scope.receipts_of(f)]))
         # No new failure since the repair this node already carries: a new generation would change nothing. Say so; move nothing.
         ref, carried = repair_marker(Snapshots(ledger.state_root), owner)

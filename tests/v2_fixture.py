@@ -1,10 +1,12 @@
 """Git-backed plan fixtures shared by checkout and installed-wheel tests."""
+import datetime as dt
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from unittest.mock import patch
 
@@ -70,10 +72,17 @@ class Fixture(unittest.TestCase):
         return command.artifact_sha(self.root)
 
     def issue(self, blob, milestone='M1', revision=1):
-        """What verdict.run does just before it records: announce the receipt it made."""
+        """Model the paired start and issuance from a completed verifier attempt."""
+        now = dt.datetime.now(dt.timezone.utc)
+        attempt = {'plan': 'P1', 'revision': revision, 'milestone': milestone, 'run_id': uuid.uuid4().hex[:12]}
         with self.ledger.transaction(write=True) as conn:
-            task = plans.derive(self.ledger, conn, 'P1')['task_id']
-            plans.emit(self.ledger, conn, task, 'verdict.receipt_issued', {'plan': 'P1', 'revision': revision, 'milestone': milestone, 'receipt': blob})
+            state = plans.derive(self.ledger, conn, 'P1')
+            contract = plans.load(self.ledger, state, revision)[0]
+            kind = next(m['verifier']['type'] for m in contract['milestones'] if m['id'] == milestone)
+            plans.emit(self.ledger, conn, state['task_id'], 'verdict.run_started',
+                       dict(attempt, kind=kind, pid=os.getpid(), host='fixture', max_minutes=1, started=now.isoformat(),
+                            deadline=(now + dt.timedelta(minutes=1)).isoformat()))
+            plans.emit(self.ledger, conn, state['task_id'], 'verdict.receipt_issued', dict(attempt, receipt=blob))
 
     def receipt(self, **fields):
         body = {'kind': 'command-receipt', 'plan': 'P1', 'revision': 1, 'milestone': 'M1', 'argv': OK, 'exit_code': 0, 'timed_out': False,
@@ -82,3 +91,75 @@ class Fixture(unittest.TestCase):
             body['plan_sha'] = plans.derive(self.ledger, conn, 'P1')['revisions'][1]['sha']
         body.update(fields)
         return Snapshots(self.ledger.state_root).blob(json.dumps(body, sort_keys=True).encode()), body
+
+
+def option(oid, evidence=('x/y.py:1',), **extra):
+    return dict({'id': oid, 'summary': f'Option {oid}', 'evidence': list(evidence), 'strengths': ['simple'], 'weaknesses': ['slow'],
+                 'unknowns': [], 'cost': '3 calls', 'risk': 'low'}, **extra)
+
+
+def options(*ids, recommended=None):
+    return {'recommended': recommended or ids[0], 'reason': 'cheapest that works', 'items': [option(i) for i in ids]}
+
+
+def step0_json(size='M', unknowns=(), assumptions=(('the file is text', 'a.txt:1'),), confidence='high', opts='default', pre=None, **extra):
+    value = plan_json(size=size)
+    value['understanding'] = {'restated_goal': 'Prove the sample.', 'target': {'repo': '.', 'ref': 'HEAD', 'paths': ['a.txt']},
+                              'assumptions': [{'text': t, 'evidence': e} for t, e in assumptions], 'confidence': confidence,
+                              'unknowns': [{'id': u, 'question': f'What about {u}?', 'status': 'open', 'closed_by': None, 'evidence': None,
+                                            'affected': ['O1'], 'required_by': 'approval'} for u in unknowns]}   # W31a: an open unknown is scoped at proposal
+    if size != 'S' and not unknowns:      # 2.2.0.dev2: size M/L with no unknowns says what was checked (unknowns_missing)
+        value['understanding']['no_unknowns_because'] = 'read a.txt:1 and the sample has one path; nothing is open'
+    value['options'] = options('A', 'B') if opts == 'default' and size != 'S' else (None if opts == 'default' else opts)
+    if value['options'] is None: del value['options']
+    value['preconditions'] = pre or value['preconditions']
+    return dict(value, **extra)
+
+
+ORIGIN = {'by': 'owner', 'at': '2026-10-19', 'quote': 'Add the sample file and prove it works.'}
+DECISION = {'id': 'D1', 'choice': 'Plain text file', 'alternative': 'JSON file', 'cost': 'None'}
+AUTHOR = 'claude-fable-5-1'
+
+
+OWNER_PART = {'request': 'Thêm tệp mẫu và chứng minh nó dùng được.', 'user_sees': ['Tệp mẫu có trong dự án.'],
+              'acceptance_steps': ['Mở tệp mẫu và đọc nội dung.'], 'not_doing': 'Không sửa phần nào khác.'}   # dev12 (U1): approve needs it once the owner rules exist
+
+
+def sourced(value, source='origin', **extra):
+    """`value` with an origin, the owner part and every item pointing at `source` (plus any extra fields)."""
+    value = dict(value, origin=dict(ORIGIN), **{'presentation': dict(OWNER_PART), **extra})
+    value['items'] = [dict(i, source=source) for i in value['items']]
+    return value
+
+
+def size_m():
+    """A size M contract that passes the rest of step 0 (options whose evidence is a real file)."""
+    return step0_json(size='M', opts={'recommended': 'A', 'reason': 'cheapest', 'items': [option('A', evidence=('a.txt:1',)), option('B', evidence=('a.txt:1',))]})
+
+
+def answers(*verdicts, note='fine'):
+    return json.dumps({'answers': [{'id': f'Q{n}', 'verdict': v, 'note': note} for n, v in enumerate(verdicts or ('ok', 'ok', 'ok'), 1)]})
+
+
+class AdvisorFixture(Fixture):
+    def setUp(self):
+        super().setUp()
+        self.prompts = []
+        self.reply = answers()
+
+    def stub(self):
+        from onecrew.v2.verifiers import advisor
+        def fake(prompt, model, env, scratch, limit):
+            self.prompts.append((prompt, model, scratch))
+            return self.reply, {'num_turns': 1}, None, False, b'RAW-OUTPUT'
+        patcher = patch.object(advisor, 'call', fake); patcher.start(); self.addCleanup(patcher.stop)
+
+    def start(self, author=AUTHOR, rules=True, **extra):
+        from onecrew.v2.verifiers import advisor
+        self.stub()
+        if rules: advisor.init_rules(self.ledger)
+        plans.propose(self.ledger, 'P1', sourced(plan_json(), decisions=[DECISION], **extra), author)
+
+    def advice(self):
+        with self.ledger.transaction() as conn:
+            return plans.derive(self.ledger, conn, 'P1')['advice'].get(1)

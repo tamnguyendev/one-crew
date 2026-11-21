@@ -11,34 +11,9 @@ from onecrew.ledger import LedgerError
 from onecrew.snapshots import Snapshots
 from onecrew.v2 import contract as contracts, plan as plans, plan_cli
 from onecrew.v2.verifiers import advisor
-from test_v2_l1 import Fixture, plan_json
+from tests.v2_fixture import AUTHOR, DECISION, ORIGIN, OWNER_PART, AdvisorFixture, Fixture, answers, plan_json, size_m, sourced
 from test_v2_l2 import HookFixture
 from test_v2_l3 import option, reasons, step0_json
-
-ORIGIN = {'by': 'owner', 'at': '2026-10-19', 'quote': 'Add the sample file and prove it works.'}
-DECISION = {'id': 'D1', 'choice': 'Plain text file', 'alternative': 'JSON file', 'cost': 'None'}
-AUTHOR = 'claude-fable-5-1'
-
-
-OWNER_PART = {'request': 'Thêm tệp mẫu và chứng minh nó dùng được.', 'user_sees': ['Tệp mẫu có trong dự án.'],
-              'acceptance_steps': ['Mở tệp mẫu và đọc nội dung.'], 'not_doing': 'Không sửa phần nào khác.'}   # dev12 (U1): approve needs it once the owner rules exist
-
-
-def sourced(value, source='origin', **extra):
-    """`value` with an origin, the owner part and every item pointing at `source` (plus any extra fields)."""
-    value = dict(value, origin=dict(ORIGIN), **{'presentation': dict(OWNER_PART), **extra})
-    value['items'] = [dict(i, source=source) for i in value['items']]
-    return value
-
-
-def size_m():
-    """A size M contract that passes the rest of step 0 (options whose evidence is a real file)."""
-    return step0_json(size='M', opts={'recommended': 'A', 'reason': 'cheapest', 'items': [option('A', evidence=('a.txt:1',)), option('B', evidence=('a.txt:1',))]})
-
-
-def answers(*verdicts, note='fine'):
-    return json.dumps({'answers': [{'id': f'Q{n}', 'verdict': v, 'note': note} for n, v in enumerate(verdicts or ('ok', 'ok', 'ok'), 1)]})
-
 
 def check_reasons(test, value, **kw):
     with test.assertRaises(LedgerError) as caught:
@@ -189,28 +164,6 @@ class ApproveGateTests(Fixture):
     def test_only_the_owner_approves(self):
         self.propose(value=sourced(plan_json()))
         with self.assertRaises(LedgerError): plans.approve(self.ledger, 'P1', 'claude', 'said yes')
-
-
-class AdvisorFixture(Fixture):
-    def setUp(self):
-        super().setUp()
-        self.prompts = []
-        self.reply = answers()
-
-    def stub(self):
-        def fake(prompt, model, env, scratch, limit):
-            self.prompts.append((prompt, model, scratch))
-            return self.reply, {'num_turns': 1}, None, False, b'RAW-OUTPUT'
-        patcher = patch.object(advisor, 'call', fake); patcher.start(); self.addCleanup(patcher.stop)
-
-    def start(self, author=AUTHOR, rules=True, **extra):
-        self.stub()
-        if rules: advisor.init_rules(self.ledger)
-        plans.propose(self.ledger, 'P1', sourced(plan_json(), decisions=[DECISION], **extra), author)
-
-    def advice(self):
-        with self.ledger.transaction() as conn:
-            return plans.derive(self.ledger, conn, 'P1')['advice'].get(1)
 
 
 class AdvisorTests(AdvisorFixture):

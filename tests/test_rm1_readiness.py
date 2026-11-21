@@ -5,10 +5,9 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from onecrew import cli
+from onecrew import console as cli
 from onecrew.v2 import active_plan, hook_cli, install, plan, tracking
-from tests.test_v2_advisor import AUTHOR, sourced, size_m
-from tests.v2_fixture import Fixture, plan_json
+from tests.v2_fixture import AUTHOR, Fixture, plan_json, size_m, sourced
 
 
 class Readiness(Fixture):

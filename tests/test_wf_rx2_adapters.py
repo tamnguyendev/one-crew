@@ -12,7 +12,7 @@ from onecrew.snapshots import Snapshots
 from onecrew.v2 import plan, verdict
 from onecrew.v2.verifiers import artifact, data, doc, ops, port
 from tests import wf_oldversion as ov
-from tests.test_v2_l1 import Fixture, plan_json
+from tests.v2_fixture import Fixture, plan_json
 
 
 DATA = {'path': 'output.csv', 'columns': {'id': 'integer', 'amount': 'number', 'active': 'boolean'}, 'key': ['id'],

@@ -70,3 +70,17 @@ Khi engine chờ tài nguyên đã khai báo, vị trí trong hàng đợi gắn
 - **Bộ nhớ Claude:** thư mục memory của project trong `~\.claude\projects\`.
 - Máy mới: tải wheel từ trang phát hành, kiểm SHA256 với `SHA256SUMS`, tạo venv và cài wheel; chạy `claude login`; `onecrew init` cho từng dự án; `hook user install` nếu muốn hook người dùng. Đường dẫn máy cũ nằm trong plan đã duyệt và `active-plan.json` (trường `project`, `state_root`), nên đổi đường dẫn nghĩa là chủ sở hữu duyệt lại plan đang mở.
 - Phiên mới của Claude: đọc `CLAUDE.md` ở gốc repo, rồi `plan digest`.
+
+## Nhập review ngoài và kiểm lại finding
+
+Trên plan đang duyệt xong có năng lực `finding-register`, chạy `onecrew findings import-review P1 --file review.json`. Lấy `task_id` từ `anchor_task`, lấy `revision`, `milestone`, `receipt` và `artifact_sha` từ `onecrew plan show P1`. Ví dụ một báo cáo có dạng sau.
+
+```json
+{"id":"review-7","reference":"Báo cáo độc lập số 7","result":"changes_requested",
+ "task_id":"<anchor_task>","revision":1,"milestone":"M1","receipt":"<receipt>","artifact_sha":"<artifact_sha>",
+ "findings":[{"criterion":"M1","paths":["src/output.py"],"claim":"Kết quả làm tròn sai ở biên 0.5","severity":"major"}]}
+```
+
+Với mốc reviewer, dùng ID tiêu chí đã duyệt. Mỗi đường dẫn phải thuộc phạm vi sửa và phạm vi phép kiểm. Sổ giữ nguồn review, lời nhận xét và biên nhận kiểm ban đầu. Nhập cùng nội dung và ID lần nữa trả lại các finding đã ghi. Nội dung khác cùng ID bị từ chối.
+
+`onecrew findings list P1 --open-only` liệt kê các điểm đang chặn nghiệm thu. Workflow có engine dùng đường giao sửa hiện có cho node sở hữu tệp. Sau khi sửa, chạy lại mốc và dùng `onecrew findings recheck P1 RF1 --receipt <receipt>`. Bản sửa phải thay đổi trong phạm vi finding và biên nhận phải đạt đúng tiêu chí trên bản hiện hành. Báo cáo và trang theo dõi tiếp tục hiện các finding khác còn mở.

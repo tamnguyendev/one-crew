@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 from onecrew.ledger import LedgerError, Ledger
 from onecrew.v2 import engine, executors, plan as plans, progress_track, tracking
-from tests.test_v2_l1 import Fixture, plan_json
+from tests.v2_fixture import Fixture, plan_json
 from tests.test_wf_engine import EngineFixture, node
 
 QUESTION = {'schema_version': 1, 'question': 'Giữ CV trong bao lâu? (password=hunter2 must not show)', 'reason': 'Cần chốt thời hạn.',

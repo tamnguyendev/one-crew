@@ -13,7 +13,7 @@ from onecrew.ledger import LedgerError
 from onecrew.snapshots import Snapshots
 from onecrew.v2 import contract as contracts, plan as plans, verdict
 from onecrew.v2.verifiers import reviewer
-from test_v2_l1 import Fixture, plan_json
+from tests.v2_fixture import Fixture, plan_json
 
 REAL_CLI = Path(r'C:\Users\NUC\.local\bin\claude.exe')
 SENTINEL = 'ZXQ-AUTHOR-REPORT-SENTINEL-7731'

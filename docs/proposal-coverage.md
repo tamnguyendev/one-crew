@@ -1443,3 +1443,10 @@ Các phép kiểm của MG chạy trên cây nguồn. MF kiểm gói cài, MO d�
 |---|---|
 | I3 · #24 | `track open --plan` tạo đường dẫn có dự án và việc, đối chiếu viewer qua health và cấp cổng loopback. `tests.test_rm1_tracking_entry` mở lại sau idle, thử viewer khác phạm vi, cổng bận và quyền chỉ đọc. |
 | I9 · #32 | `engine.step` xếp hàng trong kho lease hiện có. Lượt chờ theo thế hệ, quyền chạy chuyển sang đúng lần gọi, attempt được ghim trước khi launch. `tests.test_rm1_lease_recovery` kiểm hai sổ, tiến trình ngắn, hủy, đổi thế hệ, mất liên lạc, bằng chứng kết thúc và trang theo dõi. |
+
+## RM1 bản 3 · MF
+
+| Yêu cầu | Đường chạy và phép kiểm |
+|---|---|
+| O4 · #35 EV-A | `plan show`, báo cáo và trang việc dùng bằng chứng gắn với lượt kiểm, phiên bản, tiêu chí và artifact. `tests.test_rm1_evidence` kiểm tái dùng đúng phạm vi, dữ liệu cũ thiếu nguồn và bản ghi mâu thuẫn. |
+| I5 · #15 | `findings import-review` ghi nguồn ngoài vào sổ finding. Engine giao sửa theo quyền và ngân sách đã duyệt. `findings recheck` kiểm biên nhận và đường dẫn đã sửa. `tests.test_rm1_review_repair` đi qua CLI, báo cáo, trang việc và engine trên sổ tạm. |

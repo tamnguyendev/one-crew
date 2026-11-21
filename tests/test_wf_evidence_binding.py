@@ -12,7 +12,7 @@ from onecrew.snapshots import Snapshots
 from onecrew.v2 import plan, verdict, namespaces
 from onecrew.v2 import verification_evidence as evidence
 from onecrew.v2.verifiers import command, reviewer
-from tests.test_v2_l1 import Fixture, plan_json
+from tests.test_v2_l1 import Fixture, milestone, plan_json
 
 
 class BindingPolicyTests(unittest.TestCase):
@@ -65,10 +65,12 @@ class BindingPolicyTests(unittest.TestCase):
 
 
 class BoundReceiptTests(Fixture):
-    def start(self):
+    def start(self, *, with_delivery=False):
         (self.root / 'interface.txt').write_text('interface A')
         self.git('add', '.'); self.git('commit', '-qm', 'interface')
         value = plan_json(scope={'owned': ['a.txt'], 'neutral': ['docs/**']})
+        if with_delivery:
+            value['milestones'].append(milestone('M2'))
         value['understanding']['target']['paths'] = ['a.txt', 'interface.txt']
         plan.propose(self.ledger, 'P1', value, 'fixture', workflow=True, capabilities=list(namespaces.CAPABILITIES))
         plan.approve(self.ledger, 'P1', 'owner', 'temporary fixture')
@@ -107,7 +109,9 @@ class BoundReceiptTests(Fixture):
         self.assertEqual(self.events(), before)
 
     def test_neutral_basis_is_persisted_idempotently_and_never_changes_original_receipt(self):
-        self.start()
+        # A recorded neutral basis applies to an intermediate milestone. Delivery checks the whole tree.
+        self.start(with_delivery=True)
+        self.assertEqual(verdict.run(self.ledger, 'P1', 'M2')['milestones'][1]['state'], 'passed')
         original = Snapshots(self.ledger.state_root).read_blob(self.receipt_ref)
         (self.root / 'docs').mkdir(); (self.root / 'docs' / 'note.md').write_text('Neutral note')
         self.git('add', '.'); self.git('commit', '-qm', 'neutral')
@@ -119,7 +123,10 @@ class BoundReceiptTests(Fixture):
         self.assertEqual(self.kinds().count('evidence.reuse'), 1)
         self.assertEqual(first['basis']['matching_globs'], {'docs/note.md': ['docs/**']})
         self.assertTrue(self.assess()['recorded'])
-        self.assertEqual(plan.show(self.ledger, 'P1')['milestones'][0]['state'], 'passed')
+        intermediate, delivery = plan.show(self.ledger, 'P1')['milestones']
+        self.assertEqual(intermediate['state'], 'passed')
+        self.assertTrue(delivery['stale'])
+        self.assertNotEqual(delivery['state'], 'passed')
         self.assertEqual(Snapshots(self.ledger.state_root).read_blob(self.receipt_ref), original)
         self.assertEqual(self.body['artifact_sha'], self.body['evidence_binding']['artifact'])
 

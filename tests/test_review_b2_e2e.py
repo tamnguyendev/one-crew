@@ -16,7 +16,7 @@ from onecrew.ledger import LedgerError, canonical, content_hash     # noqa: E402
 from onecrew.snapshots import Snapshots                             # noqa: E402
 from onecrew.v2 import engine, findings, internal_plan, plan, repair_tasks, review_dispatch, verdict  # noqa: E402
 from onecrew.v2.verifiers import command, port                      # noqa: E402
-from tests.test_v2_l1 import Fixture, milestone, plan_json          # noqa: E402
+from tests.v2_fixture import Fixture, milestone, plan_json          # noqa: E402
 from tests.test_v2_reviewer import reviewer_milestone               # noqa: E402
 from tests.test_wf_engine import EngineFixture, node                # noqa: E402
 from tests.test_wf_rx2_adapters import DATA, TABLE                  # noqa: E402

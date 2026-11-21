@@ -5,8 +5,7 @@ from unittest.mock import patch
 from onecrew.ledger import LedgerError
 from onecrew.v2 import goal_history, plan, report, tracking
 from onecrew.v2.verifiers import advisor
-from tests.test_v2_advisor import AUTHOR, DECISION, AdvisorFixture, sourced
-from tests.v2_fixture import plan_json
+from tests.v2_fixture import AUTHOR, DECISION, AdvisorFixture, plan_json, sourced
 
 
 class GoalOrigin(AdvisorFixture):

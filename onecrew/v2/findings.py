@@ -286,13 +286,17 @@ def _scope(read, write):
     return {'read': scope_list(list(read)) if read else [], 'write': scope_list(list(write)) if write else []}
 
 
-def _new(ledger, value, name, revision, sha, milestone, criterion, claim, receipt, artifact, generation, severity, read, write, verdict_seq):
+def _new(ledger, value, name, revision, sha, milestone, criterion, claim, receipt, artifact, generation, severity, read, write, verdict_seq,
+         *, external=False):
     text_field(claim, 'finding claim', 200000)
     if severity not in SEVERITIES:
         raise LedgerError('Finding severity must be critical, major or minor.')
     criterion_sha, config_sha = _signature(milestone, criterion)
     # V1's whole-claim key is retained; plan/node/criterion identify its context.
     key = content_hash([milestone['id'], criterion, criterion_sha, config_sha, core.claim_key(claim)])
+    if external:
+        # The same observation on a different file has its own repair and closure.
+        key = content_hash(['external-review', key, write])
     existing = next((f for f in value['findings'] if f['status'] == 'open' and f['norm'] == key), None)
     if existing:
         # Keep the first report's provenance; the most recent observation is a
@@ -368,6 +372,72 @@ def hold_decided(ledger, name, opened, receipt, definition=None):
         import sys
         print('OneCrew Q8 hold decision not recorded: ' + type(error).__name__ + ': ' + str(error)[:200], file=sys.stderr)
         return None
+
+
+def import_review(ledger, selector, report):
+    """Import external observations, preserving their source separately from verifier evidence."""
+    from .authority import owned_match
+    from .ownership import session_info
+    if not isinstance(report, dict) or report.get('result') != 'changes_requested':
+        raise LedgerError('An external review must report changes_requested.')
+    for field in ('id', 'reference', 'milestone', 'receipt', 'artifact_sha'):
+        text_field(report.get(field), 'external review ' + field, 2000)
+    rows = report.get('findings')
+    if not isinstance(rows, list) or not 0 < len(rows) <= MAX_FINDINGS:
+        raise LedgerError('Supply a nonempty list of findings within the register limit.')
+    source = content_hash(report)
+    with ledger.transaction(write=True) as conn:
+        state = plans.anchor_events(ledger, conn, selector)
+        root, revision, sha, contract = _context(ledger, conn, selector)
+        _require_capability(root)
+        prior = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind=? AND json_extract(payload,'$.external_id')=?",
+                             (root['id'], KIND, report['id'])).fetchone()
+        if prior:
+            prior = json.loads(prior['payload'])
+            if prior['receipt'] != source:
+                raise LedgerError('Conflicting content for this external review id.')
+            return {'receipt': source, 'findings': prior['findings'], 'duplicate': True}
+        if state['status'] != 'approved' or report.get('revision') != revision or report.get('task_id') != root['id']:
+            raise LedgerError('Review must name the current approved revision and root task.')
+        mid = report['milestone']
+        milestone = _milestone(contract, mid)
+        kind = milestone['verifier']['type']
+        if kind not in ('command', 'reviewer'):
+            raise LedgerError('External findings require a command or reviewer criterion.')
+        body, _, seq = _proof(ledger, conn, root, selector, revision, sha, contract, mid, report['receipt'],
+                              1, report['artifact_sha'], latest=True)
+        value = _read(ledger, conn, root['id'])
+        _refresh(value, contract)
+        ids = []
+        for row in rows:
+            if not isinstance(row, dict):
+                raise LedgerError('Each finding must name a criterion, claim and affected paths.')
+            criterion = row.get('criterion')
+            text_field(criterion, 'finding criterion', 200)
+            if kind == 'command' and criterion != mid:
+                raise LedgerError('A command finding must name its milestone check.')
+            paths = row.get('paths')
+            if not isinstance(paths, list) or not paths:
+                raise LedgerError('The external finding must identify affected project paths.')
+            paths = scope_list(paths)
+            for path in paths:
+                if not owned_match(path, contract['scope']['owned']):
+                    raise LedgerError('External finding path outside the approved scope: ' + path)
+                inputs = (body.get('input_scope') or {}).get('paths')
+                if inputs and not owned_match(path, inputs):
+                    raise LedgerError('The named check does not cover this path: ' + path)
+            text_field(row.get('claim'), 'external finding claim', 10000)
+            entry, _ = _new(ledger, value, selector, revision, sha, milestone, criterion, row['claim'],
+                            source, body['artifact_sha'], 1, row.get('severity', 'major'), [], paths, seq, external=True)
+            entry.setdefault('external_review', {'id': report['id'], 'reference': report['reference'],
+                                                'report': source, 'verification': report['receipt']})
+            ids.append(entry['id'])
+        Snapshots(ledger.state_root).blob(canonical(report).encode('utf-8'))
+        _save(ledger, conn, root, selector, revision, value, 'external-review', external_id=report['id'],
+              receipt=source, findings=ids, declared_by=session_info())
+    after_change(ledger, selector)
+    hold_decided(ledger, selector, ids, source)
+    return {'receipt': source, 'findings': ids, 'duplicate': False}
 
 
 def record_review(ledger, name, node, receipt, *, generation=1, severity='major', read=(), write=(), task_id=None, conn=None, revision=None):
@@ -469,6 +539,9 @@ def update(ledger, name, ident, *, reason, severity=None, read=None, write=None,
             if severity not in SEVERITIES:
                 raise LedgerError('Finding severity must be critical, major or minor.')
             target['severity'] = severity
+        if target.get('external_review') and ((write is not None and list(write) != target['scope']['write'])
+                                               or (read is not None and list(read) != target['scope']['read'])):
+            raise LedgerError('Re-import a sourced review for a different external finding scope.')
         target['scope'] = _scope(target['scope']['read'] if read is None else read, target['scope']['write'] if write is None else write)
         _save(ledger, conn, root, name, revision, value, 'update', finding=ident, reason=reason)
     after_change(ledger, name)
@@ -537,10 +610,63 @@ def _passes_on_repaired_output(target, body, result, seq, artifact):
     _criterion_passes(target, body)
 
 
+def _external_recheck(ledger, selector, ident, receipt):
+    """Compare the project outside the register transaction. The writer authenticates the latest receipt again."""
+    from .verifiers import artifact as identities, command
+    rows = list_findings(ledger, selector, open_only=True)
+    target = next((row for row in rows if row['id'] == ident and row.get('external_review')), None)
+    if not target:
+        return None
+    try:
+        view = plans.show(ledger, selector)
+        check = next(row for row in view['milestones'] if row['id'] == target['node'])
+        last = check.get('last_verdict') or {}
+        if (view['status'] != 'approved' or check['state'] != 'passed'
+                or check.get('stale') or last.get('receipt') != receipt):
+            raise LedgerError('A current passing receipt of the reviewed check is required.')
+        before = (target.get('last_observed') or target)['artifact_sha']
+        after = last['artifact_sha']
+        with command.leaves_no_objects():
+            if identities.is_git(ledger.project):
+                changed = command.changed_paths(ledger.project, before, after)
+            else:
+                store = Snapshots(ledger.state_root)
+                old, new = (store.load(ref)['files'] for ref in (before, after))
+                changed = [p for p in old.keys() | new.keys() if old.get(p) != new.get(p)]
+        from .authority import owned_match
+        if not all(owned_match(path, view['contract']['scope']['owned']) for path in target['scope']['write']):
+            raise LedgerError('The approved revision no longer grants this repair scope.')
+        if not any(owned_match(path, target['scope']['write']) for path in changed):
+            raise LedgerError('No repair on a path of this external finding.')
+        return {'receipt': receipt, 'scope': target['scope'], 'source': target.get('last_observed') or target['source']}
+    except (OSError, ValueError, KeyError, StopIteration) as error:
+        raise LedgerError('External recheck scope cannot be verified.') from error
+
+
+def _external_closure(ledger, conn, root, selector, target, receipt, proof):
+    if not target.get('external_review'):
+        return None
+    source = target.get('last_observed') or target['source']
+    if proof != {'receipt': receipt, 'scope': target['scope'], 'source': source}:
+        raise LedgerError('The external finding or its repair scope changed before closure.')
+    link = _repair_link(ledger, conn, selector, [source['receipt']])
+    if namespaces.has_capability(root, 'sequential-engine'):
+        marker = json.loads(Snapshots(ledger.state_root).read_blob(link['repair'])) if link else {}
+        if target['id'] not in marker.get('answered_findings', []) or not conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='workflow.repair_prepared' "
+                                        "AND json_extract(payload,'$.receipt')=?", (root['id'], link['repair'])).fetchone():
+            raise LedgerError('This finding requires its assigned repair before recheck.')
+    return link
+
+
 def resolve(ledger, name, ident, receipt, *, reason, artifact_sha, generation=None, reject=False, task_id=None):
     """Explicit evidenced resolution/rejection. Refusals are durable and leave it open. A resolution meets the one closure rule; the artifact and
     generation a caller names must be the receipt's own. A rejection is not a claim of repair: an authorised decision, kept as it was."""
     text_field(reason, 'finding resolution reason', 2000)
+    try:
+        external = _external_recheck(ledger, name, ident, receipt)
+        external_error = None
+    except LedgerError as error:
+        external, external_error = None, str(error)
     with ledger.transaction(write=True) as conn:
         root, revision, sha, contract = _context(ledger, conn, name, task_id)
         _require_capability(root)
@@ -550,6 +676,9 @@ def resolve(ledger, name, ident, receipt, *, reason, artifact_sha, generation=No
         try:
             if target is None or target['status'] != 'open':
                 raise LedgerError(f'{ident} is not an open finding.')
+            if external_error:
+                raise LedgerError(external_error)
+            repair = _external_closure(ledger, conn, root, name, target, receipt, external)
             if reject:
                 if target.get('internal'):
                     body, result, verdict_seq = _node_proof(ledger, conn, root, target['node'], receipt)
@@ -572,7 +701,7 @@ def resolve(ledger, name, ident, receipt, *, reason, artifact_sha, generation=No
                 _passes_on_repaired_output(target, body, result, verdict_seq, artifact)
             core.close_finding(value, ident, receipt, shown=[receipt], listed=[ident],
                 resolution={'receipt': receipt, 'artifact_sha': found['artifact'], 'candidate': found['artifact'], 'revision': revision,
-                            'generation': found['generation'], 'reason': reason, 'evidence': [receipt]},
+                            'generation': found['generation'], 'reason': reason, 'evidence': [receipt], **({'repair': repair} if repair else {})},
                 status='rejected' if reject else 'resolved')
             result_view = {'closed': [ident], 'refused': []}
         except LedgerError as error:
@@ -664,6 +793,8 @@ def close_from_recheck(ledger, selector, finding_id, *, run_receipt, request, ta
                 raise LedgerError(f'{finding_id} is not an open finding.')
             if not isinstance(run_receipt, str) or not run_receipt:
                 raise LedgerError('A closure needs the receipt of a recheck, not a claim.')
+            if target.get('external_review'):
+                raise LedgerError('Use findings recheck for the external review and its scoped repair.')
             found = _recheck_evidence(ledger, conn, root, selector, revision, sha, contract, target, run_receipt, request)
             core.close_finding(value, finding_id, run_receipt, shown=[run_receipt], listed=[finding_id],
                                resolution=dict(found, receipt=run_receipt, artifact_sha=found['artifact'], candidate=found['artifact'],
@@ -813,6 +944,8 @@ def main(argv=None):
     sub = parser.add_subparsers(dest='command', required=True)
     p = sub.add_parser('list'); p.add_argument('name'); p.add_argument('--open-only', action='store_true')
     p = sub.add_parser('review'); p.add_argument('name'); p.add_argument('node'); p.add_argument('--receipt', required=True)
+    p = sub.add_parser('import-review', help='Import an external changes_requested JSON report.')
+    p.add_argument('name'); p.add_argument('--file', required=True, type=Path)
     for action in ('resolve', 'reject'):
         p = sub.add_parser(action); p.add_argument('name'); p.add_argument('id'); p.add_argument('--receipt', required=True)
         p.add_argument('--reason', required=True); p.add_argument('--artifact-sha', required=True); p.add_argument('--generation', type=int)
@@ -823,19 +956,29 @@ def main(argv=None):
         ledger = Ledger(args.project, args.state_root)
         if args.command == 'list':
             out = list_findings(ledger, args.name, open_only=args.open_only)
+        elif args.command == 'import-review':
+            if args.file.stat().st_size > 1024 * 1024:
+                raise LedgerError('External review exceeds 1 MiB.')
+            out = import_review(ledger, args.name, json.loads(args.file.read_text(encoding='utf-8-sig')))
         elif args.command == 'review':
             out = record_review(ledger, args.name, args.node, args.receipt)
         elif args.command == 'recheck':
             from . import review_dispatch
             target = next((f for f in list_findings(ledger, args.name) if f['id'] == args.id), None)
             if target is None: raise LedgerError(args.id + ' is not a finding of this root.')
-            out = close_from_recheck(ledger, args.name, args.id, run_receipt=args.receipt, request=review_dispatch.recheck_request(ledger, args.name, target, args.receipt))
+            if target.get('external_review'):
+                body = json.loads(Snapshots(ledger.state_root).read_blob(args.receipt))
+                out = resolve(ledger, args.name, args.id, args.receipt, reason='External finding rechecked',
+                              artifact_sha=body.get('artifact_sha'))
+            else:
+                out = close_from_recheck(ledger, args.name, args.id, run_receipt=args.receipt,
+                                         request=review_dispatch.recheck_request(ledger, args.name, target, args.receipt))
         else:
             out = resolve(ledger, args.name, args.id, args.receipt, reason=args.reason, artifact_sha=args.artifact_sha,
                           generation=args.generation, reject=args.command == 'reject')
         print(json.dumps(out, ensure_ascii=False))
         return 2 if isinstance(out, dict) and out.get('refused') else 0
-    except (LedgerError, OSError) as error:
+    except (LedgerError, OSError, ValueError) as error:
         print(json.dumps({'error': str(error)}, ensure_ascii=False))
         return 2
 

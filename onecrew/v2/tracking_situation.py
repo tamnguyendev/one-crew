@@ -155,7 +155,7 @@ def milestone_checks(views, history, revision, now, lost):
                      'check_seconds': sum(timed) if timed else None, 'untimed_checks': len(mine) - len(timed),
                      'note': v.get('recheck_note') or (CURRENT_UNKNOWN if v.get('current_unknown') else None) or v.get('reuse_note')
                              or (('bằng chứng không còn khớp bản hiện tại' + (': ' + '; '.join(map(str, v['stale_reasons'])) if v.get('stale_reasons') else '')
-                                  + ('' if v.get('stale_reasons') else ' (mã đã đổi sau lần kiểm)'))[:200] + (' ' + v['order_note'] if v.get('order_note') else '') if v.get('stale') else None)})
+                                  + ('' if v.get('stale_reasons') else ' (mã đã đổi sau lần kiểm)'))[:200] + (' ' + v['order_note'] if v.get('order_note') else '') if v.get('stale') else v.get('evidence_reason'))})
     return {'revision': revision, 'rows': rows, 'timed': any(c.get('started') and c.get('ended') for r in rows for c in r['checks']),
             'basis': 'verdict.run_started → verdict.receipt_issued (thời gian chạy bộ kiểm) và verdict.recorded (kết quả); '
                      'không phải thời gian làm việc; khoảng trống giữa hai lần kiểm không phải thời gian chờ'}
@@ -267,6 +267,8 @@ def situation(*, state, views, checks, engine_view, attempts, active, requests, 
         mid, c = lost_checks[-1]
         stage, reason = 'unknown', f"Lần kiểm mốc {mid} mất tín hiệu ({'tiến trình không còn' if c.get('lost') == 'process_gone' else 'quá hạn chạy'}): kết quả chưa xác định"
         next_text = 'Kiểm lại mốc ' + mid
+    elif acceptance.get('open_findings') and not active:
+        stage, reason, next_text = 'fix', acceptance['reason'], 'Sửa finding và kiểm lại đúng phạm vi'
     elif engine_view is not None:
         stage, reason, next_text, by_text, by = _engine(state, engine_view, active, needs, acceptance, level, progress)
         g = guidance or {}
