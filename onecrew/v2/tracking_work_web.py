@@ -170,6 +170,7 @@ function rowName(t){return t.row_title||workTitle(t)}
 function rowLabel(t){var s=sit(t),vn=validityNote(t),needs=(t.needs_user||[]).length;
   return workTitle(t)+'. '+(needs?'Cần bạn. ':'')+(s.label||'Chưa xác định')+(vn?' ('+vn+')':'')+' → '+(s.next||(s.stage==='done'||s.stage==='closed'?'Không còn bước tiếp theo':'Chưa biết bước tiếp theo'))+(s.next?' · '+whoShort(t):'')}
 var MS_WORD={passed:'Đạt',failed:'Không đạt',inconclusive:'Chưa kết luận',recheck:'Cần kiểm lại',pending:'Chưa kiểm',checking:'Đang kiểm',stopped:'Đã dừng',unknown:'Chưa xác định'};
+function notCompared(t){return (t.validity||{}).kind==='not_compared'}
 function milestoneBar(t){
   var steps=(t.milestone_checks||{}).rows||t.milestones||[];
   if(!steps.length)return '';

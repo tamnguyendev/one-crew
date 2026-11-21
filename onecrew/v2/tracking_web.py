@@ -967,7 +967,6 @@ function pendingPane(sel){var t=taskOf(sel),e=detailError;   // the selected tas
 function tasks(){var out=[];(last&&last.projects||[]).forEach(function(p){p.tasks.forEach(function(t){out.push(t)})});return out}
 function ended(t){return t.root_status==='accepted'||t.root_status==='closed'}
 function isRecheck(t){return (t.validity||{}).kind==='recheck'||sit(t).label==='Cần kiểm lại'}     // UI58 MC: the same rule as the server's stage filter (tracking_list._stage_ok)
-function notCompared(t){return (t.validity||{}).kind==='not_compared'}
 function visible(){var cur=$('#proj').value,kind=$('#kind').value,src=$('#origin').value,raw=($('#q').value||'').trim(),q=raw.toLowerCase(),lf=last&&last.list&&last.list.filters,byServer=!!lf&&(lf.q||'')===raw;   // OBS-2C: the server already searched every root for this text (the client keeps filtering the loaded rows at once)
   return workOrder(tasks().filter(function(t){if(cur&&!(cur.startsWith('repo:')?cur.slice(5).split(',').includes(t.project_id):t.project===cur))return false;
     if(kind==='need'&&!(t.needs_user||[]).length)return false;if(kind==='running'&&!(sit(t).activity||{}).running)return false;
