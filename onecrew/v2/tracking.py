@@ -287,8 +287,9 @@ class _Observations:
     the reuse window, else notes the need and answers None (the caller goes on with what it shows without it; a read with needs is made again)
     or, with `stop`, raises _Need. `make` runs the noted observations; the caller calls it only after the read's transaction is closed."""
 
-    def __init__(self, now, reuse_seconds=0, *, stop=False, final=False):
+    def __init__(self, now, reuse_seconds=0, *, stop=False, final=False, comparison=True):
         self.now, self.reuse, self.stop, self.final = now, reuse_seconds or 0, stop, final
+        self.comparison = comparison
         self.values, self.needs = {}, {}
 
     def get(self, key, sig, make):
@@ -326,10 +327,12 @@ def _taken(got):
     return copy.deepcopy(value), at
 
 
-def _observed(read, now, reuse_seconds=0, *, stop=False):
+def _observed(read, now, reuse_seconds=0, *, stop=False, comparison=True):
     """Run `read(observe)` — which opens and closes its own short ledger transaction — until it needs no observation it does not have; the needed
     observations are made between rounds, with no ledger transaction open, under ONE observed_view (one identity of the project for the whole read).
     A ledger that moves on between rounds makes another round; the last round observes nothing and shows what it has (current unknown)."""
+    if not comparison:
+        return read(_Observations(now, final=True, comparison=False))
     from .verifiers import artifact as identities
     observe = _Observations(now, reuse_seconds, stop=stop)
 
@@ -582,7 +585,7 @@ def _action(template, expected, placeholders=(), note=None):
             'placeholders': list(placeholders), 'expected': expected, 'note': note}
 
 
-def _needs_user(state, requests, views, level, engine_view, project=None, state_root=None, contract=None, acceptance=None):
+def _needs_user(state, requests, views, level, engine_view, project=None, state_root=None, contract=None, acceptance=None, *, comparison=True):
     needs = []
     prefix = _runtime() + (f' --project {_quote(project)}' if project else '') + (f' --state-root {_quote(state_root)}' if state_root else '')
     complete = bool(project and state_root)
@@ -678,7 +681,9 @@ def _needs_user(state, requests, views, level, engine_view, project=None, state_
                           'action': _action(None, {'task': state.get('task_id'), 'selector': selector, 'revision': state['latest'], 'milestone': mine['id']},
                                             note=OWNER_TRY_NOTE),
                           'source': ['milestone.pending:' + str(mine['id']), 'verifier:owner-manual']})
-    return _bind_actions(needs, _runtime_binding(project, state_root))
+    binding = (_runtime_binding(project, state_root) if comparison else
+               {'verified': False, 'runtime': None, 'reason': 'Bản sao sổ dùng để xem. Quyết định được ghi trên sổ nguồn.'})
+    return _bind_actions(needs, binding)
 
 
 def _level(state, engine_view, views):
@@ -1223,7 +1228,9 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200, observe=Non
     root_key, sig = _compared_key(reader.state_root, row), _compared_sig(state, events)
     if contract and not engine_root:
         try:
-            if full:
+            if not observe.comparison:
+                views, current = plans.milestone_views(contract, state, state['latest']), 'copy'
+            elif full:
                 got = observe.get(('live',) + root_key, sig, lambda: _live_views(free, contract, state))
                 if got is None:                     # not at hand in this read: what the page shows when the project could not be compared
                     views, current = _unknown_views(contract, state), 'unknown'
@@ -1286,7 +1293,8 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200, observe=Non
     stopped_now = kind == 'blocked' and (state['status'] == 'stopped_with_report' or (guidance or {}).get('state') == 'stopped')    # the fifth state: nothing runs until the owner decides; a block has a next step
     active_rows = [{'attempt': a['id'], 'status': a['status'], 'since': a['created_at'], 'unit': a['unit'], 'stage': a['stage'],
                     'node': next((nid for nid, r in nodes.items() if r['attempt'] == a['id']), None)} for a in attempts if a['status'] in ('reserved', 'running', 'unknown')]
-    needs = _needs_user(state, requests, views, level, engine_view, project=row['project_path'], state_root=str(reader.state_root), contract=contract, acceptance=acceptance)
+    needs = _needs_user(state, requests, views, level, engine_view, project=row['project_path'], state_root=str(reader.state_root),
+                        contract=contract, acceptance=acceptance, comparison=observe.comparison)
     from . import tracking_situation
     checks = None
     if engine_view is None and views:
@@ -1449,7 +1457,7 @@ def _holds(rd, selector, conn):
 
 # ---- what is NOT tracked ----------------------------------------------------------------------------------------------------------------
 
-def _untracked(conn, rows, state_root, projects_seen, children=frozenset(), *, project_id=None, seen_ids=frozenset()):
+def _untracked(conn, rows, state_root, projects_seen, children=frozenset(), *, project_id=None, seen_ids=frozenset(), comparison=True):
     """What is not tracked, inside the scope: the other tasks of the scoped rows, the hook sessions of the projects seen, and the registry
     projects without a plan in this ledger. Under a project scope the registry contributes only the scoped project's own entry (R2); a
     registry path is matched by the ledger identity (project_identity), so another spelling of a project that has a plan is not listed."""
@@ -1461,6 +1469,8 @@ def _untracked(conn, rows, state_root, projects_seen, children=frozenset(), *, p
         payload = json.loads(row['payload'])
         v1.append({'id': row['id'], 'project': row['project_path'], 'key': clean(row['request_key'], 100), 'title': clean(payload.get('title') or payload.get('goal'), 120),
                    'phase': clean(phase, 40) or 'chưa xác định', 'note': 'task ngoài plan (v1 hoặc task con): chỉ phase checkpoint, không node/attempt ở đây'})
+    if not comparison:
+        return {'statement': STATEMENT, 'other_tasks': v1, 'registry_projects_without_plan': [], 'registry': None, 'hook_sessions': []}
     registry = []
     try:
         from . import where
@@ -1489,11 +1499,11 @@ def _untracked(conn, rows, state_root, projects_seen, children=frozenset(), *, p
 
 # ---- public -------------------------------------------------------------------------------------------------------------------------
 
-def overview(state_root, *, project_id=None, now=None, reuse_seconds=0):
+def overview(state_root, *, project_id=None, now=None, reuse_seconds=0, comparison=True):
     """The list: every plan root of the state root (or of one project), grouped by project, with its sourced status; plus what is not tracked.
     A project scope covers the whole model (untracked registry included); everything returned passed the outbound guard. `reuse_seconds` (the
     server's polls): a project observation of a root whose ledger is unchanged is reused for that long (UI3)."""
-    return outward(_overview(state_root, project_id=project_id, now=now, reuse_seconds=reuse_seconds))
+    return outward(_overview(state_root, project_id=project_id, now=now, reuse_seconds=reuse_seconds, comparison=comparison))
 
 
 def _overview_shell(state_root, now, source):
@@ -1519,11 +1529,12 @@ def _unreadable(row, error):
             'read_only': True}
 
 
-def _overview(state_root, *, project_id=None, now=None, reuse_seconds=0, rhythm=False):
+def _overview(state_root, *, project_id=None, now=None, reuse_seconds=0, rhythm=False, comparison=True):
     now = _now(now)
     reader, source = _source(state_root)
     if source['status'] != 'ok': return _overview_shell(state_root, now, source)
-    return _observed(lambda observe: _overview_read(state_root, reader, dict(source), project_id, now, observe, rhythm), now, reuse_seconds)
+    return _observed(lambda observe: _overview_read(state_root, reader, dict(source), project_id, now, observe, rhythm),
+                     now, reuse_seconds, comparison=comparison)
 
 
 def _overview_read(state_root, reader, source, project_id, now, observe, rhythm=False):
@@ -1557,7 +1568,8 @@ def _overview_read(state_root, reader, source, project_id, now, observe, rhythm=
                     "AND json_type(e.payload,'$.session')='text' AND json_extract(e.payload,'$.session')<>'' "
                     "AND (? IS NULL OR t.project_id=?) GROUP BY e.task_id", (*KINDS, project_id, project_id))}
             seen_ids = {item.get('project_id') for items in projects.values() for item in items}
-            result['untracked'] = _untracked(conn, rows, reader.state_root, {p.casefold() for p in projects}, children, project_id=project_id, seen_ids=seen_ids)
+            result['untracked'] = _untracked(conn, rows, reader.state_root, {p.casefold() for p in projects}, children,
+                                             project_id=project_id, seen_ids=seen_ids, comparison=observe.comparison)
             try:
                 source['ledger_mtime'] = dt.datetime.fromtimestamp(reader.path.stat().st_mtime, dt.timezone.utc).isoformat()
             except OSError:
@@ -1580,14 +1592,15 @@ def _find(conn, reader, selector, project_id):
     return rows[0]
 
 
-def detail(state_root, selector, *, project_id=None, now=None, timeline_limit=200, reuse_seconds=0):
+def detail(state_root, selector, *, project_id=None, now=None, timeline_limit=200, reuse_seconds=0, comparison=True):
     """One root in full: nodes, attempts, requests, waits, notices, measured spans (union), ETA or unknown, holds, timeline, evidence keys.
     Everything returned passed the outbound guard. `reuse_seconds` (the server's 2 s polls): the comparison with the project is reused while the
     root's ledger is unchanged and it is younger than that, shown with its own time (compared_at); 0 (CLI, tests): compared on every read (UI3)."""
-    return outward(_detail(state_root, selector, project_id=project_id, now=now, timeline_limit=timeline_limit, reuse_seconds=reuse_seconds))
+    return outward(_detail(state_root, selector, project_id=project_id, now=now, timeline_limit=timeline_limit,
+                           reuse_seconds=reuse_seconds, comparison=comparison))
 
 
-def _detail(state_root, selector, *, project_id=None, now=None, timeline_limit=200, reuse_seconds=0):
+def _detail(state_root, selector, *, project_id=None, now=None, timeline_limit=200, reuse_seconds=0, comparison=True):
     now = _now(now)
     reader, source = _source(state_root)
     if source['status'] != 'ok': raise LedgerError(source['detail'])
@@ -1600,7 +1613,7 @@ def _detail(state_root, selector, *, project_id=None, now=None, timeline_limit=2
             item.update(kind='onecrew-tracking-detail', version=VERSION, generated_at=_iso(now), state_root=str(reader.state_root), controls=CONTROLS,
                         source=dict(source, last_seq=conn.execute('SELECT COALESCE(MAX(seq),0) FROM events').fetchone()[0]))
             return item
-    return _observed(read, now, reuse_seconds, stop=True)
+    return _observed(read, now, reuse_seconds, stop=True, comparison=comparison)
 
 
 def _names(conn, root_id, key):

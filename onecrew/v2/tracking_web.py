@@ -111,10 +111,15 @@ def _page(interval):
     return PAGE.replace('@@INTERVAL@@', str(int(max(0.5, float(interval)) * 1000)))
 
 
-def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0, idle_exit=None, instance=None):
+COPY_NOTE = 'Bản sao sổ · Chỉ đọc · Đã tắt so với bản hiện tại'
+
+
+def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0, idle_exit=None, instance=None, comparison=True):
     state_root = Path(state_root).resolve()
     identity = {'instance': instance or secrets.token_hex(8), 'version': version(), 'state_root': str(state_root), 'state_root_id': root_id(state_root),
                 'project_id': project_id, 'pid': os.getpid()}
+    if not comparison:
+        identity.update(comparison='off', note=COPY_NOTE)
     stats = {'requests': 0, 'last_read_ms': None, 'last_request': time.monotonic(), 'started_at': utcnow(), 'errors': 0}
     page = _page(interval).encode('utf-8')
 
@@ -136,6 +141,12 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
             self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self'; frame-ancestors 'self'")
             self.end_headers()
             self.wfile.write(data)
+
+        def _html(self, body):
+            if not comparison:
+                banner = f'</header><p role="status">{COPY_NOTE}</p>'.encode('utf-8')
+                body = body.replace(b'</header>', banner, 1)
+            return self._send(HTTPStatus.OK, body, 'text/html; charset=utf-8')
 
         def _refuse(self):
             # the request body is read first (up to 8 MiB): on Windows a socket closed with unread data is reset, and the client then sees
@@ -172,12 +183,12 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
                     if not q.get('plan'):
                         return self._send(HTTPStatus.BAD_REQUEST, {'error': 'thiếu plan'})
                     if url.path == '/direction':
-                        return self._send(HTTPStatus.OK, tracking_direction.page(state_root, q['plan'], scope, q), 'text/html; charset=utf-8')
-                    return self._send(HTTPStatus.OK, tracking_sessions.page(state_root, q['plan'], scope, q.get('session')), 'text/html; charset=utf-8')
+                        return self._html(tracking_direction.page(state_root, q['plan'], scope, q))
+                    return self._html(tracking_sessions.page(state_root, q['plan'], scope, q.get('session'), comparison=comparison))
                 if url.path == '/overview':
-                    return self._send(HTTPStatus.OK, tracking_dashboard.page(state_root, scope), 'text/html; charset=utf-8')
+                    return self._html(tracking_dashboard.page(state_root, scope, comparison=comparison))
                 if url.path in ('/', '/index.html'):
-                    return self._send(HTTPStatus.OK, page, 'text/html; charset=utf-8')
+                    return self._html(page)
                 if url.path == '/api/health':
                     return self._send(HTTPStatus.OK, {'ok': True, 'generated_at': utcnow(), 'poll_seconds': interval, 'read_only': True, 'server': SERVER_NAME, **identity,
                                                       **{k: stats[k] for k in ('requests', 'last_read_ms', 'started_at', 'errors')}})
@@ -186,11 +197,12 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
                     if any(k in q for k in tracking_list.LIST_KEYS):          # OBS-2C: one page of the list (stable order, filters on the ledger)
                         try: tracking_list.params(q)
                         except ValueError as error: return self._send(HTTPStatus.BAD_REQUEST, {'error': str(error), 'read_only': True})
-                        value = tracking_list.page(state_root, q, project_id=scope, reuse_seconds=tracking.REUSE_SECONDS)   # UI3: one project observation per window per root
+                        value = tracking_list.page(state_root, q, project_id=scope, reuse_seconds=tracking.REUSE_SECONDS, comparison=comparison)
                     else:
-                        value = tracking.overview(state_root, project_id=scope, reuse_seconds=tracking.REUSE_SECONDS)
+                        value = tracking.overview(state_root, project_id=scope, reuse_seconds=tracking.REUSE_SECONDS, comparison=comparison)
                     stats['last_read_ms'] = round((time.perf_counter() - started) * 1000, 1)
-                    tracking_host_web.attach(value, state_root)                        # DEV31: host background work + machine leases, read-only, in the same JSON the page reads
+                    if comparison:
+                        tracking_host_web.attach(value, state_root)
                     value['server'] = {'pid': os.getpid(), 'instance': identity['instance'], 'version': identity['version'], 'read_ms': stats['last_read_ms'],
                                        'poll_seconds': interval, 'started_at': stats['started_at'], 'requests': stats['requests'], 'project_id': project_id}
                     return self._send(HTTPStatus.OK, value)
@@ -199,7 +211,8 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
                     limit = int(q.get('timeline') or 200)
                     if not 1 <= limit <= 5000: return self._send(HTTPStatus.BAD_REQUEST, {'error': 'timeline: 1-5000'})
                     started = time.perf_counter()
-                    value = tracking.detail(state_root, q['plan'], project_id=scope, timeline_limit=limit, reuse_seconds=tracking.REUSE_SECONDS)
+                    value = tracking.detail(state_root, q['plan'], project_id=scope, timeline_limit=limit,
+                                            reuse_seconds=tracking.REUSE_SECONDS, comparison=comparison)
                     value['server'] = {'pid': os.getpid(), 'instance': identity['instance'], 'read_ms': round((time.perf_counter() - started) * 1000, 1), 'poll_seconds': interval}
                     return self._send(HTTPStatus.OK, value)
                 if url.path == '/api/evidence':
@@ -253,16 +266,21 @@ def _read_marker(path):
         return None
 
 
-def serve(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0, announce=None, idle_exit=None):
+def serve(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0, announce=None, idle_exit=None, comparison=True, browser=False):
     """Run in this process until Ctrl+C. Prints one JSON line with the URL first; with `announce`, also writes it to that marker file (atomically)."""
-    server = make_server(state_root, host=host, port=port, project_id=project_id, interval=interval, idle_exit=idle_exit)
+    server = make_server(state_root, host=host, port=port, project_id=project_id, interval=interval, idle_exit=idle_exit, comparison=comparison)
     record = {'url': url_of(server), 'pid': os.getpid(), 'instance': server.track_identity['instance'], 'version': server.track_identity['version'],
               'state_root': str(Path(state_root).resolve()), 'state_root_id': server.track_identity['state_root_id'], 'project_id': project_id, 'poll_seconds': interval,
               'read_only': True, 'started_at': utcnow(), 'note': 'Ctrl+C hay đóng cửa sổ này chỉ đóng trang theo dõi; worker không dừng.'}
-    print(json.dumps(record, ensure_ascii=False), flush=True)
-    if announce:
-        _write_marker(announce, record)
+    if not comparison:
+        record.update(comparison='off', note=COPY_NOTE)
     try:
+        print(json.dumps(record, ensure_ascii=False), flush=True)
+        if announce:
+            _write_marker(announce, record)
+        if browser:
+            import webbrowser
+            threading.Thread(target=webbrowser.open, args=(record['url'],), daemon=True).start()
         server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
         pass

@@ -348,20 +348,21 @@ def _public(entry):
 
 # ---- public ----------------------------------------------------------------------------------------------------------------------------------
 
-def page(state_root, query=None, *, project_id=None, now=None, reuse_seconds=0):
+def page(state_root, query=None, *, project_id=None, now=None, reuse_seconds=0, comparison=True):
     """The overview model of one list request (tracking.overview's shape: `projects` hold the rows of the scan region only) plus `list`: order,
     coverage, filters, counts, the next cursor and the roots outside the region that wait for the owner. Passed through the outbound guard.
     `reuse_seconds` (the server's polls): a project observation of a root whose ledger is unchanged is reused for that long (UI3)."""
     from .tracking import outward
-    return outward(_page(state_root, params(query), project_id=project_id, now=now, reuse_seconds=reuse_seconds))
+    return outward(_page(state_root, params(query), project_id=project_id, now=now, reuse_seconds=reuse_seconds, comparison=comparison))
 
 
-def _page(state_root, f, *, project_id=None, now=None, reuse_seconds=0):
+def _page(state_root, f, *, project_id=None, now=None, reuse_seconds=0, comparison=True):
     """UI3: each round is one short read transaction; the project observations a round needs are made after it closes (tracking._observed)."""
     from . import tracking
     now = tracking._now(now)
     reader, source = tracking._source(state_root)
-    return tracking._observed(lambda observe: _page_read(state_root, f, reader, dict(source), project_id, now, observe), now, reuse_seconds)
+    return tracking._observed(lambda observe: _page_read(state_root, f, reader, dict(source), project_id, now, observe),
+                              now, reuse_seconds, comparison=comparison)
 
 
 def _page_read(state_root, f, reader, source, project_id, now, observe):
@@ -434,7 +435,8 @@ def _page_read(state_root, f, reader, source, project_id, now, observe):
             result['projects'] = [{'path': path, 'tasks': group} for path, group in projects.items()]
             result['tasks_total'] = len(entries)
             seen = {e['project'].casefold() for e in entries}
-            result['untracked'] = tracking._untracked(conn, rows, reader.state_root, seen, kids, project_id=project_id, seen_ids={e['project_id'] for e in entries})
+            result['untracked'] = tracking._untracked(conn, rows, reader.state_root, seen, kids, project_id=project_id,
+                                                      seen_ids={e['project_id'] for e in entries}, comparison=observe.comparison)
     except (LedgerError, sqlite3.Error, OSError) as error:
         source.update(status='unreadable', detail=tracking.clean(str(error), 300))
     return result

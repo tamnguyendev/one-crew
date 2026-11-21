@@ -157,6 +157,7 @@ py-modules = [
     "onecrew.v2.hotfix",
     "onecrew.v2.tracking",
     "onecrew.v2.tracking_cli",
+    "onecrew.v2.tracking_copy",
     "onecrew.v2.session_observe",
     "onecrew.v2.session_transcript",
     "onecrew.v2.tracking_dashboard",

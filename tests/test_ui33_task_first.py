@@ -117,7 +117,12 @@ def node():
     return found
 
 
-def browser():
+def browser(*, prefer_edge=False):
+    if prefer_edge:
+        edge = next((path for path in BROWSERS if path.lower().endswith('msedge.exe') and Path(path).is_file()), None)
+        edge = edge or shutil.which('msedge')
+        if edge:
+            return edge
     found = next((b for b in BROWSERS if Path(b).is_file()), None) or shutil.which('chrome') or shutil.which('msedge')
     if not found: raise AssertionError('a Chromium browser (Chrome or Edge) is required for this test')
     return found
@@ -233,7 +238,9 @@ def drive(temp, url_steps, width, height):
     script = work / 'cdp.cjs'; script.write_text(CDP, encoding='utf-8')
     steps = [s if 'nav' in s else {'eval': PRELUDE + s['eval']} for s in url_steps]
     flags = local_chromium_flags([step['nav'] for step in steps if 'nav' in step])
-    done = subprocess.run([node(), str(script), browser(), str(work / 'profile'), str(width), str(height), *flags], input=json.dumps(steps), text=True,
+    # Edge can open its DevTools port under the restricted Windows fixture token.
+    done = subprocess.run([node(), str(script), browser(prefer_edge=bool(flags)), str(work / 'profile'), str(width), str(height), *flags],
+                          input=json.dumps(steps), text=True,
                           encoding='utf-8', capture_output=True, timeout=300)
     lines = [l for l in done.stdout.strip().splitlines() if l.startswith('{')]
     if not lines: raise AssertionError('the browser driver returned nothing: ' + done.stderr[-1500:])

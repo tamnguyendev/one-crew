@@ -1408,3 +1408,13 @@ Phần nguồn đã thử trên sổ phát triển ở 375 và 1280 px. Kết qu
 | Mốc cũ và thứ tự | Chạy mốc sau khi mốc trước đã cũ, kiểm tra chỉ dẫn trước nghiệm thu. |
 | Mốc giao cuối chạy đầy đủ, kể cả hợp đồng một mốc | Kiểm phạm vi snapshot và việc sửa tệp ngoài inputs. Kiểm mốc lệnh đứng trước bước chủ thử. Quyết định chủ `REQ-8fdedde1c186449b859e59d5cecf5766`, lựa chọn `final`. |
 | Thu hẹp inputs qua amend | Phân loại khi thêm phạm vi tường minh hoặc thay thư mục bằng một tệp con. |
+
+## VER60 bản 1 · MC
+
+| I3/O3 | Triển khai | Ca kiểm trong `tests/test_ver60_copy_view.py` |
+|---|---|---|
+| Thử trang với bản sao phù hợp dự án | `track copy-view` dùng SQLite backup, trỏ việc sang clone và giữ định danh dùng để đọc hợp đồng cùng bằng chứng. | `copy_points_projects_to_clones`, `no_server_on_real_state_root` |
+| Giữ nguyên tệp nguồn | Bản sao và server dùng thư mục tạm riêng, nguồn mở chỉ đọc. | `git_mtimes_unchanged`, `state_mtimes_unchanged`, `refuses_source_paths_as_clone_or_scratch`, `refuses_wal_without_creating_sidecars` |
+| Ghi rõ trạng thái so hiện tại | Banner trên bốn trang, API health và nhãn trạng thái của lần kiểm đã ghi. | `compare_off_mode_said` |
+
+Verdict MC kiểm lại ba module VER60 trên wheel cài trong môi trường sạch.

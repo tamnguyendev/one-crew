@@ -6,7 +6,7 @@ from unittest.mock import patch
 from onecrew.ledger import LedgerError
 from onecrew.v2 import acceptance_diff, plan as plans, report, tracking, verdict
 from onecrew.snapshots import Snapshots
-from tests import test_v2_l1 as fixtures
+from tests import v2_fixture as fixtures
 
 
 def scoped(mid, paths, **config):

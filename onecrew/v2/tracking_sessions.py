@@ -56,8 +56,9 @@ def _timeline(rows, reading):
                    for lane, items in sorted(lanes.items(), key=lambda pair: pair[0] != 'Phiên chính'))
 
 
-def _detail(session, rows):
-    reading = session_transcript.read(session, rows)
+def _detail(session, rows, *, comparison=True):
+    reading = (session_transcript.read(session, rows) if comparison else
+               session_transcript.Reading(note='Bản sao sổ chỉ hiển thị sự kiện đã ghi nhận.'))
     models = ', '.join(escape(model) for model in sorted(reading.models)) or 'Chưa có số liệu'
     tokens = f'{sum(reading.usage.values()):,}' if reading.usage else 'Chưa có số liệu'
     cost = 'Chưa có số liệu'
@@ -76,7 +77,7 @@ def _detail(session, rows):
         + f'</div><h2>Tóm tắt suy luận</h2><article>{summaries or "Bị che · chưa có tóm tắt."}</article>')
 
 
-def page(state_root, selector, project_id, selected):
+def page(state_root, selector, project_id, selected, *, comparison=True):
     reader, source = tracking._source(state_root)
     if source['status'] != 'ok':
         raise LedgerError(source['detail'])
@@ -114,7 +115,7 @@ def page(state_root, selector, project_id, selected):
             row.update(kind=event['kind'], time=row.get('recorded_at') or row.get('at') or event['created_at'])
             rows.append(row)
         rows.sort(key=lambda r: r['time'])
-        body = '<h1>Phiên Claude</h1><p>' + _show(session) + '</p>' + _detail(session, rows)
+        body = '<h1>Phiên Claude</h1><p>' + _show(session) + '</p>' + _detail(session, rows, comparison=comparison)
     style = tracking_dashboard.STYLE + """
 main{max-width:1080px;overflow-wrap:anywhere}.lanes{display:grid;gap:.7rem}ol,ul{padding-inline-start:1.5rem}
 li{padding:.4rem .15rem;border-bottom:1px solid var(--line)}li:last-child{border:0}li small{display:block}

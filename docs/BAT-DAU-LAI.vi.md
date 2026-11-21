@@ -35,6 +35,8 @@ R1 chỉ build DEBUG khi đang phát triển, RELEASE là bước giao riêng sa
 
 Với hợp đồng có nhiều mốc lệnh, xem [mẫu khai tệp phụ thuộc và bộ kiểm unittest](../onecrew/templates/command-inputs.vi.md). Khi các lệnh có đích kiểm khác nhau, lint nhắc tác giả xem xét `inputs`. Với đường dẫn ngoài repo trên dòng lệnh, lint nhắc khai `env_inputs`. Hai cảnh báo giữ nguyên hợp đồng và mã thoát của lint.
 
+Thử giao diện đang phát triển với `onecrew --project <dự-án-nguồn> --state-root <sổ-nguồn> track copy-view --clone <bản-clone-Git> --scratch <thư-mục-tạm>`. Dùng một clone riêng và thư mục tạm có sẵn, cả hai tách khỏi dự án và sổ nguồn. Lệnh chụp sổ rollback journal, hiển thị việc của dự án với đường dẫn clone, rồi mở trang trên máy này. Trang có nhãn “Đã tắt so với bản hiện tại”. Dừng bằng Ctrl+C để dọn bản sao. Dùng `--no-browser` để chỉ in URL. Khi cần số liệu mới từ sổ, mở lại bản sao.
+
 ## 5. Động từ chỉ chủ sở hữu được gõ
 `owner approve`, `owner accept`, `owner enforce`, `owner record`, `owner answer`, cùng `hook mode` và `hook user`. Phiên AI bị từ chối: CLI nhận ra phiên AI (biến `CLAUDE_CODE_CHILD_SESSION`), tiến trình do bộ kiểm hay lệnh tiền điều kiện của OneCrew khởi chạy (`ONECREW_VERIFIER`), và tiến trình khai `ONECREW_ACTOR` không phải `user|owner`; đây vẫn là lớp mềm, xem LOI-DA-BIET. Đúng bất biến 5–6: người viết hợp đồng không tự duyệt, AI không tự nghiệm thu.
 - Chủ sở hữu gõ trong terminal của chính mình; thêm `--human` để đọc được. `--human` có lúc báo "Chưa xác nhận được kết quả" dù sổ đã ghi: đọc lại `plan show` trước khi chạy lại.

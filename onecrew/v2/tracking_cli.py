@@ -1,4 +1,4 @@
-"""`onecrew track list|show|evidence|serve|open|status|stop` — the OBS-1 read-only tracking view (onecrew/v2/tracking.py) as text, JSON or a local web page.
+"""`onecrew track list|show|evidence|serve|open|copy-view|status|stop` — the OBS-1 read-only tracking view (onecrew/v2/tracking.py) as text, JSON or a local web page.
 
 `list` and `show --json` print exactly the JSON the web page reads (one state model, no second source). `serve` runs the page on 127.0.0.1
 in this process (Ctrl+C closes the VIEWER, never a worker); `open` starts that server detached and opens the page in the default browser —
@@ -47,6 +47,11 @@ def _parser():
             a.add_argument('--idle-exit', type=float, default=None, help='Tự thoát sau N giây không có request (mặc định: không; `track open` đặt 1800).')
         else:
             a.add_argument('--no-browser', action='store_true', help='Khởi động/dùng lại server và in URL, không mở trình duyệt.')
+    a = sub.add_parser('copy-view', help='Mở trang thử trên bản sao tạm của sổ, tắt so mã hiện tại.')
+    a.add_argument('--clone', required=True, type=Path, help='Bản clone Git riêng của --project.')
+    a.add_argument('--scratch', required=True, type=Path, help='Thư mục có sẵn để chứa bản sao tạm.')
+    a.add_argument('--port', type=int, default=0, help='0 = cổng trống bất kỳ.')
+    a.add_argument('--no-browser', action='store_true', help='Chỉ in URL, không mở trình duyệt.')
     sub.add_parser('status', help='Server theo dõi của sổ này (marker + /api/health): có dùng lại được không, vì sao không.')
     a = sub.add_parser('stop', help='Dừng server theo dõi mà `track open` đã mở cho sổ này (chỉ tiến trình khớp định danh; không dừng task).')
     a.add_argument('--url', help='Dừng ĐÚNG server này (đi cùng --instance và --pid): http://127.0.0.1:<cổng>/, kể cả khi marker của sổ đã trỏ sang server khác.')
@@ -75,6 +80,10 @@ def main(argv=None):
             print(json.dumps(tracking.outward(value), ensure_ascii=False, indent=1) if opts.json else background.render(tracking.outward(value)), end='')
             return 0
         state_root, project_id = _state_root(opts)
+        if opts.command == 'copy-view':
+            from . import tracking_copy
+            return tracking_copy.serve(state_root, opts.project, project_id, opts.clone, opts.scratch,
+                                       port=opts.port, browser=not opts.no_browser)
         if opts.command == 'list':
             value = tracking.overview(state_root, project_id=None if opts.all_projects else project_id)
             print(json.dumps(value, ensure_ascii=False, indent=1) if opts.json else tracking.render_overview(value), end='')

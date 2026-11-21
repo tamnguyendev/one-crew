@@ -126,10 +126,11 @@ article,.attention a{min-width:0;padding:1rem;border:1px solid var(--line);borde
 """
 
 
-def page(state_root, project_id=None):
-    value = tracking._overview(state_root, project_id=project_id, reuse_seconds=tracking.REUSE_SECONDS, rhythm=True)
+def page(state_root, project_id=None, *, comparison=True):
+    value = tracking._overview(state_root, project_id=project_id, reuse_seconds=tracking.REUSE_SECONDS, rhythm=True, comparison=comparison)
     # Git metadata and the host/lease stores are read only after the ledger transaction has closed.
-    tracking_host_web.attach(value, state_root)
+    if comparison:
+        tracking_host_web.attach(value, state_root)
     value = tracking.outward(value)
     now = tracking._at(value['generated_at'])
     # The list can run on a shared server even when this dashboard was opened for one project.
@@ -157,7 +158,8 @@ def page(state_root, project_id=None):
             content += f'<p>{unseen} việc chưa so với bản hiện tại. Số cần kiểm lại chỉ gồm việc đã so.</p>'
         content += '<h2>Theo repo và worktree</h2><div class="grid">' + (projects_html(value['projects']) or 'Chưa có việc trong sổ') + '</div>'
         content += '<h2>Nhịp kiểm 14 ngày</h2>' + rhythm_html(value['check_days'])
-        content += '<h2>Việc nền và tài nguyên</h2><div class="grid">' + background_html(value['host_work'], value['shared_resources']) + '</div>'
+        if comparison:
+            content += '<h2>Việc nền và tài nguyên</h2><div class="grid">' + background_html(value['host_work'], value['shared_resources']) + '</div>'
         session_tasks = value.get('session_tasks', {})
         session_links = []
         for task in tasks:

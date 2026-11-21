@@ -20,6 +20,7 @@ from onecrew.control_core import Control, migrate
 from onecrew.ledger import Ledger
 from onecrew.snapshots import Snapshots
 from onecrew.v2 import engine, internal_plan, plan as plans, repair_tasks, tracking
+from onecrew.v2.verifiers import artifact as artifacts
 
 ACTOR = 'ONECREW_' + 'ACTOR'
 AI_MARKERS = ('CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION', ACTOR, 'ONECREW_V2_REQUIRE_PLAN')
@@ -133,12 +134,12 @@ def repair_root(ledger, store, name='REPAIR'):
     engine.verify(ledger, name, 'C', checker)
 
 
-def verdict(ledger, store, name, *, keep_receipt):
+def verdict(ledger, store, name, artifact, *, keep_receipt):
     """A command milestone's pass as verdict.run records it (receipt announced, then the verdict). keep_receipt False: the receipt key the
     events name is not in the store (lost to retention or deleted)."""
-    body = json.dumps({'kind': 'command-receipt', 'plan': name, 'milestone': 'M1', 'exit_code': 0, 'note': 'fixture'}, sort_keys=True).encode()
+    body = json.dumps({'kind': 'command-receipt', 'plan': name, 'milestone': 'M1', 'exit_code': 0, 'note': 'fixture',
+                       'artifact_sha': artifact, 'artifact_sha_after': artifact}, sort_keys=True).encode()
     key = store.blob(body) if keep_receipt else __import__('hashlib').sha256(body + b'gone').hexdigest()
-    artifact = '0123456789abcdef0123456789abcdef01234567'
     emit(ledger, name, 'verdict.receipt_issued', {'plan': name, 'revision': 1, 'milestone': 'M1', 'receipt': key})
     emit(ledger, name, 'verdict.recorded', {'plan': name, 'revision': 1, 'milestone': 'M1', 'result': 'pass', 'by': 'command',
                                             'receipt': key, 'artifact_sha': artifact})
@@ -175,11 +176,12 @@ def create(work, count=150, repair=True):
     approved(la, 'APPROVED-UNKNOWN')                       # no declaration: the session is recorded as unknown
     approved(la, 'APPROVED-OWNER', actor='owner')          # a shell that declares the owner: ai_session False
     for name in ('CLOSED', 'ACCEPTED', 'RCPT-OK', 'RCPT-GONE'): approved(la, name)
+    artifact = artifacts.identity(la.project)
     with owner_shell():
         emit(la, 'CLOSED', 'plan.closed', {'revision': 1, 'reason': 'chủ huỷ việc, chưa có kết quả'})
-        verdict(la, store, 'ACCEPTED', keep_receipt=True)
-        emit(la, 'ACCEPTED', 'plan.accepted', {'plan': 'ACCEPTED', 'revision': 1, 'by': 'owner', 'artifact_sha': '0123456789abcdef0123456789abcdef01234567'})
-        for name, keep in (('RCPT-OK', True), ('RCPT-GONE', False)): verdict(la, store, name, keep_receipt=keep)
+        verdict(la, store, 'ACCEPTED', artifact, keep_receipt=True)
+        emit(la, 'ACCEPTED', 'plan.accepted', {'plan': 'ACCEPTED', 'revision': 1, 'by': 'owner', 'artifact_sha': artifact})
+        for name, keep in (('RCPT-OK', True), ('RCPT-GONE', False)): verdict(la, store, name, artifact, keep_receipt=keep)
     return {'kind': 'obs2c-synthetic-state', 'state_root': str(state), 'project_a': str(a), 'project_b': str(b),
             'a_id': tracking.project_identity(a), 'b_id': tracking.project_identity(b), 'count': count,
             'note': 'Synthetic data only; no provider call and no real task acceptance.'}
