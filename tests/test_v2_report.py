@@ -188,6 +188,12 @@ class ReportTests(Scenario):
             first = conn.execute('SELECT created_at FROM events ORDER BY seq LIMIT 1').fetchone()[0]
         self.assertEqual(report._stamp(first), dt.datetime.fromisoformat(first).astimezone().strftime('%Y-%m-%d %H:%M'))
 
+    def test_budget_section_explains_an_incomplete_clock(self):
+        before_proposal = dt.datetime(2000, 1, 1, tzinfo=dt.timezone.utc)
+        lines = self.section(self.report('pres', now=before_proposal), 3)
+        self.assertIn('  Không đọc được thời gian ngân sách (ValueError): Incomplete clock', lines)
+        self.assertTrue(any('Phút tính ngân sách: chưa đo' in line for line in lines))
+
     def test_section_1_and_2_follow_the_verdicts(self):
         accepted = self.report('acc')
         self.assertEqual([l.split()[:2] for l in self.section(accepted, 1)], [['O1', 'ĐẠT'], ['O2', 'ĐẠT']])

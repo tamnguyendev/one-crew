@@ -9,10 +9,12 @@ cheaply in a test (plan.accepted, plan.closed, a command milestone's verdict.rec
 with approve's own payload and session record: see `approved`) are emitted with plans.emit, as tests/obs1_ux_fixture.py does.
 """
 import contextlib
+import hashlib
 import json
 import os
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 from unittest.mock import patch
 
@@ -137,12 +139,21 @@ def repair_root(ledger, store, name='REPAIR'):
 def verdict(ledger, store, name, artifact, *, keep_receipt):
     """A command milestone's pass as verdict.run records it (receipt announced, then the verdict). keep_receipt False: the receipt key the
     events name is not in the store (lost to retention or deleted)."""
-    body = json.dumps({'kind': 'command-receipt', 'plan': name, 'milestone': 'M1', 'exit_code': 0, 'note': 'fixture',
-                       'artifact_sha': artifact, 'artifact_sha_after': artifact}, sort_keys=True).encode()
-    key = store.blob(body) if keep_receipt else __import__('hashlib').sha256(body + b'gone').hexdigest()
-    emit(ledger, name, 'verdict.receipt_issued', {'plan': name, 'revision': 1, 'milestone': 'M1', 'receipt': key})
-    emit(ledger, name, 'verdict.recorded', {'plan': name, 'revision': 1, 'milestone': 'M1', 'result': 'pass', 'by': 'command',
-                                            'receipt': key, 'artifact_sha': artifact})
+    with ledger.transaction() as conn:
+        state = plans.anchor_events(ledger, conn, name)
+    revision = state['approved']['revision']
+    contract, plan_sha = plans.load(ledger, state, revision)
+    milestone = contract['milestones'][0]
+    root = {'plan': name, 'revision': revision, 'milestone': milestone['id']}
+    run = {**root, 'run_id': uuid.uuid4().hex[:12]}
+    evidence = {**root, 'plan_sha': plan_sha, 'artifact_sha': artifact}
+    emit(ledger, name, 'verdict.run_started', {**run, 'kind': 'command'})
+    body = json.dumps({**evidence, 'kind': 'command-receipt', 'argv': milestone['verifier']['config']['argv'],
+                       'exit_code': 0, 'error': None, 'timed_out': False, 'artifact_sha_after': artifact,
+                       'stdout_bytes': 2, 'stderr_bytes': 0, 'note': 'fixture'}, sort_keys=True).encode()
+    key = store.blob(body) if keep_receipt else hashlib.sha256(body).hexdigest()
+    emit(ledger, name, 'verdict.receipt_issued', {**run, 'receipt': key})
+    emit(ledger, name, 'verdict.recorded', {**evidence, 'receipt': key, 'result': 'pass', 'by': 'command'})
     return key
 
 

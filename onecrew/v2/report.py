@@ -27,6 +27,7 @@ from pathlib import Path
 from ..ledger import APP_ID, VERSION, Ledger, LedgerError
 from ..snapshots import Snapshots
 from . import contract as contracts, plan as plans, namespaces, step0
+from .diagnostics import redact_line
 
 NO_DATA = 'không có dữ liệu'
 NO_HOOK_LOG = 'không có nhật ký hook'
@@ -493,10 +494,14 @@ def _budget_time(f, cutoff):
 
 
 def _minutes(f):
+    clock_error = None
     try:
         elapsed, waiting, charge, start, end = _budget_time(f, f.get('cutoff') or dt.datetime.now(dt.timezone.utc))
-    except (KeyError, ValueError, TypeError, OSError, LedgerError):
+    except (KeyError, ValueError, TypeError, OSError, LedgerError) as exc:
         elapsed = waiting = charge = start = end = None
+        detail, _ = redact_line(' '.join(str(exc).split()))
+        clock_error = textwrap.shorten(f'Không đọc được thời gian ngân sách ({type(exc).__name__}): {detail}',
+                                       width=WIDTH - 2, placeholder='…')
     budget = f['contract']['budget']['time'] if f['contract'] else None
     def minutes(seconds):
         return 'chưa đo' if seconds is None else f'{seconds / 60:.2f}'.rstrip('0').rstrip('.') + ' phút'
@@ -511,6 +516,8 @@ def _minutes(f):
                            f'  Phút tính ngân sách: {minutes(charge)} · Tổng thời gian lệnh đã đo: {minutes(f.get("command_seconds"))}']
     if start is not None:
         lines += _wrap(f'từ {_stamp(start.isoformat())} đến {_stamp(end.isoformat())}, giờ máy này')
+    elif clock_error:
+        lines.append(f'  {clock_error}')
     return lines
 
 
