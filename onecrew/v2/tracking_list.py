@@ -268,7 +268,12 @@ def _index(reader, conn, roots):
             mine = None             # UI58 MC: a root whose next step is the owner's own check of an owner-manual milestone also waits for the owner
             if contract and status == 'approved' and not namespaces.has_capability(state, 'sequential-engine'):
                 from .tracking_situation import owner_try
-                try: mine = owner_try(plans.milestone_views(contract, state, state['latest']))
+                try:
+                    mine = owner_try(plans.milestone_views(contract, state, state['latest']))
+                    if mine is not None:        # UIMOCK rev 9: not on a pass whose program changed since it ran (plan.program_stale; no project hash)
+                        found = plans.program_stale(report._Reader(reader.state_root, row['project_id'], row['project_path']),
+                                                    contract, state, state['latest'])
+                        if found: mine = owner_try(plans.mark_program_stale(contract, plans.milestone_views(contract, state, state['latest']), found))
                 except (LedgerError, OSError, ValueError, KeyError, TypeError): mine = None     # the row itself is still read in full when shown
             entry.update(plan=state['name'], status=status, contract_error=error, origin=o, owner_try=mine['id'] if mine else None,
                          ended=({'kind': end_kind, 'accepted': end_kind == 'accepted', 'at': (ends.get(row['id']) or {}).get('plan.' + end_kind)} if end_kind else None),

@@ -253,6 +253,23 @@ def _live_views(reader, contract, state):
     return plans.views_for(reader, contract, state, state['latest']), 'compared'
 
 
+def _ledger_views(observe, free, contract, state, root_key, sig):
+    """UIMOCK rev 9 (UI58 on the development ledger, 23/11): the views of a read that does not compare with the project (the list, the task
+    page's tiles before "Xem sâu"). Before such a view asks the OWNER to try a milestone (tracking_situation.owner_try) on passes it has not
+    compared, it checks the one part of the comparison that needs no hash of the project and no read of a Python environment: a command pass
+    whose program file changed since it ran is stale (plan.program_stale, quick), so it is not counted and the owner's step is not offered on it.
+    Only that case is checked (a stat and a digest per receipt), so the first paint stays as fast as before. A check that fails leaves the
+    ledger's own views (their validity still says "chưa so")."""
+    views = plans.milestone_views(contract, state, state['latest'])
+    if state['status'] in ('accepted', 'closed') or not observe.comparison: return views
+    from .tracking_situation import owner_try
+    if owner_try(views) is None: return views
+    try: found = plans.program_stale(free, contract, state, state['latest'])
+    except Exception: found = None
+    if found: plans.mark_program_stale(contract, views, found)
+    return views
+
+
 def _unknown_views(contract, state):
     """The views from the ledger alone, a pass of a non-manual verifier not counted (current_unknown): the project's artifact was not compared."""
     views = plans.milestone_views(contract, state, state['latest'])
@@ -1247,7 +1264,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200, observe=Non
             else:
                 recalled = _recall_compared(reader.state_root, row, state, events)     # D4: the task page's last comparison, never a new hash
                 if recalled: views, current, compared_at = recalled
-                else: views = plans.milestone_views(contract, state, state['latest'])
+                else: views = _ledger_views(observe, free, contract, state, root_key, sig)
         except (LedgerError, OSError, ValueError, KeyError): views = []
     gaps = _receipt_gaps(reader.state_root, state, views, engine_view)
     events, children, history = _history(conn, row['id'], events)

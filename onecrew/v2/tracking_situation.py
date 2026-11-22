@@ -39,6 +39,9 @@ OWNER_STEPS = {'amend_grant': 'Quyết định có sửa hợp đồng để cho
                'owner_decision': 'Quyết định sau khi dừng: duyệt bản sửa để đi tiếp, hoặc kết thúc',
                'read_plan': 'Đọc kế hoạch và quyết định bước tiếp theo'}
 RUN_KINDS = ('verdict.run_started', 'verdict.receipt_issued', 'verdict.run_abandoned', 'verdict.recorded')
+# UIMOCK rev 9: the reasons plan.milestone_views writes in English, in the owner's words on the card (the path a reason names stays in plan show)
+STALE_WORDS = (('the program the command starts, or its Python packages, changed', 'chương trình mà lệnh kiểm chạy, hoặc các gói Python của nó, đã đổi từ lần đạt'),
+               ('a declared input outside the repository changed', 'một đầu vào khai báo nằm ngoài kho đã đổi'))
 
 
 def _at(text):
@@ -50,6 +53,11 @@ def _at(text):
 
 def _iso(value):
     return value.astimezone(dt.timezone.utc).isoformat() if value else None
+
+
+def stale_words(reason):
+    text = str(reason)
+    return next((words for key, words in STALE_WORDS if text.startswith(key)), text)
 
 
 def _names(ids):
@@ -154,8 +162,8 @@ def milestone_checks(views, history, revision, now, lost):
                      'last_result': last.get('result') if last else None, 'last_at': (last.get('recorded') or last.get('ended')) if last else None,
                      'check_seconds': sum(timed) if timed else None, 'untimed_checks': len(mine) - len(timed),
                      'note': v.get('recheck_note') or (CURRENT_UNKNOWN if v.get('current_unknown') else None) or v.get('reuse_note')
-                             or (('bằng chứng không còn khớp bản hiện tại' + (': ' + '; '.join(map(str, v['stale_reasons'])) if v.get('stale_reasons') else '')
-                                  + ('' if v.get('stale_reasons') else ' (mã đã đổi sau lần kiểm)'))[:200] + (' ' + v['order_note'] if v.get('order_note') else '') if v.get('stale') else v.get('evidence_reason'))})
+                             or (('bằng chứng không còn khớp bản hiện tại' + (': ' + '; '.join(dict.fromkeys(stale_words(r) for r in v['stale_reasons'])) if v.get('stale_reasons') else '')
+                                  + ('' if v.get('stale_reasons') else ' (mã đã đổi sau lần kiểm)'))[:200] + ('. ' + v['order_note'] if v.get('order_note') else '') if v.get('stale') else v.get('evidence_reason'))})
     return {'revision': revision, 'rows': rows, 'timed': any(c.get('started') and c.get('ended') for r in rows for c in r['checks']),
             'basis': 'verdict.run_started → verdict.receipt_issued (thời gian chạy bộ kiểm) và verdict.recorded (kết quả); '
                      'không phải thời gian làm việc; khoảng trống giữa hai lần kiểm không phải thời gian chờ'}
@@ -203,6 +211,15 @@ def _engine(state, engine_view, active, needs, acceptance, level, progress=None)
     return 'unknown', 'Không có phần việc đang chạy, bị giữ hay chờ; sổ không đủ để kết luận', None, None, None
 
 
+def _then_owner(views, blockers):
+    """UIMOCK rev 9: ' trước khi bạn thử mốc X' when an owner-manual milestone not yet passed waits behind `blockers` (milestones that are not
+    passed, or whose pass is not counted): the page names what blocks the owner's step instead of asking for it."""
+    ids = [v['id'] for v in views]
+    first = min((ids.index(b) for b in blockers if b in ids), default=None)
+    mine = next((v for v in views[first + 1:] if v.get('verifier') == 'owner-manual' and v.get('state') != 'passed'), None) if first is not None else None
+    return ' trước khi bạn thử mốc ' + str(mine['id']) if mine else ''
+
+
 def _plain(views, rows, acceptance, level, has_started):
     """(stage, reason, next, by_text, by, label or None). #58: a real failure, a check that did not conclude (timeout), a pass the project has left
     and a pass that could not be compared with the project now are four different things, each with its reason and its own next step."""
@@ -214,17 +231,17 @@ def _plain(views, rows, acceptance, level, has_started):
         return 'check', 'Đang kiểm mốc ' + _names(checking), 'Chờ kết quả kiểm ' + _names(checking), CHECKER, 'checker', None
     if failed:
         return 'fix', 'Mốc ' + _names(failed) + ' kiểm không đạt' + (': ' + why(failed[0]) if why(failed[0]) else ''), \
-            'Sửa và kiểm lại mốc ' + _names(failed), None, None, None
+            'Sửa và kiểm lại mốc ' + _names(failed) + _then_owner(views, failed), None, None, None
     if unclear:
         return 'check', 'Mốc ' + _names(unclear) + ' chưa kết luận được' + (': ' + why(unclear[0]) if why(unclear[0]) else '') + '; đây không phải kiểm không đạt', \
-            'Kiểm môi trường chạy (máy bận, mạng, thời hạn của bộ kiểm) rồi chạy lại bộ kiểm mốc ' + _names(unclear), None, None, LABELS['inconclusive']
+            'Kiểm môi trường chạy (máy bận, mạng, thời hạn của bộ kiểm) rồi chạy lại bộ kiểm mốc ' + _names(unclear) + _then_owner(views, unclear), None, None, LABELS['inconclusive']
     if recheck:
         notes = [by_id[m].get('note') for m in recheck if by_id[m].get('note')]
         return 'check', 'Mốc ' + _names(recheck) + ' từng đạt trên bản trước, cần kiểm lại trên bản đang xem: lần đạt trước không còn được tính' + ((' vì ' + notes[0]) if notes else ''), \
-            'Kiểm lại mốc ' + _names(recheck), None, None, LABELS['recheck']
+            'Kiểm lại mốc ' + _names(recheck) + _then_owner(views, recheck), None, None, LABELS['recheck']
     if unknown:
         return 'unknown', 'Mốc ' + _names(unknown) + ': ' + CURRENT_UNKNOWN, \
-            'Mở lại khi đọc được thư mục dự án, hoặc kiểm lại mốc ' + _names(unknown), None, None, LABELS['unknown']
+            'Mở lại khi đọc được thư mục dự án, hoặc kiểm lại mốc ' + _names(unknown) + _then_owner(views, unknown), None, None, LABELS['unknown']
     mine = owner_try(views)
     if mine is not None:          # UI58 MC: an owner-manual milestone is the owner's to try and record, never AI work ("chưa rõ ai làm")
         before = [v['id'] for v in views[:views.index(mine)]]
@@ -238,9 +255,10 @@ def _plain_rest(views, left, acceptance, level, has_started):
     if level == 'verified' or not left:
         if acceptance.get('ready'): return 'accept', 'Mọi mốc đã kiểm đạt', 'Bạn nghiệm thu hoặc nêu điều chưa đạt', OWNER, 'owner'
         return 'check', acceptance.get('reason') or 'Mọi mốc có kết quả đạt, chưa đủ điều kiện nghiệm thu', 'Hoàn tất kiểm bàn giao', None, None
+    then = _then_owner(views, left[:1])
     if not has_started:
-        return 'todo', 'Đã duyệt, chưa có lần kiểm nào', 'Làm và kiểm mốc ' + left[0], None, None
-    return 'doing', 'Chưa kiểm mốc ' + _names(left), 'Làm và kiểm mốc ' + left[0], None, None
+        return 'todo', 'Đã duyệt, chưa có lần kiểm nào', 'Làm và kiểm mốc ' + left[0] + then, None, None
+    return 'doing', 'Chưa kiểm mốc ' + _names(left), 'Làm và kiểm mốc ' + left[0] + then, None, None
 
 
 def situation(*, state, views, checks, engine_view, attempts, active, requests, needs, acceptance, level, has_started, guidance, status_kind, status_reason,
@@ -333,7 +351,7 @@ def situation(*, state, views, checks, engine_view, attempts, active, requests, 
             'no_owner_decision': not owner_needs and by != 'owner', 'source': src}
 
 
-RECHECK_TEXT = ('Mốc {ids} từng đạt trên bản trước; bản đang xem đã khác (mã hoặc quy tắc kiểm đã đổi sau lần đạt), nên cần kiểm lại trên bản này. '
+RECHECK_TEXT = ('Mốc {ids} từng đạt trên bản trước; bản đang xem đã khác (mã, quy tắc kiểm hoặc chương trình kiểm đã đổi sau lần đạt), nên cần kiểm lại trên bản này. '
                 'Lần đạt cũ không còn được tính')
 
 

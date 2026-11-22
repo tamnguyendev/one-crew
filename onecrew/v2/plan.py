@@ -243,15 +243,49 @@ def _env_inputs_outside(ledger, contract):
         if twice: raise LedgerError(f"{m['id']}.env_inputs: {twice} is the same place as another env_input.")
 
 
-def _program_reasons(ledger, milestone, candidate):
-    """review of dev24c (P1): command.program_reasons on the receipt of a pass; a receipt that cannot be read is not current."""
+def _program_reasons(ledger, milestone, candidate, *, quick=False):
+    """review of dev24c (P1): command.program_reasons on the receipt of a pass; a receipt that cannot be read is not current. `quick`: the program
+    file only (command.program_reasons(quick=True))."""
     from .verifiers import command
     from ..snapshots import Snapshots
     try:
         body = json.loads(Snapshots(ledger.state_root).read_blob(candidate['receipt']))
     except (LedgerError, OSError, ValueError, TypeError, KeyError):
         return ['the receipt cannot be read']
-    return command.program_reasons(body, ledger.project, milestone['verifier']['config'].get('env_inputs'))
+    return command.program_reasons(body, ledger.project, milestone['verifier']['config'].get('env_inputs'), quick=quick)
+
+
+ORDER_NOTE = 'Mốc cũ vẫn cho chạy mốc sau. Kiểm lại một lần trên cây cuối trước khi nghiệm thu.'
+
+
+def program_stale(ledger, contract, state, revision):
+    """UIMOCK rev 9 (UI58 on the development ledger, 23/11): the program rule of milestone_views alone, for the readers that never hash the
+    project (the tracking list, the task page's tiles, plan digest). A command pass whose program or Python packages changed since it ran
+    (_program_reasons) is not current whatever the project's tree is, so a ledger-only view must not count it or point past it. It reads the
+    receipt and the program FILE only (quick: no Python environment, no env_inputs, no project), so a first read stays fast; a pass it does not
+    find stale is not proven current (the task page's full comparison decides, "Xem sâu"). -> {milestone id: [reasons]} for the passes it finds
+    stale (milestones judged by their declared inputs are left to the full comparison, as milestone_views leaves them to _covers_inputs)."""
+    if state.get('status') in ('accepted', 'closed') or ledger is None or not getattr(ledger, 'project', None): return {}
+    final, found = contracts.delivery_milestone(contract), {}
+    for m in contract['milestones']:
+        if m['verifier']['type'] != 'command' or (m['id'] != final and contracts.verifier_inputs(m)): continue
+        mine = [v for v in state['verdicts'] if v['revision'] == revision and v['milestone'] == m['id']]
+        if not mine or mine[-1]['result'] != 'pass': continue
+        why = _program_reasons(ledger, m, mine[-1], quick=True)
+        if why: found[m['id']] = list(why)
+    return found
+
+
+def mark_program_stale(contract, views, found):
+    """Mark the ledger-only `views` of the passes program_stale(...) found, as milestone_views marks them (not passed, stale, the reasons)."""
+    final = contracts.delivery_milestone(contract)
+    for v in views:
+        why = (found or {}).get(v['id'])
+        if not why or v.get('state') != 'passed' or v.get('stale'): continue
+        v.update(state='pending', stale=True, stale_reasons=list(why), checks_to_rerun=[v['id']], evidence_status='stale',
+                 evidence_reason='; '.join(why), repairs_left=max(0, v['max_repairs'] - v['failures']) if isinstance(v.get('max_repairs'), int) else None)
+        if v['id'] != final: v['order_note'] = ORDER_NOTE
+    return views
 
 
 def _inputs_unsupported(state, contract):
@@ -381,7 +415,7 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=
                     if candidate['revision'] != revision or how == 'neutral': extra['carried_from'] = candidate['revision']
                     if how == 'neutral': extra['neutral_diff'] = True
         if extra.get('stale') and not delivery and m['verifier']['type'] != 'owner-manual':
-            extra['order_note'] = 'Mốc cũ vẫn cho chạy mốc sau. Kiểm lại một lần trên cây cuối trước khi nghiệm thu.'
+            extra['order_note'] = ORDER_NOTE
         if m['verifier']['type'] != 'owner-manual':
             if extra.get('stale'):
                 extra.setdefault('evidence_status', 'stale')

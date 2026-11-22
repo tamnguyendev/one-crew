@@ -989,11 +989,13 @@ def env_inputs_identity(paths, repo=None):
     return out
 
 
-def tool_changed(tool, env=None):
+def tool_changed(tool, env=None, *, environment=True):
     """Whether the program a receipt names would not be the one the command starts now, or has other bytes or another Python environment
     (mep7 hole (b); review of dev24c, P1): the invoked path is looked up again (a bare word on the PATH, an absolute one as written), the file it runs
     is resolved again (file and folder links, an app execution alias), and both are compared with the receipt, then the bytes and the environment.
-    A receipt made before the invoked path was recorded, or whose environment could not be read, is a change."""
+    A receipt made before the invoked path was recorded, or whose environment could not be read, is a change.
+    UIMOCK rev 9: `environment=False` stops before the Python environment is read (every installed distribution): what it calls a change is one;
+    what it does not call a change may still be one (the tracking list's quick view; the full rule decides)."""
     if not isinstance(tool, dict) or tool.get('in_inputs'): return False
     if not tool.get('path') or 'invoked' not in tool or 'environment' not in tool: return True
     if isinstance(tool['environment'], dict) and 'unreadable' in tool['environment']: return True     # an environment never read proves nothing
@@ -1005,18 +1007,20 @@ def tool_changed(tool, env=None):
         if os.path.normcase(str(program)) != os.path.normcase(tool['path']): return True
         if bool(alias) != bool(tool.get('alias')): return True
         if _cached_digest(program)[1] != tool.get('sha256'): return True
+        if not environment: return False
         now = python_environment(invoked, program)
     except (OSError, LedgerError):                     # unreadable, or over a cap (dev24b): never a carried pass
         return True
     return (now or {}).get('sha256') != (tool['environment'] or {}).get('sha256')
 
 
-def program_reasons(body, project, declared=None, env_from=None):
+def program_reasons(body, project, declared=None, env_from=None, *, quick=False):
     """review of dev24c (P1, owner 11/11 "Sửa cả lỗi cũ"): why a command receipt no longer speaks for the program it ran, its Python environment
     or its declared env_inputs; [] when it still does. The one program rule every place that judges command evidence applies (plan show, owner
     accept, the reuse of a retained proof). A receipt this runtime wrote always names its program; one under this checkout policy that does not is
     not current. The verifier environment is made the way the run made it: from its cwd, or `env_from` (a candidate check ran in a scratch checkout
-    with the project's environment); the PATH without the project's repository."""
+    with the project's environment); the PATH without the project's repository. UIMOCK rev 9: `quick` checks the program file only (no Python
+    environment, no env_inputs): every reason it gives the full rule gives too; an empty answer does not prove the receipt current."""
     if not isinstance(body, dict) or body.get('kind') != 'command-receipt': return []
     program = body.get('program')
     if program is None:
@@ -1026,9 +1030,9 @@ def program_reasons(body, project, declared=None, env_from=None):
     # review of dev24d: the lookup environment is made once per receipt, and only for a bare word (an absolute program needs none)
     env = verifier_env(Path(env_from or body.get('cwd') or project)) if is_bare_word(program.get('word')) else {}
     if declared is None: declared = list(body.get('env_inputs') or {})          # what the run declared, as it recorded it
-    if tool_changed(program, env):
+    if tool_changed(program, env, environment=not quick):
         reasons.append('the program the command starts, or its Python packages, changed: ' + str(program.get('invoked') or program.get('word')))
-    if declared:
+    if declared and not quick:
         try:
             now = env_inputs_identity(declared, project)
         except (LedgerError, OSError) as error:

@@ -245,6 +245,46 @@ class Status(Fixture):
         self.assertTrue(any('sửa 1/3' in l for l in fail))
         self.assertEqual(self.page('P3')['situation']['repairs']['used'], 1)
 
+    # ---- UIMOCK rev 9 (UI58 on the development ledger, 23/11): stale passes before a milestone the owner tries -----------------------
+
+    def test_stale_passes_block_owner_milestone(self):
+        """M1, M2 passed, then the program their command ran changed (the dev ledger's case: 'the program the command starts, or its Python
+        packages, changed'); MO is the owner's. The list, the task page's tiles (head, no project hash), the full page and plan digest do not count
+        the old passes, do not ask the owner to try MO, and name what blocks it, as `plan report` does."""
+        from onecrew.v2 import tracking_list
+        mo = {'id': 'MO', 'title': 'Owner tries it', 'verifier': {'type': 'owner-manual', 'config': {}}, 'covers': ['O1']}
+        self.plan('PO', [milestone('M1'), milestone('M2'), mo])
+        self.plan('PN', [milestone('M1'), mo])                              # nothing ran yet: the step names the milestone before the owner's
+        with contextlib.redirect_stderr(io.StringIO()):       # two plans on one project: the active-plan export warns, by design
+            verdict.run(self.ledger, 'PO', 'M1'); verdict.run(self.ledger, 'PO', 'M2')
+        before = tracking.head(self.ledger.state_root, 'PO')                  # precondition: the passes still count, MO is the owner's to try
+        self.assertEqual(before['situation']['milestones']['text'], 'Đạt 2/3 mốc')
+        self.assertEqual([n['kind'] for n in before['needs_user']], ['owner_try'])
+        blocked = 'Kiểm lại mốc M1, M2 trước khi bạn thử mốc MO'
+        with patch.object(command, 'tool_changed', return_value=True):
+            tracking._compared.clear()
+            said = report.render_report(self.ledger.state_root, 'PO')
+            self.assertIn('M1 cũ', said); self.assertIn('M2 cũ', said); self.assertIn('Bạn cần làm: không gì', said)
+            head = tracking.head(self.ledger.state_root, 'PO')
+            rows = {t['plan']: t for t in tracking_list.page(self.ledger.state_root, {'list': '1', 'limit': '50'})['projects'][0]['tasks']}
+            listed = {t['plan']: t for p in tracking.overview(self.ledger.state_root)['projects'] for t in p['tasks']}
+            full = self.page('PO')
+            for where, d in (('head', head), ('list', rows['PO']), ('overview', listed['PO']), ('detail', full)):
+                with self.subTest(where=where):
+                    s = d['situation']
+                    self.assertEqual(s['milestones']['text'], 'Đạt 0/3 mốc')                   # an old pass is not counted
+                    self.assertEqual((s['stage'], s['label'], s['next']), ('check', 'Cần kiểm lại', blocked))
+                    self.assertNotIn('owner_try', [n['kind'] for n in d['needs_user']])        # no "Bạn thử và ghi kết quả mốc MO"
+                    self.assertNotIn('Bạn thử', s['next'])
+                    self.assertEqual([(m['id'], bool(m['stale'])) for m in d['milestones']], [('M1', True), ('M2', True), ('MO', False)])
+                    self.assertEqual(d['validity']['kind'], 'recheck')
+                    self.assertIn('chương trình mà lệnh kiểm chạy', s['reason'])               # the reason in the owner's words, not the English one
+                    self.assertNotIn('the program', s['reason'])
+                    self.assertNotIn('tự thử', d['status']['reason'])
+            digest = next(l for l in report.render_digest(self.ledger.state_root).splitlines() if l.startswith('PO '))
+            self.assertIn('mốc 0/3', digest); self.assertIn('cần bạn làm gì: không gì', digest)
+        self.assertEqual(tracking.head(self.ledger.state_root, 'PN')['situation']['next'], 'Làm và kiểm mốc M1 trước khi bạn thử mốc MO')
+
     def test_short_title(self):
         short = tracking.short_title(UI58_TITLE)
         self.assertLessEqual(len(short), 64)

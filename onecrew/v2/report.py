@@ -686,6 +686,13 @@ def render_digest(state_root):
         kind, _ = _standing(f)
         if kind not in ('open', 'stopped'): counts[kind] += 1; continue
         if kind == 'stopped': counts[kind] += 1                                    # not closed: the owner decides it, so it stays on the list with that decision
+        if f['contract'] and not namespaces.has_capability(f['state'], 'sequential-engine') and _needs(f) == 'nghiệm thu' \
+                and any(v['state'] != 'passed' and v['verifier'] == 'owner-manual' for v in f['views']):
+            # UIMOCK rev 9: before the line asks the owner to try an owner-manual milestone, a command pass before it whose program changed since
+            # it ran is not counted (the program rule of plan show, no project hash; the only case checked, so the digest stays as fast)
+            try: found = plans.program_stale(_Reader(state_root, row['project_id'], row['project_path']), f['contract'], f['state'], f['revision'])
+            except (LedgerError, OSError, ValueError, KeyError, TypeError): found = {}
+            if found: plans.mark_program_stale(f['contract'], f['views'], found)
         passed = len([v for v in f['views'] if v['state'] == 'passed'])
         total = f'{passed}/{len(f["views"])}' if f['contract'] else '?/?'
         label = f['name'] if names.count(f['name']) == 1 else f'{row["request_key"]} [{row["project_id"][:12]}]'
