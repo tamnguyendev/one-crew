@@ -128,6 +128,7 @@ class HookFixture(Fixture):
         super().setUp()
         (self.root / 'src').mkdir(); (self.root / 'docs').mkdir()
         self.state = Path(self.ledger.state_root)
+        self.tool_call_number = 0
 
     def enforce(self, name='P1', value=None, mode='enforce'):
         self.approved(name, value or owned_plan())
@@ -142,8 +143,9 @@ class HookFixture(Fixture):
         return done.returncode, done.stdout.decode('utf-8'), done.stderr.decode('utf-8')
 
     def tool(self, name, **tool_input):
+        self.tool_call_number += 1
         return {'session_id': 's1', 'cwd': str(self.root), 'hook_event_name': 'PreToolUse', 'permission_mode': 'default',
-                'tool_name': name, 'tool_input': tool_input, 'tool_use_id': 'toolu_1'}
+                'tool_name': name, 'tool_input': tool_input, 'tool_use_id': f'toolu_{self.tool_call_number}'}
 
     def edit(self, rel, tool='Edit'):
         key = 'notebook_path' if tool == 'NotebookEdit' else 'file_path'

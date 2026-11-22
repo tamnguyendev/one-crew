@@ -371,6 +371,7 @@ class LatestVerdictTests(Fixture):
         with self.assertRaises(LedgerError) as caught: plans.accept(self.ledger, 'P1', 'owner', 'ref', second)
         message = str(caught.exception)
         self.assertIn(f'M1 passed on {first}', message); self.assertIn(f'M2 passed on {second}', message)
+        self.assertIn('Stale milestones: M1: artifact changed.', message)
         with self.assertRaises(LedgerError): plans.accept(self.ledger, 'P1', 'owner', 'ref', first)
         verdict.run(self.ledger, 'P1', 'M1', self.root)                               # the milestone that differs is re-run on the new tree
         self.assertEqual(plans.accept(self.ledger, 'P1', 'owner', 'ref', second)['status'], 'accepted')

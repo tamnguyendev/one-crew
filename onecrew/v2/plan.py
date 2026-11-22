@@ -842,15 +842,23 @@ def accept(ledger, name, by, reference, artifact_sha, *, expected_revision=None)
                         verification_evidence.record_reuse(ledger, name, milestone['id'], candidate['receipt'], artifact_sha, conn=conn, recorded_environment=True)
             views = milestone_views(contract, state, revision, ledger, artifact=artifact_sha, conn=conn, recorded_environment=True)
             missing = [v['id'] for v in views if v['state'] != 'passed' and not v.get('stale')]
-            if missing: raise LedgerError('Cannot accept: no passing verdict for milestone ' + ', '.join(missing) + '.')
             elsewhere = [v for v in views if v.get('stale')]
             if elsewhere:
-                raise LedgerError(f'Cannot accept artifact {artifact_sha}: every milestone must have passed on exactly that artifact; '
-                                   + '; '.join(f'{v["id"]}: ' + ', '.join(v.get('stale_reasons') or ['artifact changed']) for v in elsewhere)
-                                   + '. Inspect plan show and re-run only the named stale milestones in their execution environment.'
-                                   + (f' The milestones declare inputs: an intermediate receipt may cover only its declared inputs; take the full delivery sha from '
-                                      f'`verdict artifact --plan {name}`.'
-                                      if any(contracts.verifier_inputs(m) for m in contract['milestones']) else ''))
+                details = [f'Cannot accept artifact {artifact_sha}: every milestone needs a passing verdict valid for exactly that artifact.']
+                for view in views:
+                    last = view['last_verdict']
+                    if last and last['result'] == 'pass':
+                        details.append(f'{view["id"]} passed on {last["artifact_sha"]}.')
+                stale = [f'{v["id"]}: ' + ', '.join(v.get('stale_reasons') or ['artifact changed']) for v in elsewhere]
+                details.append('Stale milestones: ' + '; '.join(stale) + '.')
+                if missing:
+                    details.append('No passing verdict for milestone ' + ', '.join(missing) + '.')
+                details.append('Inspect plan show and re-run the named stale milestones in their execution environment.')
+                if any(contracts.verifier_inputs(m) for m in contract['milestones']):
+                    details.append('An intermediate receipt may cover only its declared inputs. Get the full delivery sha '
+                                   f'from `verdict artifact --plan {name}`.')
+                raise LedgerError(' '.join(details))
+            if missing: raise LedgerError('Cannot accept: no passing verdict for milestone ' + ', '.join(missing) + '.')
             if namespaces.has_capability(state, 'finding-register'):
                 from .findings import list_findings
                 open_findings = list_findings(ledger, name, task_id=state['task_id'], open_only=True)
