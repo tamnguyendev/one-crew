@@ -952,6 +952,7 @@ details.badge>summary::-webkit-details-marker{display:none}details.badge>summary
 .lsearch{display:flex;align-items:center;gap:6px;margin:0 0 6px;color:var(--ink2)}
 .lsearch input{flex:1 1 auto;min-width:0;height:32px;min-height:0;padding:0 10px;border:1px solid var(--rule);border-radius:8px;background:var(--sheet);font-size:13.5px}
 #factive{margin:0 0 6px}#empty{padding:6px 0;color:var(--ink2);font-size:13.5px}#empty:empty{display:none}
+.lskel{display:block}.lskel i{display:block;height:44px;margin:0 0 6px;border-radius:6px;background:var(--line);opacity:.45}   /* UIMOCK rev 9: the list's first read, as three grey rows and no words: the task tiles paint from their own light read without waiting for it */
 #list ul.lrows{list-style:none;margin:6px -16px 0;padding:0;border:0;border-radius:0;overflow:visible;background:linear-gradient(90deg,transparent 27px,var(--margin) 27px,var(--margin) 28px,transparent 28px)}
 #list li.grp{margin:0;padding:12px 16px 2px 40px;font-size:13px;font-weight:600;color:var(--ink2);list-style:none;border:0}
 #list li.task{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:0;min-height:44px;padding:0 16px 0 0;margin:0;border:0;border-bottom:1px solid var(--rule);border-left:0;border-radius:0;background:transparent;cursor:pointer;overflow-wrap:normal}
@@ -1021,7 +1022,7 @@ details.badge>summary::-webkit-details-marker{display:none}details.badge>summary
 <label>Sắp xếp <select id="sort"><option value="attention">Cần xử lý trước</option><option value="updated">Cập nhật gần nhất</option><option value="created">Ngày tạo (cũ trước)</option><option value="deadline">Hạn hoàn thành (nếu có)</option></select></label>
 </div></details></div>
 <div id="sample" class="sample-banner" hidden>Các thẻ đang xem có nhãn “dữ liệu thử” trong tên. Kiểm tra đúng dự án và sổ trước khi chạy lệnh.</div>
-<div id="empty">Đang tải danh sách việc…</div>
+<div id="empty"><span class="lskel" role="status" aria-busy="true" aria-label="Đang lấy danh sách việc từ sổ"><i></i><i></i><i></i></span></div>
 <div id="list" role="group" aria-label="Bảng công việc"></div>
 <div id="listfoot" class="listfoot" aria-live="polite"></div>
 <details id="untrackedbox" data-k="untracked"><summary>Chưa được theo dõi</summary><div id="untracked" class="small"></div></details><span id="count" hidden></span></section>
