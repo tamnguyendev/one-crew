@@ -40,7 +40,7 @@ class Overview(unittest.TestCase):
 
     def test_owner_items_first(self):
         owner_link = self.html.index('Owner decision')
-        self.assertLess(self.html.index('Cần bạn quyết định'), owner_link)
+        self.assertLess(self.html.index('Bạn cần quyết'), owner_link)                    # UIMOCK: the attention chip, then the tasks that wait
         self.assertLess(owner_link, self.html.index('Theo repo'))
         self.assertNotIn('Checked work', self.html[:self.html.index('Theo repo')])
 
@@ -49,15 +49,15 @@ class Overview(unittest.TestCase):
         self.project.git('worktree', 'add', '-q', '--detach', str(other))
         trees = [dict(path=str(path), tasks=[{'project_id': name}]) for path, name in ((self.project.root, 'a'), (other, 'b'))]
         markup = dash.projects_html(trees)
-        self.assertEqual(markup.count('<article>'), 1)
+        self.assertEqual(markup.count('<article class="panel ptile"'), 1)              # one card per repository
         self.assertIn('linked · 1 việc', markup)
         self.assertIn('example · 1 việc', markup)
         self.assertIn('project=repo%3Aa%2Cb', markup)
         self.assertIsNone(dash.repo_dir(self.base / 'removed'))
 
     def test_attention_counts_match_list(self):
-        tiles = re.findall(r'href="/\?stage=(\w+)"><strong>(\d+)</strong>', self.html)
-        self.assertEqual([stage for stage, _ in tiles], [stage for stage, _ in dash.ATTENTION])
+        tiles = re.findall(r'href="/\?stage=(\w+)" data-attn="\w+" data-count="(\d+)"', self.html)   # UIMOCK: the ledger's attention chips
+        self.assertEqual([stage for stage, _ in tiles], [a[0] for a in dash.ATTENTION])
         for stage, count in tiles:
             actual = tracking_list.page(self.state, {'stage': stage})['list']
             self.assertEqual(int(count), actual['matched'], stage)
@@ -78,9 +78,9 @@ class Overview(unittest.TestCase):
                         status, body = server.get('/overview?project_id=' + project_id)
                         self.assertEqual(status, 200)
                         html = body.decode()
-                        href, count = re.search(r'href="([^"]*stage=need[^"]*)"><strong>(\d+)</strong>', html).groups()
+                        href, count = re.search(r'href="([^"]*stage=need[^"]*)" data-attn="need" data-count="(\d+)"', html).groups()
                         self.assertEqual(int(count), expected)
-                        work_link = re.search(r'href="([^"]*)">Công việc</a>', html)[1]
+                        work_link = re.search(r'href="([^"]*)" data-nav="work"', html)[1]   # the shell's "Công việc" keeps the scope
                         for target in (href, work_link):
                             query = urlsplit(unescape(target)).query
                             status, page = server.json('/api/overview?list=1&' + query)
@@ -116,8 +116,9 @@ class Overview(unittest.TestCase):
         self.assertEqual(sum(sum(counts.values()) for counts in days.values()), 6)
         chart = dash.rhythm_html(days)
         self.assertIn('Cao nhất 4', chart)
-        self.assertIn('class="fail" style="height:50.000%"', chart)
-        self.assertIn('class="pass" style="height:100.000%"', chart)
+        heights = {k: float(h) for k, h in re.findall(r'<rect class="rc-(\w+)" x="[^"]+" y="[^"]+" width="[^"]+" height="([^"]+)"', chart)}
+        self.assertAlmostEqual(heights['fail'] / heights['pass'], 0.5, places=2)      # 2 of a peak of 4: half the column (the scale is the peak)
+        self.assertIn('>4</text>', chart)                                              # the axis names the peak
 
     def test_not_compared_said(self):
         task = {'project_id': 'a', 'validity': {'kind': 'not_compared'}, 'milestones': [{'id': 'M1', 'state': 'passed'}]}
@@ -137,9 +138,11 @@ class Overview(unittest.TestCase):
         self.assertIn('Chưa đọc được', dash.background_html(host, {'error': 'unavailable'}))
 
     def test_placeholder_no_numbers(self):
-        panel = self.html.split('<h2>Phiên Claude</h2>', 1)[1].split('</article>', 1)[0]
-        self.assertIn('Chưa có dữ liệu', panel)
-        self.assertNotRegex(panel, r'\d')
+        for card in ('session', 'cost', 'huong'):                                     # UIMOCK: each card keeps its frame and says it was not observed
+            panel = self.html.split(f'data-live="{card}"', 1)[1].split('</article>', 1)[0]
+            words = re.sub(r'<[^>]+>', ' ', panel)
+            self.assertIn('hưa quan sát', words)
+            self.assertNotRegex(words, r'\d')
 
     def test_browser_fixture_flags_stay_on_loopback_in_ci(self):
         with patch.dict(os.environ, {'CI': 'true'}):
@@ -149,9 +152,9 @@ class Overview(unittest.TestCase):
 
     def test_mobile_layout(self):
         steps = [{'nav': self.server.url.rstrip('/') + '/overview'},
-                 {'eval': """return [innerWidth,document.documentElement.scrollWidth-document.documentElement.clientWidth,$$('.attention a').length,
-                            $$('.grid article').every(e=>e.scrollWidth<=e.clientWidth+1)];"""}]
-        self.assertEqual(drive(self.base, steps, 375, 800), [[375, 0, len(dash.ATTENTION), True]])
+                 {'eval': """return [innerWidth,document.documentElement.scrollWidth-document.documentElement.clientWidth,$$('.attn a').length,
+                            $$('.dgrid article').every(e=>e.scrollWidth<=e.clientWidth+1)];"""}]
+        self.assertEqual(drive(self.base, steps, 375, 800), [[375, 0, len(dash.ATTENTION) + 2, True]])   # + the two chips read from sessions
 
     def test_mockup_look_list_and_task(self):
         t = {'milestones': [{'id': 'MT', 'state': 'pending'}], 'situation': {'stage': 'doing', 'label': 'Đang thực hiện'}}
@@ -165,7 +168,7 @@ class Overview(unittest.TestCase):
         checks = [{'result': 'pass', 'artifact': 'a'}, {'result': 'inconclusive', 'artifact': 'b'}, {'result': 'fail'}, {'result': 'pass'}]
         detail = {'milestone_checks': {'rows': [{'id': 'M1', 'checks': checks}]}}
         section = js('deepSections(d)', d=detail)
-        for label in ('Các lần kiểm', 'Kiểm lần đầu', 'Bản được kiểm đã đổi', 'Lần trước chưa kết luận', 'Lần trước không đạt'):
+        for label in ('Mốc và lần kiểm', 'Kiểm lần đầu', 'Bản được kiểm đã đổi', 'Lần trước chưa kết luận', 'Lần trước không đạt'):
             self.assertIn(label, section)
         self.assertIn('Sổ chưa ghi lý do', js('loopSteps(r)', r={'checks': [{'result': 'pass'}, {'result': 'pass'}]})[-1]['t'])
 

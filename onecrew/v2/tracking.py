@@ -1576,9 +1576,10 @@ def _overview_read(state_root, reader, source, project_id, now, observe, rhythm=
             result['projects'] = [{'path': path, 'tasks': items} for path, items in projects.items()]
             result['tasks_total'] = sum(len(p['tasks']) for p in result['projects'])
             if rhythm:
-                from .tracking_dashboard import check_days
+                from .tracking_dashboard import check_days, repair_rounds
                 from .tracking_sessions import KINDS
                 result['check_days'] = check_days(conn, projects, now)
+                result['repair_rounds'] = repair_rounds(conn, projects, now)
                 result['session_tasks'] = {r['task_id']: r['n'] for r in conn.execute(
                     "SELECT e.task_id, count(DISTINCT json_extract(e.payload,'$.session')) AS n "
                     "FROM events e JOIN tasks t ON t.id=e.task_id WHERE e.kind IN (?,?,?,?) "
@@ -1631,6 +1632,32 @@ def _detail(state_root, selector, *, project_id=None, now=None, timeline_limit=2
                         source=dict(source, last_seq=conn.execute('SELECT COALESCE(MAX(seq),0) FROM events').fetchone()[0]))
             return item
     return _observed(read, now, reuse_seconds, stop=True, comparison=comparison)
+
+
+def head(state_root, selector, *, project_id=None, now=None, reuse_seconds=0, comparison=True):
+    """UIMOCK D4: one root as the list reads it (situation, validity, milestones, needs; no timeline, evidence, work or live comparison with the
+    project), for the task page's four tiles before the reader opens "Xem sâu". A comparison already made within the reuse window is shown
+    with its own time; none is made here. Passed through the outbound guard."""
+    now = _now(now)
+    reader, source = _source(state_root)
+    if source['status'] != 'ok': raise LedgerError(source['detail'])
+
+    def read(observe):
+        with reader.transaction() as conn:
+            if conn is None: raise LedgerError('Sổ không mở được.')
+            row = _find(conn, reader, selector, project_id)
+            item = _item(reader, conn, row, now, observe=observe)
+            item.update(kind='onecrew-tracking-head', version=VERSION, generated_at=_iso(now), state_root=str(reader.state_root), controls=CONTROLS,
+                        source=dict(source, last_seq=conn.execute('SELECT COALESCE(MAX(seq),0) FROM events').fetchone()[0]))
+            return item
+    return outward(_observed(read, now, reuse_seconds, comparison=comparison))
+
+
+def prewarm():
+    """Import the modules a first read uses, before the server answers (a cold viewer otherwise compiles them inside the first request).
+    Nothing is read or cached: no ledger, no project."""
+    from . import engine, goal_history, install, tracking_situation, tracking_work, verdict  # noqa: F401
+    from .verifiers import artifact, command  # noqa: F401
 
 
 def _names(conn, root_id, key):

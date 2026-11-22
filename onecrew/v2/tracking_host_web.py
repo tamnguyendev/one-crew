@@ -198,8 +198,15 @@ var hostSig=null;
 function paintHost(){if(!last)return;var path=$('#proj').value||'',hw=last.host_work||{},rs=last.shared_resources||{},sig=JSON.stringify([path,hw.projects,hw.projects_not_read,rs.resources,rs.error,rs.empty_note]);if(sig===hostSig)return;hostSig=sig;
   var a=$('#hostwork'),b=$('#resources');if(a)a.innerHTML=hostSectionHtml(path);if(b)b.innerHTML=resSectionHtml();
   var c=hw.projects?hw.projects.reduce(function(n,p){return n+((p.view&&p.view.items)||[]).length},0):0,sa=$('#hostbox'),sb=$('#resbox');
-  if(sa)sa.querySelector('summary').textContent='Việc nền của host ('+c+')';if(sb)sb.querySelector('summary').textContent='Tài nguyên dùng chung ('+((rs.resources||[]).length)+')'}
+  var held=(rs.resources||[]).filter(function(r){return !r.free}).length;   // UIMOCK: the badges keep their icon; the full words are their names
+  if(sa){var x=sa.querySelector('summary');x.setAttribute('aria-label','Việc nền của host ('+c+')');x.querySelector('b').textContent=hw.projects?String(c):'?'}
+  if(sb){var y=sb.querySelector('summary');y.setAttribute('aria-label','Tài nguyên dùng chung ('+((rs.resources||[]).length)+')');y.querySelector('b').textContent=rs.declared?String(held):'–'}}
 '''
 
-HTML = ('<details class="hostbox" id="hostbox" data-k="hostwork" open><summary>Việc nền của host</summary><div id="hostwork" class="small">Đang đọc…</div></details>\n'
-        '<details class="hostbox" id="resbox" data-k="resources" open><summary>Tài nguyên dùng chung</summary><div id="resources" class="small">Đang đọc…</div></details>')
+_ROBOT = '<span class="ic sm" aria-hidden="true"><svg viewBox="0 0 24 24"><use href="#i-robot"/></svg></span>'
+_LOCK = '<span class="ic sm" aria-hidden="true"><svg viewBox="0 0 24 24"><use href="#i-lock"/></svg></span>'
+# UIMOCK: two small badges next to "N việc cần bạn" (the mockup's "? việc nền" and "– khóa"); each opens its list as a pop-up
+HTML = ('<details class="badge hostbox" id="hostbox" data-k="hostwork"><summary aria-label="Việc nền của host" title="Việc nền của host">' + _ROBOT
+        + '<b>?</b><span class="small mut">việc nền</span></summary><div class="badge-body"><div id="hostwork" class="small">Đang đọc…</div></div></details>\n'
+        '<details class="badge hostbox" id="resbox" data-k="resources"><summary aria-label="Tài nguyên dùng chung" title="Tài nguyên dùng chung">' + _LOCK
+        + '<b>–</b><span class="small mut">khóa</span></summary><div class="badge-body"><div id="resources" class="small">Đang đọc…</div></div></details>')

@@ -143,9 +143,9 @@ class OwnerStep(unittest.TestCase):
         self.assertFalse(n['action']['enabled'])
         self.assertIn('phần bàn giao của kế hoạch', n['binding_reason'])
         tiles = text(js('taskTiles(d)', d=d))
-        self.assertIn('Bước tiếp theo ' + step, tiles)
+        self.assertIn('Bước tiếp Bạn ' + step, tiles)                                     # UIMOCK: who (big), then the step
         self.assertIn('Ai làm: Bạn', tiles)
-        self.assertIn('Bạn cần quyết gì (1)', tiles)
+        self.assertIn('Bạn quyết', tiles); self.assertIn(step, text(js('tileDecide(d)', d=d)))   # UIMOCK: the tile names the one decision waiting
         self.assertNotIn('Không có quyết định nào đang chờ bạn', tiles)
         self.assertNotIn('Chưa có thông tin người xử lý', tiles)
         card = text(js('needCard(n,0)', n=n))

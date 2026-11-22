@@ -219,7 +219,9 @@ async function main(){
       if(r.exceptionDetails){results.push({error:(r.exceptionDetails.exception&&r.exceptionDetails.exception.description)||r.exceptionDetails.text});break}
       results.push({value:r.result.value})}
   }catch(e){results.push({error:String(e&&e.message||e)})}
-  clearTimeout(kill);console.log(JSON.stringify({results}));try{await send('Browser.close')}catch(e){}try{ws.close()}catch(e){}try{p.kill()}catch(e){}setTimeout(()=>process.exit(0),300)}
+  clearTimeout(kill);console.log(JSON.stringify({results}));try{await send('Browser.close')}catch(e){}try{ws.close()}catch(e){}
+  if(p.exitCode===null&&p.signalCode===null)await Promise.race([new Promise(r=>p.once('exit',r)),sleep(5000)]);   // the browser ends before its profile is released
+  try{p.kill()}catch(e){}setTimeout(()=>process.exit(0),300)}
 '''
 
 PRELUDE = r'''
@@ -231,6 +233,37 @@ const overflow=()=>document.documentElement.scrollWidth-window.innerWidth;
 '''
 
 
+def release_profile(profile, wait=20.0):
+    """The headless browser's helper processes (renderer, GPU, crash handler) can outlive the driver by a moment and keep files of the profile
+    open; a class cleanup that removes the test's temporary folder then fails with WinError 32 (OBS3 MT on this machine: tearDownClass of
+    tests.test_obs3_overview, a file of cdp-900\\profile in use). Remove the profile once they let go; past `wait`, end the processes that were
+    started with THIS profile (their command line names it) and remove it then. Nothing else is touched."""
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            shutil.rmtree(profile)
+            return
+        except FileNotFoundError:
+            return
+        except OSError:
+            if time.monotonic() > deadline: break
+            time.sleep(0.25)
+    if os.name == 'nt':
+        target = str(profile).replace("'", "''")             # as the browser was given it (--user-data-dir)
+        subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command',
+                        "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains('" + target + "') } | "
+                        'ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }'], capture_output=True, timeout=60)
+        for _ in range(40):
+            try:
+                shutil.rmtree(profile)
+                return
+            except FileNotFoundError:
+                return
+            except OSError:
+                time.sleep(0.25)
+    shutil.rmtree(profile)                     # still held: say so here, at the browser step, not later in an unrelated cleanup
+
+
 def drive(temp, url_steps, width, height):
     """Run the steps ({'nav': url} or {'eval': js}) in a real headless browser of `width` x `height`; the list of results."""
     work = Path(temp) / f'cdp-{width}'
@@ -239,9 +272,12 @@ def drive(temp, url_steps, width, height):
     steps = [s if 'nav' in s else {'eval': PRELUDE + s['eval']} for s in url_steps]
     flags = local_chromium_flags([step['nav'] for step in steps if 'nav' in step])
     # Edge can open its DevTools port under the restricted Windows fixture token.
-    done = subprocess.run([node(), str(script), browser(prefer_edge=bool(flags)), str(work / 'profile'), str(width), str(height), *flags],
-                          input=json.dumps(steps), text=True,
-                          encoding='utf-8', capture_output=True, timeout=300)
+    try:
+        done = subprocess.run([node(), str(script), browser(prefer_edge=bool(flags)), str(work / 'profile'), str(width), str(height), *flags],
+                              input=json.dumps(steps), text=True,
+                              encoding='utf-8', capture_output=True, timeout=300)
+    finally:
+        release_profile(work / 'profile')
     lines = [l for l in done.stdout.strip().splitlines() if l.startswith('{')]
     if not lines: raise AssertionError('the browser driver returned nothing: ' + done.stderr[-1500:])
     out = json.loads(lines[-1])
@@ -423,7 +459,7 @@ class Decisions(Shared):
         self.assertEqual(words.count('owner answer'), 5)                             # each option's own command, shown once
         self.assertEqual(html.count(' open>'), 2)                                    # a ledger request opens with everything in it
         tile = text(js('tileDecide(d)', d=both))
-        self.assertIn('Bạn cần quyết gì (2)', tile)
+        self.assertIn('Bạn quyết 2 việc chờ bạn', tile)                                    # UIMOCK: the tile counts both requests
         self.assertIn(self.qa['question'], tile); self.assertIn(self.qb['question'][:60], tile)
         # each alone: its own question, options and command; nothing of the other
         for d, mine, other in ((only_a, self.qa, self.qb), (only_b, self.qb, self.qa)):
@@ -519,7 +555,7 @@ class TaskPage(Shared):
         tracking._compared.clear()
         d = self.detail('P4')
         tiles = js('taskTiles(d)', d=d); words = text(tiles)
-        for title in ('Đầu ra', 'Còn tin được không', 'Bước tiếp theo', 'Bạn cần quyết gì'):
+        for title in ('Đầu ra', 'Còn tin được?', 'Bước tiếp', 'Bạn quyết'):                # UIMOCK: the mockup's four tile titles
             self.assertIn(title, words)
         self.assertIn('Không đạt', words)
         self.assertIn('lệnh thoát mã 3', words)                                       # the reason, from the check's own receipt
@@ -601,7 +637,8 @@ class TaskPage(Shared):
         self.assertIn('Năm: hợp đồng bản đầu', words); self.assertIn('Năm: phạm vi mới sau khi đổi', words)
         self.assertIn('Bản đầu của đầu ra', words); self.assertIn('Bản mới của đầu ra', words)
         self.assertLess(section.index('Năm: hợp đồng bản đầu'), section.index('Năm: phạm vi mới sau khi đổi'))
-        self.assertIn('data-work-tab="changes"', section)
+        self.assertNotIn('data-work-tab', section)                                          # UIMOCK: no tab to go to; the full list is in the same row
+        self.assertIn('Năm: phạm vi mới sau khi đổi', text(js('deepBody(d,"plan")', d=d)))
         deep = js('deepSections(d)', d=d)
         self.assertIn('data-k="deep-plan"', deep)
         self.assertNotIn('data-k="deep-plan" id="deep-plan" open', deep)               # closed until the owner opens it
@@ -630,9 +667,9 @@ class TaskPage(Shared):
         self.assertIn('Chờ: chờ chủ gửi dữ liệu mẫu', words)
         self.assertIn('đang chờ', words)
         self.assertLess(words.index('chờ máy kiểm thử rảnh'), words.index('chờ chủ gửi dữ liệu mẫu'))
-        self.assertIn('data-work-tab="progress"', waits)
+        self.assertNotIn('data-work-tab', waits)                                            # UIMOCK: the timeline sits in the same row, no tab
         self.assertIn('data-deep="waits"', js('tileNext(d)', d=d))
-        self.assertIn('Thời gian chờ và dòng thời gian (2)', text(js('deepSections(d)', d=d)))
+        self.assertIn('Thời gian và ai chờ ai 2 lần chờ', text(js('deepSections(d)', d=d)))
         self.assertIn('Sổ không ghi khoảng chờ nào', text(js('deepWaits(d)', d=self.detail('P11'))))
 
 
@@ -717,7 +754,9 @@ const w=$('#t-next [data-deep="waits"]');w.click();await sleep(200);
 out.waitsOpen=$('#deep-waits').open;out.waitsFocus=document.activeElement===$('#deep-waits summary');out.waitsText=$('#deep-waits').textContent;
 return out;'''
     EVIDENCE = r'''
-await until(()=>$('#detail #t-out .open-check .ev-open'),40000,'output tile');
+await until(()=>$('#detail #t-out [data-deep="evidence"]'),40000,'output tile');
+$('#detail #t-out [data-deep="evidence"]').click();                                     // UIMOCK D4: the check's receipt comes with the full read of "Xem sâu"
+await until(()=>$('#detail #t-out .open-check .ev-open'),40000,'output tile with the latest check');
 $('#detail #t-out .open-check .ev-open').click();
 await until(()=>$('#detail #t-out pre'),20000,'evidence text');
 const out={text:$('#detail #t-out pre').textContent.includes('"kind": "command-receipt"')?'command-receipt':$('#detail #t-out pre').textContent.slice(0,300)};

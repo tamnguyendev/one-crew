@@ -124,7 +124,7 @@ class SessionPage(unittest.TestCase):
 
     def test_task_list_marked_self_report(self):
         html = self.html()
-        self.assertIn('Danh sách bước · Claude tự báo', html)
+        self.assertIn('Danh sách việc</span>', html); self.assertIn('Claude tự báo', html)   # UIMOCK: the panel and its label
         self.assertIn('Verify docs · Đang làm', html)
         self.assertIn('Lần cập nhật', html)
         # Every open reads the current file; an unsuccessful replacement keeps the previous list.

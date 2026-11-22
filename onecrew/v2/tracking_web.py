@@ -40,6 +40,14 @@ closing the selection cancels the read in flight (a new selection never inherits
 OVERVIEW_TIMEOUT (5 minutes): a slow overview keeps working as before, one that never answers turns the badge to "MẤT KẾT NỐI" instead of
 leaving it green while nothing updates.
 
+UIMOCK (plan of 23/11, the mockup approved on 19/11): the page is the shell (tracking_dashboard: four destinations with icons, i / ? / theme)
+around a list on the left (one-line rows: status icon, short name, milestone cells, time since the last change; six status chips with
+counts; the older filter form stays in the page, hidden, so an old filter link still opens) and the task on the right (title, a short line
+with icons, four tiles Đầu ra / Còn tin được? / Bước tiếp / Bạn quyết, the reader's decisions, "Xem sâu" as eleven one-line rows). D4: a
+selected task shows its tiles from the list row or from `/api/task?part=head` (tracking.head: no timeline, evidence, work or comparison
+with the project); the full read (`/api/task`, with everything below) starts only when the reader opens a row of "Xem sâu", and from then
+on it is polled and kept as described below. While the page loads, the server imports the modules a first read uses (tracking.prewarm).
+
 Evidence on the page (R1): the page never maps a blob key to one entry. An event in the log lists the occurrences of THAT event (seq, key); the
 step pane lists the occurrences of that attempt (outputs, other evidence) and, apart, what it inherits with the source occurrence of each key;
 a mark shows that event's occurrences; the evidence list groups the uses of each blob. `evidence_index` comes from the full history, so an
@@ -132,6 +140,7 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
         identity.update(comparison='off', note=COPY_NOTE)
     stats = {'requests': 0, 'last_read_ms': None, 'last_request': time.monotonic(), 'started_at': utcnow(), 'errors': 0}
     page = _page(interval).encode('utf-8')
+    threading.Thread(target=tracking.prewarm, daemon=True).start()   # UIMOCK: the modules a first read needs, imported while the page loads (no ledger read, nothing cached); the server answers at once
 
     class Handler(BaseHTTPRequestHandler):
         server_version = SERVER_NAME
@@ -190,8 +199,8 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
                     host = urllib.parse.urlsplit('//' + self.headers.get('Host', '')).hostname
                     if self.client_address[0] not in ('127.0.0.1', '::1') or host not in ('localhost', '127.0.0.1', '::1'):
                         return self._send(HTTPStatus.FORBIDDEN, {'error': 'Chỉ mở lịch sử của việc trên máy này.'})
-                    if not q.get('plan'):
-                        return self._send(HTTPStatus.BAD_REQUEST, {'error': 'thiếu plan'})
+                    if not q.get('plan'):              # UIMOCK: the shell's "Phiên Claude" / "Hướng đi" with no task: pick one
+                        return self._html(tracking_sessions.picker_page(state_root, scope, url.path))
                     if url.path == '/direction':
                         return self._html(tracking_direction.page(state_root, q['plan'], scope, q))
                     return self._html(tracking_sessions.page(state_root, q['plan'], scope, q.get('session'), comparison=comparison))
@@ -221,8 +230,11 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
                     limit = int(q.get('timeline') or 200)
                     if not 1 <= limit <= 5000: return self._send(HTTPStatus.BAD_REQUEST, {'error': 'timeline: 1-5000'})
                     started = time.perf_counter()
-                    value = tracking.detail(state_root, q['plan'], project_id=scope, timeline_limit=limit,
-                                            reuse_seconds=tracking.REUSE_SECONDS, comparison=comparison)
+                    if q.get('part') == 'head':        # UIMOCK D4: the four tiles first; the timeline, evidence and comparison come with "Xem sâu"
+                        value = tracking.head(state_root, q['plan'], project_id=scope, reuse_seconds=tracking.REUSE_SECONDS, comparison=comparison)
+                    else:
+                        value = tracking.detail(state_root, q['plan'], project_id=scope, timeline_limit=limit,
+                                                reuse_seconds=tracking.REUSE_SECONDS, comparison=comparison)
                     value['server'] = {'pid': os.getpid(), 'instance': identity['instance'], 'read_ms': round((time.perf_counter() - started) * 1000, 1), 'poll_seconds': interval}
                     return self._send(HTTPStatus.OK, value)
                 if url.path == '/api/evidence':
@@ -829,8 +841,8 @@ PAGE = r'''<!doctype html>
 <html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OneCrew — theo dõi (chỉ đọc)</title>
 <style>
-:root{--bg:#f4f6f8;--fg:#1c2230;--mut:#5b6572;--card:#fff;--line:#dde2e9;--run:#1d6fd6;--wait:#a86a0a;--blk:#c0392b;--acc:#2f855a;--ver:#0b7a75;--cls:#6b7280;--unk:#718096;--need:#fff4cc;--needfg:#5c4400;--sel:#e8f0fb;--focus:#1d6fd6}
-@media (prefers-color-scheme:dark){:root{--bg:#12161d;--fg:#e6e9ef;--mut:#9aa4b2;--card:#1a2029;--line:#2b3442;--need:#3b3415;--needfg:#ffe9a8;--sel:#1f2d44;--focus:#79b0ff}}
+:root{--bg:var(--paper);--fg:var(--ink);--mut:var(--ink2);--card:var(--sheet);--line:var(--rule);--blk:var(--fail);--acc:var(--ok);--ver:#0b7a75;--cls:var(--idle);--unk:#5b4a86;--need:var(--pen-bg);--needfg:var(--pen)}
+
 *{box-sizing:border-box}html,body{margin:0}body{background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,"Segoe UI",sans-serif;min-width:0}
 body[data-view=list]{min-height:var(--list-return-height,0px)}
 :focus-visible{outline:3px solid var(--focus);outline-offset:2px}
@@ -912,33 +924,108 @@ details{margin:6px 0}summary{cursor:pointer;color:var(--mut)}summary:focus-visib
 @media(max-width:1100px){.gbody{grid-template-columns:240px minmax(0,1fr)}.gantt.has-selection{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:600px){.gantt{padding:10px}.gbody{grid-template-columns:190px minmax(300px,1fr);min-width:510px}.gaxis span{display:block!important}.gnselect strong{font-size:13px}.grow.nodehead{height:120px}}
 
-</style></head><body>
-<header>
-<div class="bar"><h1>OneCrew</h1><nav aria-label="Trang"><a href="/overview">Tổng quan</a> · <a href="/" aria-current="page">Công việc</a></nav><span id="health" role="status" class="small"></span><span id="dconn" role="status" hidden></span><span id="count" class="small mut"></span></div>
-<div class="tools">
-<label class="search"><input id="q" type="search" placeholder="Tìm công việc…" aria-label="Tìm theo tên việc, mục tiêu, bước"></label>
-<div id="viewsw" role="group" aria-label="Cách xem danh sách"><button type="button" data-list-mode="list" aria-pressed="true">Danh sách</button><button type="button" data-list-mode="board" aria-pressed="false">Bảng</button></div>
+@@SHELL_STYLE@@
+/* ---- UIMOCK: the mockup's frame for the work page (after the older rules, which stay for the parts under "Xem sâu") ---- */
+body{background:var(--paper);color:var(--ink);font:15px/1.45 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Noto Sans",Roboto,sans-serif}
+header.shell{padding:0 16px}header.shell h1{font-size:15px;margin:0}
+main#main{display:grid;grid-template-columns:minmax(0,380px) minmax(0,1fr);gap:0;padding:0;align-items:start}
+#main>section.pane{background:transparent;border:0;border-radius:0;padding:12px 16px 24px;min-width:0}
+#main>#listpane{border-right:1px solid var(--rule);min-height:calc(100vh - 48px)}
+#main>#detailpane{position:static;max-height:none;overflow:visible;max-width:none;margin:0}
+@media (min-width:900px){main#main[data-view] #listpane,main#main[data-view] #detailpane{display:block}}
+@media (max-width:899px){main#main{display:block}main#main[data-view=list] #detailpane{display:none}main#main[data-view=detail] #listpane{display:none}#main>#listpane{border-right:0;min-height:0}}
+#main h2,#main h3{text-transform:none;letter-spacing:normal}
+#listpane .vhead h2{font-size:20px;font-weight:650;letter-spacing:-.01em;color:var(--ink);margin:0}
+.glance{display:flex;align-items:center;gap:10px;margin:2px 0 8px}
+.hero{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:600;color:var(--ink2);min-width:0}.hero b{font-size:30px;line-height:1;color:var(--ink)}
+.hero.has-need,.hero.has-need b{color:var(--pen)}
+.badges{display:flex;gap:6px;margin-left:auto}
+details.badge{position:relative;margin:0;padding:0;border:0;background:transparent;border-radius:0}
+details.badge>summary{display:flex;align-items:center;gap:4px;height:30px;padding:0 8px;border:1px solid var(--rule);border-radius:8px;background:var(--sheet);cursor:pointer;list-style:none;font-size:13px;font-weight:400;white-space:nowrap;color:var(--ink)}
+details.badge>summary::-webkit-details-marker{display:none}details.badge>summary b{font-size:14px}
+.badge-body{position:absolute;right:0;top:34px;z-index:4;width:340px;max-width:calc(100vw - 32px);max-height:60vh;overflow:auto;padding:8px 12px;border:1px solid var(--rule);border-radius:8px;background:var(--sheet);box-shadow:0 8px 24px rgba(20,27,39,.15);font-size:13.5px;overflow-wrap:anywhere}
+#sbar .sbar{margin:0 0 8px}#sbar .sb{border:0;padding:0;min-height:0;height:14px;cursor:pointer}
+#chips.fchips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+#chips .fchip{display:inline-flex;align-items:center;gap:5px;font-size:13px;padding:3px 8px;min-height:0;border-radius:8px;border:1px solid var(--rule);background:var(--sheet);cursor:pointer;color:var(--ink)}
+#chips .fchip .swatch{width:8px;height:8px;border-radius:50%}#chips .fchip b{font-weight:600}
+#chips .fchip.hot{border-color:var(--pen);color:var(--pen)}#chips .fchip[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:var(--paper)}
+.lsearch{display:flex;align-items:center;gap:6px;margin:0 0 6px;color:var(--ink2)}
+.lsearch input{flex:1 1 auto;min-width:0;height:32px;min-height:0;padding:0 10px;border:1px solid var(--rule);border-radius:8px;background:var(--sheet);font-size:13.5px}
+#factive{margin:0 0 6px}#empty{padding:6px 0;color:var(--ink2);font-size:13.5px}#empty:empty{display:none}
+#list ul.lrows{list-style:none;margin:6px -16px 0;padding:0;border:0;border-radius:0;overflow:visible;background:linear-gradient(90deg,transparent 27px,var(--margin) 27px,var(--margin) 28px,transparent 28px)}
+#list li.grp{margin:0;padding:12px 16px 2px 40px;font-size:13px;font-weight:600;color:var(--ink2);list-style:none;border:0}
+#list li.task{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:0;min-height:44px;padding:0 16px 0 0;margin:0;border:0;border-bottom:1px solid var(--rule);border-left:0;border-radius:0;background:transparent;cursor:pointer;overflow-wrap:normal}
+#list li.task:first-child{border-top:0}#list li.task:hover{background:var(--sel)}
+#list li.task[aria-selected=true]{background:var(--sel);box-shadow:inset 3px 0 0 var(--ink)}#list li.task.last{box-shadow:inset 3px 0 0 var(--ink2)}
+.gut{display:flex;justify-content:center}.sline{display:flex;align-items:center;gap:10px;min-width:0;padding:0 10px 0 12px}
+.tname{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:14.5px}
+.mini{display:flex;flex:none;gap:2px;height:6px}.mini i{width:10px;height:6px;border-radius:1px;flex:none}
+.rmeta{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink2);white-space:nowrap}
+.rx{display:none!important}
+.listfoot{font-size:12.5px;color:var(--ink2);margin:10px 0 4px}.listfoot .cov{margin:2px 0}
+#untrackedbox{font-size:12.5px;color:var(--ink2);margin:6px 0}
+#dconn{display:block;font-size:12.5px;color:var(--ink2);margin:0 0 6px}#dconn[hidden]{display:none}#dconn.bad{color:var(--fail)}
+.pick{color:var(--ink2);padding:40px 0;text-align:center}
+.thead{margin:0 0 4px}.ttop{display:none;align-items:center;gap:8px}@media (max-width:899px){.ttop{display:flex}}.ttop .tsp{flex:1 1 auto}
+#detail #back{display:none;align-items:center;gap:4px;font-size:14px;padding:4px 10px;min-height:0;margin:0 0 4px;border-radius:6px;border:1px solid var(--rule);background:var(--sheet);color:var(--ink);cursor:pointer;font-weight:600}
+@media (max-width:899px){#detail #back{display:inline-flex}}
+.xbtn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;min-height:0;padding:0;border-radius:6px;border:1px solid var(--rule);background:transparent;color:var(--ink2);cursor:pointer}
+#detail .thead h2{font-size:22px;line-height:1.25;font-weight:650;letter-spacing:-.01em;margin:2px 0 6px;overflow-wrap:anywhere;color:var(--ink)}
+.tmeta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin:0 0 10px;font-size:13px;color:var(--ink2)}
+.tmeta>span,.tmeta>a{display:inline-flex;align-items:center;gap:5px}.tmeta a{color:var(--run)}.tmeta .src{font-size:12.5px}
+#detail .tiles4{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0;margin:0;background:var(--sheet);border:1px solid var(--rule);border-radius:10px;overflow:hidden}
+#detail .tile4{border:0;border-radius:0;background:transparent;padding:12px 14px;min-width:0;min-height:150px;border-bottom:1px solid var(--rule);overflow-wrap:anywhere}
+#detail .tile4:nth-child(odd){border-right:1px solid var(--rule)}#detail .tile4:nth-child(n+3){border-bottom:0}
+#detail .tile4 h3{margin:0 0 6px;font-size:12.5px;font-weight:600;color:var(--ink2);text-transform:none;letter-spacing:0}
+#detail .tile4.tneed{background:linear-gradient(90deg,var(--pen) 0,var(--pen) 3px,transparent 3px)}
+.val{display:flex;align-items:center;gap:10px;margin:0 0 6px;font-size:20px;font-weight:650;line-height:1.2}.val small{font-size:14px;font-weight:500;color:var(--ink2)}
+#detail .tile4 .next-act{font-size:14px;font-weight:600;color:var(--ink);margin:0 0 4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.line{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:4px 0 0;font-size:13px;color:var(--ink2);min-width:0}.line.run{color:var(--run)}
+.line .ev-open,.line a.small{font-size:12.5px}.line button.ev-open{min-height:0;padding:1px 8px}
+.mbar{display:flex;gap:2px;margin:0 0 6px}.mbar i{flex:1 1 0;height:10px;border-radius:2px}
+.pulse{flex:none;width:8px;height:8px;border-radius:50%;background:var(--run);animation:pulse 1.6s ease-in-out infinite}@keyframes pulse{50%{opacity:.25}}
+.dots{display:inline-flex;gap:3px;align-items:center}.dots i{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--fail)}.dots i.used{background:var(--fail)}
+#detail .tile4 .declist{margin:4px 0}#detail .tile4 .declist li{margin:2px 0;list-style:none}
+#detail button.linkish{display:inline-flex;align-items:center;gap:4px;color:var(--run);font-size:13px;min-height:0}
+#detail .tile4 .why-missing{font-size:13px}
+#needs{font-size:13px;font-weight:600;color:var(--ink2);margin:16px 0 4px}
+.deep{margin:18px 0 0}.deep>h3{margin:0 0 4px;font-size:13px;font-weight:600;color:var(--ink2)}
+#detail details.deep-d{border:0;border-top:1px solid var(--rule);border-radius:0;background:transparent;padding:0;margin:0}#detail details.deep-d:last-child{border-bottom:1px solid var(--rule)}
+#detail .deep-d>summary{display:flex;align-items:center;gap:10px;padding:9px 2px;cursor:pointer;list-style:none;font-weight:600;color:var(--ink);min-height:0}
+.deep-d>summary::-webkit-details-marker{display:none}
+.deep-d>summary::after{content:"";flex:none;width:7px;height:7px;margin-left:4px;border-right:2px solid var(--ink2);border-bottom:2px solid var(--ink2);transform:rotate(-45deg);transition:transform .15s}
+.deep-d[open]>summary::after{transform:rotate(45deg)}.deep-d>summary>span:nth-of-type(2){flex:1 1 auto;min-width:0}
+#detail .deep-d .cnt{font-size:12.5px;font-weight:400;color:var(--ink2);white-space:nowrap}
+.deep-body{min-width:0;padding:2px 2px 14px 28px;font-size:14px;overflow-wrap:anywhere}.deep-wait{display:flex;align-items:center;gap:6px}
+.golink{display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:5px 10px;border:1px solid var(--rule);border-radius:8px;background:var(--sheet);font-size:13.5px;font-weight:600;text-decoration:none;color:var(--ink)}
+@media (max-width:560px){#detail .tiles4{grid-template-columns:minmax(0,1fr)}#detail .tile4{border-right:0!important;border-bottom:1px solid var(--rule)!important;min-height:0}#detail .tile4:last-child{border-bottom:0!important}}
+@media (max-width:640px){#main>section.pane{padding:10px 12px 24px}#list ul.lrows{margin:6px -12px 0}}
+@media (max-width:340px){#detail .tiles4{grid-template-columns:minmax(0,1fr)}#detail .tile4{border-right:0!important;border-bottom:1px solid var(--rule)!important}}
+</style></head><body data-view="list">
+@@SPRITE@@
+@@HEADER@@
+<main id="main" data-view="list">
+<section class="pane" id="listpane" aria-label="Danh sách công việc"><div class="vhead"><h2>Công việc</h2><span class="src" title="Sổ: dữ liệu thật trên máy này, đã lọc bí mật, chỉ đọc">@@LOCK@@Sổ: dữ liệu thật, chỉ đọc</span></div>
+<div class="glance"><div id="hero"></div><div class="badges">@@HOST_HTML@@</div></div>
+<div id="sbar"></div>
+<nav id="chips" class="fchips" role="group" aria-label="Lọc việc theo trạng thái"></nav>
+<div id="factive" role="status" hidden></div>
+<label class="lsearch">@@SEARCH@@<input id="q" type="search" placeholder="Tìm việc theo tên, mục tiêu, bước…" aria-label="Tìm theo tên việc, mục tiêu, bước"></label>
+<div id="oldfilters" hidden><div id="viewsw" role="group" aria-label="Cách xem danh sách"><button type="button" data-list-mode="list" aria-pressed="true">Danh sách</button><button type="button" data-list-mode="board" aria-pressed="false">Bảng</button></div>
 <details id="filters" data-k="filters"><summary>Bộ lọc <span id="fcount" class="small mut"></span></summary><div class="fbody">
 <label>Dự án <select id="proj"><option value="">tất cả</option></select></label>
-<label>Trạng thái <select id="kind"><option value="">tất cả</option><option value="need">Cần bạn quyết định</option><option value="running">Đang có lượt chạy</option><option value="idle">Im hơn 3 ngày</option><option value="inconclusive">Chưa kết luận</option><option value="recheck">Cần kiểm lại (việc đã so với bản hiện tại)</option><option value="todo">Chưa bắt đầu</option><option value="doing">Đang thực hiện</option><option value="fix">Cần sửa</option><option value="check">Chờ kiểm</option><option value="accept">Chờ nghiệm thu</option><option value="done">Hoàn tất</option><option value="stopped">Đã dừng</option><option value="unknown">Chưa xác định</option><option value="closed">Đã đóng</option><option value="ended">Đã kết thúc (nghiệm thu hoặc đóng)</option></select></label>
+<label>Trạng thái <select id="kind"><option value="">tất cả</option><option value="need">Cần bạn quyết định</option><option value="running">Đang có lượt chạy</option><option value="idle">Im hơn 3 ngày</option><option value="inconclusive">Chưa kết luận</option><option value="recheck">Cần kiểm lại (việc đã so với bản hiện tại)</option><option value="todo">Chưa bắt đầu</option><option value="doing">Đang thực hiện</option><option value="fix">Cần sửa</option><option value="check">Chờ kiểm</option><option value="accept">Chờ nghiệm thu</option><option value="done">Hoàn tất</option><option value="stopped">Đã dừng</option><option value="unknown">Chưa xác định</option><option value="closed">Đã đóng</option><option value="ended">Đã kết thúc (nghiệm thu hoặc đóng)</option><option value="g_doing">Đang làm</option><option value="g_check">Chờ kiểm</option><option value="g_todo">Chưa bắt đầu</option><option value="g_done">Xong</option></select></label>
 <label>Nguồn <select id="origin"><option value="">tất cả</option><option value="owner">Chủ giao</option><option value="ai">AI giao</option><option value="unknown">Chưa rõ nguồn</option><option value="spawned">Có việc AI phát sinh (việc sửa, việc con)</option></select></label>
 <label>Thời gian <select id="tfield"><option value="created">Ngày tạo</option><option value="updated">Cập nhật cuối</option><option value="ended">Ngày kết thúc</option></select></label>
 <label>Từ <input id="since" type="date" aria-label="Từ ngày"></label><label>Đến hết <input id="until" type="date" aria-label="Đến hết ngày"></label>
 <label>Sắp xếp <select id="sort"><option value="attention">Cần xử lý trước</option><option value="updated">Cập nhật gần nhất</option><option value="created">Ngày tạo (cũ trước)</option><option value="deadline">Hạn hoàn thành (nếu có)</option></select></label>
-</div></details>
-<span id="chips" role="group" aria-label="lọc nhanh"></span>
-</div>
-<div id="factive" role="status" hidden></div>
+</div></details></div>
 <div id="sample" class="sample-banner" hidden>Các thẻ đang xem có nhãn “dữ liệu thử” trong tên. Kiểm tra đúng dự án và sổ trước khi chạy lệnh.</div>
-<details class="connection-details"><summary>Thông tin kết nối và giới hạn</summary><span id="conn">đang kết nối…</span><p class="note small mut"><span class="long">Chỉ đọc: không có nút duyệt, trả lời, dừng hay tiếp tục task; mở bằng chứng không phải là duyệt. Kết nối "OK" chỉ nói trang đang nhận dữ liệu, không nói việc đã xong. </span><span class="brief">Chỉ đọc; "kết nối OK" không có nghĩa việc đã xong. </span><span id="src"></span></p></details>
-</header>
-<main id="main" data-view="list">
-<section class="pane" id="listpane" aria-label="Danh sách công việc"><h2>Công việc</h2><p class="stage-note" id="stagenote">Mỗi dòng là một công việc: trạng thái, bước tiếp theo, kết quả và hoạt động cuối. Trạng thái do sổ tính; trang chỉ xem, không kéo thả hay đổi trạng thái.</p><div id="empty">Đang đọc sổ…</div>
+<div id="empty">Đang tải danh sách việc…</div>
 <div id="list" role="group" aria-label="Bảng công việc"></div>
 <div id="listfoot" class="listfoot" aria-live="polite"></div>
-@@HOST_HTML@@
-<details id="untrackedbox" data-k="untracked"><summary>Chưa được theo dõi</summary><div id="untracked" class="small"></div></details></section>
-<section class="pane" id="detailpane" aria-label="Chi tiết task"><div id="detail"><div id="nodetail">Chọn một task ở danh sách để xem chi tiết, timeline và bằng chứng.</div></div></section>
+<details id="untrackedbox" data-k="untracked"><summary>Chưa được theo dõi</summary><div id="untracked" class="small"></div></details><span id="count" hidden></span></section>
+<section class="pane" id="detailpane" aria-label="Chi tiết task"><span id="dconn" role="status" hidden></span><div id="detail"><div id="nodetail" class="pick">Chọn một việc trong danh sách.</div></div></section>
 </main>
 <script>
 (function(){
@@ -948,6 +1035,7 @@ var detailFor=null, detailError=null, detailOkAt=null;   // R4: the selection de
 var DETAIL_TIMEOUT=45000, DETAIL_TRIES=3, OVERVIEW_TIMEOUT=300000, detailTimeouts=0;   // P2 (Codex, dev12): a detail read is awaited up to 45 s, never replaced by a poll; after 3 timeouts with no answer shown in between the page stops retrying and offers a retry button; an overview read is awaited up to 5 minutes (a slow overview keeps working as before; one that never answers is reported)
 var TECH=['attempt.','executor.managed','decision.recorded','execution.configured','budget.group','precondition.recorded','task.submitted','knowledge.delivered','estimate.','plan.step0_closed'];
 var $=function(s){return document.querySelector(s)};
+function shellInit(){@@SHELL_JS@@}
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function hms(s){if(typeof s!=='number')return 'chưa xác định';if(s>0&&s<1)return 'dưới 1s';s=Math.floor(s);var h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return h?h+'h'+String(m).padStart(2,'0')+'m':m?m+'m'+String(x).padStart(2,'0')+'s':x+'s'}
 var TF={hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false},DF={day:'2-digit',month:'2-digit',year:'numeric'};
@@ -955,48 +1043,79 @@ function when(t){if(!t)return '—';var d=new Date(t);return isNaN(d)?esc(t):d.t
 function clock(t){if(!t)return '—';var d=new Date(t);return isNaN(d)?esc(t):d.toLocaleTimeString('vi-VN',TF)}
 function relText(t){var d=new Date(t);if(isNaN(d))return esc(t);var s=Math.round((Date.now()-d.getTime())/1000);if(s<5)return 'vừa xong';if(s<60)return s+' giây trước';if(s<3600)return Math.floor(s/60)+' phút trước';if(s<86400)return Math.floor(s/3600)+' giờ trước';return Math.floor(s/86400)+' ngày trước'}
 function rel(t){return t?'<time data-rel="'+esc(t)+'" title="'+when(t)+'">'+relText(t)+'</time>':'—'}
-function tick(){document.querySelectorAll('time[data-rel]').forEach(function(e){e.textContent=relText(e.getAttribute('data-rel'))});   // repair 2 of 14/11 (OBS-2C): only the <time> elements rel() writes; any other element with a data attribute is never rewritten
+function tick(){document.querySelectorAll('time[data-rel]').forEach(function(e){e.textContent=relText(e.getAttribute('data-rel'))});document.querySelectorAll('time[data-ago]').forEach(function(e){var v=agoShort(e.getAttribute('data-ago'));if(e.textContent!==v)e.textContent=v});   // repair 2 of 14/11 (OBS-2C): only the <time> elements rel() writes; any other element with a data attribute is never rewritten
   document.querySelectorAll('[data-live]').forEach(function(e){var s=parseFloat(e.getAttribute('data-live')),at=parseFloat(e.getAttribute('data-live-at'));if(!isNaN(s)&&!isNaN(at))e.textContent=hms(s+(Date.now()-at)/1000)})}
 var GLYPH={running:'▶',waiting:'◔',blocked:'■',unknown:'?',done:'□',accepted:'✔',verified:'✓',closed:'□'};
 function st(t){var g=t.outcome?GLYPH[t.outcome]:GLYPH[t.kind];return '<span class="st '+esc(t.kind)+(t.outcome?' '+esc(t.outcome):'')+'"><span class="g" aria-hidden="true">'+(g||'')+'</span>'+esc(t.label)+'</span>'}
 var PHASE={pending:'chờ đến lượt',running:'đang chạy',held:'bị giữ',complete:'xong'},NSTATE={none:'chưa có đầu ra',produced:'đã tạo',verified:'đã kiểm',accepted:'đã nghiệm thu'};
 function word(map,k){return '<span title="'+esc(k)+'">'+esc(map[k]||k||'—')+'</span>'}
 function short(p){p=String(p||'');var parts=p.split(/[\\\/]/).filter(Boolean);return parts.length>2?'…'+parts.slice(-2).join('\\'):p}
-function conn(cls,text){var c=$('#conn');c.className=cls;c.textContent=text;var h=$('#health');h.className=cls==='ok'?'small mut':'err';h.textContent=cls==='ok'?'Đang cập nhật':text}
+function conn(cls,text){var c=$('#conn');c.className=cls;c.textContent=text;var h=$('#health');h.className='hstat '+cls;h.textContent=cls==='ok'?'':text}   // UIMOCK: the header says something only when the connection is not OK; the full line is under "i"
 function narrow(){return window.matchMedia('(max-width:899px)').matches}
-function setView(){var v=selected?'detail':'list';$('#main').setAttribute('data-view',v);document.body.setAttribute('data-view',v)}   // 13/11: the list's search and filters step aside on the detail page (kept, not reset)
+function setView(){var v=selected?'detail':'list';$('#main').setAttribute('data-view',v);document.body.setAttribute('data-view',v);navScope()}   // 13/11: the list's search and filters step aside on the detail page (kept, not reset)
 function sameSel(a,b){return !!a&&!!b&&a.plan===b.plan&&(a.project||'')===(b.project||'')}
 function urlOf(sel){return sel?'?plan='+encodeURIComponent(sel.plan)+(sel.project?'&project_id='+encodeURIComponent(sel.project):''):location.pathname}
 function mine(){return detailData&&sameSel(detailFor,selected)?detailData:null}   // R4: the detail data only while it belongs to the CURRENT selection
-function detailState(){return !selected?'none':mine()?(detailError?'stale':'ok'):(detailError?'error':'loading')}
+function detailState(){return !selected?'none':mine()?(detailError?'stale':'ok'):!deepWanted?'head':(detailError?'error':'loading')}   // 'head': the four tiles only (UIMOCK D4)
 function taskOf(sel){return sel?tasks().find(function(t){return t.selector===sel.plan&&(!sel.project||t.project_id===sel.project)})||null:null}
 function nameOf(sel){var t=taskOf(sel);return t?t.plan:String(sel.plan||'').replace(/^plan(-ns)?:/,'')}
 function clockMs(ms){return ms?new Date(ms).toLocaleTimeString('vi-VN',TF):'?'}
 function iso(ms){return ms?new Date(ms).toISOString():null}
-function dind(){var e=$('#dconn'),k=detailState();if(k==='none'){e.hidden=true;e.className='';e.textContent='';return}   // the detail freshness, apart from the overview badge
+function dind(){var e=$('#dconn'),k=detailState();if(k==='none'||k==='head'){e.hidden=true;e.className='';e.textContent='';return}   // the detail freshness, apart from the overview badge
   var n=nameOf(selected);e.hidden=false;
-  if(k==='loading'){e.className='wait';e.textContent='chi tiết '+n+': đang tải…'}
+  if(k==='loading'){e.className='wait';e.textContent='chi tiết '+n+': đang lấy từ sổ…'}
   else if(k==='ok'){e.className='ok';e.textContent='chi tiết '+n+': cập nhật lúc '+clockMs(detailOkAt)}
   else{e.className='bad';e.textContent='chi tiết '+n+': lỗi tải từ '+clockMs(detailError.since)+(k==='stale'?' · đang hiện dữ liệu lúc '+clockMs(detailOkAt):' · chưa có dữ liệu')
     +(reading()?' · đang thử lại':detailTimeouts>=DETAIL_TRIES?' · đã ngừng tự thử (bấm Thử lại)':'')}}   // P2: a read in flight or the stop, also in the header
 function crumbs(title,tab){return '<nav class="crumbs" aria-label="Đường dẫn"><button type="button" id="back">← Tất cả công việc</button><span class="sep" aria-hidden="true">›</span><span class="here">'+esc(title)+'</span>'+(tab?'<span class="sep" aria-hidden="true">›</span><span id="crumbtab">'+esc(tab)+'</span>':'')+'</nav>'}
 function pendingPane(sel){var t=taskOf(sel),e=detailError;   // the selected task's own heading while its detail is loading or failed; nothing of any other task
-  var h=crumbs(t?workTitle(t):nameOf(sel),'')+'<div class="dhead"><h2 id="dtitle" data-k="dtitle" tabindex="-1">'+(t&&workNoOwner(t)?'<span class="work-id">'+esc(nameOf(sel))+' · </span>':'')+esc(t?workTitle(t):nameOf(sel))+(t?' '+workBadge(t):'')+'</h2><button type="button" id="close" class="small" title="bỏ chọn task">Đóng</button></div>';
+  var h='<div class="thead"><div class="ttop"><button type="button" id="back">‹ Quay lại</button><span class="tsp"></span><button type="button" id="close" class="xbtn" title="Đóng việc này" aria-label="Đóng việc này">'+ic('x','sm')+'</button></div>'
+    +'<h2 id="dtitle" data-k="dtitle" tabindex="-1">'+esc(t?fullName(t):nameOf(sel))+'</h2></div>';
   var since=detailInflight&&sameSel(detailInflight.sel,sel)?detailInflight.since:Date.now();
   h+=e?'<div id="dstatus" class="dstatus err" role="status" data-state="error" data-k="dstatus" tabindex="-1">Không tải được chi tiết task này ('+esc(e.message)+') từ '+clockMs(e.since)+', lần thử gần nhất <span id="dlast">'+clockMs(e.last)+'</span>; <span id="dnote">'+noteHtml()+'</span>. Chưa có dữ liệu chi tiết nào của task này nên không có câu hỏi hay mẫu lệnh nào để hiện.</div>'
       :'<div id="dstatus" class="dstatus" role="status" data-state="loading" data-k="dstatus" tabindex="-1">đang tải chi tiết… <span class="mut">(đã chờ <span data-live="0" data-live-at="'+since+'">0s</span>, tối đa '+DETAIL_TIMEOUT/1000+' s)</span></div>';
-  if(t)h+='<div class="small mut">Theo danh sách: '+esc(workReason(t))+'</div>';
   $('#detail').innerHTML=h}
+// ---- UIMOCK: the chips and the task head (the row helpers live with the work script)
+var FCHIPS=[['need','Cần bạn','need'],['g_doing','Đang làm','doing'],['g_check','Chờ kiểm','check'],['g_todo','Chưa bắt đầu','todo'],['g_done','Xong','done'],['','Tất cả','all']];
+function groupCounts(){var L=last&&last.list,g=L&&L.groups,c={need:0,doing:0,check:0,todo:0,done:0,all:0};
+  if(g){['need','doing','check','todo','done'].forEach(function(k){c[k]=g[k]||0});c.all=g.all||0;return c}
+  tasks().forEach(function(t){c[groupOf(t)]++;c.all++});return c}
+function chipsHtml(){var kind=$('#kind').value,c=groupCounts();
+  return FCHIPS.map(function(f){var n=f[0]?c[f[2]]:c.all;return '<button type="button" class="fchip'+(f[0]==='need'&&n?' hot':'')+'" data-fchip="'+f[0]+'" aria-pressed="'+(kind===f[0])+'">'
+    +(f[0]?'<span class="swatch sb-'+f[2]+'"></span>':ic('list','sm'))+esc(f[1])+' <b>'+n+'</b></button>'}).join('')}
+function heroHtml(){var n=groupCounts().need;return '<div class="hero'+(n?' has-need':'')+'">'+ic(n?'need':'ok','lg',n?'need':'ok')+'<span><b>'+n+'</b> việc cần bạn trong sổ</span></div>'}
+function sbarHtml(){var c=groupCounts();return '<div class="sbar" role="img" aria-label="'+esc(FCHIPS.slice(0,5).map(function(f){return f[1]+' '+c[f[2]]}).join(', '))+'">'
+  +FCHIPS.slice(0,5).filter(function(f){return c[f[2]]}).map(function(f){return '<button type="button" class="sb sb-'+f[2]+'" data-fchip="'+f[0]+'" style="flex-grow:'+c[f[2]]+'" title="'+esc(f[1]+': '+c[f[2]])+'" aria-label="'+esc(f[1]+': '+c[f[2]])+'"></button>'}).join('')+'</div>'}
+var headData=null,headFor=null,headToken=0,headSig=null,deepWanted=false;
+function headOf(sel){if(!sel)return null;var t=taskOf(sel);if(t)return t;return headData&&sameSel(headFor,sel)?headData:null}
+function viewData(){return mine()||(selected?headOf(selected):null)}
+function paintHead(first){var h=headOf(selected);if(!h||mine())return;var s=first?null:snapshot();headSig=JSON.stringify(h);renderDetail(h);if(s)restore(s);if(first)afterSelect()}
+function loadHead(sel){var tok=++headToken;      // UIMOCK D4: the root as the list reads it, no timeline / evidence / comparison: the four tiles in well under a second
+  fetch('/api/task?plan='+encodeURIComponent(sel.plan)+(sel.project?'&project_id='+encodeURIComponent(sel.project):'')+'&part=head',{cache:'no-store'})
+  .then(function(r){return r.json().then(function(j){return [r.ok,j]})}).then(function(x){if(tok!==headToken||!sameSel(sel,selected))return;
+    if(!x[0]||!x[1]||x[1].error){if(!headOf(sel)&&!mine()){deepWanted=true;loadDetail('select')}return}      // no head: the full read, as before
+    var first=!headOf(sel);headData=x[1];headFor={plan:sel.plan,project:sel.project};if(!mine())paintHead(first)})
+  .catch(function(){if(tok!==headToken||!sameSel(sel,selected))return;if(!headOf(sel)&&!mine()){deepWanted=true;loadDetail('select')}})}
+function wantDeep(){if(!selected||mine())return;if(deepWanted&&reading())return;deepWanted=true;var v=viewData();if(v){var s=snapshot();renderDetail(v);restore(s)}dind();loadDetail('deep')}
+function thead(d){var u=updatedOf(d),q=urlOf({plan:d.selector,project:d.project_id});
+  return '<div class="thead"><div class="ttop"><button type="button" id="back">‹ Quay lại</button><span class="tsp"></span><button type="button" id="close" class="xbtn" title="Đóng việc này" aria-label="Đóng việc này">'+ic('x','sm')+'</button></div>'
+    +'<h2 id="dtitle" data-k="dtitle" tabindex="-1">'+esc(fullName(d))+'</h2>'
+    +'<p class="tmeta"><span data-state="'+stateKey(d)+'">'+stateIcon(d,'sm')+esc(statusWord(d))+'</span><span title="'+esc(d.project||'')+'">'+ic('box','sm')+esc(projName(d.project))+'</span>'
+    +(u?'<span title="Cập nhật '+when(u)+'">'+ic('clock','sm','','Cập nhật')+'<time data-ago="'+esc(u)+'">'+agoShort(u)+'</time></span>':'')
+    +'<span class="src" title="Sổ: dữ liệu thật trên máy này, đã lọc bí mật, chỉ đọc">'+ic('lock','sm')+'Sổ: dữ liệu thật, chỉ đọc</span>'
+    +'<a href="/sessions'+esc(q)+'">'+ic('robot','sm')+'Phiên Claude</a><a href="/direction'+esc(q)+'">'+ic('turn','sm')+'Hướng đi</a></p></div>'}
+function navScope(){var q=selected?urlOf(selected):'';['sessions','direction'].forEach(function(k){var a=document.querySelector('[data-nav="'+k+'"]');if(a&&a.setAttribute)a.setAttribute('href','/'+k+q)});
+  var w=document.querySelector('[data-nav="work"]');if(w&&w.setAttribute)w.setAttribute('href','/'+q)}
 function tasks(){var out=[];(last&&last.projects||[]).forEach(function(p){p.tasks.forEach(function(t){out.push(t)})});return out}
 function ended(t){return t.root_status==='accepted'||t.root_status==='closed'}
 function isRecheck(t){return (t.validity||{}).kind==='recheck'||sit(t).label==='Cần kiểm lại'}     // UI58 MC: the same rule as the server's stage filter (tracking_list._stage_ok)
 function visible(){var cur=$('#proj').value,kind=$('#kind').value,src=$('#origin').value,raw=($('#q').value||'').trim(),q=raw.toLowerCase(),lf=last&&last.list&&last.list.filters,byServer=!!lf&&(lf.q||'')===raw;   // OBS-2C: the server already searched every root for this text (the client keeps filtering the loaded rows at once)
   return workOrder(tasks().filter(function(t){if(cur&&!(cur.startsWith('repo:')?cur.slice(5).split(',').includes(t.project_id):t.project===cur))return false;
-    if(kind==='need'&&!(t.needs_user||[]).length)return false;if(kind==='running'&&!(sit(t).activity||{}).running)return false;
+    if(kind.indexOf('g_')===0&&groupOf(t)!==kind.slice(2))return false;if(kind==='need'&&!(t.needs_user||[]).length)return false;if(kind==='running'&&!(sit(t).activity||{}).running)return false;
     if(kind==='recheck'&&!isRecheck(t))return false;
     if(kind==='inconclusive'){if(sit(t).label!=='Chưa kết luận')return false}
     else if(kind==='idle'){var age=Date.parse(last.generated_at)-Date.parse((t.last_update||{}).at||t.created_at);if(!(age>3*86400000)||['done','closed'].includes(workStage(t)))return false}
-    else if(kind==='ended'){if(!ended(t))return false}else if(kind&&kind!=='need'&&kind!=='running'&&kind!=='recheck'&&workStage(t)!==kind)return false;
+    else if(kind==='ended'){if(!ended(t))return false}else if(kind&&kind.indexOf('g_')!==0&&kind!=='need'&&kind!=='running'&&kind!=='recheck'&&workStage(t)!==kind)return false;
     if(src==='spawned'){if(!((t.list||{}).links||{}).spawned)return false}else if(src&&(t.origin||{}).source!==src)return false;
     if(q&&!byServer&&workSearch(t).indexOf(q)<0)return false;return true}),$('#sort').value)}
 // OBS-2C: the list is read a page at a time in the ledger's stable order (creation seq, newest first). `listFloor` is the creation seq of the
@@ -1017,15 +1136,16 @@ function footHtml(){var L=last&&last.list;if(!L)return '';
     +(L.remaining?' · còn '+L.remaining+' việc '+(L.matched_exact?'khớp bộ lọc ':'')+'chưa '+(L.matched_exact?'tải':'xét'):'')+'.</p>';
   if(!L.complete)h+='<button type="button" id="more" data-k="more">Xem thêm '+Math.min(LIST_PAGE,L.remaining)+' việc</button>';
   if(L.unreadable)h+='<p class="small err">'+L.unreadable+' việc không đọc được: vẫn được đếm và hiện là chưa xác định.</p>';
-  var V=L.validity||{};if(V.not_compared)h+='<p class="small" id="notcompared"><b>'+V.not_compared+' việc trong phần đã tải chưa so kết quả kiểm với bản hiện tại của dự án</b>, nên số “Cần kiểm lại” chỉ gồm việc đã so. '+esc(V.note||'')+'</p>';
+  var V=L.validity||{};if(V.not_compared)h+='<div class="small" id="notcompared"><b>'+V.not_compared+' việc chưa so kết quả kiểm với bản hiện tại</b> · số “Cần kiểm lại” chỉ gồm việc đã so '+infoBox('notcompared',[esc(V.note||'')])+'</div>';   // UIMOCK: one line; the why behind (i)
   var ao=L.attention_outside||{};if(ao.count)h+='<p class="needout" id="needout">Ngoài phần đã tải còn '+ao.count+' việc đang chờ bạn: '+(ao.items||[]).map(function(x){return esc(x.plan)+' ('+esc(x.why)+')'}).join(', ')+(ao.count>(ao.items||[]).length?', …':'')+'. Chọn lọc “Cần bạn quyết định” để đọc đủ.</p>';
   return h+'<details class="small mut" data-k="listcov" id="listcov"><summary>Thứ tự và phạm vi của danh sách</summary><p>'+esc(L.order_basis)+'</p><p>'+esc(L.coverage)+'</p><p>'+esc(L.not_tracked)+'</p></details>'}
 function paintFoot(){var f=$('#listfoot'),h=footHtml();if(f.innerHTML===h)return;var a=document.activeElement,had=a&&a.id==='more',cov=$('#listcov'),open=cov&&cov.open;f.innerHTML=h;if(open&&$('#listcov'))$('#listcov').open=true;if(had&&$('#more'))$('#more').focus({preventScroll:true})}
 function row(t){var sel=sameSel(selected,{plan:t.selector,project:t.project_id}),lastv=!sel&&sameSel(lastViewed,{plan:t.selector,project:t.project_id});
-  return '<li class="task'+(lastv?' last':'')+'" role="option" tabindex="0" aria-selected="'+sel+'" aria-label="'+esc(rowLabel(t))+'" data-plan="'+esc(t.selector)+'" data-project="'+esc(t.project_id)+'" data-stage="'+esc(workStage(t))+'" data-k="task:'+esc(t.project_id)+':'+esc(t.selector)+'">'+workItem(t)+'</li>'}
-var listMode=(function(){try{return localStorage.getItem('onecrew-track-mode')==='board'?'board':'list'}catch(e){return 'list'}})();
+  return '<li class="task'+(lastv?' last':'')+'" role="option" tabindex="0" aria-selected="'+sel+'" aria-label="'+esc(rowLabel(t))+'" title="'+esc(fullName(t))+'" data-plan="'+esc(t.selector)+'" data-project="'+esc(t.project_id)+'" data-stage="'+esc(workStage(t))+'" data-group="'+groupOf(t)+'" data-k="task:'+esc(t.project_id)+':'+esc(t.selector)+'">'
+    +rowLine(t)+'<span class="rx" hidden>'+workItem(t)+'</span></li>'}
+var listMode='list';   // UIMOCK D5: one list of one-line rows (the board left the default screen; workBoard stays for an old link)
 function setMode(m){listMode=m==='board'?'board':'list';try{localStorage.setItem('onecrew-track-mode',listMode)}catch(e){}render(true)}
-function filterSummary(){var parts=[],k=$('#kind'),p=$('#proj'),o=$('#origin'),q=($('#q').value||'').trim(),s=$('#since').value,u=$('#until').value,tf=$('#tfield');if(p.value)parts.push(p.value.startsWith('repo:')?'Các worktree của repo đã chọn':'dự án '+short(p.value));if(k.value)parts.push(k.options[k.selectedIndex].text);
+function filterSummary(){var parts=[],k=$('#kind'),p=$('#proj'),o=$('#origin'),q=($('#q').value||'').trim(),s=$('#since').value,u=$('#until').value,tf=$('#tfield');if(p.value)parts.push(p.value.startsWith('repo:')?'Các worktree của repo đã chọn':'dự án '+short(p.value));if(k.value&&FCHIPS.every(function(f){return f[0]!==k.value}))parts.push(k.options[k.selectedIndex].text);
   if(o.value)parts.push('nguồn: '+o.options[o.selectedIndex].text);if(s||u)parts.push(tf.options[tf.selectedIndex].text.toLowerCase()+(s?' từ '+s:'')+(u?' đến hết '+u:''));if(q)parts.push('tìm “'+q+'”');return parts}
 function render(force){
   if(!last)return;var ps=$('#proj'),cur=ps.value,opts='<option value="">tất cả</option>';
@@ -1033,9 +1153,7 @@ function render(force){
   ((last.list&&last.list.projects)||last.projects||[]).forEach(function(p){opts+='<option value="'+esc(p.path)+'"'+(p.path===cur?' selected':'')+'>'+esc(short(p.path))+'</option>'});if(ps.innerHTML!==opts)ps.innerHTML=opts;   // OBS-2C: every project of the scope, not only the loaded rows'
   var vis=visible(),all=tasks(),need=all.filter(function(t){return (t.needs_user||[]).length}).length,L=last.list,part=L&&!L.complete;
   $('#count').textContent=L?'Đang hiện '+vis.length+(vis.length!==all.length?' (đã tải '+all.length+')':'')+' / '+L.total+' công việc':all.length+' công việc'+(vis.length!==all.length?' · hiện '+vis.length:'');
-  var kindNow=$('#kind').value,nc=all.filter(notCompared).length,counts={need:need,recheck:all.filter(isRecheck).length,fix:all.filter(function(t){return workStage(t)==='fix'}).length,unknown:all.filter(function(t){return workStage(t)==='unknown'}).length,running:all.filter(function(t){return (sit(t).activity||{}).running}).length,
-    ended:L&&L.counts&&typeof L.counts.ended==='number'?L.counts.ended:all.filter(ended).length};
-  var chips=[['need','Cần bạn quyết định'],['recheck','Cần kiểm lại'],['fix','Cần sửa'],['unknown','Chưa xác định'],['running','Đang có lượt chạy'],['ended','Đã kết thúc']].filter(function(c){return counts[c[0]]||kindNow===c[0]||(c[0]==='recheck'&&nc)}).map(function(c){return '<button type="button" class="chip" data-kind="'+c[0]+'" aria-pressed="'+(kindNow===c[0])+'">'+c[1]+' ('+counts[c[0]]+(part&&c[0]!=='ended'?', phần đã tải':'')+(c[0]==='recheck'&&nc?'; '+nc+' việc chưa so':'')+')</button>'}).join('');   // 'ended' counts every root of the scope (the ledger's index); UI58 MC: "Cần kiểm lại" counts compared results only and says how many were not compared
+  var chips=chipsHtml(),hero=heroHtml(),sb=sbarHtml();if($('#hero').innerHTML!==hero)$('#hero').innerHTML=hero;if($('#sbar').innerHTML!==sb)$('#sbar').innerHTML=sb;   // UIMOCK D5: six chips with counts
   document.querySelectorAll('#viewsw [data-list-mode]').forEach(function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-list-mode')===listMode))});
   var fs=filterSummary(),fa=$('#factive');fa.hidden=!fs.length;var fh=fs.length?'<b>Đang lọc:</b> '+esc(fs.join(' · '))+' <button type="button" id="fclear">Bỏ lọc</button>':'';if(fa.innerHTML!==fh)fa.innerHTML=fh;$('#fcount').textContent=fs.length?'('+fs.length+' đang áp dụng)':'';
   if($('#chips').innerHTML!==chips)$('#chips').innerHTML=chips;
@@ -1099,15 +1217,13 @@ function groups(d){var g={},order=[];function add(key,title,e){if(!g[key]){g[key
   Object.keys(d.nodes||{}).forEach(function(id){var n=d.nodes[id];add('n:'+id,'phần việc '+id,{kind:'',seq:-1,summary:''});g['n:'+id].cur=[];g['n:'+id].node=n});
   (d.timeline||[]).forEach(function(e){var n=e.node||e.node_of_attempt;if(n)add('n:'+n,'phần việc '+n,e);else add('plan','Plan '+d.plan,e)});return {g:g,order:order}}
 @@WORK_SCRIPT@@
-function renderDetail(d){
-  var P=prov(d);
-  var h=[crumbs(workTitle(d),d.work?crumbTab(d):''),'<div class="dhead"><h2 id="dtitle" data-k="dtitle" tabindex="-1">'+(workNoOwner(d)?'<span class="work-id">'+esc(d.plan)+' · </span>':'')+esc(workTitle(d))+' '+workBadge(d)+'</h2><button type="button" id="close" class="small" title="bỏ chọn task">Đóng</button></div>'];
-  if(detailError)h.push('<div id="dstatus" class="dstatus stale" role="status" data-state="stale" data-k="dstatus" tabindex="-1">Chi tiết chưa cập nhật từ '+clockMs(detailOkAt)+': lỗi tải chi tiết ('+esc(detailError.message)+', lần thử gần nhất <span id="dlast">'+clockMs(detailError.last)+'</span>); đang hiện dữ liệu lúc '+(d.generated_at?clock(d.generated_at):clockMs(detailOkAt))+'. Mẫu lệnh trả lời bên dưới là của lúc đó: nếu câu hỏi đã được trả lời hoặc đổi bản, OneCrew từ chối lệnh nhờ --revision. <span id="dnote" data-cap="1">'+cap(noteHtml())+'</span>.</div>');
-  h.push('<div class="small mut">Đang xem '+(workNoOwner(d)?'task <b>'+esc(d.plan)+'</b>':'việc này')+' của project <span title="'+esc(d.project)+'">'+esc(short(d.project))+'</span> · <a href="'+esc(urlOf({plan:d.selector,project:d.project_id}))+'">liên kết tới task này</a></div>');
-  var historyQuery=esc(urlOf({plan:d.selector,project:d.project_id}));
-  h.push('<nav aria-label="Lịch sử của việc"><a href="/sessions'+historyQuery+'">Phiên Claude</a> · <a href="/direction'+historyQuery+'">Hướng đi</a></nav>');
+function renderDetail(d){   // UIMOCK: the task's head (title, a short line with icons), the four tiles, the reader's decisions, then "Xem sâu"
+  var P=d.evidence_index?prov(d):null;
+  var h=[thead(d)];
+  if(detailError&&mine())h.push('<div id="dstatus" class="dstatus stale" role="status" data-state="stale" data-k="dstatus" tabindex="-1">Chi tiết chưa cập nhật từ '+clockMs(detailOkAt)+': lỗi tải chi tiết ('+esc(detailError.message)+', lần thử gần nhất <span id="dlast">'+clockMs(detailError.last)+'</span>); đang hiện dữ liệu lúc '+(d.generated_at?clock(d.generated_at):clockMs(detailOkAt))+'. Mẫu lệnh trả lời bên dưới là của lúc đó: nếu câu hỏi đã được trả lời hoặc đổi bản, OneCrew từ chối lệnh nhờ --revision. <span id="dnote" data-cap="1">'+cap(noteHtml())+'</span>.</div>');
+  if(detailError&&!mine())h.push('<div id="dstatus" class="dstatus err" role="status" data-state="error" data-k="dstatus" tabindex="-1">Chưa đọc được chi tiết đầy đủ của việc này ('+esc(detailError.message)+') từ '+clockMs(detailError.since)+', lần thử gần nhất <span id="dlast">'+clockMs(detailError.last)+'</span>; <span id="dnote">'+noteHtml()+'</span>. Bốn ô dưới đây là dữ liệu của danh sách.</div>');
   var needs=d.needs_user||[],nq=needs.filter(function(n){return n.kind==='request'}).length,nother=needs.length-nq;
-  h.push(milestoneBar(d),taskTiles(d));                                                 // UI58 MC: output, still valid, next step, your decision; the five-question summary moved under "Xem sâu"
+  h.push(taskTiles(d));                                                                  // UIMOCK: Đầu ra / Còn tin được? / Bước tiếp / Bạn quyết
   var done=d.status.kind==='done';
   var nowKeys={};needs.forEach(function(n){nowKeys[needKey(n)]=n});
   if(copied&&!copiedStillValid(copied,d))copied=null;      // R7-1: feedback of a command this data no longer offers (binding lost, other runtime/state) is dropped, never shown again
@@ -1118,11 +1234,13 @@ function renderDetail(d){
   if(needs.length||staleNotes.length){h.push('<h3 id="needs">Quyết định cần bạn ('+needs.length+')</h3>');
     staleNotes.forEach(function(x){h.push('<div class="stale-need" data-k="stale:'+esc(x.key)+'" data-stale-id="'+esc(x.id||'')+'">Yêu cầu bạn đang đọc <b>'+esc(String(x.id||'').slice(0,12))+'…</b> ('+esc(x.title||'')+') '+esc(x.why)+'.<button type="button" class="stale-hide" data-key="'+esc(x.key)+'">ẩn</button></div>')});
     needs.forEach(function(n,i){h.push(needCard(n,i))})}
-  h.push(deepSections(d));h.push(hostPlanPanel(d));
-  h.push(workDashboard(d));
-  h.push('<div id="legacy-progress"'+(d.work&&workTab!=='overview'&&workTab!=='progress'?' hidden':'')+'>');
-  if(!d.work||(workTab!=='progress'&&!d.milestone_checks))h.push(gantt(d));
-  if(d.work)h.push('<details data-k="work-technical"><summary>Số đo và nhật ký kỹ thuật</summary>');
+  h.push(deepSections(d));
+  $('#detail').innerHTML=h.join('');
+  knownNeeds={};needs.forEach(function(n){var el=document.querySelector('#detail details[data-k="'+needKey(n).replace(/"/g,'\\"')+'"]');knownNeeds[needKey(n)]={id:n.id,revision:n.revision,title:needTitle(n),open:!!(el&&el.open)}});
+}
+function legacyTimeline(d){var h=[],done=(d.status||{}).kind==='done',P=prov(d),cw=[];   // the older progress view, now under "Thời gian và ai chờ ai"
+  if(!d.milestone_checks)h.push(gantt(d));
+  if(d.measure&&d.elapsed&&d.eta&&d.level&&d.status){
   function brief(t,n){t=String(t||'');return t.length>n?'<span title="'+esc(t)+'">'+esc(t.slice(0,n))+'…</span>':esc(t)}
   h.push('<div class="stats"><div class="tile"><div class="l">Trạng thái</div><div class="v">'+esc(d.status.label)+'</div><div class="s">'+brief(d.status.reason,140)+'</div></div>'
     +'<div class="tile"><div class="l">Đầu ra</div><div class="v">'+esc(d.level.label)+'</div><div class="s">'+brief(d.current_step||'',140)+'</div></div>'
@@ -1133,8 +1251,8 @@ function renderDetail(d){
   var ow=(d.waits||[]).filter(function(w){return w.open}),cw=(d.waits||[]).filter(function(w){return !w.open});
   if(ow.length)h.push('<div class="small"><b>Đang chờ:</b> '+ow.map(function(w){return esc(w.reason||'không rõ')+' từ '+when(w.since)+(w.node?' (phần việc '+esc(w.node)+')':'')}).join('; ')+'</div>');
   if((d.holds||[]).length)h.push('<div class="small"><b>Giữ (finding):</b> '+d.holds.map(function(x){return esc(x.text||x.error)}).join('; ')+'</div>');
-  var ns=Object.keys(d.nodes||{});if(ns.length){h.push('<h3>Phần việc</h3><div class="scroll"><table><thead><tr><th>Phần việc</th><th>Trạng thái</th><th>Đầu ra</th><th>Thế hệ</th><th>Quan sát gần nhất</th></tr></thead><tbody>');
-    ns.forEach(function(id){var n=d.nodes[id],p=n.progress;h.push('<tr><td><b>'+esc(nodeName(d,id))+'</b></td><td>'+word(PHASE,n.phase)+(n.phase==='held'?'<div class="small" style="color:var(--blk)">lý do (engine): '+esc(n.reason)+'</div>':'')+'</td><td>'+word(NSTATE,n.state)+(n.verification_result?' ('+esc(n.verification_result)+')':'')+'</td><td>'+n.generation+(n.continues?' <span class="small mut">tiếp từ '+esc(n.continues)+'</span>':'')+'</td><td class="wrap small">'+(p?esc(p.status)+' '+rel(p.observed_at||p.received_at)+(p.reason?'<br>'+esc(p.reason):''):'—')+'</td></tr>')});h.push('</tbody></table></div>')}
+  }
+  if(d.timeline){
   var G=groups(d),older=d.timeline_total-d.timeline.length;h.push('<details data-k="log"><summary>Nhật ký sự kiện ('+d.timeline.length+'/'+d.timeline_total+', cũ → mới; bấm một bước để xem bằng chứng của bước đó)</summary>');
   if(older>0)h.push('<div class="small mut" id="lognote">đang hiện '+d.timeline.length+'/'+d.timeline_total+' sự kiện mới nhất; '+older+' sự kiện cũ hơn chưa tải ở nhật ký này — bằng chứng của chúng vẫn có ở Gantt (chọn lượt hoặc dấu mốc) và mục Bằng chứng (toàn bộ lịch sử)</div>');
   G.order.forEach(function(key){var x=G.g[key];if(!x.cur.length&&!x.old.length&&!x.tech.length)return;
@@ -1144,22 +1262,28 @@ function renderDetail(d){
     if(x.tech.length)h.push('<details data-k="tech:'+esc(key)+'"><summary>chi tiết kỹ thuật ('+x.tech.length+')</summary><ol class="ev">'+x.tech.map(function(e){return evLi(e,P)}).join('')+'</ol></details>');
     h.push('</section>')});
   h.push('</details>');
+  }
+  if(cw.length)h.push('<details data-k="waits"><summary>Đã chờ (lịch sử, '+cw.length+')</summary>'+cw.map(function(w){return '<div class="small">'+esc(w.reason||'không rõ')+' '+when(w.since)+' → '+(w.until==='unknown'?'chưa rõ kết thúc':when(w.until))+' ('+esc(w.source)+')</div>'}).join('')+'</details>');
+  return h.join('')}
+function legacyEvidence(d){var h=[],P=prov(d);
   function use(x){return '<li>'+esc(x.label||'')+' <span class="mut">· '+occMeta(x)+(x.seq!=null?' · #'+x.seq:'')+'</span></li>'}
   var bk=P.keys.filter(function(k){return P.byKey[k][0].blob!==false}),mk=P.keys.filter(function(k){return P.byKey[k][0].blob===false}),nu=0;bk.forEach(function(k){nu+=P.byKey[k].length});
   function uses(u){return '<ul class="uses">'+(u.length>8?u.slice(0,4).map(use).join('')+'<li class="mut">… '+(u.length-8)+' lần khác …</li>'+u.slice(-4).map(use).join(''):u.map(use).join(''))+'</ul>'}
   h.push('<details data-k="evidence"><summary>Bằng chứng ('+bk.length+' mục trong kho, '+nu+' lần được nêu trong toàn bộ lịch sử'+(mk.length?'; '+mk.length+' khóa đầu ra không còn trong kho':'')+'; lọc bí mật, chỉ đọc)</summary>'+bk.map(function(k){var u=P.byKey[k];   // one stored key (blob or snapshot), its uses (generation / attempt / role)
     return '<div class="small" data-k="evk:'+k+'"><code>'+k.slice(0,12)+'…</code>'+(u[0].stored==='manifest'?' · ảnh chụp':'')+' · '+u.length+' lần được nêu'+openBtn(k)+uses(u)+'</div>'}).join('')
     +mk.map(function(k){var u=P.byKey[k];return '<div class="small" data-k="evm:'+k+'"><code>'+k.slice(0,12)+'…</code> · '+u.length+' lần được nêu · <span class="mut nob">không có trong kho: không mở được</span>'+uses(u)+'</div>'}).join('')+'</details>');
-  if(cw.length)h.push('<details data-k="waits"><summary>Đã chờ (lịch sử, '+cw.length+')</summary>'+cw.map(function(w){return '<div class="small">'+esc(w.reason||'không rõ')+' '+when(w.since)+' → '+(w.until==='unknown'?'chưa rõ kết thúc':when(w.until))+' ('+esc(w.source)+')</div>'}).join('')+'</details>');
+  return h.join('')}
+function legacyNodes(d){var h=[];
+  var ns=Object.keys(d.nodes||{});if(ns.length){h.push('<h3>Phần việc</h3><div class="scroll"><table><thead><tr><th>Phần việc</th><th>Trạng thái</th><th>Đầu ra</th><th>Thế hệ</th><th>Quan sát gần nhất</th></tr></thead><tbody>');
+    ns.forEach(function(id){var n=d.nodes[id],p=n.progress;h.push('<tr><td><b>'+esc(nodeName(d,id))+'</b></td><td>'+word(PHASE,n.phase)+(n.phase==='held'?'<div class="small" style="color:var(--blk)">lý do (engine): '+esc(n.reason)+'</div>':'')+'</td><td>'+word(NSTATE,n.state)+(n.verification_result?' ('+esc(n.verification_result)+')':'')+'</td><td>'+n.generation+(n.continues?' <span class="small mut">tiếp từ '+esc(n.continues)+'</span>':'')+'</td><td class="wrap small">'+(p?esc(p.status)+' '+rel(p.observed_at||p.received_at)+(p.reason?'<br>'+esc(p.reason):''):'—')+'</td></tr>')});h.push('</tbody></table></div>')}
   if((d.attempts||[]).length){var mx={};((d.measure&&d.measure.attempts)||[]).forEach(function(m){mx[m.attempt]=m});var top=0;Object.keys(mx).forEach(function(k){if(typeof mx[k].execution_seconds==='number')top=Math.max(top,mx[k].execution_seconds)});
     h.push('<details data-k="attempts"><summary>Attempt ('+d.attempts.length+')</summary><div class="scroll"><table><thead><tr><th>Attempt</th><th>Trạng thái</th><th>Thế hệ</th><th>Thời lượng (đo)</th><th>Từ</th><th>Cập nhật</th></tr></thead><tbody>'+d.attempts.map(function(a){var m=mx[a.id],sec=m&&typeof m.execution_seconds==='number'&&m.settled_at?m.execution_seconds:null;
       return '<tr><td><code>'+esc(a.id)+'</code></td><td>'+esc(a.status)+'</td><td>'+a.generation+'</td><td class="small">'+(sec!==null?'<span class="dur" style="width:'+Math.max(4,Math.round(sec/(top||1)*80))+'px"></span>'+hms(sec):'chưa xác định')+'</td><td class="small">'+when(a.created_at)+'</td><td class="small">'+when(a.updated_at)+'</td></tr>'}).join('')+'</tbody></table></div></details>')}
+  return h.join('')}
+function legacyTech(d){var h=[];if(!d.measure||!d.tracking||!d.status||!d.elapsed)return '';
   if((d.notices||[]).length)h.push('<details data-k="notices"><summary>Thông báo ('+d.notices.length+')</summary>'+d.notices.map(function(n){return '<div class="small">'+when(n.at)+' '+esc(n.category)+': '+esc(n.reason)+(n.user_action?' — '+esc(n.user_action):'')+'</div>'}).join('')+'</details>');
   h.push('<details data-k="techinfo"><summary>Kỹ thuật</summary><div class="small">id <code>'+esc(d.id)+'</code> · selector <code>'+esc(d.selector)+'</code> · project <code>'+esc(d.project)+'</code> · project_id <code>'+esc(d.project_id)+'</code><br>root: '+esc(d.root_status)+' · hợp đồng bản '+esc(d.contract_revision)+' · adapter '+esc(d.tracking.adapter)+' — '+esc(d.tracking.coverage)+'<br>nguồn trạng thái: '+esc((d.status.source||[]).join(', '))+'<br>'+esc(d.elapsed.basis||'')+'<br>'+(d.measure.method?'đo: '+esc(JSON.stringify(d.measure.method)):'')+'<br>'+esc(d.controls)+'</div></details>');
-  if(d.work)h.push('</details>');h.push('</div>');
-  $('#detail').innerHTML=h.join('');
-  knownNeeds={};needs.forEach(function(n){var el=document.querySelector('#detail details[data-k="'+needKey(n).replace(/"/g,'\\"')+'"]');knownNeeds[needKey(n)]={id:n.id,revision:n.revision,title:needTitle(n),open:!!(el&&el.open)}});
-}
+  return h.join('')}
 function openDeep(k){var el=document.querySelector('#detail details[data-k="deep-'+k+'"]');if(!el)return false;el.open=true;el.scrollIntoView({block:'start'});var s=el.querySelector('summary');if(s)s.focus({preventScroll:true});return true}
 function noteOpen(){needs_open_sync()}
 // R7-1: what a reader can copy from a need comes from the project's hook binding too, which lives outside the ledger: an unchanged last_seq
@@ -1308,10 +1432,11 @@ function loadDetail(why){if(!selected)return;
       detailFailed(sel,'mất kết nối khi tải chi tiết')})}     // a quick failure neither counts nor ends a timeout series (alternating hang/error stops too)
 function detailLoaded(sel,j,why){var had=mine(),wasErr=!!detailError,seq=j.source&&j.source.last_seq;detailError=null;detailOkAt=Date.now();
   if(had&&!wasErr&&why!=='select'&&why!=='force'&&seq===detailSeq&&had.selector===j.selector&&had.project_id===j.project_id&&needsSig(had)===needsSig(j)){detailData=j;if(j.gantt&&j.gantt.axis&&(j.gantt.axis.extends_to_now||$('#gstale')))repaintGantt();dind();return}   // nothing moved in the ledger: keep what the reader is looking at; only the server clock parts of the timeline move (P2-A)
-  detailSeq=seq;paint(j,sel,had?why:'select');dind()}      // recovery from a stale state re-renders once (warning and template marks go; snapshot/restore keep the reader's place)
+  detailSeq=seq;paint(j,sel,had||why==='deep'||why==='poll'?why:'select');dind()}      // recovery from a stale state re-renders once (warning and template marks go; snapshot/restore keep the reader's place)
 function detailFailed(sel,msg){var now=Date.now(),note=restNote(),changed=!detailError||detailError.message!==msg||detailError.note!==note,d=mine(),s;   // a new retry state (try 2/3, stopped) is shown too
   detailError={since:detailError?detailError.since:now,last:now,message:msg,note:note};
   if(d){if(changed){s=snapshot();renderDetail(d);restore(s)}else{var l=$('#dlast');if(l)l.textContent=clockMs(now)}}     // the task already shown: its data stays, marked stale
+  else if(headOf(sel)){s=snapshot();renderDetail(headOf(sel));restore(s)}     // the head stays; the failure is said above the tiles
   else if(changed||!$('#dstatus')||$('#dstatus').getAttribute('data-state')!=='error'){s=snapshot();pendingPane(sel);restore(s)}   // never loaded: its own heading + the error, nothing else
   else{var l2=$('#dlast');if(l2)l2.textContent=clockMs(now)}
   dind()}
@@ -1321,17 +1446,17 @@ function select(sel,opts){opts=opts||{};
   // Save the list entry before pushing its detail. Each visit can be scrolled to a different row.
   if(sel&&!selected&&!opts.silent)history.replaceState(Object.assign({},history.state,{listY:listY}),'');
   if(!sel){reserveListScroll(listY);if(detailInflight){clearTimeout(detailInflight.timer);detailInflight.ctl.abort();detailInflight=null}   // closing cancels the read: selecting the task again starts a fresh one (never a nearly expired one)
-    var was=selected;if(selected){lastViewed=selected}selected=null;selEv=null;evState={};copied=null;detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailSeq=null;detailTimeouts=0;$('#detail').innerHTML='<div id="nodetail">Chọn một task ở danh sách để xem chi tiết, timeline và bằng chứng.</div>';setView();render(true);dind();
+    var was=selected;if(selected){lastViewed=selected}selected=null;selEv=null;evState={};copied=null;detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailSeq=null;detailTimeouts=0;headData=null;headFor=null;headSig=null;deepWanted=false;$('#detail').innerHTML='<div id="nodetail" class="pick">Chọn một việc trong danh sách.</div>';setView();render(true);dind();
     var row0=was&&document.querySelector('[data-k="task:'+String(was.project).replace(/"/g,'\\"')+':'+String(was.plan).replace(/"/g,'\\"')+'"]');if(row0)row0.focus({preventScroll:true});   // UI58 MC: every way back (button, Escape, browser back) lands on the row that was opened, filter and scroll kept
     window.scrollTo(0,listY);
     if(!opts.silent&&location.search){var filters=new URLSearchParams();if($('#kind').value)filters.set('stage',$('#kind').value);if($('#proj').value)filters.set('project',$('#proj').value);
       history.pushState({listY:listY},'',location.pathname+(filters.size?'?'+filters:''))}return}
   var other=!sameSel(selected,sel);if(other)workTab='overview';detailTimeouts=0;      // a click on a task (the same one too) is the reader asking again: a new series of tries
-  if(other){selEv=null;evState={};copied=null;detailSeq=null;selStep=null;gRange='current';gPinnedWindow=null;gFold={};staleNotes=[];knownNeeds={};detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailTimeouts=0}
+  if(other){selEv=null;evState={};copied=null;detailSeq=null;selStep=null;gRange='current';gPinnedWindow=null;gFold={};staleNotes=[];knownNeeds={};detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailTimeouts=0;headData=null;headFor=null;headSig=null;deepWanted=false;$('#detail').innerHTML=''}
   selected={plan:sel.plan,project:sel.project||'',focusDetail:!!opts.focusDetail};setView();render(true);
-  if(!mine()){pendingPane(selected);afterSelect()}dind();     // another task: its heading + "đang tải" at once, never the previous task's content
+  if(!mine()){if(headOf(selected))paintHead(true);else{pendingPane(selected);afterSelect()}if(!taskOf(selected))loadHead(selected)}dind();   // UIMOCK D4: the tiles at once (list row) or after the light read     // another task: its heading + "đang tải" at once, never the previous task's content
   if(!opts.silent&&location.search!==urlOf(selected))history.pushState({plan:selected.plan,project:selected.project,listY:listY},'',urlOf(selected));
-  loadDetail('select')}
+  if(deepWanted)loadDetail('select')}
 function fetchList(done){var gen=listGen,ctl=new AbortController(),late=false,tm=setTimeout(function(){late=true;ctl.abort()},OVERVIEW_TIMEOUT);   // P2 (found with it): an overview read that never answers no longer freezes the page under a green badge
   fetch('/api/overview?'+listQuery(),{cache:'no-store',signal:ctl.signal}).then(function(r){return r.json()}).then(function(j){
     if(gen!==listGen)return;                                   // OBS-2C: the answer of a list the reader has since changed (filter, "Xem thêm") is not shown
@@ -1339,13 +1464,13 @@ function fetchList(done){var gen=listGen,ctl=new AbortController(),late=false,tm
     else if(j.list){listFloor=j.list.complete?0:j.list.floor;listMore=0}
     last=j;lastOk=Date.now();if(lostSince)detailTimeouts=0;lostSince=null;var s=j.source||{};    // reconnected: the detail of the selection is read again (a new, bounded series of tries)
     if(s.status!=='ok'){conn('src','NGUỒN '+(s.status||'?')+': '+(s.detail||''))}else{conn('ok','kết nối OK · dữ liệu lúc '+new Date(j.generated_at).toLocaleTimeString()+' · seq '+s.last_seq+' · đọc '+(j.server&&j.server.read_ms)+' ms')}
-    $('#src').textContent='Sổ: '+(s.ledger||'')+' · poll '+(INTERVAL/1000)+' s · wheel '+(j.server&&j.server.version||'?');render();if(selected)loadDetail('poll');
+    $('#src').textContent='Sổ: '+(s.ledger||'')+' · poll '+(INTERVAL/1000)+' s · wheel '+(j.server&&j.server.version||'?');render();if(selected){if(deepWanted||mine())loadDetail('poll');else if(headOf(selected)){if(!taskOf(selected))loadHead(selected);else if(JSON.stringify(headOf(selected))!==headSig)paintHead(false)}}
   }).catch(function(e){if(gen!==listGen)return;if(!last)$('#empty').textContent='Chưa đọc được sổ: mất kết nối với server theo dõi; trang tự thử lại.';if(!lostSince){lostSince=new Date();repaintGantt()}conn('bad','MẤT KẾT NỐI với server theo dõi từ '+lostSince.toLocaleTimeString()+(late?' (không trả lời trong '+OVERVIEW_TIMEOUT/60000+' phút)':'')+(lastOk?' — đang hiện dữ liệu cũ lúc '+new Date(lastOk).toLocaleTimeString():' — chưa có dữ liệu')+'; worker không bị ảnh hưởng; trang tự thử lại')})
   .then(function(){clearTimeout(tm);if(done)done()})}
 function poll(){fetchList(function(){setTimeout(poll,INTERVAL)})}
 function copyText(text,k){var c=copied={k:k,text:text,ok:false};var sel0=selected;     // c: this copy's own record (copied is reset when the selection changes)
-  function current(){return copied===c&&sameSel(selected,sel0)&&copiedStillValid(c,mine())}   // dev9 P2 (Codex): only the attempt the page still holds acts on its result. A newer copy, another task (even after coming back), a lost binding or a new revision/command in the CURRENT data makes it stale: its late result starts no fallback write and changes nothing (a clipboard call already sent to the browser cannot be taken back)
-  function done(){var d=mine();if(!d||!sameSel(selected,sel0))return;var s=snapshot();renderDetail(d);restore(s)}   // dev8 P3: the reader's place when the result lands (focus, sections, scroll), not at the click: a late result never pulls them back
+  function current(){return copied===c&&sameSel(selected,sel0)&&copiedStillValid(c,viewData())}   // dev9 P2 (Codex): only the attempt the page still holds acts on its result. A newer copy, another task (even after coming back), a lost binding or a new revision/command in the CURRENT data makes it stale: its late result starts no fallback write and changes nothing (a clipboard call already sent to the browser cannot be taken back)
+  function done(){var d=viewData();if(!d||!sameSel(selected,sel0))return;var s=snapshot();renderDetail(d);restore(s)}   // dev8 P3: the reader's place when the result lands (focus, sections, scroll), not at the click: a late result never pulls them back
   if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){if(!current())return;c.ok=true;done()},function(){if(!current())return;c.ok=fallback();done()})}else{c.ok=fallback();done()}
   function fallback(){var was=document.activeElement,ta=document.createElement('textarea'),ok=false;ta.value=text;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.left='-1000px';document.body.appendChild(ta);ta.select();try{ok=document.execCommand('copy')===true}catch(e){ok=false}document.body.removeChild(ta);if(was&&was.focus)was.focus({preventScroll:true});return ok}}
 function openEvidence(key,btn){var d0=mine(),sel0=selected;if(!d0)return;if(evState[key]){delete evState[key];var s=snapshot();renderDetail(d0);restore(s);return}
@@ -1356,17 +1481,17 @@ document.addEventListener('click',function(ev){var t=ev.target;
   if(t.id==='dretry'){detailTimeouts=0;loadDetail('retry');return}   // P2: the reader starts a new, bounded series of tries (the status line then says "đang thử lại…" and keeps the focus)
   var li=t.closest&&t.closest('li.task');if(li){select({plan:li.dataset.plan,project:li.dataset.project});return}
   if(t.id==='back'||t.id==='close'){select(null);return}
-  if(t.classList&&t.classList.contains('copy')){var ck=t.closest('.need').getAttribute('data-k'),ct=t.getAttribute('data-copy'),cd=mine();
+  if(t.classList&&t.classList.contains('copy')){var ck=t.closest('.need').getAttribute('data-k'),ct=t.getAttribute('data-copy'),cd=viewData();
     if(!cd||!copiedStillValid({k:ck,text:ct},cd)){if(cd){var cs=snapshot();renderDetail(cd);restore(cs)}return}   // R7-1: a card painted before the data changed never copies a command the latest data no longer offers
     copyText(ct,ck);return}
-  if(t.classList&&t.classList.contains('chip')){var ck2=t.getAttribute('data-kind');$('#kind').value=$('#kind').value===ck2?'':ck2;relist();return}
+  var fc=t.closest&&t.closest('[data-fchip]');if(fc){$('#kind').value=fc.getAttribute('data-fchip');relist();return}   // UIMOCK D5: a chip (or a part of the bar) filters the list
   var lm=t.closest&&t.closest('[data-list-mode]');if(lm){setMode(lm.getAttribute('data-list-mode'));lm.focus({preventScroll:true});return}
   if(t.id==='fclear'){$('#kind').value='';$('#proj').value='';$('#q').value='';$('#origin').value='';$('#since').value='';$('#until').value='';relist();var qq=$('#q');if(qq)qq.focus({preventScroll:true});return}
   if(t.id==='more'){loadMore();return}
   var dp=t.closest&&t.closest('[data-deep]');if(dp){openDeep(dp.getAttribute('data-deep'));return}     // UI58 MC: a tile opens the matching "Xem sâu" section
   var nj=t.closest&&t.closest('[data-need-jump]');if(nj){var nel=document.querySelector('#detail details.need[data-k="'+nj.getAttribute('data-need-jump').replace(/"/g,'\\"')+'"]');if(nel){nel.open=true;nel.scrollIntoView({block:'start'});var ns0=nel.querySelector('summary');if(ns0)ns0.focus({preventScroll:true})}return}
-  var wt=t.closest&&t.closest('[data-work-tab]');if(wt){workTab=wt.getAttribute('data-work-tab');var wd=mine();if(wd){var ws=snapshot();renderDetail(wd);restore(ws);var wb=document.querySelector('[data-work-tab="'+workTab+'"]');if(wb){wb.focus({preventScroll:true});if(workTab==='progress')wb.closest('.work-nav').scrollIntoView({block:'start'})}}return}
-  if(t.classList&&t.classList.contains('stale-hide')){var key=t.getAttribute('data-key');staleNotes=staleNotes.filter(function(x){return x.key!==key});var d0=mine();if(d0){var s0=snapshot();renderDetail(d0);restore(s0)}return}
+  var wt=t.closest&&t.closest('[data-work-tab]');if(wt){openDeep(({solution:'scope',overview:'scope',changes:'plan',results:'loop',progress:'waits'})[wt.getAttribute('data-work-tab')]||'tech');return}   // the tabs became rows of "Xem sâu"
+  if(t.classList&&t.classList.contains('stale-hide')){var key=t.getAttribute('data-key');staleNotes=staleNotes.filter(function(x){return x.key!==key});var d0=viewData();if(d0){var s0=snapshot();renderDetail(d0);restore(s0)}return}
   if(t.classList&&t.classList.contains('tg')){var fk=t.getAttribute('data-fold');if(fk.indexOf('h:')===0){gFold[fk]=gFold[fk]===false?true:false;if(gFold[fk]===false&&gRange==='current'){gRange='all';gPinnedWindow=null;var hd=mine();if(hd){gPinnedWindow=gWindow(hd.gantt);if(gPinnedWindow)gPinnedWindow.range='all'}}}else gFold[fk]=gFold[fk]===false?true:false;repaintGantt();var b=document.querySelector('[data-fold="'+fk+'"]');if(b)b.focus({preventScroll:true});return}
   if(t.id==='gfit'){gPinnedWindow=null;gRange='current';gFold={};repaintGantt();var fit=$('#gfit');if(fit)fit.focus({preventScroll:true});return}
   var ns=t.closest&&t.closest('[data-node-select]');if(ns){var nk='node:'+ns.getAttribute('data-node-select');selStep=selStep&&selStep.id===nk?null:{id:nk};repaintGantt();var nb=document.querySelector('[data-k="'+nk.replace(/"/g,'\\"')+'"]');if(nb)nb.focus({preventScroll:true});return}
@@ -1384,7 +1509,8 @@ document.addEventListener('keydown',function(ev){var t=ev.target;
   if(ev.key==='Escape'&&selected&&!(t.closest&&t.closest('input,select,textarea'))){ev.preventDefault();select(null)}
 });
 document.addEventListener('change',function(ev){if(ev.target&&ev.target.id==='grange'){gRange=ev.target.value;gPinnedWindow=null;var gd=mine();if(gRange==='all'&&gd){(gd.gantt.rows||[]).forEach(function(r){gFold['n:'+r.node]=false;gFold['h:'+r.node]=false});gPinnedWindow=gWindow(gd.gantt);if(gPinnedWindow)gPinnedWindow.range=gRange}repaintGantt()}});
-document.addEventListener('toggle',function(ev){if(ev.target&&ev.target.classList&&ev.target.classList.contains('need'))needs_open_sync()},true);
+document.addEventListener('toggle',function(ev){if(ev.target&&ev.target.classList&&ev.target.classList.contains('need'))needs_open_sync();
+  if(ev.target&&ev.target.classList&&ev.target.classList.contains('deep-d')&&ev.target.open&&!mine())wantDeep()},true);   // UIMOCK D4: opening a row of "Xem sâu" reads the task in full
 $('#sort').addEventListener('change',function(){render(true)});
 $('#q').addEventListener('input',function(){render(true);clearTimeout(qTimer);qTimer=setTimeout(relist,350)});$('#kind').addEventListener('change',relist);   // OBS-2C: the loaded rows are filtered at once, the ledger is searched after a short pause
 ['#origin','#tfield','#since','#until'].forEach(function(s){$(s).addEventListener('change',relist)});
@@ -1395,6 +1521,7 @@ window.addEventListener('popstate',function(ev){var qs=new URLSearchParams(locat
 window.matchMedia('(max-width:899px)').addEventListener('change',setView);
 if(!window.matchMedia('(max-width:760px)').matches)$('#filters').open=true;   // desktop: the filters are open; phone: folded, the active ones are listed under the search
 setInterval(tick,1000);
+if(typeof document!=='undefined'&&document.getElementById&&document.documentElement)shellInit();
 var qs=new URLSearchParams(location.search);
 if(qs.has('project')){var project=qs.get('project');$('#proj').add(new Option(short(project),project,true,true))}
 if(qs.has('stage'))$('#kind').value=qs.get('stage');
@@ -1411,3 +1538,11 @@ window.__track={state:function(){return {selected:selected,detailSeq:detailSeq,s
 from .tracking_work_web import SCRIPT as _WORK_SCRIPT, STYLE as _WORK_STYLE
 PAGE = (PAGE.replace('@@WORK_SCRIPT@@', _WORK_SCRIPT + tracking_host_web.SCRIPT).replace('@@WORK_STYLE@@', _WORK_STYLE + tracking_host_web.STYLE)
         .replace('@@HOST_HTML@@', tracking_host_web.HTML))
+# UIMOCK: the shell every tracking page shares (four destinations with icons, i / ? / theme, the legend), the connection line under "i"
+_CONNECTION = ('<h4>Kết nối của trang này</h4><ul><li><span id="conn">đang kết nối…</span></li><li><span class="note small mut"><span class="long">Chỉ đọc: không có nút duyệt, '
+               'trả lời, dừng hay tiếp tục task; mở bằng chứng không phải là duyệt. Kết nối "OK" chỉ nói trang đang nhận dữ liệu, không nói việc đã xong. </span>'
+               '<span id="src"></span></span></li></ul>')
+PAGE = (PAGE.replace('@@SHELL_STYLE@@', tracking_dashboard.SHELL_STYLE).replace('@@SPRITE@@', tracking_dashboard.SPRITE)
+        .replace('@@HEADER@@', tracking_dashboard.header_html('work', extra='<span id="health" class="hstat" role="status"></span>', limits_extra=_CONNECTION))
+        .replace('@@SHELL_JS@@', tracking_dashboard.SHELL_JS).replace('@@LOCK@@', tracking_dashboard.icon('lock', 'sm'))
+        .replace('@@SEARCH@@', tracking_dashboard.icon('search', 'sm')))

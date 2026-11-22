@@ -40,6 +40,19 @@ SOURCE_WORDS = {'owner': 'Chủ giao', 'ai': 'AI giao', 'unknown': 'Chưa rõ ng
 SPAWNED = 'spawned'
 SPAWNED_WORD = 'Có việc AI phát sinh (việc sửa, việc con)'
 STAGES = ('need', 'running', 'recheck', 'inconclusive', 'idle', 'todo', 'doing', 'fix', 'check', 'accept', 'done', 'stopped', 'unknown', 'closed')
+# UIMOCK D5: the six chips of the work list split every root once: waits for the owner, else the group of its situation stage
+GROUPS = ('g_doing', 'g_check', 'g_todo', 'g_done')
+STAGES = STAGES + GROUPS
+
+
+def group(item):
+    """'need' when the root waits for the owner, else 'doing', 'check', 'todo' or 'done' (the chips Đang làm, Chờ kiểm, Chưa bắt đầu, Xong)."""
+    if item.get('needs_user'): return 'need'
+    stage = (item.get('situation') or {}).get('stage') or 'unknown'
+    if stage in ('done', 'closed'): return 'done'
+    if stage in ('check', 'accept'): return 'check'
+    if stage == 'todo': return 'todo'
+    return 'doing'
 NOT_COMPARED = ('Danh sách không băm từng dự án: việc chưa mở trang riêng thì kết quả kiểm chưa được so với bản hiện tại; '
                 'việc đã mở dùng lần so gần nhất của trang việc, kèm thời điểm. Mở việc để so.')
 ENDED = ('accepted', 'closed')
@@ -331,6 +344,7 @@ def _cheap(entry, f):
 def _stage_ok(item, stage, now=None):
     if stage in (None,) + STATES: return True
     if stage == 'need': return bool(item.get('needs_user'))
+    if stage in GROUPS: return group(item) == stage[2:]
     situation = item.get('situation') or {}
     if stage == 'inconclusive': return situation.get('label') == 'Chưa kết luận'
     if stage == 'idle':
@@ -401,10 +415,12 @@ def _page_read(state_root, f, reader, source, project_id, now, observe):
             below = [e for e in candidates if floor is None or e['seq'] < floor]
             wanted = f['limit'] if floor is None else f['more']
             items, scanned, found, bottom = [], 0, 0, floor
+            groups = dict.fromkeys(('need', 'doing', 'check', 'todo', 'done'), 0)
             def read(entry):
                 try: item = tracking._item(reader, conn, entry['row'], now, observe=observe)
                 except (LedgerError, OSError, ValueError, KeyError, TypeError) as error: item = tracking._unreadable(entry['row'], error)
                 item['list'] = _public(entry)
+                groups[group(item)] += 1
                 return item
             for e in region:
                 item = read(e); scanned += 1
@@ -423,6 +439,8 @@ def _page_read(state_root, f, reader, source, project_id, now, observe):
                           floor=bottom if left else 0, next_cursor=bottom if left else None,
                           matched_exact=stage is None or not left, stage_matched=len(items) if stage else None)
             if stage and not left: listed['matched'] = len(items)
+            # UIMOCK D5: the chips' counts over every root read for this answer; exact when nothing matching was left unread
+            listed["groups"] = dict(groups, all=sum(groups.values()), exact=not left, scanned=scanned)
             outside = [e for e in entries if left and e['seq'] < bottom and (e['status'] in ('proposed', 'stopped_with_report') or e['pending'] or e.get('owner_try'))]
             listed['attention_outside'] = {'count': len(outside), 'items': [
                 {'plan': e['plan'], 'id': e['id'], 'project': e['project'], 'project_id': e['project_id'],

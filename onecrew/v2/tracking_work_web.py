@@ -196,7 +196,25 @@ function workBoard(rows){var lanes=BOARD_LANES.map(function(s){var items=rows.fi
     return '<section class="board-lane'+(!items.length?' empty':'')+(s[0]==='attn'?' attn':'')+'" data-stage="'+s[0]+'" aria-label="'+s[1]+'"><h3 class="lane-title">'+s[1]+' <span>'+items.length+'</span></h3><ul role="listbox" aria-label="'+s[1]+'">'+items.map(row).join('')+'</ul>'+(!items.length?'<div class="lane-empty">Không có công việc</div>':'')+'</section>'}).join('');
   var closed=rows.filter(function(t){return workStage(t)==='closed'});
   return '<div class="board">'+lanes+'</div>'+(closed.length?'<details class="closed-fold" data-k="closed-fold"><summary>Đã đóng ('+closed.length+') · đóng không phải nghiệm thu</summary><ul role="listbox" aria-label="Đã đóng">'+closed.map(row).join('')+'</ul></details>':'')}
-function workRows(rows){return '<div class="lhead" aria-hidden="true"><span>Công việc · tình trạng → bước tiếp</span><span>Vì sao</span><span>Kết quả</span><span>Hoạt động cuối</span></div><ul class="lrows" role="listbox" aria-label="Danh sách công việc">'+rows.map(row).join('')+'</ul>'}
+// ---- UIMOCK (mockup of 19/11): one-line rows, six status chips, the task's head first (four tiles: UIMOCK D4) -----------------------
+var STATE_ICONS={need:['need','need','Cần bạn'],doing:['play','run','Đang làm'],check:['shield','wait','Chờ kiểm'],recheck:['refresh','wait','Cần kiểm lại'],inconclusive:['hourglass','wait','Chưa kết luận'],
+  fix:['cross','fail','Cần sửa'],stopped:['stop','stop','Đã dừng'],done:['ok','ok','Xong'],closed:['archive','closed','Đã đóng'],todo:['todo','idle','Chưa bắt đầu'],unknown:['question','unknown','Chưa xác định']};
+function stateKey(t){if((t.needs_user||[]).length)return 'need';var s=sit(t),st=s.stage||'unknown';if(st==='check'&&s.label==='Cần kiểm lại')return 'recheck';if(st==='check'&&s.label==='Chưa kết luận')return 'inconclusive';
+  if(st==='accept')return 'check';return STATE_ICONS[st]?st:'unknown'}
+function statusWord(t){var n=(t.needs_user||[])[0];if(n)return n.kind==='approve'?'Cần bạn duyệt':n.kind==='accept'?'Cần bạn nghiệm thu':'Cần bạn quyết';return sit(t).label||STATE_ICONS[stateKey(t)][2]}
+function stateIcon(t,size){var s=STATE_ICONS[stateKey(t)];return ic(s[0],size,s[1],statusWord(t))}
+function groupOf(t){if((t.needs_user||[]).length)return 'need';var st=sit(t).stage||'unknown';if(st==='done'||st==='closed')return 'done';if(st==='check'||st==='accept')return 'check';if(st==='todo')return 'todo';return 'doing'}
+function planOf(t){return t.plan||String(t.selector||'').replace(/^plan(-ns)?:/,'')}
+function shortName(t){var p=planOf(t),n=String(t.short_title||t.headline||t.title||p);if(p&&n.indexOf(p)!==0)n=p+': '+n;return n.length>46?n.slice(0,45)+'…':n}
+function fullName(t){var p=planOf(t),n=String(t.headline||t.title||t.short_title||workTitle(t)||p);if(p&&n.indexOf(p)!==0)n=p+': '+n;return n}
+function agoShort(t){var d=new Date(t);if(!t||isNaN(d))return '';var s=Math.round((Date.now()-d.getTime())/1000);if(s<60)return 'vừa xong';if(s<3600)return Math.floor(s/60)+' phút';if(s<86400)return Math.floor(s/3600)+' giờ';return Math.floor(s/86400)+' ngày'}
+function updatedOf(t){return (t.last_update||{}).at||t.created_at||null}
+function projName(p){var s=String(p||'').replace(/[\\\/]+$/,'');return s.split(/[\\\/]/).pop()||s}
+function rowLine(t){var u=updatedOf(t),n=(t.needs_user||[]).length;
+  return '<span class="gut">'+stateIcon(t)+'</span><span class="sline"><span class="tname">'+esc(shortName(t))+'</span>'+segBar(t,'mini',6)+'</span><span class="rmeta">'+(n?'<span class="chip t-need">cần bạn</span>':'')
+    +(u?'<time data-ago="'+esc(u)+'" title="Cập nhật '+when(u)+'">'+agoShort(u)+'</time>':'<time>chưa có</time>')+'</span>'}
+function workRows(rows){var own=rows.filter(function(t){return (t.needs_user||[]).length}),rest=rows.filter(function(t){return !(t.needs_user||[]).length});   // UIMOCK: the mockup's one-line rows
+  return '<ul class="lrows" role="listbox" aria-label="Danh sách công việc">'+(own.length&&rest.length?'<li class="grp" role="presentation">Cần bạn</li>':'')+own.map(row).join('')+(own.length&&rest.length?'<li class="grp" role="presentation">Các việc khác</li>':'')+rest.map(row).join('')+'</ul>'}
 function workText(v){if(v==null||v===''||(Array.isArray(v)&&!v.length))return 'chưa có dữ liệu';if(typeof v!=='object')return String(v);
   if(Array.isArray(v))return v.map(workText).join('; ');return v.text||v.title||v.label||v.spec||v.question||v.goal||Object.keys(v).map(function(k){return k+': '+workText(v[k])}).join('; ')||'chưa có dữ liệu'}
 function workEsc(v){return esc(workText(v))}
@@ -234,51 +252,86 @@ function outputOf(d){var w=d.work||{},keys=d.evidence_keys||[],outs=(w.outputs||
   if(run&&run.receipt&&keys.indexOf(run.receipt)>=0)r.receipt=run.receipt;
   if(run&&run.outputs&&run.outputs.stdout&&keys.indexOf(run.outputs.stdout)>=0)r.log=run.outputs.stdout;
   return r}
-function tileOut(d){var o=outputOf(d),x=o.output,h='<section class="tile4" id="t-out" data-k="t-out" aria-label="Đầu ra"><h3>Đầu ra</h3>';
-  if(!x)h+='<p class="tv">Chưa có đầu ra</p><p class="why-missing" data-missing="output">'+esc(o.why)+'</p>';
-  else{h+='<p class="tv">'+esc(x.title||nodeName(d,x.node))+'</p><p class="small">'+esc(LEVEL_WORDS[x.level]||'Chưa xác định')+(x.stale?' · '+(x.stale_reason==='cần kiểm lại'?'cần kiểm lại trên bản đang xem':'bản cũ'):' · bản mới nhất')+(x.source&&x.source.at?' · '+when(x.source.at):'')+'</p>';
-    h+=o.key?'<p class="open-out" data-open-output="'+esc(o.key)+'"><b>Mở đầu ra:</b>'+openBtn(o.key)+'</p>':'<p class="why-missing" data-missing="output-target">'+esc(o.why)+'</p>'}
-  if(o.receipt)h+='<p class="open-check" data-open-check="'+esc(o.receipt)+'"><b>Kết quả kiểm mới nhất'+(o.run&&o.run.status?' ('+esc(({pass:'đạt',fail:'không đạt',inconclusive:'chưa kết luận'})[o.run.status]||o.run.status)+')':'')+':</b>'+openBtn(o.receipt)+'</p>';
-  else if(x)h+='<p class="why-missing" data-missing="check">Chưa có kết quả kiểm mở được cho đầu ra này: '+(o.run?'biên nhận kiểm không còn trong kho bằng chứng.':'sổ chưa ghi lần kiểm nào của nó.')+'</p>';
-  if(o.log)h+='<p class="small">Đầu ra lệnh kiểm (stdout):'+openBtn(o.log)+'</p>';
-  return h+'<button type="button" class="linkish" data-deep="evidence">Mọi bằng chứng</button></section>'}
+// UIMOCK (mockup of 19/11): four tiles in a 2x2 grid, each an icon, one big conclusion and a few short lines; the long explanation of each
+// tile sits behind its (i). Every data attribute the page and its tests open by (data-deep, data-open-check, data-next-action, …) stays.
+function ic(name,size,tone,label){return '<span class="ic'+(size?' '+size:'')+(tone?' x-'+tone:'')+'"'+(label?' role="img" aria-label="'+esc(label)+'" title="'+esc(label)+'"':' aria-hidden="true"')+' data-icon="'+esc(name)+'"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-'+esc(name)+'"/></svg></span>'}
+function infoBox(key,parts){parts=(parts||[]).filter(Boolean);if(!parts.length)return '';return '<details class="info" data-k="info:'+esc(key)+'"><summary aria-label="Giải thích" title="Giải thích">i</summary><div>'+parts.map(function(p){return '<p>'+p+'</p>'}).join('')+'</div></details>'}
+var MSEG={passed:'ok',failed:'fail',recheck:'recheck',checking:'run',pending:'pending',stopped:'stop',inconclusive:'inconclusive',unknown:'unknown'};
+function msState(m){return m.current_unknown?'unknown':m.needs_recheck||(m.stale&&m.state!=='failed')?'recheck':m.result==='inconclusive'?'inconclusive':m.state}
+function msRowsOf(t){return ((t.milestone_checks||{}).rows)||t.milestones||[]}
+function cellsOf(t){var rows=msRowsOf(t),out=[];
+  if(rows.length)rows.forEach(function(m,i){var st=msState(m);out.push({seg:MSEG[st]||'pending',label:'Mốc '+(i+1)+(m.id?' ('+m.id+')':'')+': '+(MS_WORD[st]||st)})});
+  else{var ns=t.nodes_summary||{};[['ok',(ns.verified||0)+(ns.accepted||0),'Đã kiểm đạt'],['wait',ns.produced||0,'Có đầu ra, chờ kiểm'],['run',ns.running||0,'Đang chạy'],['fail',ns.held||0,'Bị giữ'],['pending',ns.pending||0,'Chưa bắt đầu']]
+    .forEach(function(x){for(var i=0;i<x[1];i++)out.push({seg:x[0],label:'Phần việc: '+x[2]})})}
+  return out}
+function tallyOf(t){var rows=msRowsOf(t),s=sit(t).milestones||{};
+  if(rows.length)return {passed:typeof s.passed==='number'?s.passed:rows.filter(function(m){return msState(m)==='passed'}).length,total:rows.length,unit:'mốc'};
+  var ns=t.nodes_summary||{};return {passed:(ns.verified||0)+(ns.accepted||0),total:ns.total||0,unit:'phần'}}
+function segBar(t,cls,max){var c=cellsOf(t),k=tallyOf(t);if(!c.length)c=[{seg:'pending',label:'Chưa có mốc'}];if(max&&c.length>max)c=c.slice(0,max);
+  return '<span class="'+cls+'" role="img" aria-label="'+esc(k.passed+'/'+k.total+' '+k.unit+' đạt')+'">'+c.map(function(x){return '<i class="seg-'+x.seg+'" title="'+esc(x.label)+'"></i>'}).join('')+'</span>'}
+function tileOut(d){var o=outputOf(d),x=o.output,c=tallyOf(d),ok=c.total&&c.passed===c.total,h='<section class="tile4 blk" id="t-out" data-k="t-out" aria-label="Đầu ra"><h3>Đầu ra</h3>';
+  h+='<p class="val">'+ic('box','lg',ok?'ok':'idle')+'<span>'+(c.total?c.passed+'/'+c.total+' <small>'+c.unit+' đạt</small>':'<small>chưa có '+c.unit+'</small>')+'</span></p>'+segBar(d,'mbar');
+  if(o.receipt)h+='<p class="line open-check" data-open-check="'+esc(o.receipt)+'">'+ic('shield','sm')+'<span>Lần kiểm mới nhất'+(o.run&&o.run.status?' ('+esc(({pass:'đạt',fail:'không đạt',inconclusive:'chưa kết luận'})[o.run.status]||o.run.status)+')':'')+'</span>'+openBtn(o.receipt)+'</p>';
+  if(o.key)h+='<p class="line open-out" data-open-output="'+esc(o.key)+'">'+ic('box','sm')+'<span>Mở đầu ra</span>'+openBtn(o.key)+'</p>';
+  if(o.log)h+='<p class="line">'+ic('file','sm')+'<span>Đầu ra lệnh kiểm (stdout)</span>'+openBtn(o.log)+'</p>';
+  h+='<p class="line"><button type="button" class="linkish" data-deep="evidence">'+ic('file','sm')+'Mọi bằng chứng</button></p>';
+  var why=[];
+  if(x)why.push('<b>'+esc(x.title||nodeName(d,x.node))+'</b> · '+esc(LEVEL_WORDS[x.level]||'Chưa xác định')+(x.stale?' · '+(x.stale_reason==='cần kiểm lại'?'cần kiểm lại trên bản đang xem':'bản cũ'):' · bản mới nhất')+(x.source&&x.source.at?' · '+when(x.source.at):''));
+  if(!x)why.push('<span class="why-missing" data-missing="output">'+esc(o.why)+'</span>');else if(!o.key)why.push('<span class="why-missing" data-missing="output-target">'+esc(o.why)+'</span>');
+  if(x&&!o.receipt)why.push('<span class="why-missing" data-missing="check">Chưa có kết quả kiểm mở được cho đầu ra này: '+(o.run?'biên nhận kiểm không còn trong kho bằng chứng.':'sổ chưa ghi lần kiểm nào của nó.')+'</span>');
+  var ov=ownerView(d);if(ov&&(ov.user_sees||[]).length)why.push('Xong bạn thấy: '+esc(ownerJoin(ov.user_sees)));
+  return h+infoBox('t-out',why)+'</section>'}
 function trustOf(d){if(d.validity)return d.validity;var outs=((d.work||{}).outputs||[]),cur=outs.filter(function(x){return !x.stale}),ok=cur.filter(function(x){return x.level==='verified'||x.level==='accepted'}).length;
   if(!d.work)return {kind:'unknown',label:'Chưa xác định',text:'Chưa đọc được kết quả kiểm của việc này'};
   if(!outs.length)return {kind:'none',label:'Chưa có kết quả kiểm',text:'Sổ chưa ghi lần kiểm nào cho đầu ra của việc này'};
   var all=cur.length&&ok===cur.length;return {kind:all?'valid':cur.length?'parts':'recheck',label:all?'Các phần hiện hành đã kiểm đạt':cur.length?'Theo từng phần':'Cần kiểm lại',
     text:ok+'/'+cur.length+' đầu ra hiện hành đã kiểm đạt'+(outs.length-cur.length?'; '+(outs.length-cur.length)+' bản cũ hoặc cần kiểm lại không được tính':'')}}
-function tileTrust(d){var v=trustOf(d),s=sit(d);
-  return '<section class="tile4 v-'+esc(v.kind)+'" id="t-trust" data-validity="'+esc(v.kind)+'" aria-label="Còn tin được không"><h3>Còn tin được không</h3><p class="tv">'+esc(v.label)+'</p><p class="small">'+esc(v.text||'')+'</p>'
-    +(s.milestones?'<p class="small">'+esc(s.milestones.text)+' <span class="mut">('+esc(s.milestones.note)+')</span></p>':'')
-    +(d.compared==='compared'&&d.compared_at?'<p class="small mut">Đã so với bản hiện tại của dự án lúc '+when(d.compared_at)+'.</p>':d.compared==='unknown'?'<p class="why-missing">Chưa xác định bản hiện tại của dự án, nên lần đạt chưa được tính.</p>':'')
-    +'<button type="button" class="linkish" data-deep="loop">Xem các lần kiểm</button></section>'}
-function tileNext(d){var s=sit(d),done=s.stage==='done'||s.stage==='closed',a=s.activity||{},h='<section class="tile4" id="t-next" aria-label="Bước tiếp theo"><h3>Bước tiếp theo</h3>';
-  h+='<p class="small">Vì sao: '+esc(s.reason||'chưa xác định')+'</p>';
-  if(s.next)h+='<p class="next-act" data-next-action="1">'+esc(s.next)+'</p><p class="small">Ai làm: <b>'+esc(s.next_by_text||'Chưa có thông tin người xử lý')+'</b></p>';
-  else h+='<p class="tv">'+(done?'Không còn bước nào':'Chưa biết bước tiếp theo')+'</p>'+(done?'':'<p class="why-missing" data-missing="next">Sổ không đủ để nói bước tiếp theo.</p>');
-  if(s.repairs)h+='<p class="small">Mốc '+esc(s.repairs.milestone)+': '+esc(s.repairs.text)+'</p>';
-  if(s.warning)h+='<p class="work-warning small" data-warning="1">'+esc(s.warning)+'</p>';
+var VALID_ICONS={valid:['ok','ok'],accepted:['stamp','ok'],recheck:['refresh','wait'],inconclusive:['hourglass','wait'],not_compared:['eye','wait'],failed:['cross','fail'],unknown:['question','unknown'],none:['todo','idle'],parts:['parts','wait']};
+var VALID_WORD={valid:'Còn đúng',accepted:'Đã nghiệm thu',recheck:'Cần kiểm lại',inconclusive:'Chưa kết luận',not_compared:'Chưa so',failed:'Không đạt',unknown:'Chưa xác định',none:'Chưa kiểm',parts:'Theo từng phần'};
+function tileTrust(d){var v=trustOf(d),s=sit(d),vi=VALID_ICONS[v.kind]||VALID_ICONS.unknown,word=VALID_WORD[v.kind]||String(v.label||'Chưa xác định').slice(0,40);
+  var h='<section class="tile4 blk v-'+esc(v.kind)+'" id="t-trust" data-k="t-trust" data-validity="'+esc(v.kind)+'" aria-label="Còn tin được không"><h3>Còn tin được?</h3>'
+    +'<p class="val x-'+vi[1]+'">'+ic(vi[0],'lg',vi[1],v.label)+'<span>'+esc(word)+'</span></p>';
+  if(d.compared==='compared'&&d.compared_at)h+='<p class="line">'+ic('clock','sm')+'<span>Đã so với bản hiện tại lúc '+clock(d.compared_at)+'</span></p>';
+  else if(v.kind==='not_compared')h+='<p class="line">'+ic('eye','sm','idle')+'<span>Chưa so với bản hiện tại</span><button type="button" class="linkish" data-deep="loop">So ngay</button></p>';
+  h+='<p class="line"><button type="button" class="linkish" data-deep="loop">'+ic('shield','sm')+'Xem các lần kiểm</button></p>';
+  return h+infoBox('t-trust',[esc(v.label||'')+(v.text&&v.text!==v.label?': '+esc(v.text):''),(['failed','inconclusive','recheck','unknown'].indexOf(v.kind)>=0||s.stage==='fix')&&s.reason?'Vì sao: '+esc(s.reason):'',s.milestones?esc(s.milestones.text)+' <span class="mut">('+esc(s.milestones.note)+')</span>':'',
+    d.compared==='compared'&&d.compared_at?'Đã so với bản hiện tại của dự án lúc '+when(d.compared_at)+'.':d.compared==='unknown'?'<span class="why-missing">Chưa xác định bản hiện tại của dự án, nên lần đạt chưa được tính.</span>':'',
+    v.kind==='not_compared'?'Trang so kết quả kiểm với bản hiện tại của dự án khi bạn mở “Xem sâu” (cần đọc thư mục dự án, mất vài giây).':''])+'</section>'}
+var WHO_ICONS={owner:['person','need','Bạn'],checker:['shield','run','Bộ kiểm'],assigned:['robot','run','AI']};
+function tileNext(d){var s=sit(d),done=s.stage==='done'||s.stage==='closed',a=s.activity||{},w=WHO_ICONS[s.next_by]||['question','unknown','Chưa rõ'],h='<section class="tile4 blk" id="t-next" data-k="t-next" aria-label="Bước tiếp theo"><h3>Bước tiếp</h3>';
+  if(s.next)h+='<p class="val who">'+ic(w[0],'lg',w[1],'Người làm bước tiếp: '+w[2])+'<span>'+esc(w[2])+'</span></p><p class="next-act" data-next-action="1">'+esc(s.next)+'</p>';
+  else h+='<p class="val">'+ic(done?'ok':'question','lg',done?'ok':'unknown')+'<span>'+(done?'Không còn bước nào':'Chưa biết')+'</span></p>'+(done?'':'<p class="line why-missing" data-missing="next">Sổ không đủ để nói bước tiếp theo.</p>');
+  if(a.running)h+='<p class="line run"><i class="pulse" aria-hidden="true"></i><span>Đang chạy</span></p>';else if(!done)h+='<p class="line">'+ic('todo','sm','idle')+'<span>Sổ không thấy gì đang chạy</span></p>';
+  if(s.repairs&&typeof s.repairs.max==='number'&&s.repairs.max>0){var dots='';for(var i=0;i<Math.min(s.repairs.max,8);i++)dots+='<i class="'+(i<(s.repairs.used||0)?'used':'left')+'"></i>';
+    h+='<p class="line"><span class="dots" role="img" aria-label="Đã dùng '+esc(s.repairs.used)+'/'+esc(s.repairs.max)+' lượt sửa">'+dots+'</span><span>lượt sửa</span></p>'}
+  if(s.warning)h+='<p class="line"><span class="chip t-wait">Lần thử cuối</span></p>';
+  h+='<p class="line"><button type="button" class="linkish" data-deep="waits">'+ic('clock','sm')+'Thời gian và lượt chờ</button></p>';
   var acceptance=d.acceptance||{};
-  if((acceptance.open_findings||[]).length&&acceptance.reason!==s.reason)h+='<p class="small">'+esc(acceptance.reason)+'</p>';
-  return h+'<p class="small mut">'+esc(a.text||'')+'</p><button type="button" class="linkish" data-deep="waits">Thời gian và lượt chờ</button></section>'}
+  return h+infoBox('t-next',['Vì sao: '+esc(s.reason||'chưa xác định'),s.next?'Ai làm: <b>'+esc(s.next_by_text||'Chưa có thông tin người xử lý')+'</b>':'',
+    s.repairs?'Mốc '+esc(s.repairs.milestone)+': '+esc(s.repairs.text):'',s.warning?'<span class="work-warning" data-warning="1">'+esc(s.warning)+'</span>':'',
+    (acceptance.open_findings||[]).length&&acceptance.reason!==s.reason?esc(acceptance.reason):'',a.text?esc(a.text):''])+'</section>'}
 function optHtml(n,o,marks){var c=o.human_command||o.reply_command;
   return '<div class="opt" data-option="'+esc(o.id)+'"><b>'+esc(o.label||o.id)+'</b> <span class="oid">('+esc(o.id)+')</span>'+(o.recommended||n.recommendation===o.id?' <span class="small">· đề xuất</span>':'')
     +'<span class="cons"><b>Hệ quả:</b> '+esc(o.consequence||(n.impact?'câu hỏi không ghi hệ quả riêng cho lựa chọn này; ảnh hưởng chung: '+n.impact:'câu hỏi không ghi hệ quả cho lựa chọn này'))+'</span>'
     +(c?commandBox(c,marks,'Trả lời lựa chọn này'):'')+'</div>'}
+function needSource(n){return n.source_label||({approve:'Kế hoạch chờ bạn duyệt',accept:'Chờ bạn nghiệm thu',stopped:'Đã dừng, chờ bạn quyết'})[n.kind]||''}
 function tileDecide(d){var needs=d.needs_user||[],s=sit(d);
-  if(!needs.length)return '<section class="tile4" id="t-dec" aria-label="Bạn cần quyết gì"><h3>Bạn cần quyết gì</h3><p class="tv">Không có quyết định nào đang chờ bạn</p>'
-    +(s.next_by==='owner'&&s.next?'<p class="small">OneCrew chỉ ra bước của bạn: '+esc(s.next)+'. Trang chưa có mẫu lệnh cho bước này.</p>':'<p class="small mut">Điều này không có nghĩa là việc đang tiến triển.</p>')+'</section>';
-  return '<section class="tile4 sit-need" id="t-dec" aria-label="Bạn cần quyết gì"><h3>Bạn cần quyết gì ('+needs.length+')</h3><ul class="declist">'+needs.map(function(n){
-    return '<li data-need-row="'+esc(n.id||n.kind)+'"><span class="dsrc">'+esc(n.source_label||({approve:'Kế hoạch chờ bạn duyệt',accept:'Chờ bạn nghiệm thu',stopped:'Đã dừng, chờ bạn quyết'})[n.kind]||'')+'</span><button type="button" class="linkish" data-need-jump="'+esc(needKey(n))+'">'+esc(needTitle(n))+'</button>'
-      +((n.options||[]).length?' <span class="small">· '+n.options.length+' lựa chọn</span>':'')+'</li>'}).join('')+'</ul></section>'}
+  if(!needs.length)return '<section class="tile4 blk" id="t-dec" data-k="t-dec" aria-label="Bạn cần quyết gì"><h3>Bạn quyết</h3><p class="val x-ok">'+ic('ok','lg','ok')+'<span>Không cần</span></p>'
+    +'<p class="line">'+ic('book','sm','idle')+'<span>Không có quyết định nào đang chờ bạn trong sổ</span></p>'
+    +infoBox('t-dec',[s.next_by==='owner'&&s.next?'OneCrew chỉ ra bước của bạn: '+esc(s.next)+'. Trang chưa có mẫu lệnh cho bước này.':'Điều này không có nghĩa là việc đang tiến triển.'])+'</section>';
+  var first=needs[0],word=({approve:'Bạn duyệt',accept:'Bạn nghiệm thu',owner_try:'Bạn thử và ghi',request:'Bạn trả lời'})[first.kind]||'Bạn quyết';
+  return '<section class="tile4 blk tneed" id="t-dec" data-k="t-dec" aria-label="Bạn cần quyết gì"><h3>Bạn quyết</h3><p class="val x-need">'+ic('need','lg','need')+'<span>'+(needs.length>1?needs.length+' việc chờ bạn':esc(word))+'</span></p>'
+    +'<ul class="declist plain">'+needs.slice(0,3).map(function(n){var t=needTitle(n);
+      return '<li data-need-row="'+esc(n.id||n.kind)+'"><button type="button" class="linkish" data-need-jump="'+esc(needKey(n))+'" title="'+esc(t)+'">'+esc(t.length>64?t.slice(0,63)+'…':t)+'</button>'+((n.options||[]).length?' <span class="small mut">· '+n.options.length+' lựa chọn</span>':'')+'</li>'}).join('')+'</ul>'
+    +infoBox('t-dec',needs.map(function(n){return (needSource(n)?'<span class="dsrc">'+esc(needSource(n))+'</span> ':'')+esc(needTitle(n))}).concat(['Sao chép lệnh chưa phải là duyệt: dán vào PowerShell của bạn, sửa phần &lt;…&gt; rồi chạy.']))+'</section>'}
 function taskTiles(d){return '<div class="tiles4" data-k="tiles">'+tileOut(d)+tileTrust(d)+tileNext(d)+tileDecide(d)+'</div>'}
-function deep(k,title,count,body){return '<details class="deep-d" data-k="deep-'+k+'" id="deep-'+k+'"><summary>'+esc(title)+(count!==''&&count!=null?' <span class="cnt">('+esc(count)+')</span>':'')+'</summary><div class="deep-body">'+body+'</div></details>'}
+function deep(k,title,count,body,icon){return '<details class="deep-d" data-k="deep-'+k+'" id="deep-'+k+'"><summary>'+ic(icon||'list','sm')+'<span>'+esc(title)+'</span>'+(count!==''&&count!=null?'<span class="cnt">'+esc(count)+'</span>':'')+'</summary><div class="deep-body">'+body+'</div></details>'}
 function deepPlan(d,w){var rows=(w.changes||[]).filter(function(x){return x.kind==='contract'}).slice().reverse();
-  if(!rows.length)return workEmpty('Sổ chưa ghi lần đổi hợp đồng nào: việc đang chạy theo bản '+esc(d.contract_revision||1)+'.')+'<button type="button" class="linkish" data-work-tab="changes">Mở tab Thay đổi</button>';
+  if(!rows.length)return workEmpty('Sổ chưa ghi lần đổi hợp đồng nào: việc đang chạy theo bản '+esc(d.contract_revision||1)+'.');
   return rows.map(function(x){var diffs=x.diff||[];return '<article class="work-row" data-change="'+esc(x.id)+'"><h4>Bản '+esc(x.from_revision!=null?x.from_revision:(x.revision-1))+' → bản '+esc(x.revision)+(x.approved?' · đã duyệt':' · chưa duyệt')+'</h4>'
     +'<p><b>Lý do:</b> '+workEsc(x.reason)+'</p>'+diffs.slice(0,6).map(function(v){return '<h4>'+esc(diffLabel(v.path))+'</h4><div class="work-diff"><div><b>Trước</b><br>'+((v.before==null&&v.change==='added')?'Chưa có — nội dung mới được thêm':workEsc(v.before))+'</div><div><b>Sau</b><br>'+workEsc(v.after)+'</div></div>'}).join('')
-    +(diffs.length>6||x.diff_total>diffs.length?'<p class="work-meta">Còn '+((x.diff_total||diffs.length)-Math.min(6,diffs.length))+' mục thay đổi khác trong tab Thay đổi.</p>':'')+(x.diff_error?workEmpty(x.diff_error):'')+workSource(x)+'</article>'}).join('')
-    +'<button type="button" class="linkish" data-work-tab="changes">Mở tab Thay đổi</button>'}
+    +(diffs.length>6||x.diff_total>diffs.length?'<p class="work-meta">Còn '+((x.diff_total||diffs.length)-Math.min(6,diffs.length))+' mục thay đổi khác ở danh sách đầy đủ bên dưới.</p>':'')+(x.diff_error?workEmpty(x.diff_error):'')+workSource(x)+'</article>'}).join('')
+    }
 function loopSteps(r){var out=[],fixes=0,checks=r.checks||[];
   checks.forEach(function(c,i){var prev=checks[i-1];if(prev&&prev.result==='fail'){fixes++;out.push({k:'fix',t:'Sửa (lượt '+fixes+') rồi kiểm lại'})}
     var k=c.state==='open'?'open':c.state==='lost'||c.state==='abandoned'?'lost':c.result==='pass'?'pass':c.result==='inconclusive'?'recheck':c.result?'fail':'open';
@@ -291,24 +344,55 @@ function deepLoop(d,w){var c=d.milestone_checks,h='';
   if(c){var rows=(c.rows||[]).filter(function(r){return (r.checks||[]).length||r.state==='recheck'});
     h+=rows.length?rows.map(function(r){return '<article class="work-row" data-loop="'+esc(r.id)+'"><h4>'+esc(r.id)+(r.title?' — '+esc(r.title):'')+' · '+esc(r.label)+'</h4><ol class="loop">'+loopSteps(r).map(function(s){return '<li class="'+esc(s.k)+'">'+esc(s.t)+(s.at?' <span class="work-meta">· '+when(s.at)+'</span>':'')+'</li>'}).join('')+'</ol></article>'}).join('')
       :workEmpty('Chưa có lần kiểm nào của các mốc trong hợp đồng hiện hành.');
-    return h+'<button type="button" class="linkish" data-work-tab="progress">Mở Tiến độ · các mốc</button>'}
-  var rp=workRepairFlow(d,w);return (rp||workEmpty('Sổ không ghi vòng sửa nào của việc này (chưa có lần kiểm không đạt dẫn tới việc sửa).'))+'<button type="button" class="linkish" data-work-tab="results">Mở Kết quả &amp; kiểm chứng</button>'}
+    return h}
+  var rp=workRepairFlow(d,w);return (rp||workEmpty('Sổ không ghi vòng sửa nào của việc này (chưa có lần kiểm không đạt dẫn tới việc sửa).'))}
 function deepWaits(d){var ws=(d.waits||[]).slice().sort(function(a,b){return String(a.since).localeCompare(String(b.since))}),h='';
   h+=ws.length?'<ol class="loop waitline">'+ws.map(function(x){var end=x.open?'đang chờ':x.until==='unknown'?'chưa rõ kết thúc':when(x.until),sec=(!x.open&&x.until&&x.until!=='unknown')?(new Date(x.until)-new Date(x.since))/1000:null;
       return '<li class="'+(x.open?'recheck':'')+'" data-wait="'+esc(x.seq)+'">Chờ: '+esc(x.reason||'không rõ lý do')+' · từ '+when(x.since)+' → '+esc(end)+(typeof sec==='number'&&isFinite(sec)?' ('+hms(sec)+')':'')+(x.node?' · phần việc '+esc(x.node):'')+' <span class="work-meta">· nguồn '+esc(x.source)+' #'+esc(x.seq)+'</span></li>'}).join('')+'</ol>'
     :workEmpty('Sổ không ghi khoảng chờ nào của việc này. Khoảng trống giữa hai lần kiểm không phải thời gian chờ.');
-  return h+'<button type="button" class="linkish" data-work-tab="progress">Mở dòng thời gian đầy đủ (Tiến độ)</button>'}
+  return h}
 function deepEvidence(d){var P=prov(d),keys=P.keys.slice().sort(function(a,b){var x=P.byKey[a],y=P.byKey[b];return (y[y.length-1].seq||0)-(x[x.length-1].seq||0)});
   if(!keys.length)return workEmpty('Sổ chưa nêu bằng chứng nào của việc này.');
   return '<p class="work-meta">Mới nhất trước; mỗi mục mở qua cửa bằng chứng chỉ đọc của việc này (lọc bí mật).</p>'+keys.slice(0,20).map(function(k){var u=P.byKey[k],x=u[u.length-1];
     return '<div class="small" data-k="dev:'+k+'" data-evidence="'+k+'">'+occLine(x)+openOr(x)+'</div>'}).join('')+(keys.length>20?'<p class="work-meta">Còn '+(keys.length-20)+' mục cũ hơn ở “Số đo và nhật ký kỹ thuật”.</p>':'')}
-function deepSections(d){var w=d.work||{},ch=(w.changes||[]).filter(function(x){return x.kind==='contract'}).length,c=d.milestone_checks,
-    nloop=c?(c.rows||[]).reduce(function(n,r){return n+(r.checks||[]).length},0):(w.repairs||[]).length,P=prov(d);
-  return '<section class="deep" aria-label="Xem sâu"><h3>Xem sâu</h3>'+deep('plan','Thay đổi kế hoạch (trước / sau)',ch,deepPlan(d,w))
-    +deep('loop',c?'Các lần kiểm':'Vòng sửa: lỗi → sửa → kiểm lại',nloop,deepLoop(d,w))
-    +deep('waits','Thời gian chờ và dòng thời gian',(d.waits||[]).length,deepWaits(d))
-    +deep('evidence','Bằng chứng',P.keys.length,deepEvidence(d))
-    +deep('summary','Tóm tắt: đang ở đâu, vướng gì, ai làm tiếp','',sitPanel(d))+'</section>'}
+// UIMOCK: "Xem sâu" is eleven one-line rows (icon, name, a short count), all closed; opening one reads the task in full (the timeline, the
+// evidence and the comparison with the project: UIMOCK D4) and fills every row. The old tabs (Tổng quan / Solution / Thay đổi / Kết quả &
+// kiểm chứng / Tiến độ) became these rows.
+var DEEP_ROWS=[['scope','Yêu cầu và phạm vi','list'],['loop','Mốc và lần kiểm','shield'],['repair','Vòng sửa','pencil'],['plan','Thay đổi kế hoạch','sign'],['direction','Lịch sử hướng đi','turn'],
+  ['waits','Thời gian và ai chờ ai','clock'],['evidence','Bằng chứng','file'],['agents','Agent và việc nền','robot'],['session','Phiên Claude đã làm việc này','robot'],['res','Tài nguyên dùng chung','lock'],['tech','Mã kỹ thuật','code']];
+function deepFull(d){return !!(d&&(d.timeline||d.work||d.milestone_checks||d.waits||d.evidence_index))}
+function deepLater(){var asked=typeof deepWanted!=='undefined'&&deepWanted,failed=asked&&typeof detailError!=='undefined'&&detailError;
+  return '<p class="small mut deep-wait">'+(failed?ic('warn','sm','wait')+'Chưa đọc được chi tiết đầy đủ: xem dòng báo lỗi phía trên.':asked?ic('clock','sm')+'Đang lấy chi tiết từ sổ và so với bản hiện tại của dự án (vài giây)…'
+    :'Mở mục này để trang đọc đủ chi tiết của việc từ sổ (dòng thời gian, bằng chứng, so với bản hiện tại của dự án).')+'</p>'}
+function deepSafe(d,k){try{return deepBody(d,k)}catch(e){return '<p class="small mut">Chưa vẽ được phần này: '+esc(String(e&&e.message||e).slice(0,160))+'</p>'}}
+function histLink(d,path,label,icon){var q=urlOf({plan:d.selector,project:d.project_id});return '<a class="golink" href="'+path+esc(q)+'">'+ic(icon,'sm')+esc(label)+'</a>'}
+function deepCount(d,k){var w=d.work||{},rows=msRowsOf(d);
+  if(k==='loop')return rows.length?rows.length+' mốc':(d.nodes_summary||{}).total?(d.nodes_summary.total+' phần'):'không có';
+  if(k==='repair'){if(d.milestone_checks){var n=0;(d.milestone_checks.rows||[]).forEach(function(r){(r.checks||[]).forEach(function(c,i){if(i>0&&r.checks[i-1].result&&r.checks[i-1].result!=='pass')n++})});return n?n+' lần sửa':'không có'}
+    if(d.work)return (w.repairs||[]).length?(w.repairs.length+' lần sửa'):'không có';return ''}
+  if(k==='plan'){var ch=(w.changes||[]).filter(function(x){return x.kind==='contract'}).length;return d.work?(ch?ch+' lần sửa':'không có'):(d.contract_revision?'bản '+d.contract_revision:'')}
+  if(k==='waits')return d.waits?(d.waits.length+' lần chờ'):'';
+  if(k==='evidence')return d.evidence_keys?(d.evidence_keys.length+' mục'):'';
+  if(k==='res'){var m=typeof leaseMatch==='function'&&typeof last!=='undefined'?leaseMatch(d,last&&last.shared_resources):{mine:[]};return m.mine.length?m.mine.length+' khóa':'không có'}
+  return ''}
+function deepBody(d,k){var w=d.work||{},full=deepFull(d);
+  if(k==='scope')return workOwnerSection(d)+(d.work?workSolution(d,w):'')+relSection(d)+sitPanel(d);
+  if(k==='loop')return d.milestone_checks||d.work?deepLoop(d,w)+(d.milestone_checks?msProgress(d):workResults(d,w)):deepLater();
+  if(k==='repair'){if(d.milestone_checks){var rows=(d.milestone_checks.rows||[]).filter(function(r){return (r.checks||[]).some(function(c){return c.result&&c.result!=='pass'})});
+      return rows.length?rows.map(function(r){return '<article class="work-row" data-repair="'+esc(r.id)+'"><h4>'+esc(r.id)+(r.title?' — '+esc(r.title):'')+'</h4><ol class="loop">'+loopSteps(r).map(function(s){return '<li class="'+esc(s.k)+'">'+esc(s.t)+(s.at?' <span class="work-meta">· '+when(s.at)+'</span>':'')+'</li>'}).join('')+'</ol></article>'}).join('')
+        :workEmpty('Chưa có lần kiểm nào không đạt, nên chưa có vòng sửa.')}
+    return d.work?(workRepairFlow(d,w)||workEmpty('Sổ không ghi vòng sửa nào của việc này.')):deepLater()}
+  if(k==='plan')return d.work?deepPlan(d,w)+workChanges(d,w):deepLater();
+  if(k==='direction')return '<p class="small">Lời chủ, câu hỏi của AI và các lần đổi hướng của việc này, đặt cạnh dấu vết trong sổ.</p>'+histLink(d,'/direction','Mở lịch sử hướng đi','turn');
+  if(k==='waits')return d.waits?deepWaits(d)+(typeof legacyTimeline==='function'?legacyTimeline(d):''):deepLater();
+  if(k==='evidence')return d.evidence_index?deepEvidence(d)+(typeof legacyEvidence==='function'?legacyEvidence(d):''):deepLater();
+  if(k==='agents')return (typeof hostPlanPanel==='function'?hostPlanPanel(d):'')+(full&&typeof legacyNodes==='function'?legacyNodes(d):(full?'':deepLater()));
+  if(k==='session')return '<p class="small">Các phiên Claude mà hook quan sát của máy này đã ghi cho việc này: bước, lệnh, agent con, token.</p>'+histLink(d,'/sessions','Mở phiên Claude của việc này','robot');
+  if(k==='res'){var m=typeof leaseMatch==='function'&&typeof last!=='undefined'?leaseMatch(d,last&&last.shared_resources):{mine:[],unsure:[]};
+    return m.mine.length?m.mine.map(resItemHtml).join(''):workEmpty('Việc này không giữ và không chờ tài nguyên dùng chung nào.')}
+  if(k==='tech')return (typeof legacyTech==='function'?legacyTech(d):'')+workTech(d);
+  return ''}
+function deepSections(d){return '<section class="deep" aria-label="Xem sâu"><h3>Xem sâu</h3>'+DEEP_ROWS.map(function(s){var c='';try{c=deepCount(d,s[0])}catch(e){c=''}return deep(s[0],s[1],c,deepSafe(d,s[0]),s[2])}).join('')+'</section>'}
 function msStrip(d){var c=d.milestone_checks;if(!c||!(c.rows||[]).length)return '';
   return '<div class="ms-strip" aria-label="Các mốc">'+c.rows.map(function(m){return '<span class="ms '+esc(m.state)+'" title="'+esc(m.title||'')+'"><b>'+esc(m.id)+'</b> '+esc(m.label)+'</span>'}).join('')+'<button type="button" class="linkish" data-work-tab="progress">Xem các mốc và lần kiểm</button></div>'}
 function workOverview(d,w){var o=(w.outputs||[]).filter(function(x){return !x.stale}),f=w.findings||[],open=f.filter(function(x){return (x.status||x.state)==='open'}).length,c=d.milestone_checks,m=d.measure||{};
