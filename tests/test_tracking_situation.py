@@ -99,6 +99,13 @@ class Model(unittest.TestCase):
         other = ts.milestone_checks(vs, [(5, 'verdict.recorded', {'revision': 2, 'milestone': 'M1', 'result': 'fail'}, '2026-11-13T03:00:00+00:00')], 1, None, lambda r: None)
         self.assertEqual(other['rows'][0]['checks'], [])                                      # another revision's verdict is not this contract's check
 
+    def test_failed_engine_node_precedes_open_finding(self):
+        model = call(engine_view={'nodes': {'N1': {'verification_result': 'fail'}}},
+                     acceptance={'open_findings': ['F1'], 'reason': 'Finding F1'}, has_started=True)
+        self.assertEqual(model['stage'], 'fix')
+        self.assertLess(model['reason'].index('N1'), model['reason'].index('F1'))
+        self.assertIn('Sửa N1', model['next'])
+
     def test_engine_root_stages_and_handlers(self):
         definition = {'nodes': [{'id': 'C', 'goal': 'Code', 'executor': {'provider': 'claude', 'model': 'opus'}}, {'id': 'I', 'goal': 'Integrate'}]}
         ev = lambda **nodes: {'nodes': nodes, 'definition': definition}

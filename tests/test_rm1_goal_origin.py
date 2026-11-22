@@ -58,9 +58,25 @@ class GoalOrigin(AdvisorFixture):
         history = self.amend(plan_json(title='Two'), seq)['goal_history']
         self.assertEqual(history['sources'], [dict(kind='typed', seq=seq, text=words, source='claude_session', observed_revision=1, revision=2)])
         self.assertEqual(history['original']['text'], self.words)
+        self.assertEqual(history['unsourced_revisions'], [2])
         self.assertFalse(plan.show(self.ledger, 'P1', 1)['goal_history']['sources'])
         with self.assertRaises(LedgerError):
             self.amend(plan_json(title='Three'), seq)
+
+    def test_citing_pinned_owner_words_clears_only_that_revision(self):
+        self.propose()
+        self.pin()
+        pin = plan.show(self.ledger, 'P1')['goal_history']['original']
+        history = self.amend(plan_json(title='Two'), pin['seq'])['goal_history']
+        self.assertEqual(history['unsourced_revisions'], [])
+        self.assertIn(f"Chủ gõ (#{pin['seq']}): {self.words}", '\n'.join(goal_history.lines(history)))
+        self.assertEqual(self.amend(plan_json(title='Three'))['goal_history']['unsourced_revisions'], [3])
+
+    def test_machine_prompt_cannot_source_an_amendment(self):
+        self.propose()
+        seq = self.observe('owner_prompt', 'diagnostic', source='claude_machine')
+        with self.assertRaises(LedgerError):
+            self.amend(plan_json(title='Two'), seq)
 
     def test_picked_recommendation_and_other_pick_link_ai_question_and_choice(self):
         self.propose()
@@ -76,7 +92,7 @@ class GoalOrigin(AdvisorFixture):
         self.assertTrue(all(e['question'] == 'Chọn cách nào?' and e['revision'] == 2 for e in entries))
         present = report.render_present(self.ledger.state_root, 'P1')
         for seq, label in zip(sources, ('khuyến nghị của AI', 'phương án khác của AI')):
-            self.assertIn(f'Chọn trong phiên Claude ({label}) (#{seq})', present)
+            self.assertIn(f'Ghi nhận trong phiên Claude (chưa xác thực) ({label}) (#{seq})', present)
         self.assertNotIn('Chủ chọn', '\n'.join(line for line in present.splitlines() if 'Bản 2 ·' in line))
         seq = self.observe('owner_choice', 'B', revision=2, question_id='unmatched')
         with self.assertRaises(LedgerError):
@@ -97,7 +113,7 @@ class GoalOrigin(AdvisorFixture):
         page = tracking.detail(self.ledger.state_root, 'P1', comparison=False)
         card = next(n for n in page['needs_user'] if n['kind'] == 'approve')
         present = report.render_present(self.ledger.state_root, 'P1')
-        for text in ('I2', 'b.txt', self.words, f'Gõ trong phiên Claude (#{seq}): Thêm một tệp.'):
+        for text in ('I2', 'b.txt', self.words, f'Ghi nhận trong phiên Claude (chưa xác thực) (#{seq}): Thêm một tệp.'):
             self.assertIn(text, present)
             self.assertIn(text, ' '.join(card['goal_history_lines']))
 

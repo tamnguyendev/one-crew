@@ -72,7 +72,8 @@ class UserHookLifecycle(UserHookBase):
         self.assertEqual(ours, [{'type': 'command', 'command': str(self.exe.resolve()), 'args': ['hook', 'check', '--scope', 'user'], 'timeout': 15, 'onFailure': 'block'}])
         entry = next(e for e in data['hooks']['PreToolUse'] if any(h.get('args') for h in e['hooks']))
         self.assertEqual(set(entry['matcher'].split('|')), {'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash', 'PowerShell'})
-        self.assertEqual((data['theme'], data['permissions'], data['hooks']['Stop']), (SEED['theme'], SEED['permissions'], SEED['hooks']['Stop']))
+        self.assertEqual((data['theme'], data['permissions'], data['hooks']['Stop']),
+                         (SEED['theme'], dict(SEED['permissions'], deny=hook_cli.OBSERVATION_DENY_RULES), SEED['hooks']['Stop']))
         self.assertIn(SEED['hooks']['PreToolUse'][0], data['hooks']['PreToolUse'])
         self.assertEqual(set(data['hooks']), {'PreToolUse', 'Stop'})                 # no Stop / SessionStart / UserPromptSubmit of ours
 
@@ -83,6 +84,17 @@ class UserHookLifecycle(UserHookBase):
         self.assertEqual(json.loads(backup.read_text(encoding='utf-8')), SEED)
         self.verb('uninstall'); self.verb('install')
         self.assertEqual(json.loads(backup.read_text(encoding='utf-8')), SEED)       # not replaced by a later state
+
+    def test_uninstall_preserves_a_deny_added_since_the_permanent_backup(self):
+        self.seed()
+        self.verb('install')
+        self.verb('uninstall')
+        rule = hook_cli.OBSERVATION_DENY_RULES[0]
+        seed = {'permissions': {'deny': [rule, 'Bash(example)']}}
+        self.seed(seed)
+        self.verb('install')
+        self.verb('uninstall')
+        self.assertEqual(self.data(), seed)
 
     def test_installing_again_changes_nothing(self):
         self.seed()

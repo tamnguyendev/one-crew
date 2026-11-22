@@ -32,6 +32,7 @@ class SessionPage(unittest.TestCase):
         for i, (kind, fields) in enumerate([
             ('session_start', {}), ('tool_call', {'tool': 'Read', 'tool_use_id': 'read', 'hook': 'PreToolUse'}),
             ('owner_prompt', {'text': 'Owner <script> token=ownersecret'}),
+            ('owner_prompt', {'source': 'claude_machine', 'text': 'Scheduled sample'}),
             ('subagent_start', {'agent_id': 'child'}), ('background_shell', {'tool': 'Bash', 'label': 'Run checks'}),
         ]):
             cls.project.emit('PLAN', 'hook.observed', dict(fields, observation=kind, session=sid,
@@ -95,6 +96,8 @@ class SessionPage(unittest.TestCase):
             self.assertIn(f'<h3>{lane}</h3>', html)
         self.assertLess(html.index('Mở phiên'), html.index('Gọi công cụ'))
         self.assertIn('Run checks', html)
+        self.assertIn('Ghi nhận trong phiên Claude (chưa xác thực)', html)
+        self.assertIn('Máy gửi trong phiên Claude', html)
 
     def test_overview_task_without_identity_has_no_session_link(self):
         state = self.base / 'state'

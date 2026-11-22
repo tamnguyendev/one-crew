@@ -669,7 +669,37 @@ def user_hook(verb, settings_file=None, program=None, *, observe=False):
             say(t('user.bad_program', program=exe, why='hook observe'))
             return 2
     merged = copy.deepcopy(data)
+    backup = path.with_name(path.name + '.bak')
+    # The permanent .bak can predate this installation. Track exactly which denies we add.
+    ownership_file = path.with_name(path.name + '.onecrew-observation-rules.json')
+    ownership, error = read_settings(ownership_file)
+    if not error and ownership and (
+        not isinstance(ownership.get('added'), list)
+        or any(r not in hook_cli.OBSERVATION_DENY_RULES for r in ownership['added'])
+        or not all(isinstance(ownership.get(k), bool) for k in ('had_permissions', 'had_deny'))
+    ):
+        error = f'Invalid OneCrew permission record: {ownership_file}'
+    if error:
+        say(t('init.bad_settings', reason=error))
+        return 2
+    record = None
     try:
+        if verb == 'install':
+            merged = merge_settings(merged, {'hooks': {}, 'permissions': {'deny': hook_cli.OBSERVATION_DENY_RULES}})
+            previous = data.get('permissions', {})
+            added = [r for r in hook_cli.OBSERVATION_DENY_RULES if r not in previous.get('deny', [])]
+            record = dict(ownership) if ownership else {'added': [], 'had_permissions': 'permissions' in data, 'had_deny': 'deny' in previous}
+            record['added'] = [r for r in hook_cli.OBSERVATION_DENY_RULES if r in record['added'] or r in added]
+        elif ownership and user_handlers(data):
+            perms = merged.get('permissions')
+            if isinstance(perms, dict) and isinstance(perms.get('deny'), list):
+                for rule in hook_cli.OBSERVATION_DENY_RULES:
+                    if rule in ownership.get('added', []) and rule in perms['deny']:
+                        perms['deny'].remove(rule)
+                if not perms['deny'] and not ownership.get('had_deny'):
+                    del perms['deny']
+                if not perms and not ownership.get('had_permissions'):
+                    del merged['permissions']
         hooks = merged.setdefault('hooks', {}) if verb == 'install' else merged.get('hooks', {})
         if not isinstance(hooks, dict): raise SettingsShape('hooks', 'object')
         entries = hooks.get('PreToolUse', [])
@@ -703,10 +733,13 @@ def user_hook(verb, settings_file=None, program=None, *, observe=False):
     if merged == data:
         say(t('user.unchanged' if verb == 'install' else 'user.absent', path=shown_path))
         return 0
-    backup = path.with_name(path.name + '.bak')            # next to the target, so the link and its copy never part
     try:
         if path.exists() and not backup.exists(): shutil.copyfile(path, backup)
+        if record is not None and record != ownership:
+            write_text(ownership_file, dump(record))
         write_text(path, dump(merged))
+        if verb == 'uninstall' and ownership:
+            ownership_file.unlink(missing_ok=True)
     except OSError as error:
         say(t('user.write_failed', path=shown_path, code=type(error).__name__))
         return 2

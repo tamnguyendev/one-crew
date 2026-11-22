@@ -14,6 +14,7 @@ A plan in `stopped_with_report` blocks everything `check` governs: Edit/Write/Mu
 (the evidence is read with Read, Grep and Glob, which this hook does not see). Only stdlib at import time: `check` runs before every tool call.
 """
 import argparse
+import ast
 import bisect
 import contextlib
 import datetime as dt
@@ -34,6 +35,7 @@ from . import where
 FILE = 'active-plan.json'
 EDIT_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
 SHELL_TOOLS = ('Bash', 'PowerShell')
+# Retain the exported deny for older runtimes. Current runtimes apply the parsed policy.
 OBSERVATION_COMMAND_DENY = r're:\bhook\s+(?:observe|sync)\b'
 PATH_KEYS = ('file_path', 'notebook_path', 'path')
 STOP_BLOCK_CAP = 2
@@ -1722,10 +1724,153 @@ def chunk_folders(text, start, powershell=False):
     return spans, steps, launch
 
 
+def _python_observation(code):
+    """Inspect Python syntax without evaluating the program or importing its modules."""
+    if 'onecrew' not in code and 'hook' not in code:
+        return False
+    try:
+        tree = ast.parse(code.strip())
+    except (ValueError, SyntaxError, RecursionError):
+        return False
+    names = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            prefix = (node.module or '') + '.' if isinstance(node, ast.ImportFrom) else ''
+            for alias in node.names:
+                names[alias.asname or alias.name.split('.')[0]] = (
+                    prefix + alias.name if prefix or alias.asname else alias.name.split('.')[0])
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        target = node.func
+        parts = []
+        while isinstance(target, ast.Attribute):
+            parts.insert(0, target.attr)
+            target = target.value
+        if not isinstance(target, ast.Name):
+            continue
+        qualified = '.'.join([names.get(target.id, target.id), *parts])
+        if qualified in ('onecrew.v2.session_observe.observe', 'onecrew.v2.session_observe.flush'):
+            return True
+        if qualified.rsplit('.', 1)[-1] == 'main' and node.args:
+            arg = node.args[0]
+            if isinstance(arg, (ast.List, ast.Tuple)):
+                values = [v.value if isinstance(v, ast.Constant) else None for v in arg.elts]
+                if 'hook' in values and any(v in ('observe', 'sync') for v in values):
+                    return True
+    return False
+
+
+def _observation_words(words, bindings, powershell):
+    """Resolve simple literal shell assignments and aliases in command position without running shell code."""
+    if not words:
+        return []
+    first = words[0].casefold()
+    definitions = words[1:] if first in ('alias', 'export') else words[:1]
+    for word in definitions:
+        match = re.fullmatch(r'\$?([A-Za-z_]\w*)=(.+)', word)
+        if match:
+            key, value = match.groups()
+            key = key.casefold() if powershell else key
+            bindings['alias' if first == 'alias' else 'var', key] = value
+    if powershell and first in ('set-alias', 'new-alias', 'sal'):
+        args = [w for w in words[1:] if w.casefold() not in ('-name', '-value')]
+        if len(args) == 2:
+            bindings['alias', args[0].casefold()] = args[1]
+    args, _ = command_head(words)
+    expanded = []
+    for i, word in enumerate(args):
+        variable = re.fullmatch(r'\$(?:\{(\w+)\}|(\w+))', word)
+        key = (variable.group(1) or variable.group(2)) if variable else word
+        key = key.casefold() if powershell else key
+        value = bindings.get(('var' if variable else 'alias', key)) if variable or i == 0 else None
+        if value and i == 0 and not variable:
+            expanded.extend(value.split())
+        else:
+            expanded.append(value or word)
+    return expanded
+
+
+def _script_invocation(words):
+    """Return the literal script and its arguments for a file launch, excluding command strings and module launches."""
+    if not words:
+        return None, []
+    head = posixpath.basename(words[0].replace('\\', '/')).casefold().removesuffix('.exe')
+    suffixes = ('.sh', '.bash', '.ps1', '.py')
+    if head.endswith(suffixes):
+        return words[0], words[1:]
+    if head not in SHELL_WORDS and interpreter_kind(head) != 'python':
+        return None, []
+    for i, word in enumerate(words[1:], 1):
+        if word.casefold() in ('-c', '-m', '-command'):
+            break
+        if word.casefold().endswith(suffixes):
+            return word, words[i + 1:]
+    return None, []
+
+
+def _observation_policy(words, segment, bodies, here, root, powershell, bindings=None):
+    """Check executable positions. Quoted examples printed by a text command are data."""
+    def name(word):
+        return posixpath.basename(word.replace('\\', '/')).casefold().removesuffix('.exe')
+    args = _observation_words(words, bindings if bindings is not None else {}, powershell)
+    if not args:
+        return None
+    head = name(args[0])
+    python = interpreter_kind(head) == 'python'
+    argv = list(args[1:])
+    if python and '-m' in argv:
+        offset = argv.index('-m') + 1
+        if argv[offset:offset + 1] == ['onecrew']:
+            head, argv = 'onecrew', argv[offset + 1:]
+    folded = [w.casefold() for w in argv]
+    if 'hook' in folded:
+        index = folded.index('hook')
+        verb = argv[index + 1].casefold() if index + 1 < len(argv) else ''
+        # An alias can be the launcher. A dynamic verb in the hook namespace cannot be certified read-only.
+        launcher = head in ('onecrew', 'onecrew.cmd') or (index == 0 and head not in READ_ONLY and head not in ('echo', 'printf', 'write-output'))
+        if launcher and (verb in ('observe', 'sync') or any(c in verb for c in '$%\\`+(){}')):
+            return 'bash_deny', 'Claude observation hooks are invoked by the configured hook handler.'
+    if python:
+        tokens = (WORDS if powershell else BASH_WORDS).findall(segment)
+        if '-c' in tokens:
+            at = tokens.index('-c') + 1
+            if at < len(tokens):
+                code = tokens[at]
+                if code[:1] in ('"', "'") and code.endswith(code[0]):
+                    code = code[1:-1]
+                bodies = [*bodies, code]
+        if any(_python_observation(body) for body in bodies):
+            return 'bash_deny', 'Claude observation writes belong to the configured hook handler.'
+    word, _ = _script_invocation(words)
+    if word is None and name(words[0]) in WRAPPERS:
+        word, _ = _script_invocation(args)
+    if word is not None:
+        # An external temporary script can change between inspection and execution.
+        portable = word.replace('\\', '/')
+        temp = Path(tempfile.gettempdir())
+        prefixes = ('$env:temp/', '$env:tmp/', '$tmpdir/', '%temp%/', '%tmp%/')
+        prefix = next((s for s in prefixes if portable.casefold().startswith(s)), None)
+        if prefix:
+            script = (temp / portable[len(prefix):]).resolve()
+        elif os.name == 'nt' and portable.startswith('/tmp/'):
+            script = (temp / portable[5:]).resolve()
+        elif here is not None and not portable.startswith('//'):
+            script = normalize(word, here)
+        else:
+            return None
+        in_temp = script.is_relative_to(temp) or (os.name != 'nt' and script.is_relative_to('/tmp'))
+        if in_temp and not script.is_relative_to(Path(root)):
+            return 'bash_deny', 'Run the script from the project instead of a temporary directory.'
+    return None
+
+
 def discard_verdict(plan, root, cwd, command, limited=False, powershell=False, split=None):
     """(rule, reason) when a command of the text (`cd` followed, `git -C` followed, `$(...)` and `bash -c '...'` read too) is a git form that throws away
     uncommitted work outside the owned scope, or `rm` with recursive and force in any spelling; else None."""
     exports = {}
+
+    export_names = {}
 
     def one(words, here, fed):
         env_dir = reach_places(words, here, exports, False)[1] if words else None        # #25: `env -C DIR git ...` and GIT_WORK_TREE=DIR run git in DIR
@@ -1750,7 +1895,8 @@ def discard_verdict(plan, root, cwd, command, limited=False, powershell=False, s
                 return 'bash_deny', 'rm with recursive and force (-rf in any spelling) is refused: remove a file with plain `rm <file>`, or work in a separate `git worktree add`, or in `.onecrew/scratch/`.'
         return None
 
-    def walk(text, state, depth=0, launches=None):
+    def walk(text, state, depth=0, launches=None, bodies=(), bindings=None, observation_command=True):
+        bindings = export_names if bindings is None else dict(bindings)
         # FIX25C (Codex R1): each segment is judged in the folders in force when it starts, and so is every text that runs while it runs (`$( )`, backticks,
         # `<( )`, a string given to `bash -c`): `x=$(git checkout -- f); cd src` runs the checkout where the command started, `x=$(cd A && git checkout -- f)`
         # runs it in A. `launches` collects the folders of the segments holding a `<<`: their here-document bodies start there.
@@ -1771,12 +1917,16 @@ def discard_verdict(plan, root, cwd, command, limited=False, powershell=False, s
                 cur = list(folders)
                 for s, _, t in [span for span in spans if begin <= span[0] < end]:
                     for folder in cur:
-                        verdict = walk(t, [folder, folder, [], [], [folder], False], depth + 1)
+                        verdict = walk(t, [folder, folder, [], [], [folder], False], depth + 1, bindings=bindings)
                         if verdict: return verdict
                     if powershell and literal[s:s + 1] == '$': cur = list(dict.fromkeys(ps_after(t, f) for f in cur))      # FIX25D: the next one starts there
+                # command_texts also returns quoted data passed to a shell script. The discard
+                # checks keep their existing conservative scan; those arguments do not launch hooks.
+                _, script_args = _script_invocation(words)
                 for t in dict.fromkeys(t for at, t in others if begin <= at < end or at < 0):
                     for folder in cur:
-                        verdict = walk(t, [folder, folder, [], [], [folder], False], depth + 1)
+                        verdict = walk(t, [folder, folder, [], [], [folder], False], depth + 1, bindings=bindings,
+                                       observation_command=observation_command and t not in script_args)
                         if verdict: return verdict
                         if powershell and ps_after(t, folder) != folder: cur = [None]      # FIX25D: an `iex` string (or a child) that moves: not followed
             if powershell and not moves and depth < 3:
@@ -1792,8 +1942,15 @@ def discard_verdict(plan, root, cwd, command, limited=False, powershell=False, s
                         state[0] = None if None in judge else judge[0]
                     state[4].extend(f for f in judge if f is not None and f not in state[4])
             if launches is not None and HEREDOC.search(segment): launches.extend(f for f in folders if f not in launches)
+            count = len(HEREDOC.findall(segment))
+            inputs, bodies = bodies[:count], bodies[count:]
+            if words and not head_words:
+                _observation_words(words, bindings, powershell)
             if head_words and not moves:
                 for folder in judge:
+                    if observation_command:
+                        verdict = _observation_policy(words, segment, inputs, folder, root, powershell, bindings)
+                        if verdict: return verdict
                     verdict = one(words, folder, False)
                     if verdict: return verdict
             if head_words: exports.update(git_exports(words, segment, powershell))      # #25: `export GIT_WORK_TREE=...` holds for the commands after it
@@ -1803,7 +1960,7 @@ def discard_verdict(plan, root, cwd, command, limited=False, powershell=False, s
     start = Path(cwd)
     state = [start, start, [], [], [start], False]
     launches = [start]
-    for unit, _, script in heredoc_units(command, True):
+    for unit, bodies, script in heredoc_units(command, True):
         if script:
             # FIX25B/FIX25C (Codex F2, R1): a body that runs as a script is a child shell started by the segment holding its `<<`, in the folders in force when that
             # segment starts (`pushd A && bash <<EOF && popd` runs it in A, `bash <<EOF && cd src` where the command was); its `cd` does not reach the text after it
@@ -1813,7 +1970,7 @@ def discard_verdict(plan, root, cwd, command, limited=False, powershell=False, s
             continue
         before = [state[0], *state[4]]
         launches = []
-        verdict = walk(unit, state, 0, launches)
+        verdict = walk(unit, state, 0, launches, bodies)
         if verdict: return verdict
         if not launches: launches = list(dict.fromkeys([*before, state[0], *state[4]]))      # no `<<` segment found: every folder the chunk may be in
     return None
@@ -1829,12 +1986,11 @@ def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=Fal
     if verdict: return verdict
     forms = variants('\n'.join([split[0]] + split[1]))      # #12: the deny list reads commands, not the text of a here-document that a text reader takes (`git reset --hard` in a commit message)
     # Existing exports predate the observation spool. Apply its rule there too.
-    for entry in dict.fromkeys([OBSERVATION_COMMAND_DENY, *plan.get('bash_deny', [])]):
+    for entry in plan.get('bash_deny', []):
+        if entry == OBSERVATION_COMMAND_DENY: continue  # older exports used a text match for this parsed rule
         for form in forms:
             hit = re.search(entry[3:], form, re.I) if entry.startswith('re:') else (entry.casefold() in form.casefold())
             if hit:
-                if entry == OBSERVATION_COMMAND_DENY:
-                    return 'bash_deny', 'Claude observation hooks are invoked by the configured hook handler.'
                 note = ' Local evidence refs/onecrew must not be published.' if 'refs/onecrew' in form.casefold() else ''
                 return 'bash_deny', f'The command matches the deny rule "{entry[3:] if entry.startswith("re:") else entry}". Approval, acceptance, enforcement, push, tag and installs are the owner\'s. Ask the owner in chat.' + note
     state_root = _fold(plan.get('state_root', ''))
@@ -1921,7 +2077,7 @@ SESSION, CWD, LIMITED = 'session', 'cwd', 'limited'          # roles of a plan, 
 RANK = {SESSION: 2, CWD: 1, LIMITED: 0}
 
 
-def candidate_dirs(args, event):
+def candidate_dirs(args, event, *, session_dir=None):
     """[(place, role)]: every place a plan applies to this call from, and in what role.
 
     The SESSION's project is where.project_from_environment (CLAUDE_PROJECT_DIR, else the event's cwd, else ours): its plan judges the whole call. A
@@ -1929,7 +2085,7 @@ def candidate_dirs(args, event):
     command the one that holds its cwd and the ones that hold the paths it appears to write. A limited plan judges only what the call does inside its own
     repository (see judge_call). Every other hook event (prompt, stop, session) has the session's project alone."""
     cwd = event.get('cwd') if isinstance(event.get('cwd'), str) and event.get('cwd') else None
-    session = where.project_from_environment(cwd)
+    session = session_dir or where.project_from_environment(cwd)
     tool = event.get('tool_name')
     data = event.get('tool_input') if isinstance(event.get('tool_input'), dict) else {}
     places = [(session, SESSION)]
@@ -2397,6 +2553,7 @@ BACKGROUND_EVENTS = (('PostToolUse', 'background', 10, 'Agent|Task|Bash|PowerShe
                      ('SubagentStart', 'background', 10, None, 'continue'),
                      ('SubagentStop', 'background', 10, None, 'continue'),
                      ('SessionEnd', 'background', 5, None, 'continue'))
+OBSERVATION_DENY_RULES = [f'{tool}(*hook {verb}*)' for tool in ('Bash', 'PowerShell') for verb in ('observe', 'sync')]
 OWNER_DENY = ('plan approve', 'plan accept', 'plan enforce', 'plan goal-pin', 'verdict record', 'hook mode', 'plan unknown close*owner', 'plan poc record*owner',
               'owner approve', 'owner accept', 'owner enforce', 'owner record', 'owner answer', 'question answer',
               'support confirm', 'support target add', 'support rollback', 'support cleanup*--v')    # owner-only entry points
@@ -2440,7 +2597,7 @@ def deny_rules(state_root):
             'Edit(//' + str(Path.home()).replace('\\', '/').lstrip('/') + '/.claude/CLAUDE.md)', 'Edit(//' + str(Path.home()).replace('\\', '/').lstrip('/') + '/.claude/agents/**)']
     for verb in OWNER_DENY:
         deny += ['Bash(*' + verb + '*)', 'PowerShell(*' + verb + '*)']                # git tag is left to the hook: a permission rule cannot tell `git tag -l` from `git tag v1`
-    return deny
+    return deny + OBSERVATION_DENY_RULES
 
 
 def parser():

@@ -174,7 +174,11 @@ def _engine(state, engine_view, active, needs, acceptance, level, progress=None)
         target = (held or failed)[0]
         why = ('Phần việc ' + ', '.join(held) + ' bị giữ' + (': ' + str(nodes[held[0]].get('reason'))[:120] if nodes[held[0]].get('reason') else '')) if held \
             else 'Phần việc ' + ', '.join(failed) + ' kiểm không đạt'
+        if acceptance.get('open_findings'):
+            why += '. ' + acceptance['reason']
         return 'fix', why, 'Sửa ' + title(target) + ' rồi kiểm lại', assigned(target), 'assigned' if assigned(target) else None
+    if acceptance.get('open_findings') and not active:
+        return 'fix', acceptance['reason'], 'Sửa finding và kiểm lại đúng phạm vi', None, None
     stalled = [nid for nid, p in (progress or {}).items() if p.get('status') == 'blocked' and nodes.get(nid, {}).get('phase') == 'running']
     if stalled:                     # the running attempt's own executor reported it is blocked: still running, not "needs a fix"
         why = (progress[stalled[0]].get('reason') or '')[:160]
@@ -267,14 +271,16 @@ def situation(*, state, views, checks, engine_view, attempts, active, requests, 
         mid, c = lost_checks[-1]
         stage, reason = 'unknown', f"Lần kiểm mốc {mid} mất tín hiệu ({'tiến trình không còn' if c.get('lost') == 'process_gone' else 'quá hạn chạy'}): kết quả chưa xác định"
         next_text = 'Kiểm lại mốc ' + mid
-    elif acceptance.get('open_findings') and not active and not any(r['state'] in ('failed', 'inconclusive', 'checking') for r in rows):
+    elif engine_view is None and acceptance.get('open_findings') and not active and not any(r['state'] in ('failed', 'inconclusive', 'checking') for r in rows):
         stage, reason, next_text = 'fix', acceptance['reason'], 'Sửa finding và kiểm lại đúng phạm vi'
     elif engine_view is not None:
         stage, reason, next_text, by_text, by = _engine(state, engine_view, active, needs, acceptance, level, progress)
         g = guidance or {}
         if g.get('owner_only') and not active:       # the engine's own next step says only the owner can take it (e.g. amend_grant: handoff blocked)
             if g.get('state') in ('stopped', 'handoff_blocked'): stage = 'stopped'
-            reason = str(g.get('reason') or reason)[:200]
+            owner_reason = str(g.get('reason') or '')[:200]
+            if owner_reason and owner_reason != reason:
+                reason = reason + '. ' + owner_reason if acceptance.get('open_findings') else owner_reason
             next_text = OWNER_STEPS.get(g.get('kind'), 'Quyết định của bạn theo bước tiếp theo của OneCrew')
             by, by_text = 'owner', OWNER
             src.append('engine.next_action:' + str(g.get('kind')))

@@ -1,4 +1,5 @@
 """OBS3 MS, using a private Claude profile, registry, target repository and ledger."""
+import ast
 import contextlib
 import io
 import json
@@ -21,7 +22,7 @@ class Observe(unittest.TestCase):
         env = patch.dict(os.environ)
         env.start()
         self.addCleanup(env.stop)
-        for key in ('ONECREW_ACTOR', 'ONECREW_V2_REQUIRE_PLAN', 'CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION'):
+        for key in ('CLAUDE_CODE_ENTRYPOINT', 'ONECREW_ACTOR', 'ONECREW_V2_REQUIRE_PLAN', 'CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION'):
             os.environ.pop(key, None)
         self.other = base / 'unrelated'
         self.other.mkdir()
@@ -37,7 +38,7 @@ class Observe(unittest.TestCase):
     def call(self, name, **extra):
         event = dict({'hook_event_name': name, 'cwd': str(self.other), 'session_id': 'session-1'}, **extra)
         stdin = type('Input', (), {'buffer': io.BytesIO(json.dumps(event).encode())})()
-        with patch.object(sys, 'stdin', stdin), contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
+        with patch.object(Path, 'cwd', return_value=self.other), patch.object(sys, 'stdin', stdin), contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
             self.assertEqual(hook_cli.main(['hook', 'observe']), 0)
         self.assertEqual(out.getvalue(), '')
         return err.getvalue()
@@ -66,6 +67,58 @@ class Observe(unittest.TestCase):
                     self.assertEqual(hook_cli.main(['--project', str(self.root), '--state-root', str(self.ledger.state_root),
                                                     'hook', 'check']), 2, err.getvalue())
                 self.assertIn(f'({rule})', err.getvalue())
+
+    def test_read_only_mention_is_not_a_hook_command(self):
+        self.assertIsNone(hook_cli.judge_shell({}, self.root, self.root, 'echo "onecrew hook observe"'))
+
+    def test_hook_policy_checks_executable_positions(self):
+        for command, ps in [('onecrew hook --help', False), ('Write-Output "hook sync"', True)]:
+            self.assertIsNone(hook_cli.judge_shell({}, self.root, self.root, command, powershell=ps))
+        decision = hook_cli.judge_shell({}, self.root, self.root, 'onecrew hook $UNSET_OPERATION')
+        self.assertEqual(decision[0], 'bash_deny')
+        names = {}
+        hook_cli._observation_words(['alias', 'sample=onecrew hook'], names, False)
+        self.assertEqual(hook_cli._observation_words(['sample', '--help'], names, False), ['onecrew', 'hook', '--help'])
+        hook_cli._observation_words(['$operation=check'], names, True)
+        self.assertEqual(hook_cli._observation_words(['onecrew', 'hook', '$operation'], names, True)[-1], 'check')
+        for words in (['onecrew', 'hook', '$operation'], ['oc', 'hook', '$operation']):
+            verdict = hook_cli._observation_policy(words, '', (), self.root, self.root, False)
+            self.assertEqual(verdict[0], 'bash_deny')
+
+    def test_temporary_script_policy_distinguishes_program_and_input(self):
+        outside = (self.other / 'fixture.sh').as_posix()
+        program = (self.root / 'fixture.sh').as_posix()
+        denied = hook_cli.judge_shell({}, self.root, self.root, f'bash "{outside}"')
+        self.assertEqual(denied[0], 'bash_deny')
+        self.assertIsNone(hook_cli.judge_shell({}, self.root, self.root, f'bash "{program}" "{outside}"'))
+
+    def test_python_policy_recognizes_observation_writers_without_running_code(self):
+        # Inspect a syntax tree only. The sample has no executable call or ledger.
+        for writer in ('observe', 'flush'):
+            syntax = ast.parse('if False: receiver(sample)')
+            syntax.body.insert(0, ast.ImportFrom(module='onecrew.v2.session_observe',
+                               names=[ast.alias(name=writer, asname='receiver')], level=0))
+            with patch.object(ast, 'parse', return_value=syntax):
+                self.assertTrue(hook_cli._python_observation('# onecrew policy fixture'))
+        self.assertFalse(hook_cli._python_observation("print('onecrew hook observe')"))
+        for command in ('python -c "pass"', "python <<'END'\npass\nEND"):
+            with patch.object(hook_cli, '_python_observation', side_effect=lambda code: code.strip() == 'pass'):
+                decision = hook_cli.judge_shell({}, self.root, self.root, command)
+                self.assertEqual(decision[0], 'bash_deny')
+
+    def test_binding_uses_hook_process_directory(self):
+        os.environ.pop('CLAUDE_PROJECT_DIR')
+        with patch.object(session_observe, '_binding', return_value=None) as binding:
+            self.call('SessionStart', cwd=str(self.root))
+        self.assertEqual(binding.call_args.args[0]['cwd'], str(self.other))
+
+    def test_print_mode_prompt_is_machine_input(self):
+        self.bind()
+        with patch.dict(os.environ, CLAUDE_CODE_ENTRYPOINT='sdk-cli'):
+            self.call('UserPromptSubmit', prompt='diagnostic')
+        self.call('Stop')
+        prompt, = [r for r in self.observed() if r['observation'] == 'owner_prompt']
+        self.assertEqual(prompt['source'], 'claude_machine')
 
     def test_session_other_folder_reaches_target_plan(self):
         self.bind()
@@ -206,7 +259,11 @@ class Observe(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             for _ in range(2):
                 self.assertEqual(install.user_hook('install', settings, exe, observe=True), 0)
-            hooks = json.loads(settings.read_text(encoding='utf-8'))['hooks']
+            configured = json.loads(settings.read_text(encoding='utf-8'))
+            for tool in ('Bash', 'PowerShell'):
+                for verb in ('observe', 'sync'):
+                    self.assertIn(f'{tool}(*hook {verb}*)', configured.get('permissions', {}).get('deny', []))
+            hooks = configured['hooks']
             for event in install.OBSERVE_EVENTS:
                 handlers = [h for entry in hooks[event] for h in entry['hooks'] if h.get('args') == ['hook', 'observe']]
                 self.assertEqual(len(handlers), 1)

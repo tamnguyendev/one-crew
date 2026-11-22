@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 
 from ..ledger import LedgerError
 from . import owner_results, report, session_transcript, tracking, tracking_dashboard
-from .session_observe import SESSION_INPUT_LABELS
+from .session_observe import SESSION_INPUT_LABELS, input_label
 
 KINDS = ('hook.observed', 'hook.logged', 'hook.blocked', 'hook.stop_blocked')
 LABELS = {**SESSION_INPUT_LABELS, 'ai_question': 'Câu hỏi của Claude',
@@ -46,6 +46,8 @@ def _timeline(rows, reading):
         if kind == 'background_shell':
             name = 'Lệnh nền' + (' · ' + _show(agent) if agent else '')
         label = LABELS.get(kind) or LABELS.get(r.get('hook')) or 'Sự kiện'
+        if kind in SESSION_INPUT_LABELS:
+            label = input_label(r)
         tool = _show(r.get('tool'))
         stamp = _clock(r['time'])
         detail = (_show(r.get('text') or r.get('label') or r.get('reason'))

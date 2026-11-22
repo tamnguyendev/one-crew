@@ -346,15 +346,17 @@ def _conclusion(f):
     if blocker and kind == 'open' and not view:
         why = blocker
     parked = _parked_data(f)
-    if rows is None or parked is None: left = NO_DATA
+    if rows is None or parked is None:
+        left = NO_DATA
+        if opened:
+            left += '; sửa và kiểm lại finding còn mở: ' + ', '.join(item['id'] for item in opened)
     else:
         parts = []
         if [r[0] for r in rows if not r[3]]: parts.append('output chưa đạt: ' + ', '.join(r[0] for r in rows if not r[3]))
         if opened:
             if view and kind in ('open', 'failed'):
                 parts.append(f'Sửa và kiểm lại mốc {view["id"]} (còn {view["repairs_left"]} lượt sửa)')
-            if why != blocker:
-                parts.append(blocker)
+            parts.append(blocker if why != blocker else 'Sửa và kiểm lại finding còn mở: ' + ', '.join(item['id'] for item in opened))
         if parked[0]: parts.append('should chưa có mốc đạt: ' + ', '.join(i['id'] for i in parked[0]))
         if parked[1]: parts.append('unknown còn mở: ' + ', '.join(u['id'] for u in parked[1]))
         left = '; '.join(parts) or 'không còn gì'

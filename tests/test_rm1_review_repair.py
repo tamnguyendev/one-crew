@@ -67,7 +67,10 @@ class Review(ReviewCaller, fixtures.Fixture):
         last = verdict.run(self.ledger, 'P1', 'M2')['milestones'][-1]['last_verdict']
         with self.assertRaisesRegex(LedgerError, 'unresolved findings'):
             plan.accept(self.ledger, 'P1', 'owner', 'isolated acceptance check', last['artifact_sha'])
-        self.assertIn('RF1', report.render_report(self.ledger.state_root, 'P1'))
+        rendered = report.render_report(self.ledger.state_root, 'P1')
+        left = rendered.split('Còn gì:', 1)[1].split('Bạn cần làm:', 1)[0]
+        self.assertIn('RF1', left)
+        self.assertIn('kiểm lại', left)
         page = tracking.detail(self.ledger.state_root, 'P1')
         self.assertFalse(page['acceptance']['ready'])
         self.assertIn('RF1', page['situation']['reason'])

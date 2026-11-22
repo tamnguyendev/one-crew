@@ -57,6 +57,7 @@ class Direction(unittest.TestCase):
             obs('ai_question', 'Chọn thứ tự nào?', options=['A', 'B'], question_id='answered')
             obs('owner_choice', 'Giữ', session='other-session', question_id='unanswered')
             obs('owner_choice', 'B', question_id='answered')
+            obs('owner_prompt', 'Kiểm tra tín hiệu tự động', source='claude_machine')
             obs('owner_prompt', 'Chuyển sang giao diện mới')
             obs('owner_prompt', 'Không chuyển sang trang khác.')
             obs('owner_prompt', 'Mở rộng phạm vi để làm gì?')
@@ -106,11 +107,15 @@ class Direction(unittest.TestCase):
         self.assertNotIn('sample-secret', page)
         self.assertIn('password=[withheld]', page)
 
+    def test_input_origin_is_visible_on_direction_cards(self):
+        self.assertIn('Máy gửi trong phiên Claude', self.html(q='Kiểm tra tín hiệu tự động'))
+        self.assertIn('Ghi nhận trong phiên Claude (chưa xác thực)', self.html(q='Chuyển sang giao diện mới'))
+
     def test_ai_proposal_labelled(self):
         page = self.html(view='turns', q='Còn câu nào')
         self.assertIn('<h3>AI hỏi</h3>', page)
         self.assertIn('<li>Giữ</li><li>Đổi</li>', page)
-        self.assertNotIn('<h3>Chọn trong phiên Claude</h3>', page)
+        self.assertNotIn('<h3>Ghi nhận trong phiên Claude (chưa xác thực)</h3>', page)
         self.assertIn('Đề xuất của AI', self.html(q='Lịch sử'))
 
     def test_choice_answered_or_open(self):
