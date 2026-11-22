@@ -15,6 +15,10 @@ from pathlib import Path
 
 from . import hook_cli, where
 
+SESSION_SOURCE = 'claude_session'
+# Keep the historical observation keys so that links and replay IDs remain stable.
+SESSION_INPUT_LABELS = {'owner_prompt': 'Gõ trong phiên Claude', 'owner_choice': 'Chọn trong phiên Claude'}
+
 OBSERVE_EVENTS = ('SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure',
                   'SubagentStart', 'SubagentStop', 'Stop', 'SessionEnd')
 
@@ -123,7 +127,7 @@ def _rows(event, session, target):
 
     if name == 'UserPromptSubmit':
         if isinstance(event.get('prompt'), str):
-            yield row('owner_prompt', 'owner', text=_clean(event['prompt'], None))
+            yield row('owner_prompt', SESSION_SOURCE, text=_clean(event['prompt'], None))
     elif tool == 'AskUserQuestion' and name in ('PreToolUse', 'PostToolUse'):
         response = event.get('tool_response')
         answers = response.get('answers') if isinstance(response, dict) else None
@@ -135,7 +139,7 @@ def _rows(event, session, target):
                 options = [_clean(o.get('label'), 500) for o in q.get('options', []) if isinstance(o, dict)]
                 yield row('ai_question', 'ai_claim', question_index=i, question_id=link, text=_clean(question, 2000), options=options)
             elif isinstance(answers, dict) and isinstance(answers.get(question), str):
-                yield row('owner_choice', 'owner', question_index=i, question_id=link, text=_clean(answers[question], 2000))
+                yield row('owner_choice', SESSION_SOURCE, question_index=i, question_id=link, text=_clean(answers[question], 2000))
     elif name == 'PostToolUse' and tool in hook_cli.SHELL_TOOLS and inputs.get('run_in_background') is True:
         yield row('background_shell', label=_clean(inputs.get('description'), 160))
     elif name == 'PostToolUse' and tool in ('Write', 'Edit', 'NotebookEdit'):
@@ -202,6 +206,8 @@ def flush(ledger):
                                 if not anchor or anchor['id'] != r['task'] or r['project'] != ledger.project_path:
                                     raise ValueError('Observation target mismatch')
                                 spool_id = r['spool_id']
+                                if r.get('observation') in SESSION_INPUT_LABELS:
+                                    r['source'] = SESSION_SOURCE  # also covers batches queued before the source label changed
                             except (ValueError, KeyError, TypeError):
                                 damaged = True
                                 continue

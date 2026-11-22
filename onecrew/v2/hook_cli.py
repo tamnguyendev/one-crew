@@ -34,6 +34,7 @@ from . import where
 FILE = 'active-plan.json'
 EDIT_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
 SHELL_TOOLS = ('Bash', 'PowerShell')
+OBSERVATION_COMMAND_DENY = r're:\bhook\s+(?:observe|sync)\b'
 PATH_KEYS = ('file_path', 'notebook_path', 'path')
 STOP_BLOCK_CAP = 2
 READ_ONLY = {'cat', 'type', 'head', 'tail', 'less', 'more', 'ls', 'dir', 'get-content', 'gc', 'get-childitem', 'gci', 'select-string',
@@ -1827,13 +1828,17 @@ def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=Fal
     verdict = discard_verdict(plan, root, cwd, command, limited, powershell, split)      # first: an older plan's deny list says `reset --hard` without the way out
     if verdict: return verdict
     forms = variants('\n'.join([split[0]] + split[1]))      # #12: the deny list reads commands, not the text of a here-document that a text reader takes (`git reset --hard` in a commit message)
-    for entry in plan.get('bash_deny', []):
+    # Existing exports predate the observation spool. Apply its rule there too.
+    for entry in dict.fromkeys([OBSERVATION_COMMAND_DENY, *plan.get('bash_deny', [])]):
         for form in forms:
             hit = re.search(entry[3:], form, re.I) if entry.startswith('re:') else (entry.casefold() in form.casefold())
             if hit:
+                if entry == OBSERVATION_COMMAND_DENY:
+                    return 'bash_deny', 'Claude observation hooks are invoked by the configured hook handler.'
                 note = ' Local evidence refs/onecrew must not be published.' if 'refs/onecrew' in form.casefold() else ''
                 return 'bash_deny', f'The command matches the deny rule "{entry[3:] if entry.startswith("re:") else entry}". Approval, acceptance, enforcement, push, tag and installs are the owner\'s. Ask the owner in chat.' + note
-    items = [(_fold(plan.get('state_root', '')) + '/plans', ''), ('policy.json', ''), ('.sqlite', ''), ('active-plan.json', ''), ('violations.jsonl', ''), ('hook-state.json', ''),
+    state_root = _fold(plan.get('state_root', ''))
+    items = [(state_root + '/plans', ''), (state_root + '/claude-observations', 'whole'), ('policy.json', ''), ('.sqlite', ''), ('active-plan.json', ''), ('violations.jsonl', ''), ('hook-state.json', ''),
              (where.REGISTRY, ''), ('.claude/settings', ''), ('.onecrew', 'whole'), ('onecrew/plans', 'start')]
     for segment in shell_segments(command, powershell):         # each segment on its own: `ls; python -c "...remove(registry)"` is not read-only because its first word is
         first = (re.findall(r'[\w.-]+', segment) or [''])[0].lower()

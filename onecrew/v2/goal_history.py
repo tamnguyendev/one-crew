@@ -1,9 +1,10 @@
-"""Revision-one goal, cited owner observations, and the scope the owner is reviewing."""
+"""Revision-one goal, cited Claude session inputs, and the scope the owner is reviewing."""
 import json
 import re
 
 from ..ledger import LedgerError, text_field
 from . import plan
+from .session_observe import SESSION_INPUT_LABELS, SESSION_SOURCE
 
 
 def pin(ledger, name, words):
@@ -26,12 +27,13 @@ def source(conn, state, seq):
     row = conn.execute("SELECT payload FROM events WHERE seq=? AND task_id=? AND kind='hook.observed'",
                        (seq, state['task_id'])).fetchone()
     p = json.loads(row['payload']) if row else {}
-    if (p.get('source') != 'owner' or not p.get('text') or p.get('revision') not in
+    # Older hook events called session inputs 'owner'. Neither spelling authenticates a person.
+    if (p.get('source') not in (SESSION_SOURCE, 'owner') or not p.get('text') or p.get('revision') not in
             {state['latest'], (state['approved'] or {}).get('revision')} or not p.get('revision')):
-        raise LedgerError('Goal source must be an owner observation on this plan and revision.')
+        raise LedgerError('Goal source must be a Claude session input on this plan and revision.')
     if any(s['seq'] == seq for r in state['revisions'].values() for s in r.get('goal_sources', [])):
         raise LedgerError('This observation already belongs to a prior amendment.')
-    result = {'seq': seq, 'text': p['text'], 'observed_revision': p['revision']}
+    result = {'seq': seq, 'text': p['text'], 'observed_revision': p['revision'], 'source': SESSION_SOURCE}
     if p.get('observation') == 'owner_prompt':
         return dict(result, kind='typed')
     if p.get('observation') == 'owner_choice' and p.get('question_id') and p.get('session'):
@@ -60,7 +62,8 @@ def view(ledger, state, revision, contract):
     except (LedgerError, OSError, ValueError) as error:
         return {'original': state.get('goal_pin'), 'unavailable': str(error)}
     baseline, current = _scope(first), _scope(contract)
-    changes = [dict(s, revision=n) for n, r in sorted(state['revisions'].items())
+    # All amendment citations, including those stored without a source field, came from hook.observed.
+    changes = [dict(s, revision=n, source=SESSION_SOURCE) for n, r in sorted(state['revisions'].items())
                if n <= revision for s in r.get('goal_sources', [])]
     delta = {}
     for key in ('items', 'owned'):
@@ -86,8 +89,9 @@ def lines(view):
     result = [label + ': ' + (original.get('text') or 'chưa ghi')]
     if view['unsourced_revisions']:
         result.append('Bản sửa chưa rõ nguồn lời chủ: ' + ', '.join(map(str, view['unsourced_revisions'])))
-    labels = {'typed': 'Chủ gõ', 'picked_recommendation': 'Chủ chọn khuyến nghị của AI',
-              'picked_other': 'Chủ chọn phương án khác của AI'}
+    labels = {'typed': SESSION_INPUT_LABELS['owner_prompt'],
+              'picked_recommendation': SESSION_INPUT_LABELS['owner_choice'] + ' (khuyến nghị của AI)',
+              'picked_other': SESSION_INPUT_LABELS['owner_choice'] + ' (phương án khác của AI)'}
     for s in view['sources']:
         result.append(f"Bản {s['revision']} · {labels[s['kind']]} (#{s['seq']}): "
                       + (f"{s['question']} → " if 'question' in s else '') + s['text'])

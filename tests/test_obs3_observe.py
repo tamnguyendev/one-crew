@@ -50,6 +50,23 @@ class Observe(unittest.TestCase):
         task = self.project.state('P1')['task_id']
         return [e['payload'] for e in self.ledger.events(task) if e['kind'] == 'hook.observed']
 
+    def test_enforced_plan_protects_observation_commands_and_spool(self):
+        active_plan.set_mode(self.ledger, 'enforce')
+        active_plan.export(self.ledger, 'P1', strict=True)
+        target = (self.ledger.state_root / 'claude-observations' / 'pending.jsonl').as_posix()
+        cases = [('Bash', {'command': 'printf sample | onecrew hook observe'}, 'bash_deny'),
+                 ('Bash', {'command': 'onecrew hook sync'}, 'bash_deny'),
+                 ('Bash', {'command': f'fixture-writer "{target}"'}, 'protected'),
+                 ('Write', {'file_path': target}, 'protected')]
+        for tool, inputs, rule in cases:
+            with self.subTest(tool=tool, inputs=inputs):
+                event = dict(hook_event_name='PreToolUse', cwd=str(self.root), tool_name=tool, tool_input=inputs)
+                stdin = type('Input', (), {'buffer': io.BytesIO(json.dumps(event).encode())})()
+                with patch.object(sys, 'stdin', stdin), contextlib.redirect_stderr(io.StringIO()) as err:
+                    self.assertEqual(hook_cli.main(['--project', str(self.root), '--state-root', str(self.ledger.state_root),
+                                                    'hook', 'check']), 2, err.getvalue())
+                self.assertIn(f'({rule})', err.getvalue())
+
     def test_session_other_folder_reaches_target_plan(self):
         self.bind()
         self.call('UserPromptSubmit', prompt='Mở trang')
@@ -84,7 +101,18 @@ class Observe(unittest.TestCase):
         self.call('UserPromptSubmit', prompt=words + '\npassword=hunter222')
         self.call('Stop')
         r = self.observed()[1]
-        self.assertEqual((r['source'], r['text']), ('owner', words + '\npassword=[withheld]'))
+        self.assertEqual((r['source'], r['text']), ('claude_session', words + '\npassword=[withheld]'))
+
+    def test_legacy_pending_prompt_keeps_its_words_and_gets_session_provenance(self):
+        self.bind()
+        self.call('UserPromptSubmit', prompt='Giữ chữ đã gõ.')
+        pending = next(self.ledger.state_root.rglob('pending.jsonl'))
+        rows = [json.loads(line) for line in pending.read_text(encoding='utf-8').splitlines()]
+        rows[-1]['source'] = 'owner'  # format written by previous releases
+        pending.write_text(''.join(json.dumps(row) + '\n' for row in rows), encoding='utf-8')
+        session_observe.flush(self.ledger)
+        prompt = self.observed()[-1]
+        self.assertEqual((prompt['source'], prompt['text']), ('claude_session', 'Giữ chữ đã gõ.'))
 
     def ask(self, name, **extra):
         return self.call(name, tool_name='AskUserQuestion', tool_use_id='ask1',
@@ -107,7 +135,7 @@ class Observe(unittest.TestCase):
         self.call('Stop')
         question, answer = self.observed()[1:3]
         self.assertTrue(question['question_id'])
-        self.assertEqual((answer['question_id'], answer['source'], answer['text']), (question['question_id'], 'owner', 'Nhỏ'))
+        self.assertEqual((answer['question_id'], answer['source'], answer['text']), (question['question_id'], 'claude_session', 'Nhỏ'))
 
     def test_secret_never_stored(self):
         self.bind()

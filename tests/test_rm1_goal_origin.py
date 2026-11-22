@@ -17,12 +17,12 @@ class GoalOrigin(AdvisorFixture):
     def amend(self, raw, *sources):
         return plan.amend(self.ledger, 'P1', raw, 'extend the sample', AUTHOR, goal_sources=sources)
 
-    def observe(self, kind, text, revision=1, **values):
+    def observe(self, kind, text, revision=1, source=None, **values):
         with self.ledger.transaction(write=True) as conn:
             task = plan.derive(self.ledger, conn, 'P1')['task_id']
             self.ledger._event(conn, task, 'hook.observed',
                                dict(observation=kind, text=text, session='fixture', revision=revision,
-                                    source='ai_claim' if kind == 'ai_question' else 'owner', **values))
+                                    source=source or ('ai_claim' if kind == 'ai_question' else 'claude_session'), **values))
             return conn.execute('SELECT max(seq) FROM events WHERE task_id=?', (task,)).fetchone()[0]
 
     def test_original_owner_words_and_revision_one_survive_two_approved_amendments(self):
@@ -54,9 +54,9 @@ class GoalOrigin(AdvisorFixture):
         self.propose()
         self.pin()
         words = 'Thêm phần tôi vừa yêu cầu.'
-        seq = self.observe('owner_prompt', words)
+        seq = self.observe('owner_prompt', words, source='owner')  # historical hook row
         history = self.amend(plan_json(title='Two'), seq)['goal_history']
-        self.assertEqual(history['sources'], [dict(kind='typed', seq=seq, text=words, observed_revision=1, revision=2)])
+        self.assertEqual(history['sources'], [dict(kind='typed', seq=seq, text=words, source='claude_session', observed_revision=1, revision=2)])
         self.assertEqual(history['original']['text'], self.words)
         self.assertFalse(plan.show(self.ledger, 'P1', 1)['goal_history']['sources'])
         with self.assertRaises(LedgerError):
@@ -74,6 +74,10 @@ class GoalOrigin(AdvisorFixture):
         self.assertEqual([e['question_seq'] for e in entries], question_seqs)
         self.assertEqual([e['seq'] for e in entries], sources)
         self.assertTrue(all(e['question'] == 'Chọn cách nào?' and e['revision'] == 2 for e in entries))
+        present = report.render_present(self.ledger.state_root, 'P1')
+        for seq, label in zip(sources, ('khuyến nghị của AI', 'phương án khác của AI')):
+            self.assertIn(f'Chọn trong phiên Claude ({label}) (#{seq})', present)
+        self.assertNotIn('Chủ chọn', '\n'.join(line for line in present.splitlines() if 'Bản 2 ·' in line))
         seq = self.observe('owner_choice', 'B', revision=2, question_id='unmatched')
         with self.assertRaises(LedgerError):
             self.amend(plan_json(title='No question'), seq)
@@ -93,7 +97,7 @@ class GoalOrigin(AdvisorFixture):
         page = tracking.detail(self.ledger.state_root, 'P1', comparison=False)
         card = next(n for n in page['needs_user'] if n['kind'] == 'approve')
         present = report.render_present(self.ledger.state_root, 'P1')
-        for text in ('I2', 'b.txt', self.words, 'Thêm một tệp.', f'#{seq}'):
+        for text in ('I2', 'b.txt', self.words, f'Gõ trong phiên Claude (#{seq}): Thêm một tệp.'):
             self.assertIn(text, present)
             self.assertIn(text, ' '.join(card['goal_history_lines']))
 

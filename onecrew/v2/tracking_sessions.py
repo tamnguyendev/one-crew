@@ -7,9 +7,10 @@ from urllib.parse import urlencode
 
 from ..ledger import LedgerError
 from . import owner_results, report, session_transcript, tracking, tracking_dashboard
+from .session_observe import SESSION_INPUT_LABELS
 
 KINDS = ('hook.observed', 'hook.logged', 'hook.blocked', 'hook.stop_blocked')
-LABELS = {'owner_prompt': 'Lời chủ', 'owner_choice': 'Chủ đã chọn', 'ai_question': 'Câu hỏi của Claude',
+LABELS = {**SESSION_INPUT_LABELS, 'ai_question': 'Câu hỏi của Claude',
           'subagent_start': 'Agent bắt đầu', 'subagent_stop': 'Agent kết thúc', 'background_shell': 'Mở lệnh nền',
           'session_start': 'Mở phiên', 'session_end': 'Kết thúc phiên', 'turn_end': 'Kết thúc lượt',
           'hook.logged': 'Hook ghi nhận', 'hook.blocked': 'Hook đã chặn', 'hook.stop_blocked': 'Hook đã chặn dừng',

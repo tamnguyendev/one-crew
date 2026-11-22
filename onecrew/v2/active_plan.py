@@ -20,6 +20,7 @@ import uuid
 from pathlib import Path
 
 from ..ledger import LedgerError, utcnow
+from .hook_cli import OBSERVATION_COMMAND_DENY
 
 FILE = 'active-plan.json'
 EXPIRY_HOURS = 24
@@ -34,7 +35,7 @@ DEFAULT_BASH_DENY = ['re:' + GIT + r'\s+' + PUSH, 're:' + GITNAME + ALIAS_PUSH, 
                      r're:\bplan\s+(approve|accept|enforce)\b',                    # C3: the owner's verbs are not the AI's
                      r're:\bplan\s+retention\s+cleanup\b',
                      r're:\b(?:question|owner)\s+answer\b',
-                     r're:(?s)\bverdict\s+record\b.*' + OWNER, r're:\bhook\s+mode\b', r're:\bplan_cli\b',
+                     r're:(?s)\bverdict\s+record\b.*' + OWNER, r're:\bhook\s+mode\b', OBSERVATION_COMMAND_DENY, r're:\bplan_cli\b',
                      r're:(?s)\bplan\s+unknown\s+close\b.*' + OWNER,               # C13: L3's owner verbs (an AI may still close an unknown with --by doc|poc)
                      r're:(?s)\bplan\s+poc\s+record\b.*' + OWNER,
                      r're:(?s)\bonecrew\.v2\b.*\b(?:approve|accept|set_enforced|set_mode|require_owner|close_unknown|poc_record)\s*\(',   # C11: the same verbs called as functions

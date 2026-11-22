@@ -110,7 +110,7 @@ class Direction(unittest.TestCase):
         page = self.html(view='turns', q='Còn câu nào')
         self.assertIn('<h3>AI hỏi</h3>', page)
         self.assertIn('<li>Giữ</li><li>Đổi</li>', page)
-        self.assertNotIn('<h3>Chủ chọn</h3>', page)
+        self.assertNotIn('<h3>Chọn trong phiên Claude</h3>', page)
         self.assertIn('Đề xuất của AI', self.html(q='Lịch sử'))
 
     def test_choice_answered_or_open(self):

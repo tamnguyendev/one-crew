@@ -131,15 +131,15 @@ def _entries(events):
                 if key[0] and key[2]:
                     questions[key] = entry
             else:
-                entry.label = 'Chủ chọn'
+                entry.label = session_observe.SESSION_INPUT_LABELS[obs]
                 if key in questions:
                     questions[key].status = 'Đã trả lời · ' + text
                 else:
                     entry.status = 'Chưa gắn với câu hỏi'
         else:
-            entry.label, entry.turn = 'Lời chủ', bool(direction)
+            entry.label, entry.turn = session_observe.SESSION_INPUT_LABELS[obs], bool(direction)
         if direction:
-            entry.note = 'Nhắc phạm vi · lời chủ nhắc đổi hướng; đối chiếu với bản sửa kế hoạch.'
+            entry.note = 'Nhắc phạm vi · phiên Claude có yêu cầu đổi hướng. Đối chiếu với bản sửa kế hoạch.'
             if last_amend is None or last_amend < (stamp, seq):
                 entry.note += ' Chưa thấy bản sửa sau lời này.'
         entries.append(entry)
@@ -186,8 +186,8 @@ def page(state_root, selector, project_id, query):
     fields = ''.join(f'<input type="hidden" name="{k}" value="{escape(v)}">' for k, v in dict(scope, view=view).items())
     body = '<nav aria-label="Góc xem">' + ''.join(links) + '</nav>'
     body += f'<form action="/direction">{fields}<label>Tìm trong lịch sử <input type="search" name="q" value="{escape(search)}"></label> <button>Tìm</button></form>'
-    if not any(e.label == 'Lời chủ' for e in entries):
-        body += '<p>Chưa có lời chủ từ hook cho việc này.</p>'
+    if not any(e.label == session_observe.SESSION_INPUT_LABELS['owner_prompt'] for e in entries):
+        body += '<p>Chưa ghi nhận lời gõ trong phiên Claude cho việc này.</p>'
     for phase, group in itertools.groupby(rows, key=lambda r: r.phase):
         if view == 'phases':
             body += f'<h2>{escape(phase)}</h2>'
