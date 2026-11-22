@@ -523,7 +523,7 @@ def _acceptance(reader, conn, state, contract, engine_view, level, *, free=None,
             opened = list_findings(reader, state['selector'], task_id=state['task_id'], open_only=True)
             if opened:
                 ids = [item['id'] for item in opened]
-                result.update(open_findings=ids, reason='Cần xử lý finding còn mở trước khi nghiệm thu: ' + ', '.join(ids))
+                result.update(open_findings=ids, reason=report.finding_blocker(ids))
                 return result
         if level != 'verified': return result
         if engine_view is not None:

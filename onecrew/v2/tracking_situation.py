@@ -267,7 +267,7 @@ def situation(*, state, views, checks, engine_view, attempts, active, requests, 
         mid, c = lost_checks[-1]
         stage, reason = 'unknown', f"Lần kiểm mốc {mid} mất tín hiệu ({'tiến trình không còn' if c.get('lost') == 'process_gone' else 'quá hạn chạy'}): kết quả chưa xác định"
         next_text = 'Kiểm lại mốc ' + mid
-    elif acceptance.get('open_findings') and not active:
+    elif acceptance.get('open_findings') and not active and not any(r['state'] in ('failed', 'inconclusive', 'checking') for r in rows):
         stage, reason, next_text = 'fix', acceptance['reason'], 'Sửa finding và kiểm lại đúng phạm vi'
     elif engine_view is not None:
         stage, reason, next_text, by_text, by = _engine(state, engine_view, active, needs, acceptance, level, progress)

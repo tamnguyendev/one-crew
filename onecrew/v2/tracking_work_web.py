@@ -253,11 +253,13 @@ function tileTrust(d){var v=trustOf(d),s=sit(d);
     +(d.compared==='compared'&&d.compared_at?'<p class="small mut">Đã so với bản hiện tại của dự án lúc '+when(d.compared_at)+'.</p>':d.compared==='unknown'?'<p class="why-missing">Chưa xác định bản hiện tại của dự án, nên lần đạt chưa được tính.</p>':'')
     +'<button type="button" class="linkish" data-deep="loop">Xem các lần kiểm</button></section>'}
 function tileNext(d){var s=sit(d),done=s.stage==='done'||s.stage==='closed',a=s.activity||{},h='<section class="tile4" id="t-next" aria-label="Bước tiếp theo"><h3>Bước tiếp theo</h3>';
+  h+='<p class="small">Vì sao: '+esc(s.reason||'chưa xác định')+'</p>';
   if(s.next)h+='<p class="next-act" data-next-action="1">'+esc(s.next)+'</p><p class="small">Ai làm: <b>'+esc(s.next_by_text||'Chưa có thông tin người xử lý')+'</b></p>';
   else h+='<p class="tv">'+(done?'Không còn bước nào':'Chưa biết bước tiếp theo')+'</p>'+(done?'':'<p class="why-missing" data-missing="next">Sổ không đủ để nói bước tiếp theo.</p>');
-  h+='<p class="small">Vì sao: '+esc(s.reason||'chưa xác định')+'</p>';
   if(s.repairs)h+='<p class="small">Mốc '+esc(s.repairs.milestone)+': '+esc(s.repairs.text)+'</p>';
   if(s.warning)h+='<p class="work-warning small" data-warning="1">'+esc(s.warning)+'</p>';
+  var acceptance=d.acceptance||{};
+  if((acceptance.open_findings||[]).length&&acceptance.reason!==s.reason)h+='<p class="small">'+esc(acceptance.reason)+'</p>';
   return h+'<p class="small mut">'+esc(a.text||'')+'</p><button type="button" class="linkish" data-deep="waits">Thời gian và lượt chờ</button></section>'}
 function optHtml(n,o,marks){var c=o.human_command||o.reply_command;
   return '<div class="opt" data-option="'+esc(o.id)+'"><b>'+esc(o.label||o.id)+'</b> <span class="oid">('+esc(o.id)+')</span>'+(o.recommended||n.recommendation===o.id?' <span class="small">· đề xuất</span>':'')

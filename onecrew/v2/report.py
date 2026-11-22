@@ -318,6 +318,10 @@ def _failing(f):
     return next((v for v in f['views'] if v['state'] == 'failed'), None), None
 
 
+def finding_blocker(ids):
+    return 'Cần xử lý finding còn mở trước khi nghiệm thu: ' + ', '.join(ids)
+
+
 def _conclusion(f):
     """Four lines for the owner, from ledger data only. Wrapped, never cut."""
     kind, _ = _standing(f)
@@ -337,14 +341,19 @@ def _conclusion(f):
         why = f'mốc {waiting["id"]} ' + ('cũ: ' + '; '.join(waiting['stale_reasons']) if waiting.get('stale_reasons') else
                                             'cũ: đạt trên artifact khác, cần chạy lại' if waiting.get('stale') else 'chưa có verdict')
     opened = _open_findings(f)
-    if opened and kind == 'open':
-        why = 'Finding còn mở: ' + ', '.join(item['id'] for item in opened)
+    blocker = finding_blocker([item['id'] for item in opened]) if opened else None
+    if blocker and kind == 'open' and not view:
+        why = blocker
     parked = _parked_data(f)
     if rows is None or parked is None: left = NO_DATA
     else:
         parts = []
         if [r[0] for r in rows if not r[3]]: parts.append('output chưa đạt: ' + ', '.join(r[0] for r in rows if not r[3]))
-        if opened: parts.append('sửa và kiểm lại finding còn mở')
+        if opened:
+            if view and kind in ('open', 'failed'):
+                parts.append(f'Sửa và kiểm lại mốc {view["id"]} (còn {view["repairs_left"]} lượt sửa)')
+            if why != blocker:
+                parts.append(blocker)
         if parked[0]: parts.append('should chưa có mốc đạt: ' + ', '.join(i['id'] for i in parked[0]))
         if parked[1]: parts.append('unknown còn mở: ' + ', '.join(u['id'] for u in parked[1]))
         left = '; '.join(parts) or 'không còn gì'

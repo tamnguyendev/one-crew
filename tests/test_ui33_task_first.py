@@ -35,7 +35,7 @@ from unittest.mock import patch
 
 from onecrew.ledger import Ledger
 from onecrew.snapshots import Snapshots
-from onecrew.v2 import plan as plans, tracking, tracking_list, tracking_web, verdict
+from onecrew.v2 import plan as plans, report, tracking, tracking_list, tracking_web, verdict
 from onecrew.v2.verifiers import command
 
 OK = [sys.executable, '-c', 'print("ok")']
@@ -532,6 +532,18 @@ class TaskPage(Shared):
         self.assertIn('từng đạt trên bản trước', p1)
         self.assertIn('Kiểm lại mốc M1', p1)
         self.assertIn('Đã so với bản hiện tại của dự án lúc', p1)
+
+    def test_failed_check_precedes_its_open_finding_on_page_and_report(self):
+        task = self.detail('P4')
+        self.assertFalse(task['acceptance']['ready'])
+        page = text(js('taskTiles(d)', d=task))
+        conclusion = report.render_report(self.state_root, 'P4', project_id=self.a_id).split('\n\n', 1)[0]
+        for surface in (page, conclusion):
+            words = ' '.join(surface.split())
+            with self.subTest(surface=words):
+                positions = [words.index(part) for part in ('lệnh thoát mã 3', 'Sửa và kiểm lại mốc M1', 'còn 2',
+                                                             'Cần xử lý finding còn mở trước khi nghiệm thu: RF1')]
+                self.assertEqual(positions, sorted(positions))
 
     def test_open_latest_output(self):
         d = self.detail('P3')                                                          # two checks: fail, then pass after the fix
