@@ -64,13 +64,26 @@ class GoalOrigin(AdvisorFixture):
             self.amend(plan_json(title='Three'), seq)
 
     def test_citing_pinned_owner_words_clears_only_that_revision(self):
+        # D10 (S7 review): the pinned goal and the option chosen at approval are the original goal, not words asking for a change. Citing either
+        # is refused with nothing written, and no revision after 1 loses the warning that way (the name is kept: checkers match it).
         self.propose()
         self.pin()
         pin = plan.show(self.ledger, 'P1')['goal_history']['original']
-        history = self.amend(plan_json(title='Two'), pin['seq'])['goal_history']
-        self.assertEqual(history['unsourced_revisions'], [])
-        self.assertIn(f"Chủ gõ (#{pin['seq']}): {self.words}", '\n'.join(goal_history.lines(history)))
-        self.assertEqual(self.amend(plan_json(title='Three'))['goal_history']['unsourced_revisions'], [3])
+        with self.assertRaises(LedgerError) as refused:
+            self.amend(plan_json(title='Two'), pin['seq'])
+        self.assertIn('source', str(refused.exception).lower())
+        self.assertEqual(plan.show(self.ledger, 'P1')['revision'], 1)
+        history = self.amend(plan_json(title='Two'))['goal_history']
+        self.assertEqual(history['unsourced_revisions'], [2])
+        self.assertIn('Bản sửa chưa rõ nguồn lời chủ: 2', goal_history.lines(history))
+        self.assertNotIn(f"(#{pin['seq']})", '\n'.join(goal_history.lines(history)))
+        plan.approve(self.ledger, 'P1', 'owner', 'fixture approval', revision=2)
+        with self.ledger.transaction() as conn:
+            task = plan.derive(self.ledger, conn, 'P1')['task_id']
+        approved = [e['seq'] for e in self.ledger.events(task) if e['kind'] == 'plan.approved'][-1]
+        with self.assertRaises(LedgerError):
+            self.amend(plan_json(title='Three'), approved)
+        self.assertEqual(self.amend(plan_json(title='Three'))['goal_history']['unsourced_revisions'], [2, 3])
 
     def test_machine_prompt_cannot_source_an_amendment(self):
         self.propose()

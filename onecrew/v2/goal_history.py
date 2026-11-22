@@ -32,10 +32,11 @@ def source(conn, state, seq):
         raise LedgerError('Goal source must belong to this plan and revision.')
     if any(s['seq'] == seq for r in state['revisions'].values() for s in r.get('goal_sources', [])):
         raise LedgerError('This observation already belongs to a prior amendment.')
-    if row['kind'] == 'plan.goal_pinned' and p.get('text'):
-        return dict(seq=seq, text=p['text'], observed_revision=p['revision'], source='owner-terminal', kind='pinned_goal')
-    if row['kind'] == 'plan.approved' and p.get('by') == 'owner' and p.get('chosen'):
-        return dict(seq=seq, text=p['chosen'], observed_revision=p['revision'], source='owner-terminal', kind='approved_choice')
+    # D10 (S7 review, P2 new): the pinned goal and the option chosen at an approval are the ORIGINAL goal, not words asking for this change. Citing
+    # them as the source of a change is refused, so they can never clear "Bản sửa chưa rõ nguồn lời chủ".
+    if row['kind'] in ('plan.goal_pinned', 'plan.approved'):
+        raise LedgerError('Goal source must be words asking for this change: the pinned goal and the option chosen at approval are the original goal, '
+                          'already shown beside every revision; cite the session input that asked for the change.')
     # Older hook events called session inputs 'owner'. Neither spelling authenticates a person.
     if row['kind'] != 'hook.observed' or p.get('source') not in (SESSION_SOURCE, 'owner') or not p.get('text'):
         raise LedgerError('Goal source needs an eligible session input or recorded owner words.')
@@ -68,10 +69,12 @@ def view(ledger, state, revision, contract):
     except (LedgerError, OSError, ValueError) as error:
         return {'original': state.get('goal_pin'), 'unavailable': str(error)}
     baseline, current = _scope(first), _scope(contract)
-    # Historical typed/picked citations were all hook observations, including those labelled owner.
+    # Historical typed/picked citations were all hook observations, including those labelled owner. A citation of the pinned goal or of an approved
+    # choice stored by an older release stays visible but, like every hook citation, sources no change (D10): no revision after 1 has owner words
+    # OneCrew can vouch for, so each one keeps the warning.
     changes = [dict(s, revision=n, source='owner-terminal' if s['kind'] in ('pinned_goal', 'approved_choice') else SESSION_SOURCE) for n, r in sorted(state['revisions'].items())
                if n <= revision for s in r.get('goal_sources', [])]
-    owner_sourced = {s['revision'] for s in changes if s['source'] == 'owner-terminal'}
+    owner_sourced = set()
     delta = {}
     for key in ('items', 'owned'):
         before, after = set(baseline[key]), set(current[key])
@@ -95,7 +98,7 @@ def lines(view):
     result = [label + ': ' + (original.get('text') or 'chưa ghi')]
     if view['unsourced_revisions']:
         result.append('Bản sửa chưa rõ nguồn lời chủ: ' + ', '.join(map(str, view['unsourced_revisions'])))
-    labels = {'pinned_goal': 'Chủ gõ', 'approved_choice': 'Chủ chọn', 'typed': SESSION_INPUT_LABELS['owner_prompt'],
+    labels = {'pinned_goal': 'Mục tiêu gốc chủ đã ghim (không phải lời xin đổi)', 'approved_choice': 'Phương án chủ chọn lúc duyệt (không phải lời xin đổi)', 'typed': SESSION_INPUT_LABELS['owner_prompt'],
               'picked_recommendation': SESSION_INPUT_LABELS['owner_choice'] + ' (khuyến nghị của AI)',
               'picked_other': SESSION_INPUT_LABELS['owner_choice'] + ' (phương án khác của AI)'}
     for s in view['sources']:

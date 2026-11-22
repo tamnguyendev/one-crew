@@ -66,6 +66,14 @@ def registry_file():
     return default_state_root() / REGISTRY
 
 
+# P2-1 (S7 review): the hashes of the observation keys `hook user install --observe` put in the handlers it wrote (session_observe.accepted reads it).
+OBSERVATION_KEYS = 'observation-keys.json'
+
+
+def observation_keys_file():
+    return default_state_root() / OBSERVATION_KEYS
+
+
 def _key(project):
     return os.path.normcase(str(Path(project).resolve()))
 

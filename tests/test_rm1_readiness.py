@@ -66,7 +66,8 @@ class Readiness(Fixture):
     def test_user_hook_reports_missing_observation_coverage_once(self):
         with patch.dict(os.environ, {'CLAUDE_CONFIG_DIR': self.temp.name, 'ONECREW_LANG': 'en'}):
             rows = install.doctor_facts(self.root, self.ledger.state_root, claude=None)
-            hook = [(level, detail) for level, name, detail in rows if name == install.t('doctor.user')]
+            # S7b: the command hook keeps its own line ("user hook", PASS/FAIL, ISSUE25); the observation coverage is on its own line.
+            hook = [(level, detail) for level, name, detail in rows if name == install.t('doctor.observation')]
         self.assertEqual(len(hook), 1)
         self.assertEqual(hook[0][0], 'WARN')
         self.assertIn(f'0/{len(install.OBSERVE_EVENTS)}', hook[0][1])

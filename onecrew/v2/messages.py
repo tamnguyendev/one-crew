@@ -142,6 +142,8 @@ TEXT = {
     # ---- #25: the user-scope hook (`onecrew hook user install|status|uninstall`) and its doctor lines
     'user.refused': {'en': 'Changing {path} from an AI session is refused: it is the owner\'s own Claude Code profile. Nothing was written. The owner runs `onecrew hook user {verb}` in a terminal of their own.',
                      'vi': 'Từ phiên AI bị từ chối (refused) đổi {path}: đó là hồ sơ Claude Code của chính chủ sở hữu. Chưa ghi gì. Chủ sở hữu tự chạy `onecrew hook user {verb}` trong terminal của mình.'},
+    'user.observe_refused': {'en': 'Installing the Claude session observation hook in {path} from an AI session is refused: its key would be written where that session can read it. Nothing was written. The owner runs `onecrew hook user install --observe` in a terminal of their own.',
+                             'vi': 'Từ phiên AI bị từ chối (refused) cài hook quan sát phiên Claude vào {path}: khóa của hook sẽ nằm ở nơi phiên đó đọc được. Chưa ghi gì. Chủ sở hữu tự chạy `onecrew hook user install --observe` trong terminal của mình.'},
     'user.no_exe': {'en': 'Cannot find the installed `onecrew` command to put in the user hook. Run it from an installed copy (pip install the wheel), not from a checkout. Nothing was changed.',
                     'vi': 'Không tìm thấy lệnh `onecrew` đã cài để ghi vào hook người dùng. Chạy từ bản đã cài (pip install wheel), không chạy từ checkout. Chưa đổi gì.'},
     'user.installed': {'en': 'User hook installed in {path} (program {program}). Claude Code sessions on this machine, and their subagents, now ask the OneCrew plan of the project they write in. A copy of the file before the change: {bak}. Remove it with `onecrew hook user uninstall`.',

@@ -3,9 +3,20 @@
 The binding lives outside all checkouts. Only a bound event gets a filtered payload.
 Tool calls append to a private outbox. At the end of a turn (or via hook sync) the
 outbox is imported into the ledger. Replaying a batch after a crash is idempotent.
+
+Who may write rows (P2-1, P2-1b, P2-2 of the S7 review): only the handler `hook user install --observe` wrote. Install mints a random key per settings
+file, puts it in the handler's arguments (`hook observe --install-key <key>`) and keeps only its hash in OneCrew's machine state
+(where.observation_keys_file). observe() and flush() do nothing without a key whose hash is there, whatever the command text, the folder of the process
+or the cwd and paths of the payload: a `python -c`, a script, `python -m onecrew.v2.hook_cli hook observe`, `onecrew_cli.py hook observe` or an
+in-process call without the key writes nothing and says nothing (exit 0, so Claude Code is never blocked). Every outbox line carries an HMAC made with
+the key, and flush imports only lines whose HMAC it can check, so a line appended to the outbox by hand never reaches the ledger either.
+What stays soft (same OS account, no OS-level secret): a process that reads the user's Claude Code settings file (an enforced session is denied the
+Read tool and shell commands naming it, but code that builds the path at run time is not seen), that watches the command line of a running hook, or
+that rewrites the key file in OneCrew's machine state (protected from the Edit tool and commands naming it, the same way as the project registry).
 """
 import datetime as dt
 import hashlib
+import hmac
 import itertools
 import json
 import os
@@ -38,6 +49,53 @@ _CHAT_CREDENTIAL = re.compile(
 
 def _digest(text):
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+
+# ---- the install key (P2-1): only the handler OneCrew installed carries it --------------------------------------------------------------------
+KEY_FLAG = '--install-key'
+KEY_MIN = 32
+# P2-4: only a prompt typed in an interactive session can later be cited as the owner's words. Absent = older hosts and the test fixtures.
+INTERACTIVE_ENTRYPOINTS = frozenset(('cli', 'claude-desktop'))
+
+
+def key_id(key):
+    """The hash of an install key, as the key file keeps it (never the key itself)."""
+    return hashlib.sha256(b'onecrew-observation-key\0' + key.encode('utf-8')).hexdigest()
+
+
+def registered_keys():
+    """{settings file (normal form): key id} of every observation handler `hook user install --observe` wrote; {} when unreadable."""
+    try:
+        value = json.loads(where.observation_keys_file().read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+    installs = value.get('installs') if isinstance(value, dict) else None
+    return {k: v for k, v in installs.items() if isinstance(k, str) and isinstance(v, str)} if isinstance(installs, dict) else {}
+
+
+def accepted(key):
+    """The key id when `key` is the key of an installed observation handler, else None."""
+    if not isinstance(key, str) or len(key) < KEY_MIN: return None
+    wanted = key_id(key)
+    return wanted if any(hmac.compare_digest(wanted, known) for known in registered_keys().values()) else None
+
+
+def _seal(item, key):
+    body = json.dumps(item, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+    return hmac.new(key.encode('utf-8'), body, hashlib.sha256).hexdigest()
+
+
+def sealed(item, key):
+    """The outbox form of one row: the row, the id of the key that wrote it, and an HMAC over both made with that key."""
+    item = dict(item, kid=key_id(key))
+    return dict(item, mac=_seal(item, key))
+
+
+def input_source(entrypoint=None):
+    """SESSION_SOURCE for a prompt or answer of an interactive session (CLAUDE_CODE_ENTRYPOINT cli, claude-desktop, or absent), MACHINE_SOURCE for
+    every other entrypoint (sdk-cli = `claude -p`, sdk-ts, sdk-py, scheduled runs, anything new)."""
+    value = os.environ.get('CLAUDE_CODE_ENTRYPOINT') if entrypoint is None else entrypoint
+    return SESSION_SOURCE if not value or value in INTERACTIVE_ENTRYPOINTS else MACHINE_SOURCE
 
 
 def _clean(value, limit):
@@ -127,8 +185,8 @@ def _rows(event, session, target):
             'revision': target['revision'], 'anchor': target['anchor'], 'task': target['task'], 'hook': name,
             'recorded_at': dt.datetime.now(dt.timezone.utc).isoformat(), 'tool': tool, 'tool_use_id': tool_id,
             'agent_id': _clean(event.get('agent_id'), 200), 'agent_type': _clean(event.get('agent_type'), 120)}
-    # Claude print mode supplies sdk-cli to both SessionStart and UserPromptSubmit.
-    input_source = MACHINE_SOURCE if os.environ.get('CLAUDE_CODE_ENTRYPOINT') == 'sdk-cli' else SESSION_SOURCE
+    # P2-4: an allowlist. Print mode (sdk-cli), the SDKs and scheduled runs are machine input, not words typed in a session.
+    source_of_input = input_source()
 
     def row(kind, source='host', **values):
         # A tool call has a stable identity even if the host retries it.
@@ -138,7 +196,7 @@ def _rows(event, session, target):
 
     if name == 'UserPromptSubmit':
         if isinstance(event.get('prompt'), str):
-            yield row('owner_prompt', input_source, text=_clean(event['prompt'], None))
+            yield row('owner_prompt', source_of_input, text=_clean(event['prompt'], None))
     elif tool == 'AskUserQuestion' and name in ('PreToolUse', 'PostToolUse'):
         response = event.get('tool_response')
         answers = response.get('answers') if isinstance(response, dict) else None
@@ -150,7 +208,7 @@ def _rows(event, session, target):
                 options = [_clean(o.get('label'), 500) for o in q.get('options', []) if isinstance(o, dict)]
                 yield row('ai_question', 'ai_claim', question_index=i, question_id=link, text=_clean(question, 2000), options=options)
             elif isinstance(answers, dict) and isinstance(answers.get(question), str):
-                yield row('owner_choice', input_source, question_index=i, question_id=link, text=_clean(answers[question], 2000))
+                yield row('owner_choice', source_of_input, question_index=i, question_id=link, text=_clean(answers[question], 2000))
     elif name == 'PostToolUse' and tool in hook_cli.SHELL_TOOLS and inputs.get('run_in_background') is True:
         yield row('background_shell', label=_clean(inputs.get('description'), 160))
     elif name == 'PostToolUse' and tool in ('Write', 'Edit', 'NotebookEdit'):
@@ -171,7 +229,10 @@ def _outbox(project, state_root):
     return Path(state_root) / 'claude-observations' / _digest(os.path.normcase(str(Path(project).resolve())))
 
 
-def observe(event):
+def observe(event, key=None):
+    """Record one hook event. `key`: the install key the handler carries (`hook observe --install-key <key>`); without an accepted key nothing is
+    read, bound or written, and nothing is said."""
+    if not accepted(key): return
     session = _clean(event.get('session_id'), 200)
     if not session or event.get('hook_event_name') not in OBSERVE_EVENTS: return
     event = dict(event, cwd=str(Path.cwd()))
@@ -189,17 +250,37 @@ def observe(event):
             if stream.tell():
                 stream.seek(-1, os.SEEK_END)
                 if stream.read(1) != b'\n': stream.write(b'\n')  # isolate a partial append left by an interrupted hook
-            for item in rows: stream.write((json.dumps(item, ensure_ascii=False) + '\n').encode('utf-8'))
+            for item in rows: stream.write((json.dumps(sealed(item, key), ensure_ascii=False) + '\n').encode('utf-8'))
     if event['hook_event_name'] in ('Stop', 'SessionEnd'):
         from ..ledger import Ledger
-        flush(Ledger(target['project'], target['state_root']))
+        flush(Ledger(target['project'], target['state_root']), key)
 
 
-def flush(ledger):
+def _opened(line, key, mine, known):
+    """(row, keep): the row of an outbox line sealed with `key`, else None; keep is True for a line sealed by another installed key (its own handler
+    imports it), False for a line no installed key sealed (rejected)."""
+    try:
+        r = json.loads(line)
+    except ValueError:
+        return None, False
+    if not isinstance(r, dict): return None, False
+    if r.get('kid') != mine:
+        return None, isinstance(r.get('kid'), str) and r['kid'] in known
+    mac = r.pop('mac', None)
+    if not isinstance(mac, str) or not hmac.compare_digest(mac, _seal(r, key)): return None, False
+    r.pop('kid')
+    return r, False
+
+
+def flush(ledger, key=None):
+    """Import the outbox of this ledger's project. `key`: as for observe(); without an accepted key nothing is moved or imported (0)."""
     from . import namespaces, plan
+    mine = accepted(key)
+    if not mine: return 0
+    known = set(registered_keys().values())
     folder = _outbox(ledger.project, ledger.state_root)
     if not folder.is_dir(): return 0
-    imported = 0
+    imported, others = 0, []
     # A second drainer leaves the batch to the first. Appenders only wait for
     # the rename, never for SQLite. A crash leaves a replayable batch on disk.
     with hook_cli.appending(folder / 'import.lock', wait=0.05, required=True):
@@ -212,14 +293,18 @@ def flush(ledger):
                 while lines := list(itertools.islice(stream, 64)):
                     with ledger.transaction(write=True) as conn:
                         for line in lines:
+                            r, keep = _opened(line, key, mine, known)
+                            if r is None:
+                                if keep: others.append(line if line.endswith(b'\n') else line + b'\n')
+                                else: damaged = True
+                                continue
                             try:
-                                r = json.loads(line)
                                 anchor = namespaces.resolve(ledger, conn, r['anchor'])
                                 if not anchor or anchor['id'] != r['task'] or r['project'] != ledger.project_path:
                                     raise ValueError('Observation target mismatch')
                                 spool_id = r['spool_id']
                                 if r.get('observation') in SESSION_INPUT_LABELS and r.get('source') != MACHINE_SOURCE:
-                                    r['source'] = SESSION_SOURCE  # also covers batches queued before the source label changed
+                                    r['source'] = SESSION_SOURCE  # also covers a sealed row in the older 'owner' spelling (unsealed lines never get here)
                             except (ValueError, KeyError, TypeError):
                                 damaged = True
                                 continue
@@ -229,4 +314,11 @@ def flush(ledger):
                             imported += 1
             if damaged: batch.rename(batch.with_suffix('.rejected'))
             else: batch.unlink()
+        if others:          # lines of another installed handler (another settings file) wait for that handler's flush
+            with hook_cli.appending(folder / 'append.lock', wait=0.25, required=True):
+                with (folder / 'pending.jsonl').open('a+b') as stream:
+                    if stream.tell():
+                        stream.seek(-1, os.SEEK_END)
+                        if stream.read(1) != b'\n': stream.write(b'\n')
+                    stream.writelines(others)
     return imported

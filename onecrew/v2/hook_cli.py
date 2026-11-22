@@ -302,7 +302,8 @@ def judge_path(plan, root, target, action):
     # #25: interpreter code now reaches judge_path with literal paths; a path Windows reads as inside scratch (`.onecrew/scratch ./x`) stays excused
     if rel is not None and (under(rel, '.onecrew/scratch') or (not verbatim and _fold(rel).startswith('.onecrew') and stays_in_scratch(_fold(rel)))): return None
     home =Path.home().resolve() / '.claude'
-    guarded = [normalize(p, root) for p in plan.get('protected', [])] + [home / 'settings.json', home / 'settings.local.json', where.registry_file().resolve()]      # the registry: the owner's pointer to the state root
+    guarded = [normalize(p, root) for p in plan.get('protected', [])] + [home / 'settings.json', home / 'settings.local.json', where.registry_file().resolve(),     # the registry: the owner's pointer to the state root
+                                                                          where.observation_keys_file().resolve()]       # P2-1: the hashes of the observation keys
     for item in guarded:
         if target == item or item in target.parents:
             return 'protected', f'{target} is protected: the ledger, plans/ and hook files are the owner\'s, not the AI\'s. {action}'
@@ -1976,6 +1977,26 @@ def discard_verdict(plan, root, cwd, command, limited=False, powershell=False, s
     return None
 
 
+HOME_WORDS = ('~', '$home', '${home}', '$env:userprofile', '${env:userprofile}', '%userprofile%', '$env:home', '%homedrive%%homepath%')
+
+
+def user_settings_mention(forms):
+    """P2-1: the spelling of the user's own Claude Code settings file (~/.claude/settings*.json, $CLAUDE_CONFIG_DIR/settings*.json) that one of the
+    (variant) forms of a command names, else None. Code that builds the path at run time is not seen (soft, see session_observe)."""
+    def spellings(path):                        # c:/users/x and the /c/users/x of Git Bash
+        folded = _fold(path).rstrip('/')
+        return [folded] + (['/' + folded[0] + folded[2:]] if re.match(r'[a-z]:/', folded) else [])
+    places = [h + '/.claude/settings' for h in (*HOME_WORDS, *spellings(Path.home()))]
+    places += [v + '/settings' for v in ('$env:claude_config_dir', '${env:claude_config_dir}', '$claude_config_dir', '${claude_config_dir}', '%claude_config_dir%')]
+    config = os.environ.get('CLAUDE_CONFIG_DIR')
+    if config: places += [p + '/settings' for p in spellings(config)]
+    for form in forms:
+        flat = _fold(form)
+        hit = next((p for p in places if p in flat), None)
+        if hit: return hit
+    return None
+
+
 def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=False, powershell=False):
     """The plan's verdict on a shell command. `limited` is a plan that is not the session's (it was reached through the cwd or through a path the command
     writes): the deny and mention rules apply, since the command runs there, but only the paths the command writes INSIDE that plan's repository are
@@ -1995,7 +2016,10 @@ def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=Fal
                 return 'bash_deny', f'The command matches the deny rule "{entry[3:] if entry.startswith("re:") else entry}". Approval, acceptance, enforcement, push, tag and installs are the owner\'s. Ask the owner in chat.' + note
     state_root = _fold(plan.get('state_root', ''))
     items = [(state_root + '/plans', ''), (state_root + '/claude-observations', 'whole'), ('policy.json', ''), ('.sqlite', ''), ('active-plan.json', ''), ('violations.jsonl', ''), ('hook-state.json', ''),
-             (where.REGISTRY, ''), ('.claude/settings', ''), ('.onecrew', 'whole'), ('onecrew/plans', 'start')]
+             (where.REGISTRY, ''), (where.OBSERVATION_KEYS, ''), ('.claude/settings', ''), ('.onecrew', 'whole'), ('onecrew/plans', 'start')]
+    secret = user_settings_mention(forms)        # P2-1: the user's settings file holds the observation key; even a read-only command may not name it
+    if secret:
+        return 'protected', f'The command names {secret}, the owner\'s Claude Code settings: it holds the key of the observation hook, so it is not read in this session.'
     for segment in shell_segments(command, powershell):         # each segment on its own: `ls; python -c "...remove(registry)"` is not read-only because its first word is
         first = (re.findall(r'[\w.-]+', segment) or [''])[0].lower()
         if first in READ_ONLY and not SUBSTITUTION.search(segment): continue      # #12: `cat $(...)` runs the command inside
@@ -2540,8 +2564,12 @@ def sync(args):
                                                                    spool_id=item['id'], recorded_at=item.get('at')))
             added += 1
     from . import session_observe
-    observed = session_observe.flush(ledger)
-    return {'imported': added, 'skipped': skipped, 'lines': len(lines), 'observations_imported': observed}
+    key = getattr(args, 'install_key', None)
+    observed = session_observe.flush(ledger, key)          # P2-1: only with the key of an installed observation handler; else the outbox waits
+    out = {'imported': added, 'skipped': skipped, 'lines': len(lines), 'observations_imported': observed}
+    if not session_observe.accepted(key):
+        out['observations_note'] = 'Claude session observations are imported at the end of an observed turn, not by this command.'
+    return out
 
 
 HOOK_EVENTS = (('PreToolUse', 'check', 15, 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', 'block'),     # only the tool gate fails closed: a crashing
@@ -2582,11 +2610,19 @@ def settings(project, state_root, repo, background=False):
                                                        'timeout': timeout, 'onFailure': fail}, state_root, background)
 
 
+def user_settings_files():
+    """The user's own Claude Code settings files: ~/.claude/settings.json and, when CLAUDE_CONFIG_DIR is set, the settings.json of that folder."""
+    config = os.environ.get('CLAUDE_CONFIG_DIR')
+    return list(dict.fromkeys([Path.home() / '.claude' / 'settings.json', *([Path(config) / 'settings.json'] if config else [])]))
+
+
 def deny_rules(state_root):
     """permissions.deny: the one list the checkout print and `onecrew init` both write."""
     root = str(state_root).replace('\\', '/')
     deny = ['Edit(//' + root.lstrip('/') + '/**)',                       # Edit rules cover Write, MultiEdit and NotebookEdit too
             'Edit(//' + str(where.registry_file()).replace('\\', '/').lstrip('/') + ')',      # the registry of project -> state root, outside the project
+            'Edit(//' + str(where.observation_keys_file()).replace('\\', '/').lstrip('/') + ')',      # P2-1: the hashes of the observation keys
+            *('Read(//' + str(path).replace('\\', '/').lstrip('/') + ')' for path in user_settings_files()),     # P2-1: the user's settings hold the observation key
             'Edit(**/plans/**)', 'Edit(**/*.sqlite*)', 'Edit(.onecrew/active-plan.json)', 'Edit(.onecrew/violations.jsonl)', 'Edit(.onecrew/hook-state.json)', 'Edit(.onecrew/config.json)',
             'Edit(.claude/settings*.json)',
             'Bash(git push:*)', 'Bash(git * push*)', 'PowerShell(git push *)', 'PowerShell(git * push*)',
@@ -2611,10 +2647,12 @@ def parser():
         p = verbs.add_parser(name, help=text)
         if name == 'export': p.add_argument('plan')
         if name == 'check': p.add_argument('--scope', choices=['project', 'user'], default='project', help='user: the hook installed by `hook user install` (#25).')
+        if name == 'sync': p.add_argument('--install-key', help=argparse.SUPPRESS)       # without it the Claude observation outbox is left as it is (P2-1)
     p = verbs.add_parser('mode', help='Owner only: log or enforce.'); p.add_argument('mode', choices=['log', 'enforce']); p.add_argument('--by', required=True)
     p.add_argument('--plan'); p.add_argument('--reference', required=True)
     verbs.add_parser('background', help='PostToolUse/SubagentStart/SubagentStop/SessionEnd: record background work (BG-A); never blocks.')
-    verbs.add_parser('observe', help='Observe a local Claude session for its target plan (stdin JSON).')
+    verbs.add_parser('observe', help='Observe a local Claude session for its target plan (stdin JSON); only as the handler `hook user install --observe` '
+                     'wrote it.').add_argument('--install-key', help=argparse.SUPPRESS)
     verbs.add_parser('sessions', help='List local observed session bindings, including unbound sessions.')
     p = verbs.add_parser('install', help='Print the hooks and permissions.deny settings (never edits a settings file).')
     p.add_argument('--print', dest='show', action='store_true', required=True)
@@ -2633,8 +2671,9 @@ def main(argv=None):
     if args.verb == 'observe':
         try:
             from . import session_observe
+            if not session_observe.accepted(args.install_key): return 0      # P2-1: not the handler `hook user install --observe` wrote: silent, nothing read
             event, bad = read_stdin()
-            if not bad: session_observe.observe(event)
+            if not bad: session_observe.observe(event, args.install_key)
         except Exception as error:
             # Never echo the payload or an exception containing owner text.
             print(f'OneCrew observation unavailable ({type(error).__name__})', file=sys.stderr)

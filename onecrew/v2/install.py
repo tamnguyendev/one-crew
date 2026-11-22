@@ -21,6 +21,7 @@ import datetime as dt
 import json
 import os
 import re
+import secrets
 import shutil
 import sqlite3
 import subprocess
@@ -32,7 +33,7 @@ from ..ledger import Ledger, LedgerError
 from ..snapshots import control_part, is_link
 from . import claude_cli, hook_cli, where
 from .messages import TEXT, lang, t
-from .session_observe import OBSERVE_EVENTS
+from .session_observe import KEY_FLAG, KEY_MIN, OBSERVE_EVENTS, accepted as accepted_key, key_id, registered_keys
 
 EXE_NAMES = ('onecrew', 'onecrew.exe', 'onecrew.cmd')
 HOOK_VERBS = tuple(verb for _, verb, _, _, _ in hook_cli.HOOK_EVENTS) + ('background',)      # BG-A: `hook background` is ours too (opt-in events)
@@ -536,19 +537,60 @@ OBSERVE_ARGS = ['hook', 'observe']
 
 
 def _observer(handler):
-    return (isinstance(handler, dict) and handler.get('type') == 'command' and handler.get('args') == OBSERVE_ARGS
-            and re.split(r'[\\/]', str(handler.get('command', '')).strip())[-1].casefold() in EXE_NAMES)
+    """An observation handler of ours, in either form: `hook observe` (before P2-1; it records nothing now) or `hook observe --install-key <key>`."""
+    if not (isinstance(handler, dict) and handler.get('type') == 'command'
+            and re.split(r'[\\/]', str(handler.get('command', '')).strip())[-1].casefold() in EXE_NAMES): return False
+    args = handler.get('args')
+    return args == OBSERVE_ARGS or (isinstance(args, list) and len(args) == 4 and args[:3] == [*OBSERVE_ARGS, KEY_FLAG] and isinstance(args[3], str))
 
 
-def observed_events(settings):
+def observer_key(handler):
+    """The install key of an observation handler of ours, or None (the older form has none)."""
+    return handler['args'][3] if _observer(handler) and len(handler['args']) == 4 else None
+
+
+def observed_events(settings, keyed=False):
+    """The events that have an observation handler of ours. keyed: only handlers whose key is registered (the ones that record)."""
     hooks = settings.get('hooks')
     if not isinstance(hooks, dict): return []
+    good = (lambda h: _observer(h) and accepted_key(observer_key(h))) if keyed else _observer
     return [name for name in OBSERVE_EVENTS if isinstance(hooks.get(name), list)
-            and any(isinstance(entry, dict) and isinstance(entry.get('hooks'), list) and any(_observer(h) for h in entry['hooks'])
+            and any(isinstance(entry, dict) and isinstance(entry.get('hooks'), list) and any(good(h) for h in entry['hooks'])
                     for entry in hooks[name])]
 
 
-def merge_observers(hooks, exe):
+def _keys_record():
+    """The key file as {'installs': {settings file: key id}}; refuses (OSError/ValueError) a file it cannot read as that shape."""
+    path = where.observation_keys_file()
+    if not path.exists(): return {'installs': {}}
+    value = json.loads(path.read_text(encoding='utf-8'))
+    if not isinstance(value, dict) or not isinstance(value.get('installs', {}), dict): raise ValueError(f'Invalid OneCrew observation key file: {path}')
+    return dict(value, installs=dict(value.get('installs', {})))
+
+
+def _remember_key(settings_form, kid):
+    """Record (kid = the key id) or forget (kid None) the observation key of one settings file. Only the hash is kept, never the key."""
+    record = _keys_record()
+    if record['installs'].get(settings_form) == kid: return
+    if kid is None: record['installs'].pop(settings_form)
+    else: record['installs'][settings_form] = kid
+    write_text(where.observation_keys_file(), dump(record))
+
+
+def _install_key(data, settings_form):
+    """The key for the observation handlers of one settings file: the one already there when it is still registered for that file (so a second
+    install changes nothing), else a new random one."""
+    known = registered_keys().get(settings_form)
+    for entries in ((data or {}).get('hooks') or {}).values() if isinstance((data or {}).get('hooks'), dict) else ():
+        for entry in entries if isinstance(entries, list) else ():
+            for h in (entry.get('hooks') or []) if isinstance(entry, dict) and isinstance(entry.get('hooks'), list) else ():
+                key = observer_key(h)
+                if key and known and len(key) >= KEY_MIN and key_id(key) == known: return key
+    return 'k' + secrets.token_urlsafe(32)          # never starts with '-', so argparse reads it as the value of --install-key
+
+
+def merge_observers(hooks, exe, key=None):
+    """Replace our observation handlers (either form) in `hooks` by one per event running `exe hook observe --install-key <key>`; exe None removes them."""
     for name in OBSERVE_EVENTS:
         entries = hooks.get(name, [])
         if not isinstance(entries, list): raise SettingsShape('hooks.' + name, 'list')
@@ -561,7 +603,7 @@ def merge_observers(hooks, exe):
                 rest = [h for h in handlers if not _observer(h)]
                 if rest: kept.append(dict(entry, hooks=rest))
         if exe:
-            kept.append({'hooks': [{'type': 'command', 'command': str(exe), 'args': list(OBSERVE_ARGS),
+            kept.append({'hooks': [{'type': 'command', 'command': str(exe), 'args': [*OBSERVE_ARGS, *([KEY_FLAG, key] if key else [])],
                                     'timeout': 10, 'onFailure': 'continue'}]})
         if kept: hooks[name] = kept
         elif entries: hooks.pop(name)
@@ -641,7 +683,8 @@ def user_hook(verb, settings_file=None, program=None, *, observe=False):
         handlers = user_handlers(data or {})
         shown = handlers[0]['command'] if handlers else (str(installed_exe()) if installed_exe() else None)
         print(json.dumps({'configured': bool(handlers), 'settings_file': str(shown_path), 'program': shown, 'program_found': program_found(shown),
-                          'observation_events': observed_events(data or {}), 'error': bad}, ensure_ascii=False, indent=2))
+                          'observation_events': observed_events(data or {}), 'observation_events_recording': observed_events(data or {}, keyed=True),
+                          'error': bad}, ensure_ascii=False, indent=2))
         return 0
     from .ownership import claude_session
     try:       # #25 (review P2-3): the owner's profile is ~/.claude/settings.json and, when CLAUDE_CONFIG_DIR is set, the settings.json of that folder
@@ -665,9 +708,22 @@ def user_hook(verb, settings_file=None, program=None, *, observe=False):
         if why:
             say(t('user.bad_program', program=exe, why=t(why)))
             return 2
-        if (observe or observed_events(data)) and not program_runs_scope(exe, OBSERVE_ARGS)[0]:
-            say(t('user.bad_program', program=exe, why='hook observe'))
+        if (observe or observed_events(data)) and not program_runs_scope(exe, [*OBSERVE_ARGS, KEY_FLAG, 'k' * 43])[0]:     # a OneCrew before P2-1 refuses the key
+            say(t('user.bad_program', program=exe, why='hook observe ' + KEY_FLAG))
             return 2
+    key, form = None, _profile_form(path)
+    if verb == 'install' and (observe or observed_events(data)):
+        if claude_session():        # P2-1: a key minted in an AI session would be written where that session can read it
+            say(t('user.observe_refused', path=shown_path))
+            return 2
+        key = _install_key(data, form)
+    try:
+        before_key, keys_readable = _keys_record()['installs'].get(form), True
+    except (OSError, ValueError) as error:
+        if key:                     # a new key cannot be recorded: nothing is written
+            say(t('init.bad_settings', reason=str(error)))
+            return 2
+        before_key, keys_readable = None, False      # uninstall (or a plain install) still works; an unreadable key file accepts no key anyway
     merged = copy.deepcopy(data)
     backup = path.with_name(path.name + '.bak')
     # The permanent .bak can predate this installation. Track exactly which denies we add.
@@ -725,11 +781,18 @@ def user_hook(verb, settings_file=None, program=None, *, observe=False):
         if not hooks: merged.pop('hooks', None)
     if observe or observed_events(data):
         try:
-            merge_observers(hooks, exe)
+            merge_observers(hooks, exe, key)
         except SettingsShape as error:
             say(t('init.bad_settings', reason=t('settings.shape', path=path, field=error.key, expected=t('shape.' + error.expected))))
             return 2
         if not hooks: merged.pop('hooks', None)
+    after_key = key_id(key) if key else (None if verb == 'uninstall' else before_key)
+    try:                            # P2-1: the hash goes in first, so a handler is never written with a key the observe side does not know
+        if keys_readable: _remember_key(form, after_key)
+    except (OSError, ValueError) as error:
+        if key:
+            say(t('user.write_failed', path=where.observation_keys_file(), code=type(error).__name__))
+            return 2
     if merged == data:
         say(t('user.unchanged' if verb == 'install' else 'user.absent', path=shown_path))
         return 0
@@ -741,6 +804,9 @@ def user_hook(verb, settings_file=None, program=None, *, observe=False):
         if verb == 'uninstall' and ownership:
             ownership_file.unlink(missing_ok=True)
     except OSError as error:
+        try:
+            if keys_readable: _remember_key(form, before_key)       # the handlers there still carry the key they had
+        except (OSError, ValueError): pass
         say(t('user.write_failed', path=shown_path, code=type(error).__name__))
         return 2
     say(t('user.installed', path=shown_path, program=exe, bak=backup if backup.exists() else '-') if verb == 'install' else t('user.removed', path=shown_path))
@@ -878,7 +944,7 @@ def doctor_facts(project=None, state_root=None, exe=None, claude=claude_status):
                 add(level, 'doctor.plan', detail)
     level, detail = check_user_hook()                                  # #25
     add(level, 'doctor.user', detail)
-    present = observed_events(read_settings(user_settings_file())[0] or {})
+    present = observed_events(read_settings(user_settings_file())[0] or {}, keyed=True)      # P2-1: a handler without a registered key records nothing
     complete = len(present) == len(OBSERVE_EVENTS)
     coverage = f'{len(present)}/{len(OBSERVE_EVENTS)}'
     if not complete:

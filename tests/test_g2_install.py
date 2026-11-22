@@ -245,8 +245,10 @@ class DoctorTests(Base):
         self.init()
         code, lines, out = self.doctor()
         self.assertGreaterEqual(len(lines), 6)
-        # #25: the one line that is not PASS is `WARN user hook: not configured` (the user hook is the owner's step, not init's)
-        self.assertEqual((code, [l.split(':')[0] for l in lines if not l.startswith('PASS')]), (0, ['WARN user hook']), out)
+        # #25: the lines that are not PASS are `WARN user hook: not configured` (the user hook is the owner's step, not init's) and, since S7b (D11),
+        # the observation coverage on its own line, `WARN Claude session observation: 0/9 · hook user install --observe` (also the owner's step)
+        self.assertEqual((code, [l.split(':')[0] for l in lines if not l.startswith('PASS')]),
+                         (0, ['WARN ' + install.t('doctor.user'), 'WARN ' + install.t('doctor.observation')]), out)
         text = '\n'.join(lines).casefold()
         for word in ('python', 'git', 'claude cli', 'config.json', 'hook', 'active plan'): self.assertIn(word, text)
 
@@ -254,7 +256,8 @@ class DoctorTests(Base):
         self.init()
         code, lines, _ = self.doctor(claude=NO_CLAUDE)
         self.assertEqual(code, 0)
-        self.assertEqual(len([l for l in lines if l.startswith('WARN')]), 3)         # found + logged in + (#25) the user hook is not configured
+        # found + logged in + (#25) the user hook is not configured + (S7b, D11) no Claude session observation installed
+        self.assertEqual(len([l for l in lines if l.startswith('WARN')]), 4)
 
     def test_a_missing_hook_and_a_missing_state_root_fail(self):
         code, lines, _ = self.doctor()

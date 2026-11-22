@@ -34,12 +34,29 @@ class Observe(unittest.TestCase):
         self.project.plan('P1', [milestone()])
         active_plan.export(self.ledger, 'P1', strict=True)
         where.register_project(self.root, self.ledger.state_root)
+        self.observe_args = self.install_fixture_observer(base)
+        self.key = self.observe_args[3]
 
-    def call(self, name, **extra):
+    @staticmethod
+    def install_fixture_observer(base):
+        """P2-1: the genuine path. `hook user install --observe` writes the handlers (with their install key) into a fixture settings file, not the
+        profile's; call() then runs `hook <args of that handler>` in process. Returns the args of the UserPromptSubmit handler."""
+        program = base / 'fixture-bin' / ('onecrew.cmd' if os.name == 'nt' else 'onecrew')
+        program.parent.mkdir(parents=True, exist_ok=True)
+        program.write_text('@exit /b 0\r\n' if os.name == 'nt' else '#!/bin/sh\nexit 0\n', encoding='ascii')
+        program.chmod(0o755)
+        settings = base / 'fixture-profile' / 'settings.json'
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            if install.user_hook('install', settings, program, observe=True) != 0: raise AssertionError(out.getvalue())
+        hooks = json.loads(settings.read_text(encoding='utf-8'))['hooks']
+        args, = [h['args'] for entry in hooks['UserPromptSubmit'] for h in entry['hooks'] if h['args'][:2] == ['hook', 'observe']]
+        return args
+
+    def call(self, name, args=None, **extra):
         event = dict({'hook_event_name': name, 'cwd': str(self.other), 'session_id': 'session-1'}, **extra)
         stdin = type('Input', (), {'buffer': io.BytesIO(json.dumps(event).encode())})()
         with patch.object(Path, 'cwd', return_value=self.other), patch.object(sys, 'stdin', stdin), contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
-            self.assertEqual(hook_cli.main(['hook', 'observe']), 0)
+            self.assertEqual(hook_cli.main(self.observe_args if args is None else args), 0)
         self.assertEqual(out.getvalue(), '')
         return err.getvalue()
 
@@ -144,7 +161,7 @@ class Observe(unittest.TestCase):
         for _ in range(2):
             self.call('PostToolUse', tool_name='Bash', tool_use_id='bg',
                       tool_input={'run_in_background': True, 'description': 'Kiểm thử', 'command': 'echo PRIVATE-SCRIPT'})
-        session_observe.flush(self.ledger)
+        session_observe.flush(self.ledger, self.key)
         self.assertEqual([r['label'] for r in self.observed() if r['observation'] == 'background_shell'], ['Kiểm thử'])
         self.assertNotIn('PRIVATE-SCRIPT', str(self.observed()))
 
@@ -161,9 +178,11 @@ class Observe(unittest.TestCase):
         self.call('UserPromptSubmit', prompt='Giữ chữ đã gõ.')
         pending = next(self.ledger.state_root.rglob('pending.jsonl'))
         rows = [json.loads(line) for line in pending.read_text(encoding='utf-8').splitlines()]
-        rows[-1]['source'] = 'owner'  # format written by previous releases
+        legacy = {k: v for k, v in rows[-1].items() if k not in ('kid', 'mac')}
+        legacy['source'] = 'owner'  # the spelling of previous releases, in a row sealed by the installed handler (an unsealed line is never imported)
+        rows[-1] = session_observe.sealed(legacy, self.key)
         pending.write_text(''.join(json.dumps(row) + '\n' for row in rows), encoding='utf-8')
-        session_observe.flush(self.ledger)
+        session_observe.flush(self.ledger, self.key)
         prompt = self.observed()[-1]
         self.assertEqual((prompt['source'], prompt['text']), ('claude_session', 'Giữ chữ đã gõ.'))
 
@@ -224,7 +243,7 @@ class Observe(unittest.TestCase):
         active_plan.export(self.ledger, 'P2', take_over=True, strict=True)
         self.call('UserPromptSubmit', prompt='ambiguous private text')
         self.assertEqual(session_observe.bindings()[0]['reason'], 'multiple plans')
-        session_observe.flush(self.ledger)
+        session_observe.flush(self.ledger, self.key)
         self.assertNotIn('private text', str(self.observed()))
 
     def test_hook_failure_does_not_block_work(self):
@@ -245,7 +264,7 @@ class Observe(unittest.TestCase):
         self.assertEqual(self.observed()[1]['text'], 'after restart')
         self.assertEqual(len(list(pending.parent.glob('*.rejected'))), 1)
         (pending.parent / 'retry.batch').write_bytes(old)
-        self.assertEqual(session_observe.flush(self.ledger), 0)
+        self.assertEqual(session_observe.flush(self.ledger, self.key), 0)
         self.assertEqual(len(self.observed()), 3)
 
     def test_install_observer_in_private_home_and_remove_only_our_handlers(self):
@@ -264,9 +283,87 @@ class Observe(unittest.TestCase):
                 for verb in ('observe', 'sync'):
                     self.assertIn(f'{tool}(*hook {verb}*)', configured.get('permissions', {}).get('deny', []))
             hooks = configured['hooks']
+            keys = set()
             for event in install.OBSERVE_EVENTS:
-                handlers = [h for entry in hooks[event] for h in entry['hooks'] if h.get('args') == ['hook', 'observe']]
+                handlers = [h for entry in hooks[event] for h in entry['hooks'] if h.get('args', [])[:2] == ['hook', 'observe']]
                 self.assertEqual(len(handlers), 1)
                 self.assertEqual(handlers[0]['onFailure'], 'continue')
+                self.assertEqual(handlers[0]['args'][2], session_observe.KEY_FLAG)      # P2-1: the handler carries the install key
+                keys.add(handlers[0]['args'][3])
+            key, = keys                                                              # one key per settings file, kept by the second install
+            self.assertTrue(session_observe.accepted(key))
+            self.assertNotIn(key, where.observation_keys_file().read_text(encoding='utf-8'))      # only its hash is kept
             self.assertEqual(install.user_hook('uninstall', settings), 0)
         self.assertEqual(json.loads(settings.read_text(encoding='utf-8')), seed)
+        self.assertIsNone(session_observe.accepted(key))                                # uninstall forgets the key
+
+    def test_observation_without_the_install_key_writes_nothing(self):
+        # P2-1 / P2-1b / P2-2: only the handler OneCrew installed writes rows; the command text, the folder and the payload give no trust.
+        self.bind()
+        event = dict(hook_event_name='UserPromptSubmit', cwd=str(self.root), session_id='session-1', prompt='FORGED words')
+        for args in (['hook', 'observe'], ['hook', 'observe', session_observe.KEY_FLAG, 'k' * 43], [*self.observe_args[:3], self.key[:-1] + 'x']):
+            with self.subTest(args=args[:3]):
+                self.assertEqual(self.call('UserPromptSubmit', args=args, prompt='FORGED words'), '')
+        with patch.object(Path, 'cwd', return_value=self.root):
+            for key in (None, '', 'k' * 43):
+                session_observe.observe(event, key)
+                session_observe.observe(dict(event, hook_event_name='Stop'), key)
+                self.assertEqual(session_observe.flush(self.ledger, key), 0)
+        pending = next(self.ledger.state_root.rglob('pending.jsonl'))
+        forged = {k: v for k, v in json.loads(pending.read_text(encoding='utf-8').splitlines()[-1]).items() if k not in ('kid', 'mac')}
+        with pending.open('a', encoding='utf-8') as stream:            # a line appended by hand: unsealed, sealed with another key, or edited after sealing
+            stream.write(json.dumps(dict(forged, text='FORGED words', observation='owner_prompt', spool_id='f1')) + '\n')
+            stream.write(json.dumps(session_observe.sealed(dict(forged, text='FORGED words', observation='owner_prompt', spool_id='f2'), 'k' * 43)) + '\n')
+            stream.write(json.dumps(dict(session_observe.sealed(dict(forged, spool_id='f3'), self.key), text='FORGED words', observation='owner_prompt')) + '\n')
+        self.call('Stop')
+        self.assertEqual([r for r in self.observed() if r.get('text') == 'FORGED words'], [])
+        self.assertEqual([r['observation'] for r in self.observed()], ['tool_call', 'turn_end'])
+
+    def test_only_interactive_entrypoints_are_session_input(self):
+        # P2-4: an allowlist. cli, the desktop app and an absent variable are a session; print mode, the SDKs and scheduled runs are machine input.
+        for value, source in (('cli', 'claude_session'), ('claude-desktop', 'claude_session'), ('', 'claude_session'),
+                              ('sdk-cli', 'claude_machine'), ('sdk-ts', 'claude_machine'), ('sdk-py', 'claude_machine'), ('scheduled-task', 'claude_machine')):
+            with self.subTest(entrypoint=value):
+                self.assertEqual(session_observe.input_source(value), source)
+        os.environ.pop('CLAUDE_CODE_ENTRYPOINT', None)
+        self.assertEqual(session_observe.input_source(), 'claude_session')
+
+    def test_older_observer_form_is_recognised_but_not_counted_as_recording(self):
+        exe = self.home / ('onecrew.cmd' if os.name == 'nt' else 'onecrew')
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_text('@exit /b 0\n' if os.name == 'nt' else '#!/bin/sh\nexit 0\n', encoding='ascii')
+        exe.chmod(0o755)
+        settings = install.user_settings_file()
+        old = {'hooks': {e: [{'hooks': [{'type': 'command', 'command': str(exe), 'args': ['hook', 'observe'], 'timeout': 10, 'onFailure': 'continue'}]}]
+                         for e in install.OBSERVE_EVENTS}}
+        install.write_text(settings, json.dumps(old))
+        self.assertEqual(install.observed_events(old), list(install.OBSERVE_EVENTS))
+        self.assertEqual(install.observed_events(old, keyed=True), [])
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(install.user_hook('status', settings), 0)
+        status = json.loads(out.getvalue())
+        self.assertEqual((len(status['observation_events']), status['observation_events_recording']), (len(install.OBSERVE_EVENTS), []))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(install.user_hook('install', settings, exe), 0)     # a plain install upgrades the older handlers to the keyed form
+        upgraded = json.loads(settings.read_text(encoding='utf-8'))
+        self.assertEqual(install.observed_events(upgraded, keyed=True), list(install.OBSERVE_EVENTS))
+        with contextlib.redirect_stdout(io.StringIO()):
+            install.write_text(settings, json.dumps(old))
+            self.assertEqual(install.user_hook('uninstall', settings), 0)
+        self.assertEqual(install.observed_events(json.loads(settings.read_text(encoding='utf-8'))), [])
+
+    def test_observer_key_is_not_minted_in_an_ai_session(self):
+        settings = self.home / 'elsewhere' / 'settings.json'
+        with patch.dict(os.environ, CLAUDE_CODE_CHILD_SESSION='1'), contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(install.user_hook('install', settings, self.home.parent / 'fixture-bin' / ('onecrew.cmd' if os.name == 'nt' else 'onecrew'), observe=True), 2)
+        self.assertIn('refused', out.getvalue())
+        self.assertFalse(settings.exists())
+
+    def test_ai_session_cannot_read_the_settings_file_that_holds_the_key(self):
+        for command in ('cat ~/.claude/settings.json', f'type "{install.user_settings_file()}"', 'Get-Content $env:USERPROFILE/.claude/settings.json'):
+            with self.subTest(command=command):
+                self.assertEqual(hook_cli.judge_shell({}, self.root, self.root, command)[0], 'protected')
+        self.assertIsNone(hook_cli.judge_shell({}, self.root, self.root, 'cat .claude/settings.json'))
+        rules = hook_cli.deny_rules(self.ledger.state_root)
+        self.assertIn('Read(//' + str(install.user_settings_file()).replace('\\', '/').lstrip('/') + ')', rules)
+        self.assertIn('Edit(//' + str(where.observation_keys_file()).replace('\\', '/').lstrip('/') + ')', rules)
