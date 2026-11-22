@@ -308,6 +308,16 @@ class DoctorSaysWhetherTheUserHookIsThere(UserHookBase):
     def lines(self):
         return {name: (level, detail) for level, name, detail in install.doctor_facts(self.repo, self.state, self.exe, claude=None)}
 
+    def test_observer_coverage_is_reported_separately_from_the_command_hook(self):
+        self.assertEqual(self.verb('install')[0], 0)
+        initial = self.lines()
+        self.assertEqual(initial['user hook'][0], 'PASS')
+        self.assertEqual(initial['Claude session observation'], ('WARN', '0/9 · hook user install --observe'))
+        self.assertEqual(self.verb('install', '--observe')[0], 0)
+        complete = self.lines()
+        self.assertEqual(complete['user hook'], initial['user hook'])
+        self.assertEqual(complete['Claude session observation'], ('PASS', '9/9'))
+
     def test_not_configured_is_a_warning_that_says_what_is_not_checked(self):
         self.seed()
         level, detail = self.lines()['user hook']

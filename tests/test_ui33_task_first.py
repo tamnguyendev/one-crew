@@ -766,6 +766,50 @@ return out;'''
     def test_back_keeps_filter_and_position_phone_375(self):
         self.check(self.scenario(375, 640), 375)
 
+    def test_desktop_history_restores_each_visit_to_the_filtered_list(self):
+        scenario = r'''
+const rows=()=>$$('li.task'), view=()=>$('#main').dataset.view;
+await until(()=>rows().length>=12,40000,'unfiltered list');
+// Use the real filtered response, but deliver it while the second detail is open.
+const fetchNow=window.fetch.bind(window);let release;
+const hold=new Promise(resolve=>{release=resolve});
+window.fetch=async(...args)=>{
+  const response=await fetchNow(...args);
+  if(String(args[0]).includes('/api/overview')&&new URL(args[0],location.href).searchParams.get('stage')==='todo')await hold;
+  return response;
+};
+$('#kind').value='todo';$('#kind').dispatchEvent(new Event('change',{bubbles:true}));
+await until(()=>rows().length>=5&&rows().every(r=>r.dataset.stage==='todo'),40000,'locally filtered list');
+const first=rows()[0].dataset.plan;
+window.scrollTo(0,0);
+rows()[0].click();
+await until(()=>$('#detail .tiles4'),40000,'first detail loaded');
+$('#close').click();
+window.scrollTo(0,document.documentElement.scrollHeight);
+const bottom=window.scrollY;
+rows().at(-1).click();
+await until(()=>$('#detail .tiles4'),40000,'second detail loaded');
+release();
+await until(()=>window.__track.state().list.answer.filters.stage==='todo',40000,'server-filtered list');
+window.fetch=fetchNow;
+history.back();
+await until(()=>view()==='list',10000,'second list visit');
+const secondY=window.scrollY;
+history.back();
+await until(()=>view()==='detail'&&$('#detail .tiles4'),40000,'first detail loaded again');
+history.back();
+await until(()=>view()==='list',10000,'first list visit');
+return {bottom,secondY,firstY:window.scrollY,first,focus:document.activeElement.dataset.plan,filter:$('#kind').value};'''
+        with Served(self.state_root) as server:
+            profile = Path(self.temp.name) / 'history'
+            profile.mkdir()
+            result, = drive(profile, [{'nav': server.url}, {'eval': scenario}], 1280, 600)
+        self.assertGreater(result['bottom'], 2)
+        self.assertAlmostEqual(result['secondY'], result['bottom'], delta=2)
+        self.assertAlmostEqual(result['firstY'], 0, delta=2)
+        self.assertEqual(result['focus'], result['first'])
+        self.assertEqual(result['filter'], 'todo')
+
 
 if __name__ == '__main__':
     unittest.main()

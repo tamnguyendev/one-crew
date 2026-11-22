@@ -877,13 +877,13 @@ def doctor_facts(project=None, state_root=None, exe=None, claude=claude_status):
                     level, detail = 'FAIL', t('doctor.plan_bad', why=str(error))
                 add(level, 'doctor.plan', detail)
     level, detail = check_user_hook()                                  # #25
+    add(level, 'doctor.user', detail)
     present = observed_events(read_settings(user_settings_file())[0] or {})
-    coverage = f'{t("doctor.observation")}: {len(present)}/{len(OBSERVE_EVENTS)}'
-    if len(present) != len(OBSERVE_EVENTS):
+    complete = len(present) == len(OBSERVE_EVENTS)
+    coverage = f'{len(present)}/{len(OBSERVE_EVENTS)}'
+    if not complete:
         coverage += ' · hook user install --observe'
-        if level == 'PASS':
-            level = 'WARN'
-    add(level, 'doctor.user', f'{detail}. {coverage}')
+    add('PASS' if complete else 'WARN', 'doctor.observation', coverage)
     if root is not None:
         seen = last_user_call(root)
         add('PASS', 'doctor.user_calls', t('doctor.user_seen', at=seen.get('at'), session=seen.get('session')) if seen else t('doctor.user_unseen'))

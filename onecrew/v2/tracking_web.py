@@ -832,6 +832,7 @@ PAGE = r'''<!doctype html>
 :root{--bg:#f4f6f8;--fg:#1c2230;--mut:#5b6572;--card:#fff;--line:#dde2e9;--run:#1d6fd6;--wait:#a86a0a;--blk:#c0392b;--acc:#2f855a;--ver:#0b7a75;--cls:#6b7280;--unk:#718096;--need:#fff4cc;--needfg:#5c4400;--sel:#e8f0fb;--focus:#1d6fd6}
 @media (prefers-color-scheme:dark){:root{--bg:#12161d;--fg:#e6e9ef;--mut:#9aa4b2;--card:#1a2029;--line:#2b3442;--need:#3b3415;--needfg:#ffe9a8;--sel:#1f2d44;--focus:#79b0ff}}
 *{box-sizing:border-box}html,body{margin:0}body{background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,"Segoe UI",sans-serif;min-width:0}
+body[data-view=list]{min-height:var(--list-return-height,0px)}
 :focus-visible{outline:3px solid var(--focus);outline-offset:2px}
 header{padding:8px 16px;border-bottom:1px solid var(--line);background:var(--card)}
 .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}h1{font-size:16px;margin:0}
@@ -1008,7 +1009,7 @@ function listQuery(){var p={list:'1',limit:String(LIST_PAGE)},raw=($('#q').value
   if(s||u){p.time=$('#tfield').value||'created';if(s)p.since=s;if(u)p.until=u}
   if(listFloor!==null)p.floor=String(listFloor);if(listMore)p.more=String(listMore);
   return Object.keys(p).map(function(k){return k+'='+encodeURIComponent(p[k])}).join('&')}
-function relist(){listGen++;listFloor=null;listMore=0;render(true);fetchList()}
+function relist(){reserveListScroll(0);listGen++;listFloor=null;listMore=0;render(true);fetchList()}
 function loadMore(){listGen++;listMore=LIST_PAGE;var b=$('#more');if(b){b.disabled=true;b.textContent='đang tải thêm…'}fetchList()}
 function footHtml(){var L=last&&last.list;if(!L)return '';
   var h='<p class="cov" id="coverage"><b>'+(L.complete?'Đã tải đủ':'Đang hiện một phần')+':</b> '+L.shown+' việc đã tải · tổng '+L.total+' việc trong sổ'
@@ -1267,7 +1268,17 @@ function restore(s){if(!s)return;Object.keys(s.open).forEach(function(k){var x=d
   var gs=document.querySelector('#detail .gscroll');if(gs&&s.gs)gs.scrollLeft=s.gs;
   $('#detailpane').scrollTop=s.pane;if(Math.abs(window.scrollY-s.win)>2)window.scrollTo(0,s.win)}
 function paint(d,sel,why){var s=snapshot();detailData=d;detailFor={plan:sel.plan,project:sel.project};renderDetail(d);restore(s);if(why==='select')afterSelect()}
-var listY=0;
+var listY=0,listReturnY=0;
+function reserveListScroll(y){
+  // A filtered response can shorten the chips and footer while the detail is open.
+  // Keep just enough scroll range for the return position, then give it up as the reader scrolls up.
+  y=Math.max(0,y);
+  if(y===listReturnY)return;
+  listReturnY=y;
+  if(y)document.body.style.setProperty('--list-return-height','calc(100vh + '+y+'px)');
+  else document.body.style.removeProperty('--list-return-height');
+}
+window.addEventListener('scroll',function(){if(!selected&&window.scrollY<listReturnY)reserveListScroll(window.scrollY)},{passive:true});
 function afterSelect(){setView();window.scrollTo(0,0);
   if(selected&&selected.focusDetail){selected.focusDetail=false;var t=$('#dtitle');if(t)t.focus({preventScroll:true})}}
 function restNote(){return detailTimeouts>=DETAIL_TRIES?'trang đã thử '+DETAIL_TRIES+' lần liền, mỗi lần chờ '+DETAIL_TIMEOUT/1000+' s, và ngừng tự thử: <button type="button" id="dretry">Thử lại</button>'
@@ -1304,17 +1315,22 @@ function detailFailed(sel,msg){var now=Date.now(),note=restNote(),changed=!detai
   else if(changed||!$('#dstatus')||$('#dstatus').getAttribute('data-state')!=='error'){s=snapshot();pendingPane(sel);restore(s)}   // never loaded: its own heading + the error, nothing else
   else{var l2=$('#dlast');if(l2)l2.textContent=clockMs(now)}
   dind()}
-function select(sel,opts){opts=opts||{};if(!sel){if(detailInflight){clearTimeout(detailInflight.timer);detailInflight.ctl.abort();detailInflight=null}   // closing cancels the read: selecting the task again starts a fresh one (never a nearly expired one)
+function select(sel,opts){opts=opts||{};
+  if(Number.isFinite(opts.listY))listY=opts.listY;
+  else if(sel&&!selected)listY=window.scrollY;
+  // Save the list entry before pushing its detail. Each visit can be scrolled to a different row.
+  if(sel&&!selected&&!opts.silent)history.replaceState(Object.assign({},history.state,{listY:listY}),'');
+  if(!sel){reserveListScroll(listY);if(detailInflight){clearTimeout(detailInflight.timer);detailInflight.ctl.abort();detailInflight=null}   // closing cancels the read: selecting the task again starts a fresh one (never a nearly expired one)
     var was=selected;if(selected){lastViewed=selected}selected=null;selEv=null;evState={};copied=null;detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailSeq=null;detailTimeouts=0;$('#detail').innerHTML='<div id="nodetail">Chọn một task ở danh sách để xem chi tiết, timeline và bằng chứng.</div>';setView();render(true);dind();
     var row0=was&&document.querySelector('[data-k="task:'+String(was.project).replace(/"/g,'\\"')+':'+String(was.plan).replace(/"/g,'\\"')+'"]');if(row0)row0.focus({preventScroll:true});   // UI58 MC: every way back (button, Escape, browser back) lands on the row that was opened, filter and scroll kept
     window.scrollTo(0,listY);
     if(!opts.silent&&location.search){var filters=new URLSearchParams();if($('#kind').value)filters.set('stage',$('#kind').value);if($('#proj').value)filters.set('project',$('#proj').value);
-      history.pushState({},'',location.pathname+(filters.size?'?'+filters:''))}return}
-  var other=!sameSel(selected,sel);if(other)workTab='overview';detailTimeouts=0;if(!selected)listY=window.scrollY;      // a click on a task (the same one too) is the reader asking again: a new series of tries
+      history.pushState({listY:listY},'',location.pathname+(filters.size?'?'+filters:''))}return}
+  var other=!sameSel(selected,sel);if(other)workTab='overview';detailTimeouts=0;      // a click on a task (the same one too) is the reader asking again: a new series of tries
   if(other){selEv=null;evState={};copied=null;detailSeq=null;selStep=null;gRange='current';gPinnedWindow=null;gFold={};staleNotes=[];knownNeeds={};detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailTimeouts=0}
   selected={plan:sel.plan,project:sel.project||'',focusDetail:!!opts.focusDetail};setView();render(true);
   if(!mine()){pendingPane(selected);afterSelect()}dind();     // another task: its heading + "đang tải" at once, never the previous task's content
-  if(!opts.silent&&location.search!==urlOf(selected))history.pushState({plan:selected.plan,project:selected.project},'',urlOf(selected));
+  if(!opts.silent&&location.search!==urlOf(selected))history.pushState({plan:selected.plan,project:selected.project,listY:listY},'',urlOf(selected));
   loadDetail('select')}
 function fetchList(done){var gen=listGen,ctl=new AbortController(),late=false,tm=setTimeout(function(){late=true;ctl.abort()},OVERVIEW_TIMEOUT);   // P2 (found with it): an overview read that never answers no longer freezes the page under a green badge
   fetch('/api/overview?'+listQuery(),{cache:'no-store',signal:ctl.signal}).then(function(r){return r.json()}).then(function(j){
@@ -1374,14 +1390,15 @@ $('#q').addEventListener('input',function(){render(true);clearTimeout(qTimer);qT
 ['#origin','#tfield','#since','#until'].forEach(function(s){$(s).addEventListener('change',relist)});
 $('#proj').addEventListener('change',function(){var v=$('#proj').value;if(selected&&v&&selected.project){var t=tasks().filter(function(x){return x.project===v&&x.project_id===selected.project});if(!t.length){select(null);$('#detail').innerHTML='<div id="nodetail">Đã đổi sang project '+esc(short(v))+': chọn một task của project này.</div>'}}relist()});
 try{if('scrollRestoration' in history)history.scrollRestoration='manual'}catch(e){}   // UI58 MC: the page puts the list back where the reader left it (listY); the browser's own restore would move it to the top on "back"
-window.addEventListener('popstate',function(){var qs=new URLSearchParams(location.search);if(qs.get('plan'))select({plan:qs.get('plan'),project:qs.get('project_id')||''},{silent:true});else select(null,{silent:true})});
+window.addEventListener('popstate',function(ev){var qs=new URLSearchParams(location.search),opts={silent:true,listY:ev.state&&ev.state.listY};
+  select(qs.get('plan')?{plan:qs.get('plan'),project:qs.get('project_id')||''}:null,opts)});
 window.matchMedia('(max-width:899px)').addEventListener('change',setView);
 if(!window.matchMedia('(max-width:760px)').matches)$('#filters').open=true;   // desktop: the filters are open; phone: folded, the active ones are listed under the search
 setInterval(tick,1000);
 var qs=new URLSearchParams(location.search);
 if(qs.has('project')){var project=qs.get('project');$('#proj').add(new Option(short(project),project,true,true))}
 if(qs.has('stage'))$('#kind').value=qs.get('stage');
-if(qs.get('plan'))select({plan:qs.get('plan'),project:qs.get('project_id')||''},{silent:true});
+if(qs.get('plan'))select({plan:qs.get('plan'),project:qs.get('project_id')||''},{silent:true,listY:history.state&&history.state.listY});
 poll();
 window.__track={state:function(){return {selected:selected,detailSeq:detailSeq,selEv:selEv,evOpen:Object.keys(evState),copied:copied,lastOk:lastOk,lost:!!lostSince,selStep:selStep,gRange:gRange,stale:staleNotes.map(function(x){return x.id}),axisNow:mine()&&mine().gantt&&mine().gantt.axis?mine().gantt.axis.now:null,
   detailFor:mine()?{plan:detailFor.plan,project:detailFor.project}:null,detailState:detailState(),detailError:detailError?{since:iso(detailError.since),last:iso(detailError.last),message:detailError.message}:null,detailOkAt:iso(detailOkAt),
