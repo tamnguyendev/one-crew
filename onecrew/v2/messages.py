@@ -125,6 +125,8 @@ TEXT = {
     'doctor.plan': {'en': 'active plan', 'vi': 'plan đang mở'},
     'doctor.plan_ok': {'en': '{name} revision {revision}, hook mode {mode}', 'vi': '{name} bản {revision}, hook ở chế độ {mode}'},
     'doctor.plan_pending': {'en': ', revision {revision} awaits approval', 'vi': ', bản {revision} đang chờ duyệt'},
+    'doctor.observation_old': {'en': ' (handlers of an older install are there but record nothing, and outbox lines they queued are not imported: run it again)',
+                               'vi': ' (còn hook của lần cài cũ nhưng không ghi được gì, các dòng nó đã xếp chờ không được nhập sổ: chạy lại lệnh này)'},
     'doctor.observation': {'en': 'Claude session observation', 'vi': 'Quan sát phiên Claude'},
     'doctor.plan_outdated': {'en': ', ledger approved revision {revision}. Refresh: onecrew hook export {name}',
                              'vi': ', sổ đã duyệt bản {revision}. Làm mới bằng onecrew hook export {name}'},

@@ -4,15 +4,19 @@ The binding lives outside all checkouts. Only a bound event gets a filtered payl
 Tool calls append to a private outbox. At the end of a turn (or via hook sync) the
 outbox is imported into the ledger. Replaying a batch after a crash is idempotent.
 
-Who may write rows (P2-1, P2-1b, P2-2 of the S7 review): only the handler `hook user install --observe` wrote. Install mints a random key per settings
-file, puts it in the handler's arguments (`hook observe --install-key <key>`) and keeps only its hash in OneCrew's machine state
-(where.observation_keys_file). observe() and flush() do nothing without a key whose hash is there, whatever the command text, the folder of the process
-or the cwd and paths of the payload: a `python -c`, a script, `python -m onecrew.v2.hook_cli hook observe`, `onecrew_cli.py hook observe` or an
-in-process call without the key writes nothing and says nothing (exit 0, so Claude Code is never blocked). Every outbox line carries an HMAC made with
-the key, and flush imports only lines whose HMAC it can check, so a line appended to the outbox by hand never reaches the ledger either.
-What stays soft (same OS account, no OS-level secret): a process that reads the user's Claude Code settings file (an enforced session is denied the
-Read tool and shell commands naming it, but code that builds the path at run time is not seen), that watches the command line of a running hook, or
-that rewrites the key file in OneCrew's machine state (protected from the Edit tool and commands naming it, the same way as the project registry).
+The install key (S7 review P2-1, P2-1b, P2-2) is a guard against naive and accidental forging, NOT a security boundary.
+`hook user install --observe` mints a random key per settings file, puts it in the handler's arguments (`hook observe --install-key <key>`) and keeps
+its hash in OneCrew's machine state (where.observation_keys_file). observe() and flush() do nothing without a key whose hash is there, and every
+outbox line carries an HMAC made with the key. That stops what a careless or naive caller does: `hook observe` / `hook sync` run by hand, `python -c`,
+a script, `python -m onecrew.v2.hook_cli`, `onecrew_cli.py`, importlib, an in-process observe() call without the key, a line appended to the outbox.
+It does NOT stop a determined AI that runs as the same OS account, which can still forge rows: it can replace the check in its own Python process,
+point LOCALAPPDATA at a folder (even under .onecrew/scratch) holding its own key file and a copy of the project registry, strip CLAUDE* in a script
+and call install.user_hook('install', <its own settings>, observe=True) to mint a key, build the settings path at run time to read the key (the
+shell check only sees commands that name the file; the user hook does not judge Read), or read it from the command line of a running hook process.
+What bounds the harm is elsewhere and holds for forged rows too: every session row is labelled "Ghi nhận trong phiên Claude (chưa xác thực)", and no
+session row can clear the "Bản sửa chưa rõ nguồn lời chủ" warning (goal_history), approve, accept or record a verdict.
+CLAUDE_CODE_ENTRYPOINT (input_source) is a label of how the host says it was started, not proof of who typed: the desktop app also reports
+claude-desktop for prompts it sends itself (scheduled tasks, session_send).
 """
 import datetime as dt
 import hashlib
@@ -256,16 +260,22 @@ def observe(event, key=None):
         flush(Ledger(target['project'], target['state_root']), key)
 
 
+HELD_FLUSHES = 20      # a line that names another installed key is put back at most this many times, then dropped (its signature cannot be checked here)
+
+
 def _opened(line, key, mine, known):
-    """(row, keep): the row of an outbox line sealed with `key`, else None; keep is True for a line sealed by another installed key (its own handler
-    imports it), False for a line no installed key sealed (rejected)."""
+    """(row, held): the row of an outbox line sealed with `key`, else None. held is the line to put back (with its count raised) when it names
+    another installed key that has not imported it yet, else None (the line is rejected)."""
     try:
         r = json.loads(line)
     except ValueError:
-        return None, False
-    if not isinstance(r, dict): return None, False
+        return None, None
+    if not isinstance(r, dict): return None, None
+    held = r.pop('held', 0)               # outside the signature: only the flushes that put the line back add it
     if r.get('kid') != mine:
-        return None, isinstance(r.get('kid'), str) and r['kid'] in known
+        if not (isinstance(r.get('kid'), str) and r['kid'] in known) or not isinstance(held, int) or isinstance(held, bool) or not 0 <= held < HELD_FLUSHES:
+            return None, None
+        return None, (json.dumps(dict(r, held=held + 1), ensure_ascii=False) + '\n').encode('utf-8')
     mac = r.pop('mac', None)
     if not isinstance(mac, str) or not hmac.compare_digest(mac, _seal(r, key)): return None, False
     r.pop('kid')
@@ -293,9 +303,9 @@ def flush(ledger, key=None):
                 while lines := list(itertools.islice(stream, 64)):
                     with ledger.transaction(write=True) as conn:
                         for line in lines:
-                            r, keep = _opened(line, key, mine, known)
+                            r, held = _opened(line, key, mine, known)
                             if r is None:
-                                if keep: others.append(line if line.endswith(b'\n') else line + b'\n')
+                                if held: others.append(held)
                                 else: damaged = True
                                 continue
                             try:

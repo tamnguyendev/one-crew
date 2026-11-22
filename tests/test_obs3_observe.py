@@ -292,6 +292,8 @@ class Observe(unittest.TestCase):
                 keys.add(handlers[0]['args'][3])
             key, = keys                                                              # one key per settings file, kept by the second install
             self.assertTrue(session_observe.accepted(key))
+            read_rule = 'Read(//' + str(settings.resolve()).replace('\\', '/').lstrip('/') + ')'      # the file now holds the key (S7 review, 5)
+            self.assertIn(read_rule, configured['permissions']['deny'])
             self.assertNotIn(key, where.observation_keys_file().read_text(encoding='utf-8'))      # only its hash is kept
             self.assertEqual(install.user_hook('uninstall', settings), 0)
         self.assertEqual(json.loads(settings.read_text(encoding='utf-8')), seed)
@@ -318,6 +320,52 @@ class Observe(unittest.TestCase):
         self.call('Stop')
         self.assertEqual([r for r in self.observed() if r.get('text') == 'FORGED words'], [])
         self.assertEqual([r['observation'] for r in self.observed()], ['tool_call', 'turn_end'])
+
+    def test_lines_queued_by_an_older_release_are_not_imported_and_doctor_says_reinstall(self):
+        # Upgrade case (S7 review, 7): a line an older release queued has no seal, so it cannot be told from a forged one: it is not imported, and
+        # doctor says the older handlers record nothing and names the command to run again.
+        self.bind()
+        pending = next(self.ledger.state_root.rglob('pending.jsonl'))
+        sealed = json.loads(pending.read_text(encoding='utf-8').splitlines()[-1])
+        old = {k: v for k, v in sealed.items() if k not in ('kid', 'mac')}
+        with pending.open('a', encoding='utf-8') as stream:
+            stream.write(json.dumps(dict(old, observation='owner_prompt', source='owner', text='queued before the upgrade', spool_id='old-1')) + '\n')
+        exe = self.home.parent / 'fixture-bin' / ('onecrew.cmd' if os.name == 'nt' else 'onecrew')
+        install.write_text(install.user_settings_file(), json.dumps({'hooks': {e: [{'hooks': [{'type': 'command', 'command': str(exe), 'args': ['hook', 'observe']}]}]
+                                                                             for e in install.OBSERVE_EVENTS}}))
+        self.call('Stop')
+        self.assertNotIn('queued before the upgrade', str(self.observed()))
+        self.assertEqual([r['observation'] for r in self.observed()], ['tool_call', 'turn_end'])
+        self.assertEqual(len(list(pending.parent.glob('*.rejected'))), 1)
+        with patch.dict(os.environ, ONECREW_LANG='en'):
+            line, = [(level, detail) for level, name, detail in install.doctor_facts(self.root, self.ledger.state_root, claude=None)
+                     if name == install.t('doctor.observation')]
+        self.assertEqual(line[0], 'WARN')
+        for words in ('0/9', 'hook user install --observe', 'older install', 'record nothing', 'not imported'):
+            self.assertIn(words, line[1])
+
+    def test_a_line_of_another_installed_key_is_held_a_bounded_number_of_times(self):
+        # S7 review (8): a line naming another installed key waits for that key's flush, but one whose seal never checks out is dropped in the end.
+        self.bind()
+        other = 'k' + 'o' * 42
+        install._remember_key('fixture-other-profile', session_observe.key_id(other))
+        pending = next(self.ledger.state_root.rglob('pending.jsonl'))
+        base_row = {k: v for k, v in json.loads(pending.read_text(encoding='utf-8').splitlines()[-1]).items() if k not in ('kid', 'mac')}
+        good = session_observe.sealed(dict(base_row, spool_id='other-good', hook='SubagentStart', observation='subagent_start'), other)
+        bad = dict(session_observe.sealed(dict(base_row, spool_id='other-bad'), other), observation='owner_prompt', text='FORGED held')
+        with pending.open('a', encoding='utf-8') as stream:
+            stream.write(json.dumps(good) + '\n' + json.dumps(bad) + '\n')
+        session_observe.flush(self.ledger, self.key)
+        self.assertIn('other-good', pending.read_text(encoding='utf-8'))          # held for its own key
+        self.assertEqual(session_observe.flush(self.ledger, other), 1)           # the good line: imported by its own key; the bad one rejected there
+        with pending.open('a', encoding='utf-8') as stream:                      # a bad line whose key never flushes again
+            stream.write(json.dumps(dict(bad, spool_id='other-bad-2')) + '\n')
+        for n in range(session_observe.HELD_FLUSHES + 1):
+            session_observe.flush(self.ledger, self.key)
+            left = pending.read_text(encoding='utf-8') if pending.exists() else ''
+            self.assertEqual('other-bad-2' in left, n < session_observe.HELD_FLUSHES, n)
+        self.assertNotIn('FORGED held', str(self.observed()))
+        self.assertEqual([r['spool_id'] for r in self.observed() if r.get('observation') == 'subagent_start'], [good['spool_id']])
 
     def test_only_interactive_entrypoints_are_session_input(self):
         # P2-4: an allowlist. cli, the desktop app and an absent variable are a session; print mode, the SDKs and scheduled runs are machine input.
@@ -363,7 +411,14 @@ class Observe(unittest.TestCase):
         for command in ('cat ~/.claude/settings.json', f'type "{install.user_settings_file()}"', 'Get-Content $env:USERPROFILE/.claude/settings.json'):
             with self.subTest(command=command):
                 self.assertEqual(hook_cli.judge_shell({}, self.root, self.root, command)[0], 'protected')
+        self.assertEqual(hook_cli.judge_shell({}, self.root, self.root, 'echo $(cat ~/.claude/settings.json)')[0], 'protected')
         self.assertIsNone(hook_cli.judge_shell({}, self.root, self.root, 'cat .claude/settings.json'))
+        # a mention that opens nothing is not a read (S7 review, 9): a message, a printed string, a search pattern
+        for command, ps in (('git commit -m "docs: ~/.claude/settings.json holds the key"', False), ('echo ~/.claude/settings.json', False),
+                            ('grep -n "~/.claude/settings.json" docs/x.md', False), ('rg -e ~/.claude/settings.json docs', False),
+                            ("Write-Output '~/.claude/settings.json'", True), ("Select-String -Pattern '~/.claude/settings.json' -Path docs/x.md", True)):
+            with self.subTest(command=command):
+                self.assertNotIn('Claude Code settings', str(hook_cli.judge_shell({}, self.root, self.root, command, powershell=ps)))
         rules = hook_cli.deny_rules(self.ledger.state_root)
         self.assertIn('Read(//' + str(install.user_settings_file()).replace('\\', '/').lstrip('/') + ')', rules)
         self.assertIn('Edit(//' + str(where.observation_keys_file()).replace('\\', '/').lstrip('/') + ')', rules)

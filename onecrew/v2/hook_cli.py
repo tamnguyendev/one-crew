@@ -1980,6 +1980,41 @@ def discard_verdict(plan, root, cwd, command, limited=False, powershell=False, s
 HOME_WORDS = ('~', '$home', '${home}', '$env:userprofile', '${env:userprofile}', '%userprofile%', '$env:home', '%homedrive%%homepath%')
 
 
+TEXT_ONLY = {'echo', 'printf', 'write-output', 'write-host', 'write-information', 'write-verbose'}
+PATTERN_FIRST = {'grep', 'egrep', 'fgrep', 'rg', 'findstr', 'select-string', 'sls'}
+
+
+def opening_words(segment, powershell=False):
+    """The words of one shell segment that could name a file it opens: none for a command that only prints its words (echo, Write-Output), the
+    words of git without the text of -m/--message/--grep, the words of a search command without its pattern (-e/--regexp/-Pattern value, else the
+    first word that is not an option). Anything else: every word."""
+    words = (WORDS if powershell else BASH_WORDS).findall(segment)
+    if not words or SUBSTITUTION.search(segment): return words          # `echo $(cat ...)` runs a command inside
+    head = posixpath.basename(words[0].strip('"\'').replace('\\', '/')).casefold().removesuffix('.exe')
+    if head in TEXT_ONLY: return []
+    rest, kept, skip = words[1:], [words[0]], False
+    if head == 'git':
+        for word in rest:
+            low = word.casefold()
+            if skip: skip = False; continue
+            if re.fullmatch(r'-[a-z]*m|--message|--grep', low): skip = True; continue
+            if re.match(r'-[a-z]*m.|--message=|--grep=', low): continue
+            kept.append(word)
+        return kept
+    if head in PATTERN_FIRST:
+        explicit = any(w.casefold() in ('-e', '--regexp', '-pattern') or w.casefold().startswith('--regexp=') for w in rest)
+        dropped = False
+        for word in rest:
+            low = word.casefold()
+            if skip: skip = False; continue
+            if low in ('-e', '--regexp', '-pattern'): skip = True; continue
+            if low.startswith('--regexp='): continue
+            if not explicit and not dropped and not low.startswith('-'): dropped = True; continue
+            kept.append(word)
+        return kept
+    return words
+
+
 def user_settings_mention(forms):
     """P2-1: the spelling of the user's own Claude Code settings file (~/.claude/settings*.json, $CLAUDE_CONFIG_DIR/settings*.json) that one of the
     (variant) forms of a command names, else None. Code that builds the path at run time is not seen (soft, see session_observe)."""
@@ -2017,7 +2052,11 @@ def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=Fal
     state_root = _fold(plan.get('state_root', ''))
     items = [(state_root + '/plans', ''), (state_root + '/claude-observations', 'whole'), ('policy.json', ''), ('.sqlite', ''), ('active-plan.json', ''), ('violations.jsonl', ''), ('hook-state.json', ''),
              (where.REGISTRY, ''), (where.OBSERVATION_KEYS, ''), ('.claude/settings', ''), ('.onecrew', 'whole'), ('onecrew/plans', 'start')]
-    secret = user_settings_mention(forms)        # P2-1: the user's settings file holds the observation key; even a read-only command may not name it
+    # P2-1: the user's settings file holds the observation key; even a read-only command may not open it. Only the words that could name a file
+    # count (not an echo, a commit message or a search pattern); a here-document body that is a script counts whole. A guard, not a boundary.
+    secret = next((hit for segment in shell_segments(split[0], powershell)
+                   for hit in [user_settings_mention(variants(' '.join(opening_words(segment, powershell))))] if hit), None) \
+        or user_settings_mention(variants('\n'.join(split[1])))
     if secret:
         return 'protected', f'The command names {secret}, the owner\'s Claude Code settings: it holds the key of the observation hook, so it is not read in this session.'
     for segment in shell_segments(command, powershell):         # each segment on its own: `ls; python -c "...remove(registry)"` is not read-only because its first word is

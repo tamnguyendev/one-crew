@@ -729,9 +729,13 @@ def user_hook(verb, settings_file=None, program=None, *, observe=False):
     # The permanent .bak can predate this installation. Track exactly which denies we add.
     ownership_file = path.with_name(path.name + '.onecrew-observation-rules.json')
     ownership, error = read_settings(ownership_file)
+    # P2-1 (S7 review, 5): with the observation hook, the settings file holds its key; Claude's Read tool is denied that file in every session
+    read_rule = 'Read(//' + str(path).replace('\\', '/').lstrip('/') + ')'
+    all_rules = [*hook_cli.OBSERVATION_DENY_RULES, read_rule]
+    rules = [*hook_cli.OBSERVATION_DENY_RULES, *([read_rule] if key else [])]
     if not error and ownership and (
         not isinstance(ownership.get('added'), list)
-        or any(r not in hook_cli.OBSERVATION_DENY_RULES for r in ownership['added'])
+        or any(r not in all_rules for r in ownership['added'])
         or not all(isinstance(ownership.get(k), bool) for k in ('had_permissions', 'had_deny'))
     ):
         error = f'Invalid OneCrew permission record: {ownership_file}'
@@ -741,15 +745,15 @@ def user_hook(verb, settings_file=None, program=None, *, observe=False):
     record = None
     try:
         if verb == 'install':
-            merged = merge_settings(merged, {'hooks': {}, 'permissions': {'deny': hook_cli.OBSERVATION_DENY_RULES}})
+            merged = merge_settings(merged, {'hooks': {}, 'permissions': {'deny': rules}})
             previous = data.get('permissions', {})
-            added = [r for r in hook_cli.OBSERVATION_DENY_RULES if r not in previous.get('deny', [])]
+            added = [r for r in rules if r not in previous.get('deny', [])]
             record = dict(ownership) if ownership else {'added': [], 'had_permissions': 'permissions' in data, 'had_deny': 'deny' in previous}
-            record['added'] = [r for r in hook_cli.OBSERVATION_DENY_RULES if r in record['added'] or r in added]
+            record['added'] = [r for r in all_rules if r in record['added'] or r in added]
         elif ownership and user_handlers(data):
             perms = merged.get('permissions')
             if isinstance(perms, dict) and isinstance(perms.get('deny'), list):
-                for rule in hook_cli.OBSERVATION_DENY_RULES:
+                for rule in all_rules:
                     if rule in ownership.get('added', []) and rule in perms['deny']:
                         perms['deny'].remove(rule)
                 if not perms['deny'] and not ownership.get('had_deny'):
@@ -944,11 +948,14 @@ def doctor_facts(project=None, state_root=None, exe=None, claude=claude_status):
                 add(level, 'doctor.plan', detail)
     level, detail = check_user_hook()                                  # #25
     add(level, 'doctor.user', detail)
-    present = observed_events(read_settings(user_settings_file())[0] or {}, keyed=True)      # P2-1: a handler without a registered key records nothing
+    profile = read_settings(user_settings_file())[0] or {}
+    present = observed_events(profile, keyed=True)      # P2-1: a handler without a registered key records nothing
     complete = len(present) == len(OBSERVE_EVENTS)
     coverage = f'{len(present)}/{len(OBSERVE_EVENTS)}'
     if not complete:
         coverage += ' · hook user install --observe'
+        if len(observed_events(profile)) > len(present):       # handlers of an older install (no key, or a key no longer recorded)
+            coverage += t('doctor.observation_old')
     add('PASS' if complete else 'WARN', 'doctor.observation', coverage)
     if root is not None:
         seen = last_user_call(root)

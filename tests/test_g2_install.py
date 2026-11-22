@@ -230,6 +230,12 @@ class InitTests(Base):
 
 
 class DoctorTests(Base):
+    def setUp(self):
+        super().setUp()
+        home = self.base / 'doctor-home'            # doctor reads the user's Claude Code settings: never the real profile (Base's env patch restores these)
+        (home / '.claude').mkdir(parents=True, exist_ok=True)
+        os.environ.update(HOME=str(home), USERPROFILE=str(home), CLAUDE_CONFIG_DIR=str(home / '.claude'))
+
     def doctor(self, git='/usr/bin/git', **kwargs):
         real = shutil.which
         with patch.object(install.shutil, 'which', lambda name, *a, **k: git if name == 'git' else real(name, *a, **k)):
