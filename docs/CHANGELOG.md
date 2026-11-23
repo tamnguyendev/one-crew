@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## v2.5.0.dev33 (23/11/2026): trang theo dõi theo mockup (UIMOCK), trang việc đọc đúng trạng thái (UI58), quan sát phiên Claude (OBS3), review ngoài gắn việc sửa (RM1), tệp phụ thuộc của mốc lệnh (VER60, chưa nghiệm thu), tài liệu CAT14; chủ nghiệm thu UIMOCK, UI58, OBS3, RM1 trên sổ phát triển 23/11
+
+- **UIMOCK, trang theo dõi giống mockup duyệt 19/11:**
+  - Thanh 4 mục (thanh dưới trên điện thoại), nút i / ? / giao diện sáng-tối, chú thích và giới hạn.
+  - Tổng quan: 7 chip cần chú ý, thẻ phiên, thẻ dự án, biểu đồ 14 ngày, việc nền và khóa dùng chung.
+  - Công việc: danh sách một dòng mỗi việc, 6 chip trạng thái có số; trang việc có 4 ô (Đầu ra / Còn tin được? / Bước tiếp / Bạn quyết) và các hàng "Xem sau" thay cho thẻ; mở việc nguội khoảng 1 giây.
+  - Danh sách đang đọc thì nói bằng chữ; trình duyệt đóng kết nối giữa chừng không in lỗi ra cửa sổ của chủ.
+- **UI58, trang việc đọc đúng trạng thái:** mỗi lần kiểm đạt được so với dự án hiện tại như `plan report`; lần đạt mà mã đã đổi ghi "Cần kiểm lại", không tính; hết giờ ghi "Chưa kết luận" kèm lý do; bước kế của chủ nói đúng là của chủ.
+- **OBS3, quan sát phiên Claude (chỉ khi cài hook với quan sát):**
+  - Chỉ ghi cho phiên chạy trong một dự án có trong danh sách dự án của hook trên máy đó, không phải mọi phiên.
+  - Ghi lời chủ gõ (đã lọc), câu AI hỏi và lựa chọn, tên lệnh chạy nền, đường dẫn tệp ghi ra ngoài dự án, lúc bắt đầu/kết thúc; không ghi nội dung tệp hay kết quả lệnh; mỗi dòng nhãn "chưa xác thực".
+  - Trang việc có hướng đi của việc gắn với quyết định.
+- **RM1:** kết quả review ngoài gắn với việc sửa đúng phạm vi và lần kiểm lại; mở lại trang việc theo phạm vi; giữ thứ tự hàng đợi khóa qua các bước engine; thời gian chờ chủ không tính vào ngân sách.
+- **VER60 (chưa nghiệm thu):** lint nhắc khai `inputs` cho mốc lệnh; mốc lệnh có khai `inputs` giữ lần đạt khi chỉ tệp ngoài phạm vi đổi (mốc không khai vẫn dùng cả cây như trước); `track copy-view` xem giao diện trên bản sao sổ.
+- **CAT14:** tài liệu bắt đầu lại, README và hướng dẫn cài đặt cập nhật.
+- **Test:** một test trình duyệt cũ (OBS-2C) đưa theo bố cục mockup, mọi khẳng định giữ, mã sản phẩm không đổi.
+- **Kiểm:** UIMOCK, UI58, OBS3, RM1 do chủ nghiệm thu trên sổ phát triển 23/11. Lần đầu chạy toàn bộ test cho một bản 2.5, chia ba phần, so từng ca đỏ với nền dev31 đo cùng cách; kết quả và tên các test đỏ sẵn có trong ghi chú phát hành.
+- **Giới hạn đã biết:** dọn thư mục tạm có thể xóa nhầm bản kiểm đang chạy; đường dẫn sâu làm hỏng ghi dấu vết kiểm ("cannot lock ref"); dòng "Chưa xác nhận được kết quả" của CLI; VER60 chưa nghiệm thu.
+
 ## v2.5.0.dev31 (19/11/2026): theo dõi việc nền (#55 BG-A), không review trùng (#36), khóa tài nguyên dùng chung (#32), giao skill cho worker (#41); chủ nghiệm thu DEV31 trên sổ phát triển 19/11
 
 - **#55 BG-A, theo dõi subagent và việc nền:**
