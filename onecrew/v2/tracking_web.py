@@ -152,14 +152,19 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
         def _send(self, status, body, content_type='application/json; charset=utf-8'):
             # R3: every JSON body (model, health, error) passes the outbound guard; the model was already guarded, so that part is a no-op
             data = body if isinstance(body, bytes) else json.dumps(tracking.outward(body), ensure_ascii=False, default=str).encode('utf-8')
-            self.send_response(status)
-            self.send_header('Content-Type', content_type)
-            self.send_header('Content-Length', str(len(data)))
-            self.send_header('Cache-Control', 'no-store')
-            self.send_header('X-Content-Type-Options', 'nosniff')
-            self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self'; frame-ancestors 'self'")
-            self.end_headers()
-            self.wfile.write(data)
+            try:
+                self.send_response(status)
+                self.send_header('Content-Type', content_type)
+                self.send_header('Content-Length', str(len(data)))
+                self.send_header('Cache-Control', 'no-store')
+                self.send_header('X-Content-Type-Options', 'nosniff')
+                self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self'; frame-ancestors 'self'")
+                self.end_headers()
+                self.wfile.write(data)
+            except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+                # the browser went away mid-answer (tab closed, fetch aborted): not a source error, so no traceback on the owner's console,
+                # no count in stats['errors'] and no 503 on a connection that is already closed
+                self.close_connection = True
 
         def _html(self, body):
             if not comparison:
