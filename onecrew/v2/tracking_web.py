@@ -131,6 +131,14 @@ class _ViewerServer(ThreadingHTTPServer):
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         super().server_bind()
 
+    def handle_error(self, request, client_address):
+        # owner 23/11 ("sua not"): a browser that goes away (tab closed, fetch aborted, an idle keep-alive connection dropped) while this
+        # server reads a request or waits for the next one is not an error of the viewer: no traceback on the owner's console. Any other
+        # exception is still printed as before.
+        if isinstance(sys.exc_info()[1], (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
+
 
 def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0, idle_exit=None, instance=None, comparison=True):
     state_root = Path(state_root).resolve()
