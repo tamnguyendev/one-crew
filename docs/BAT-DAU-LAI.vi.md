@@ -1,4 +1,4 @@
-# Bắt đầu lại OneCrew 2.5.0.dev30 (phiên mới / đổi tài khoản / đổi máy)
+# Bắt đầu lại OneCrew 2.5.0.dev31 (phiên mới / đổi tài khoản / đổi máy)
 
 ## 1. OneCrew là gì
 Hợp đồng công việc cho AI: AI chỉ làm trong một hợp đồng (plan) mà chủ sở hữu đã duyệt, mọi mốc phải có verdict độc lập, và chỉ con người nghiệm thu. Sáu bất biến cứng:
@@ -7,16 +7,16 @@ Hợp đồng công việc cho AI: AI chỉ làm trong một hợp đồng (plan
 Có gì trong từng bản và giới hạn: [CHANGELOG.md](CHANGELOG.md) và [ghi chú phát hành trên GitHub](https://github.com/tamnguyendev/one-crew/releases). Lỗi đã biết: [LOI-DA-BIET.vi.md](obs2/su-dung/LOI-DA-BIET.vi.md). Chi tiết thiết kế: `v2-step0.vi.md`, `v2-reviewer.vi.md`, `v2-advisor.vi.md`, `v2-l2-hooks.vi.md`, `v2-report.vi.md`.
 
 ## 2. Chương trình, sổ và hook nằm đâu (máy này)
-- **Chương trình:** `D:\OneCrewRuns\runtime-dev30\Scripts\onecrew.exe` — venv Python 3.13 cài wheel 2.5.0.dev30 đã phát hành (tag `v2.5.0.dev30`). Không xoá hay sửa venv này: hook người dùng chạy nó, và hook hỏng thì mọi lệnh của mọi phiên Claude trên máy bị chặn.
+- **Chương trình:** `D:\OneCrewRuns\runtime-dev31\Scripts\onecrew.exe` — venv Python 3.13 cài wheel 2.5.0.dev31 đã phát hành (tag `v2.5.0.dev31`). Không xoá hay sửa venv này: hook người dùng chạy nó, và hook hỏng thì mọi lệnh của mọi phiên Claude trên máy bị chặn. `D:\OneCrewRuns\runtime-dev30` (bản 2.5.0.dev30) được giữ để quay lại, và vì hook của một số dự án vẫn chạy nó.
 - **Sổ thật:** `D:\TamNT\Workspace\11.OneCrew\state-v2-real` = `ledger.sqlite3` (sổ cái), `plans\` (hợp đồng, `owner-rules.md`), `snapshots\blobs` (biên lai). Các dự án thật (SRM, cts-port, PhòngKhám…) ghi vào sổ này; mỗi dự án có hook riêng chạy runtime của nó, nâng runtime cho dự án là một việc riêng.
 - **Sổ phát triển OneCrew:** `D:\OneCrewRuns\onecrew-development\state`, dùng cho các hợp đồng sửa chính OneCrew. Khi chạy lệnh cho sổ này, đặt `LOCALAPPDATA=D:\OneCrewRuns\onecrew-development\machine\local` và `APPDATA=D:\OneCrewRuns\onecrew-development\machine\roaming` để registry tách khỏi registry thật.
 - **Trong mỗi dự án:** `.onecrew/config.json` (sổ của dự án), `.onecrew/active-plan.json` (bản xuất của plan đang chạy, hook đọc file này), `.claude/settings.local.json` (hook dự án). Các tệp này do `onecrew init` ghi, git bỏ qua.
-- **Hook người dùng** (cài 18/11/2026): `~\.claude\settings.json` có hook PreToolUse trỏ tới runtime ở trên, cài bằng `hook user install`. Mọi phiên Claude Code trên máy, kể cả subagent và phiên mở ngoài dự án, bị plan của dự án đích xét khi ghi vào một dự án đang enforce. Xem trạng thái: `hook user status`. Gỡ: chủ chạy `D:\OneCrewRuns\trien-khai-25\go-hook-nguoi-dung-dev30.ps1`.
+- **Hook người dùng** (cài 18/11/2026 với dev30, chuyển sang dev31 ngày 19/11/2026): `~\.claude\settings.json` có hook PreToolUse trỏ tới runtime ở trên, cài bằng `hook user install`. Mọi phiên Claude Code trên máy, kể cả subagent và phiên mở ngoài dự án, bị plan của dự án đích xét khi ghi vào một dự án đang enforce. Xem trạng thái: `hook user status`. Trỏ hook về lại dev30: chủ chạy `D:\OneCrewRuns\trien-khai-31\quay-ve-dev30.ps1`. Gỡ hẳn: chủ chạy `D:\OneCrewRuns\trien-khai-25\go-hook-nguoi-dung-dev30.ps1`.
 - **Registry dự án:** `%LOCALAPPDATA%\OneCrew\hook-projects.json` (dự án → sổ); hook tự ghi dự án có `.onecrew/config.json` mà nó gặp.
 
 ## 3. Cách chạy
 ```
-D:\OneCrewRuns\runtime-dev30\Scripts\onecrew.exe --project <repo> --state-root <sổ> <nhóm> <lệnh> ...
+D:\OneCrewRuns\runtime-dev31\Scripts\onecrew.exe --project <repo> --state-root <sổ> <nhóm> <lệnh> ...
 ```
 - Gắn một repo vào sổ: `onecrew init` (ghi `.onecrew/config.json`, hook dự án, khung wiki; hỏi trước khi ghi). Kiểm máy và repo: `onecrew doctor` (mỗi dòng PASS/WARN/FAIL).
 - Nhóm chính: `plan` (`lint`, `propose`, `show`, `advise`, `amend`, `report`, `digest`), `verdict` (`run`, `artifact`, `status`), `owner` (động từ của chủ, mục 5), `hook` (`check`, `export`, `user`), `track` (`open`: trang theo dõi), `wiki`. Xem hết: `onecrew --help` và `<nhóm> --help`.
@@ -63,14 +63,14 @@ Trong chế độ enforce, Claude chạy hook quan sát qua cấu hình hook. N�
 Trong đúng dự án và sổ đang dùng, chạy `onecrew track open --plan RM1` để mở việc RM1. Lưu lại lệnh này để dùng sau khi trang tự thoát. Nếu dùng sổ riêng, giữ `--project` và `--state-root` trước `track`. Thêm `--port 8765` để giữ một cổng cho bookmark. Với `--no-browser`, trường `task_url` dẫn tới việc, `url` dẫn tới đầu trang. Lệnh chỉ mở viewer cục bộ.
 
 Khi engine chờ tài nguyên đã khai báo, vị trí trong hàng đợi gắn với sổ, việc và thế hệ của bước. Mở phần tài nguyên dùng chung hoặc chạy `python -m onecrew.resource_lease status` để xem ai giữ và ai chờ. Nếu một lượt đã mất liên lạc, Supervisor ghi xác nhận cây tiến trình đã dừng qua `Control.finish` cho đúng attempt và generation. `python -m onecrew.resource_lease reconcile` đối chiếu sổ và chuyển lượt khi có bằng chứng. Việc chạy lại reconcile giữ nguyên kết quả đã ghi.
-- Chỗ làm việc: worktree `D:\TamNT\Workspace\11.OneCrew\wf-dev30` (nhánh `claude/dev30`, tách từ `main` = 2.5.0.dev30), đã `onecrew init` vào sổ phát triển; hook giám sát chạy runtime dev30 đã phát hành, không chạy mã đang sửa.
+- Chỗ làm việc: worktree `D:\TamNT\Workspace\11.OneCrew\wf-dev30` (nhánh `claude/dev30`, tách từ `main` = 2.5.0.dev30; `main` hiện là 2.5.0.dev31), đã `onecrew init` vào sổ phát triển. Hook dự án của worktree chạy runtime dev30 đã phát hành, hook người dùng chạy runtime dev31; không hook nào chạy mã đang sửa.
 - Thư mục `D:\TamNT\Workspace\11.OneCrew\onecrew` giữ nhánh `main`. Các worktree cũ đã gỡ ngày 18/11/2026; thay đổi dở của chúng lưu ở `D:\OneCrewRuns\luu-tru-worktree-20261118`.
 - Phát hành: commit phát hành đổi version, dựng wheel một lần, chủ chạy script phát hành (push, tag, prerelease); AI không push hay tag.
-- Việc đang chờ: chặn `pkill`/`killall` và `perl -i` trong hook; chạy lại bước 3–5 của `docs/GETTING-STARTED.en.md` trên dev30.
+- Việc đang chờ: chặn `pkill`/`killall` và `perl -i` trong hook; chạy lại bước 3–5 của `docs/GETTING-STARTED.en.md` trên dev31; phần còn lại của #55, #32 (xem ghi chú phát hành dev31); đã cất ngày 23/11/2026 (đóng, not planned): #36, #41 cùng 12 issue roadmap khác, xem mục lục #54.
 
 ## 7. Đổi tài khoản / đổi máy: chép gì
 - **Hai sổ** nguyên thư mục: sổ thật `D:\TamNT\Workspace\11.OneCrew\state-v2-real` và sổ phát triển `D:\OneCrewRuns\onecrew-development\state` — mất sổ là mất lịch sử, hợp đồng và biên lai.
-- **Mã nguồn:** clone `https://github.com/tamnguyendev/one-crew` (nhánh `main`, tag `v2.5.0.dev30`). **Wiki dùng chung:** `D:\TamNT\Workspace\11.OneCrew\outputs\onecrew-as-qc\wiki`.
+- **Mã nguồn:** clone `https://github.com/tamnguyendev/one-crew` (nhánh `main`, tag `v2.5.0.dev31`). **Wiki dùng chung:** `D:\TamNT\Workspace\11.OneCrew\outputs\onecrew-as-qc\wiki`.
 - **Bộ nhớ Claude:** thư mục memory của project trong `~\.claude\projects\`.
 - Máy mới: tải wheel từ trang phát hành, kiểm SHA256 với `SHA256SUMS`, tạo venv và cài wheel; chạy `claude login`; `onecrew init` cho từng dự án; `hook user install` nếu muốn hook người dùng. Đường dẫn máy cũ nằm trong plan đã duyệt và `active-plan.json` (trường `project`, `state_root`), nên đổi đường dẫn nghĩa là chủ sở hữu duyệt lại plan đang mở.
 - Phiên mới của Claude: đọc `CLAUDE.md` ở gốc repo, rồi `plan digest`.

@@ -1,11 +1,11 @@
-# OneCrew 2.5.0.dev30 — hướng dẫn cho Claude
+# OneCrew 2.5.0.dev31 — hướng dẫn cho Claude
 
 OneCrew là hợp đồng công việc cho AI: AI chỉ làm trong plan đã được chủ sở hữu duyệt, mốc cần verdict độc lập, chỉ con người nghiệm thu.
 
 ## Khi vào phiên mới
 1. Đọc `docs/BAT-DAU-LAI.vi.md` (là gì, chương trình và sổ nằm đâu, quy trình, động từ của chủ sở hữu, đổi máy).
 2. Chạy `plan digest` trên sổ thật để biết plan nào đang mở:
-   `D:\OneCrewRuns\runtime-dev30\Scripts\onecrew.exe --project <repo> --state-root D:\TamNT\Workspace\11.OneCrew\state-v2-real plan digest`
+   `D:\OneCrewRuns\runtime-dev31\Scripts\onecrew.exe --project <repo> --state-root D:\TamNT\Workspace\11.OneCrew\state-v2-real plan digest`
    Việc phát triển chính OneCrew dùng sổ phát triển `D:\OneCrewRuns\onecrew-development\state` (xem mục 2 của BAT-DAU-LAI).
 3. Nếu repo có `.onecrew/active-plan.json`, đọc nó trước: hook chặn mọi thứ ngoài hợp đồng đó.
 4. Đọc `D:\TamNT\Workspace\11.OneCrew\state-v2-real\plans\owner-rules.md` (sổ phát triển có `plans\owner-rules.md` riêng) trước khi đề xuất hay trình bày bất cứ gì.
@@ -27,7 +27,7 @@ OneCrew là hợp đồng công việc cho AI: AI chỉ làm trong plan đã đ�
 - Không `git push`, không `git tag`, không phát hành từ phiên AI.
 
 ## Phát triển chính OneCrew
-- Làm trong worktree `D:\TamNT\Workspace\11.OneCrew\wf-dev30` (nhánh `claude/dev30`, tách từ `main` = 2.5.0.dev30). Thư mục `D:\TamNT\Workspace\11.OneCrew\onecrew` giữ nhánh `main`.
-- Hook giám sát chạy runtime đã phát hành `D:\OneCrewRuns\runtime-dev30`, không chạy mã đang sửa trong worktree.
+- Làm trong worktree `D:\TamNT\Workspace\11.OneCrew\wf-dev30` (nhánh `claude/dev30`, tách từ `main` = 2.5.0.dev30; `main` hiện là 2.5.0.dev31). Thư mục `D:\TamNT\Workspace\11.OneCrew\onecrew` giữ nhánh `main`.
+- Hook giám sát của worktree (hook dự án) chạy runtime đã phát hành `D:\OneCrewRuns\runtime-dev30`; hook người dùng của máy chạy `D:\OneCrewRuns\runtime-dev31`. Không hook nào chạy mã đang sửa trong worktree.
 
 Hợp đồng nhập cũ (OneCrew v1, chuỗi job) vẫn nằm ở `AGENTS.md`.

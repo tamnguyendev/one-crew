@@ -1,6 +1,6 @@
 # Getting started with OneCrew
 
-This walkthrough targets **Windows and OneCrew `2.5.0.dev30`**, the current beta. Start with a disposable Git project and a separate ledger. You do not need to move an existing project's hooks or state to try it.
+This walkthrough targets **Windows and OneCrew `2.5.0.dev31`**, the current beta. Start with a disposable Git project and a separate ledger. You do not need to move an existing project's hooks or state to try it.
 
 You need PowerShell 5.1+, Python 3.10+ with the `py` launcher, Git 2.40+, and a working, authenticated Claude Code CLI. `py -0p`, `git --version`, and `claude --version` help check installed tools. Real assistant work uses your provider account and may incur charges under that account.
 
@@ -10,7 +10,7 @@ Terms used here: a **plan** is the agreed scope and checks; a **milestone** is a
 
 ## 1. Download and install
 
-From the [dev30 release](https://github.com/tamnguyendev/one-crew/releases/tag/v2.5.0.dev30), download `onecrew-2.5.0.dev30-py3-none-any.whl` and `SHA256SUMS`.
+From the [dev31 release](https://github.com/tamnguyendev/one-crew/releases/tag/v2.5.0.dev31), download `onecrew-2.5.0.dev31-py3-none-any.whl` and `SHA256SUMS`.
 
 Also download the [English first-task template](../examples/hello-onecrew.template.json) using GitHub's **Raw / Download raw file** control, and save it as `hello-onecrew.template.json` beside the wheel. Download the JSON content, not the HTML page. It is documentation supplied here, not an extra release asset.
 
@@ -18,15 +18,15 @@ Open PowerShell in that download directory and verify the published wheel hash:
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$Wheel = (Resolve-Path '.\onecrew-2.5.0.dev30-py3-none-any.whl').Path
+$Wheel = (Resolve-Path '.\onecrew-2.5.0.dev31-py3-none-any.whl').Path
 $TemplateDownload = (Resolve-Path '.\hello-onecrew.template.json').Path
-$Expected = '5b46f1a49a70254feecd6312b4e79066f06a6e993795f00b32e11e97ae46c6b8'
+$Expected = '1e0a5f9704b54fe90b580d58d01c1267b828a34dcaeb4743764db85fddadd892'
 if ((Get-FileHash -Algorithm SHA256 -LiteralPath $Wheel).Hash -ne $Expected) {
     throw 'Wheel checksum mismatch. Do not install this file.'
 }
 ```
 
-Compare the value with the release's `SHA256SUMS` too. This hash is for dev30, not the separate MR-R wheel.
+Compare the value with the release's `SHA256SUMS` too. This hash is for dev31, not the separate MR-R wheel.
 
 Create a new environment. Keep these variables in the same PowerShell window for the walkthrough:
 
@@ -48,7 +48,7 @@ Get-Content -Raw -LiteralPath $ContractTemplate | ConvertFrom-Json | Out-Null
 $env:ONECREW_LANG = 'en'
 ```
 
-Expected: `onecrew 2.5.0.dev30`. Hooks reference this executable by path, so keep the venv in place while using them.
+Expected: `onecrew 2.5.0.dev31`. Hooks reference this executable by path, so keep the venv in place while using them.
 
 Stop on any error. If the template fails JSON parsing, download the raw JSON again. `ONECREW_LANG=en` selects English for translated commands; it does not translate every UI message. The guide uses JSON owner-command output because the beta's `--human` formatter still includes Vietnamese text.
 
@@ -227,7 +227,7 @@ An upgrade is separate from this fresh-install walkthrough. Inventory every proj
 4. Test the supported migration path before switching consumers. A copied ledger can still contain original project paths; changing `--project` alone does not establish isolation.
 5. Switch only when migration preconditions are satisfied, then verify hooks, task continuation, and recovery.
 
-Do not close plans just to pass an upgrade check, or assume an old runtime can safely read state written by a newer one. Keep the old environment and backup until the transition is verified. The [existing-project guide](obs2/su-dung/REPO-DANG-DUNG-ONECREW.vi.md) is a version-specific Vietnamese reference; some commands target dev10 and are not a dev30 migration recipe.
+Do not close plans just to pass an upgrade check, or assume an old runtime can safely read state written by a newer one. Keep the old environment and backup until the transition is verified. The [existing-project guide](obs2/su-dung/REPO-DANG-DUNG-ONECREW.vi.md) is a version-specific Vietnamese reference; some commands target dev10 and are not a dev31 migration recipe.
 
 ## Removing a demo
 
