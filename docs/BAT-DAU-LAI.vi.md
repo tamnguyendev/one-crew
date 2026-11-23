@@ -42,7 +42,7 @@ R1 chỉ build DEBUG khi đang phát triển, RELEASE là bước giao riêng sa
 - Chỗ làm việc: worktree `D:\TamNT\Workspace\11.OneCrew\wf-dev30` (nhánh `claude/dev30`, tách từ `main` = 2.5.0.dev30; `main` hiện là 2.5.0.dev31), đã `onecrew init` vào sổ phát triển. Hook dự án của worktree chạy runtime dev30 đã phát hành, hook người dùng chạy runtime dev31; không hook nào chạy mã đang sửa.
 - Thư mục `D:\TamNT\Workspace\11.OneCrew\onecrew` giữ nhánh `main`. Các worktree cũ đã gỡ ngày 18/11/2026; thay đổi dở của chúng lưu ở `D:\OneCrewRuns\luu-tru-worktree-20261118`.
 - Phát hành: commit phát hành đổi version, dựng wheel một lần, chủ chạy script phát hành (push, tag, prerelease); AI không push hay tag.
-- Việc đang chờ: chặn `pkill`/`killall` và `perl -i` trong hook; chạy lại bước 3–5 của `docs/GETTING-STARTED.en.md` trên dev31; phần còn lại của #55, #36, #32, #41 (xem ghi chú phát hành dev31).
+- Việc đang chờ: chặn `pkill`/`killall` và `perl -i` trong hook; chạy lại bước 3–5 của `docs/GETTING-STARTED.en.md` trên dev31; phần còn lại của #55, #32 (xem ghi chú phát hành dev31); đã cất ngày 23/11/2026 (đóng, not planned): #36, #41 cùng 12 issue roadmap khác, xem mục lục #54.
 
 ## 7. Đổi tài khoản / đổi máy: chép gì
 - **Hai sổ** nguyên thư mục: sổ thật `D:\TamNT\Workspace\11.OneCrew\state-v2-real` và sổ phát triển `D:\OneCrewRuns\onecrew-development\state` — mất sổ là mất lịch sử, hợp đồng và biên lai.
