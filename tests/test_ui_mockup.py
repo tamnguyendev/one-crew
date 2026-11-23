@@ -100,6 +100,17 @@ class Mockup(unittest.TestCase):
         self.assertEqual(js('typeof shellInit'), 'function')                                        # the shell does not run without a document
         self.assertNotIn('@@', tracking_web._page(2).replace('@@INTERVAL@@', ''))
 
+    def test_the_list_placeholder_says_in_words_that_the_list_is_still_being_read(self):
+        # 23/11: the task tiles paint before the list (0f26e35); a text-less grey placeholder let a person, and a screenshot that waits until the page
+        # no longer says "đang đọc/tải", take the empty rows for the list. The words say "đang đọc", not "đang tải": the open-time clock stops when the
+        # four tiles are on screen and the page does not say "đang tải", so the list still being read does not count as the task being slow to open.
+        box = re.search(r'<div id="empty">(.*?)</div>', tracking_web._page(2), re.S)
+        self.assertTrue(box, 'the list placeholder is on the page')
+        words = re.sub(r'<[^>]+>', ' ', box.group(1)).strip()
+        self.assertTrue(re.search(r'đang (đọc|tải)', words, re.I), words)
+        self.assertRegex(words, r'(?i)đang đọc danh sách')
+        self.assertNotRegex(words, r'(?i)đang tải')
+
     # ---- the work list ----------------------------------------------------------------------------------------------------------------
 
     def test_list_rows_are_one_line_with_icon_bar_and_age(self):
