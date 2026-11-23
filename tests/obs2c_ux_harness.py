@@ -41,6 +41,9 @@ if(S==='obs2c'){
   await settle('spawned filter',()=>F().source==='spawned'&&rowsNow().length===1);
   check('the spawned filter lists the work that holds a repair',rowsNow().length===1&&planOf(rowsNow()[0])==='REPAIR'&&rowsNow()[0].textContent.includes('1 việc sửa'));
   rowsNow()[0].click();
+  // UIMOCK layout (227e870): the relation section lives in the 'Xem sau' row 'scope' (the old tabs became rows); open it as a reader would
+  await settle('scope row',()=>$('#detail details[data-k="deep-scope"]'));
+  {const dd=$('#detail details[data-k="deep-scope"]');dd.open=true;dd.dispatchEvent(new w.Event('toggle'))}
   await settle('repair detail',()=>$('#relations [data-relation^="repair:"]')&&$('#relations [data-relation^="child:"]')&&$('#relations').textContent.includes('Nối với việc gốc: REPAIR'));
   const rel=$('#relations'),words=['Việc sửa','Lý do','Từ lần kiểm không đạt','Nối với việc gốc: REPAIR'];
   out.relations={sections:$$('#relations').length,repairs:$$('#relations [data-relation^="repair:"]').length,children:$$('#relations [data-relation^="child:"]').length,tab:(w.__track.state().selected||{}).plan,tail:rel?rel.textContent.slice(-900):null};
@@ -66,10 +69,10 @@ if(S==='obs2c'){
   check('the unknown source lists only work nobody recorded as assigned',rowsNow().length>0&&rowsNow().every(li=>li.querySelector('.org.unknown')));
   choose('#origin','');
   await settle('source cleared',()=>!F().source&&rowsNow().length===50);
-  const chip=$('#chips [data-kind="ended"]');
+  const chip=$('#chips [data-fchip="g_done"]');   // UIMOCK layout: the finished view is the 'Xong' status chip (was data-kind="ended")
   check('the finished view is one click',!!chip);
   if(chip)chip.click();
-  await settle('finished',()=>F().stage==='ended'&&rowsNow().length===2);
+  await settle('finished',()=>F().stage==='g_done'&&rowsNow().length===2);   // the server echoes the 'Xong' group as stage g_done (was 'ended')
   const closed=rowsNow().find(li=>planOf(li)==='CLOSED'),acc=rowsNow().find(li=>planOf(li)==='ACCEPTED');
   check('finished lists the accepted and the closed work',!!closed&&!!acc);
   check('closed is not shown as a success',!!closed&&!!closed.querySelector('.stg.closed')&&!closed.querySelector('.stg.done')&&!/nghiệm thu/i.test(closed.querySelector('.stg').textContent));
