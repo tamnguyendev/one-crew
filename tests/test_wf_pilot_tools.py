@@ -11,11 +11,14 @@
 * supp-run: supplementary checks run on a fixture "final wheel" (bytes written by the test), receipts read back through finalgate.Evidence.
 No pilot, provider or owner decision is used or claimed.
 """
+import datetime as dt
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
 import test_wf_r03a_metrics as r03
@@ -280,9 +283,15 @@ class AggregateGeneratorTests(r03.ThreeRoots):
         body = {'kind': 'command-receipt', 'plan': name, 'revision': revision, 'milestone': 'M1', 'argv': r03.OK, 'exit_code': 0 if result == 'pass' else 3,
                 'timed_out': False, 'error': None, 'artifact_sha': self.tree(), 'artifact_sha_after': self.tree(), 'plan_sha': sha, 'seconds': seconds}
         blob = Snapshots(ledger.state_root).blob(canonical(body).encode('utf-8'))
+        # RM1 (8a131b7): a receipt counts at acceptance only when paired with the run that issued it (as tests/v2_fixture.py issue() does)
+        attempt = {'plan': name, 'revision': revision, 'milestone': 'M1', 'run_id': uuid.uuid4().hex[:12]}
+        now = dt.datetime.fromisoformat(self.clock())          # the fixture's fake clock: the run starts and ends at the verdict's minute
         with ledger.transaction(write=True) as conn:
-            plans.emit(ledger, conn, plans.derive(ledger, conn, name)['task_id'], 'verdict.receipt_issued',
-                       {'plan': name, 'revision': revision, 'milestone': 'M1', 'receipt': blob})
+            task = plans.derive(ledger, conn, name)['task_id']
+            plans.emit(ledger, conn, task, 'verdict.run_started',
+                       dict(attempt, kind='command', pid=os.getpid(), host='fixture', max_minutes=1, started=now.isoformat(),
+                            deadline=(now + dt.timedelta(minutes=1)).isoformat()))
+            plans.emit(ledger, conn, task, 'verdict.receipt_issued', dict(attempt, receipt=blob))
         return blob
 
     def check(self, ledger, name, result, seconds, revision=1):

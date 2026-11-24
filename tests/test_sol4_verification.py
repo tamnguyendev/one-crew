@@ -139,7 +139,7 @@ class CandidateCases(LoopFixture):
 class AdapterReuse(LoopFixture):
     paths = e2e.DocumentDataCase.paths
     bad = e2e.DocumentDataCase.good
-    milestones = e2e.DocumentDataCase.milestones
+    milestones = e2e.DocumentDataCase.milestones + (milestone('Delivery'),)   # owner 21/11 "final": the last check re-runs, so it is not Doc/Data
     prepare = e2e.DocumentDataCase.prepare
 
     def test_document_and_data_use_the_same_authentic_handoff_reuse(self):
@@ -154,11 +154,19 @@ class AdapterReuse(LoopFixture):
                 observed = next(m for m in result['milestones'] if m['id']==mid)
                 self.assertEqual(observed['state'], 'passed', observed)
             calls.assert_not_called()
+        with patch.object(port, 'run', wraps=port.run) as calls, patch.object(command, 'run', wraps=command.run) as checked_delivery:
+            result = verdict.run(self.ledger, 'P1', 'Delivery')                    # the delivery milestone is verified on the full tree, never reused
+            self.assertEqual(next(m for m in result['milestones'] if m['id'] == 'Delivery')['state'], 'passed')
+            self.assertEqual(checked_delivery.call_count, 1)
+            calls.assert_not_called()
         with patch.dict(os.environ, {'ONECREW_ACTOR': 'owner'}):
             self.assertEqual(plan.accept(self.ledger, 'P1', 'owner', 'temporary adapter fixture', delivered['artifact'])['status'], 'accepted')
 
 
 class ReviewerReuse(reviewer_fixture.CandidateReviewerFixture):
+    def milestones(self):                    # owner 21/11 "final": the last check re-runs, so the reviewer milestone under test is not the last
+        return super().milestones() + [milestone('Delivery')]
+
     def test_reviewer_reuse_preserves_real_call_proof_without_new_charge(self):
         from onecrew.v2.verifiers import reviewer
         self.produce()
@@ -178,3 +186,8 @@ class ReviewerReuse(reviewer_fixture.CandidateReviewerFixture):
         self.assertEqual((proof['calls'], proof['new_calls']), (1, 0))
         recorded = [p for k, p in self.events() if k == 'verdict.recorded' and p['milestone'] == 'M2'][-1]
         self.assertEqual(recorded['calls'], 0)
+        with patch.object(reviewer, 'call', side_effect=self.fake_call(calls)), patch.object(command, 'run', wraps=command.run) as checked_delivery:
+            shown = verdict.run(self.ledger, 'P1', 'Delivery')                     # the delivery milestone is verified again, with no model call
+            self.assertEqual(checked_delivery.call_count, 1)
+        self.assertEqual(next(m for m in shown['milestones'] if m['id'] == 'Delivery')['state'], 'passed')
+        self.assertEqual(len(calls), 1)

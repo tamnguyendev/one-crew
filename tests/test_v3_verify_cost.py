@@ -482,7 +482,8 @@ class LintRules(Fixture, Cli):
         reasons, _ = self.check(size_m())
         self.assertEqual(self.codes(reasons), ['unknowns_missing'])
         value = size_m(); value['understanding']['no_unknowns_because'] = 'read a.txt:1: one line, one path, nothing open'
-        self.assertEqual(self.check(value), ([], []))
+        # RM1 (c4190d9): a size-M contract is clean and carries exactly one warning, the advice the owner sees before approving
+        self.assertEqual(self.check(value), ([], [('advice_required', 'Trước khi chủ duyệt, chạy onecrew plan advise <tên kế hoạch>.')]))
         value['understanding']['unknowns'] = []
         self.assertEqual(contracts.validate(value)['understanding']['no_unknowns_because'], 'read a.txt:1: one line, one path, nothing open')
         self.assertEqual(self.codes(self.check(sourced(plan_json()))[0]), [])

@@ -79,6 +79,12 @@ class MilestoneProgress(fixtures.Fixture):
         self.assertNotIn('accept',[n['kind'] for n in t['needs_user']])
         # 13/11: the two passes are on different artifacts: the model says Chờ kiểm with the acceptance rule's reason, never acceptance
         self.assertEqual(self.run_js('workStage('+json.dumps(t)+')'),'check')
-        self.assertEqual(t['situation']['reason'],t['acceptance']['reason'])                # the acceptance rule's own words, not a guess
+        # UI58 (58d0e9a): the task page judges each pass against the project now, as plan report does: M1's pass on the earlier artifact is not
+        # counted and the page says so in its own words (with VER60's order note); the acceptance block gives no reason of its own (it is not ready)
+        self.assertEqual((t['situation']['stage'],t['situation']['label'],t['situation']['next']),('check','Cần kiểm lại','Kiểm lại mốc M1'))
+        self.assertEqual(t['situation']['reason'],'Mốc M1 từng đạt trên bản trước, cần kiểm lại trên bản đang xem: lần đạt trước không còn được tính'
+                         ' vì bằng chứng không còn khớp bản hiện tại (mã đã đổi sau lần kiểm). Mốc cũ vẫn cho chạy mốc sau.'
+                         ' Kiểm lại một lần trên cây cuối trước khi nghiệm thu.')
+        self.assertEqual((t['acceptance']['ready'],t['acceptance']['reason']),(False,None))
         self.assertNotEqual(t['situation']['next_by'],'owner')
         self.assertEqual(before,(self.ledger.state_root/'ledger.sqlite3').read_bytes())

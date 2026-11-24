@@ -9,6 +9,8 @@ are worked out by hand from this timeline, not by the code under test:
   P3  11:00 propose   11:01 approve   11:05 FAIL (10 s)   11:10 FAIL (10 s) -> stopped, owner question opened 11:10
       11:40 owner answers (30 minutes of waiting)   11:45 amend   11:46 approve rev 2   11:50 PASS (5 s)   11:52 accept
 """
+import datetime as dt
+import uuid
 import json
 import os
 import sys
@@ -73,9 +75,15 @@ class ThreeRoots(Fixture):
         body = {'kind': 'command-receipt', 'plan': name, 'revision': revision, 'milestone': 'M1', 'argv': OK, 'exit_code': 0 if result == 'pass' else 3,
                 'timed_out': False, 'error': None, 'artifact_sha': self.tree(), 'artifact_sha_after': self.tree(), 'plan_sha': sha, 'seconds': seconds}
         blob = Snapshots(self.ledger.state_root).blob(canonical(body).encode('utf-8'))
+        # RM1 (8a131b7): a receipt counts at acceptance only when paired with the run that issued it (as tests/v2_fixture.py issue() does)
+        attempt = {'plan': name, 'revision': revision, 'milestone': 'M1', 'run_id': uuid.uuid4().hex[:12]}
+        now = dt.datetime.fromisoformat(self.clock())          # the fixture's fake clock: the run starts and ends at the verdict's minute
         with self.ledger.transaction(write=True) as conn:
-            plans.emit(self.ledger, conn, plans.derive(self.ledger, conn, name)['task_id'], 'verdict.receipt_issued',
-                       {'plan': name, 'revision': revision, 'milestone': 'M1', 'receipt': blob})
+            task = plans.derive(self.ledger, conn, name)['task_id']
+            plans.emit(self.ledger, conn, task, 'verdict.run_started',
+                       dict(attempt, kind='command', pid=os.getpid(), host='fixture', max_minutes=1, started=now.isoformat(),
+                            deadline=(now + dt.timedelta(minutes=1)).isoformat()))
+            plans.emit(self.ledger, conn, task, 'verdict.receipt_issued', dict(attempt, receipt=blob))
         return verdict.record(self.ledger, name, 'M1', result, 'command', blob, self.tree())
 
     def build(self):

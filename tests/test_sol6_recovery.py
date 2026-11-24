@@ -776,12 +776,21 @@ class ReadsAndStates(Chain):
         self.assertEqual(count(), before)
         self.assertEqual(command.artifact_sha(odd), read)
 
+    def read_fault(self, kind):
+        """discovery_fault, firing only inside a read (command.reading_only()). Owner 21/11 "final": the final door runs its verifier on the full
+        tree, and that verifier's own checkout names the objects folder outside any read, so a fault of every git would stop the door itself."""
+        real, fault = subprocess.run, self.discovery_fault(kind)
+        faulty = fault.kwargs['side_effect']
+        return patch.object(command.subprocess, 'run', side_effect=lambda *a, **kw: (faulty if command.reading_only() else real)(*a, **kw))
+
     def test_s5_4_doors_that_store_work_while_a_read_could_not_be_isolated(self):
         delivered = self.deliver()
-        with self.discovery_fault('nonzero'), patch.object(command, 'run', wraps=command.run) as verifier:     # the fault of a read does not reach a door that keeps evidence
+        with self.read_fault('nonzero'), patch.object(command, 'run', wraps=command.run) as verifier:     # the fault of a read does not reach a door that keeps evidence
+            with self.assertRaises(command.ReadIsolationFailed):                                    # a read is broken all along
+                with command.leaves_no_objects(): command.artifact_sha(self.ledger.project)
             done = self.final(red=False)
             self.assertEqual(done['milestones'][0]['state'], 'passed')
-            self.assertEqual(verifier.call_count, 0, 'the candidate evidence was reused')
+            self.assertEqual(verifier.call_count, 1, 'owner 21/11 "final": the delivery milestone is verified on the full tree, never reused')
             kept = verdict.artifact(self.ledger, 'P1')['artifact_sha']
             self.assertEqual(kept, delivered['artifact'])
             subprocess.run(['git', '-C', str(self.root), 'cat-file', '-e', kept + '^{tree}'], check=True)

