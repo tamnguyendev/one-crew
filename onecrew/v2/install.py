@@ -36,7 +36,23 @@ from .messages import TEXT, lang, t
 from .session_observe import KEY_FLAG, KEY_MIN, OBSERVE_EVENTS, accepted as accepted_key, key_id, registered_keys
 
 EXE_NAMES = ('onecrew', 'onecrew.exe', 'onecrew.cmd')
-HOOK_VERBS = tuple(verb for _, verb, _, _, _ in hook_cli.HOOK_EVENTS) + ('background',)      # BG-A: `hook background` is ours too (opt-in events)
+HOOK_VERBS = tuple(verb for _, verb, _, _, _ in hook_cli.HOOK_EVENTS) + ('background', 'remind')      # BG-A: `hook background`, GSDP-A: `hook remind` are ours too (opt-in)
+
+
+def remind_text(key, **values):
+    """GSDP-A: what init says about the delegation reminder; the words are in giao_viec.INIT_TEXT (English by default, ONECREW_LANG=vi for Vietnamese)."""
+    from . import giao_viec
+    return giao_viec.init_text(key, lang(), **values)
+
+
+def has_remind(settings):
+    """GSDP-A: does a settings dict hold OneCrew's delegation reminder entry (a PreToolUse handler of ours that runs `hook remind`)?"""
+    entries = ((settings or {}).get('hooks') or {}).get('PreToolUse') if isinstance(settings, dict) and isinstance(settings.get('hooks'), dict) else None
+    for entry in entries if isinstance(entries, list) else []:
+        for handler in (entry.get('hooks') if isinstance(entry, dict) and isinstance(entry.get('hooks'), list) else []):
+            words = handler_words(handler)[0]
+            if words and is_ours(handler) and words[-2:] == ['hook', 'remind']: return True
+    return False
 LOGIN_TIMEOUT = 30
 
 
@@ -407,9 +423,11 @@ def say(line):
     print(line, flush=True)
 
 
-def init(project=None, state_root=None, shared=False, yes=False, exe=None, ask=input, claude=claude_status):
+def init(project=None, state_root=None, shared=False, yes=False, exe=None, ask=input, claude=claude_status, remind=None):
     """Exit code: 0 done; 1 done but the Claude CLI is missing or logged out; 2 nothing written (not a git repo, bad settings file, a config.json
-    or wiki folder init cannot use, no installed command, declined); 3 done except the wiki skeleton (what was written and the error are told)."""
+    or wiki folder init cannot use, no installed command, declined); 3 done except the wiki skeleton (what was written and the error are told).
+    `remind` (GSDP-A, D11): 'on' adds the delegation reminder entry (and the template plans/mau-giao-viec.md when the state root has none), 'off'
+    removes it, None keeps what the settings file has (a plain re-init neither adds nor drops it; it is never doubled)."""
     start = Path(project) if project else where.project_from_environment()
     root = where.git_root(start)
     if root is None:
@@ -430,11 +448,14 @@ def init(project=None, state_root=None, shared=False, yes=False, exe=None, ask=i
     settings_path = root / '.claude' / ('settings.json' if shared else 'settings.local.json')
     config_path = where.config_file(root)
     rules_path = state / 'plans' / 'owner-rules.md'
-    ours = hook_cli.portable_settings(exe, state)
     existing, bad = read_settings(settings_path)
     if bad:
         say(t('init.bad_settings', reason=bad))
         return 2
+    from . import giao_viec
+    reminding = remind == 'on' or (remind is None and has_remind(existing))
+    template_path = giao_viec.template_path(state)
+    ours = hook_cli.portable_settings(exe, state, remind=reminding)
     try:
         merged = merge_settings(existing, ours)
     except SettingsShape as error:
@@ -449,7 +470,8 @@ def init(project=None, state_root=None, shared=False, yes=False, exe=None, ask=i
     ignore_path = config_path.parent / '.gitignore'
     todo = {'state': not ledger.path.is_file(), 'rules': not rules_path.exists(), 'config': config != wanted_config,
             'ignore': not ignore_path.exists(),
-            'settings': merged != existing or not settings_path.exists(), 'wiki': wiki_step['action'] == 'create'}
+            'settings': merged != existing or not settings_path.exists(), 'wiki': wiki_step['action'] == 'create',
+            'template': reminding and not template_path.exists()}
     wiki_written, wiki_failed = [], None
     if any(todo.values()):
         say(t('init.plan_title', project=root))
@@ -461,6 +483,8 @@ def init(project=None, state_root=None, shared=False, yes=False, exe=None, ask=i
             say(t('init.step_settings', verb=t('init.verb_merge') if settings_path.exists() else t('init.verb_create'), path=settings_path,
                   bak=t('init.bak_note') if settings_path.exists() and not settings_path.with_name(settings_path.name + '.bak').exists() else ''))
         if todo['wiki']: say(t('init.step_wiki', path=wiki_step['shown'], files=', '.join(wiki_step['names'])))
+        if todo['settings'] and reminding and not has_remind(existing): say(remind_text('step', path=template_path))
+        if todo['settings'] and remind == 'off' and has_remind(existing): say(remind_text('off'))
         if not yes:
             try:
                 answer = ask(t('init.ask'))
@@ -480,6 +504,7 @@ def init(project=None, state_root=None, shared=False, yes=False, exe=None, ask=i
             backup = settings_path.with_name(settings_path.name + '.bak')
             if settings_path.exists() and not backup.exists(): shutil.copyfile(settings_path, backup)
             write_text(settings_path, dump(merged))
+        if todo['template'] and giao_viec.write_default(state): say(remind_text('template', path=template_path))
         if todo['wiki']: wiki_written, wiki_failed = write_wiki(wiki_step, 'vi' if lang() == 'vi' else 'en', root)     # last: a wiki error never undoes the rest
     else:
         say(t('init.nothing'))
@@ -518,7 +543,7 @@ def check_hooks(root, state, exe):
         if gone:
             results.append(('FAIL', t('doctor.hook_stale', path=path, command=gone[0])))
             continue
-        want = hook_cli.portable_settings(exe or sorted(commands)[0], state)
+        want = hook_cli.portable_settings(exe or sorted(commands)[0], state, remind=has_remind(data))      # GSDP-A: the reminder entry is ours, not a stray
         same = our_entries(data) == our_entries(want) and all(rule in ((data.get('permissions') or {}).get('deny') or []) for rule in want['permissions']['deny'])
         results.append(('PASS', t('doctor.hook_ok', path=path)) if same else ('WARN', t('doctor.hook_differs', path=path)))
     for level in ('FAIL', 'WARN'):
@@ -981,6 +1006,8 @@ def _parser():
     p.add_argument('--project', type=Path, default=argparse.SUPPRESS); p.add_argument('--state-root', type=Path, default=argparse.SUPPRESS)
     p.add_argument('--shared', action='store_true', help=t('cli.shared'))
     p.add_argument('--yes', '-y', action='store_true', help=t('cli.yes'))
+    p.add_argument('--remind', choices=['on', 'off'], help='GSDP-A: on adds the delegation reminder entry (hook remind, never blocks) and its template; off removes it; '
+                                                          'without it a re-init keeps what is there.')
     p = groups.add_parser('doctor', help=t('cli.doctor'))
     p.add_argument('--project', type=Path, default=argparse.SUPPRESS); p.add_argument('--state-root', type=Path, default=argparse.SUPPRESS)
     return parser
@@ -992,7 +1019,7 @@ def main(argv=None):
     except (AttributeError, ValueError):
         pass
     args = _parser().parse_args(argv)
-    if args.group == 'init': return init(args.project, args.state_root, args.shared, args.yes)
+    if args.group == 'init': return init(args.project, args.state_root, args.shared, args.yes, remind=args.remind)
     return doctor(args.project, args.state_root)
 
 

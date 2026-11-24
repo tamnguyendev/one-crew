@@ -1,0 +1,49 @@
+{
+ "schema_version": 2,
+ "title": "Plan thử thường trực của GSDP-A: gắn một phiên Claude ở thư mục thử, xem nhắc lời giao việc và Stop không chặn",
+ "size": "S",
+ "standing": true,
+ "origin": {
+  "at": "2026-11-23 17:26",
+  "by": "owner",
+  "quote": "gắn, tự soát (lời chủ 23/11/2026 17:26 về việc gắn phiên điều phối vào OneCrew); plan này chỉ dùng để thử ở thư mục thử."
+ },
+ "understanding": {
+  "restated_goal": "Thử plan thường trực và phần nhắc lời giao việc ở thư mục thử riêng, với sổ thử riêng; không đụng thư mục điều phối, sổ thật hay hook toàn máy.",
+  "target": {"repo": ".", "ref": "HEAD", "paths": ["README.md"]},
+  "assumptions": [],
+  "confidence": "high",
+  "unknowns": []
+ },
+ "preconditions": [
+  {"id": "P1", "check": "path_exists", "args": {"path": "README.md"}, "why": "Thư mục thử đã có repo và tệp đầu tiên do script tạo."}
+ ],
+ "output": [
+  "Phiên Claude ở thư mục thử giao một việc thiếu mục thì nhật ký sổ thử có một dòng nhắc, và lượt đó không có dòng dừng lượt."
+ ],
+ "scope": {"owned": ["ghi-chu/"]},
+ "non_goals": [
+  "Đụng thư mục điều phối, sổ thật, runtime đã cài hay hook toàn máy"
+ ],
+ "items": [
+  {"id": "I1", "title": "Thử nhắc lời giao việc và Stop không chặn ở thư mục thử", "tier": "must", "milestone": "M1", "source": "origin"}
+ ],
+ "milestones": [
+  {"id": "M1", "title": "Chủ thử ở thư mục thử và ghi kết quả", "verifier": {"type": "owner-manual", "config": {}}, "covers": ["O1"]}
+ ],
+ "budget": {"max_calls": 100, "time": 1440},
+ "attention": {"questions": 1},
+ "profile_version": null,
+ "presentation": {
+  "request": "Thử phần gắn phiên điều phối ở một thư mục thử riêng trước khi gắn thật.",
+  "user_sees": [
+   "Khi phiên Claude ở thư mục thử giao việc mà lời giao thiếu mục, nhật ký có một dòng nhắc và Claude nhận danh sách mục thiếu.",
+   "Phiên đó dừng lượt bình thường, không bị giữ lại."
+  ],
+  "acceptance_steps": [
+   "Mở phiên Claude ở thư mục thử, nhờ một agent đọc một tệp mà không nêu mục tiêu hay cách kiểm.",
+   "Chạy script tóm tắt nhật ký và thấy dòng nhắc, không thấy dòng dừng lượt."
+  ],
+  "not_doing": "Không đổi thư mục điều phối, sổ thật hay hook toàn máy; plan này hết hạn sau một ngày."
+ }
+}

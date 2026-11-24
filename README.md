@@ -106,6 +106,14 @@ The ledger and dashboard are local. Model-backed work still uses the provider an
 
 For version-specific evidence and limitations, use the [release notes](https://github.com/tamnguyendev/one-crew/releases), not a feature name or passing test count alone.
 
+## Standing plans for a coordinator session
+
+A contract may set `"standing": true` for a long-running coordinator session. A standing plan expires at the owner's approval plus `budget.time` minutes (at most 20 days), and a re-export never extends that. Its Stop hook neither blocks nor writes a line per turn. Edits and commands are still judged as under a plain plan. A plain plan keeps the 24-hour expiry and the Stop block.
+
+`onecrew init --remind on` adds a separate PreToolUse entry, `hook remind`. Under a standing plan, it records a `reminded` line when a delegation (Agent, Task, SendMessage, start_session, send_message) lacks an item of the owner's template `<state-root>/plans/mau-giao-viec.md`. It also tells Claude which items are missing. It only reminds and never blocks, and the reminder arrives after the tool has run. `init --remind off` removes the entry.
+
+The owner's way out is `onecrew owner enforce <plan> --mode log`. Deleting the project's hook block is not a way out: the user-scope hook still finds the plan through its copy in the state root. Details (Vietnamese): [docs/BAT-DAU-LAI.vi.md](docs/BAT-DAU-LAI.vi.md), section 8.
+
 ## Current limitations
 
 - **Hooks are not a security boundary.** They cover supported operations in connected sessions. External processes, sessions outside the configured project, and shell forms the parser does not understand may escape that coverage. Do not use this beta to contain untrusted code.

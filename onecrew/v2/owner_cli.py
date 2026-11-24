@@ -10,13 +10,43 @@ They are refused inside an AI tool session: ownership.OWNER_VERBS names these fo
 """
 import argparse
 import contextlib
+import datetime as dt
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 
 from ..display_core import safe
 from .messages import OWNER_HUMAN, t
+
+
+def _option(glob, name):
+    """The value of a global option (--project, --state-root) given before `owner`, or None."""
+    for index, word in enumerate(glob):
+        if word == name and index + 1 < len(glob): return glob[index + 1]
+        if word.startswith(name + '='): return word.split('=', 1)[1]
+    return None
+
+
+def standing_note(glob, plan, value):
+    """GSDP-A (D6): the giao_viec.STANDING_HUMAN line of an approved standing plan, else None. The expiry is read back from the ledger
+    (active_plan.build: the approval time + budget.time), shown in the machine's local time; when it cannot be read, the rule itself is shown."""
+    contract = value.get('contract') if isinstance(value, dict) else None
+    if not isinstance(contract, dict) or not contract.get('standing'): return None
+    from . import giao_viec
+    minutes = (contract.get('budget') or {}).get('time')
+    expires = None
+    try:
+        from ..ledger import Ledger
+        from . import active_plan, where
+        project = Path(_option(glob, '--project') or os.environ.get('CLAUDE_PROJECT_DIR') or Path.cwd())
+        state = value.get('state_root') or where.state_root_for(project, _option(glob, '--state-root'))
+        document = active_plan.build(Ledger(project, state), plan)
+        expires = dt.datetime.fromisoformat(document['expires']).astimezone().strftime('%Y-%m-%d %H:%M') + giao_viec.LOCAL_TIME
+    except Exception:                                    # noqa: BLE001 - the approval is recorded; only the date is not shown
+        pass
+    return giao_viec.STANDING_HUMAN.format(plan=plan, expires=expires or giao_viec.EXPIRY_RULE.format(minutes=minutes), minutes=minutes)
 
 
 def _parser():
@@ -79,7 +109,7 @@ def translate(args):
                         '--artifact-sha', args.artifact_sha, '--receipt-file', str(args.receipt_file), '--reference', args.reference]
 
 
-def _human_result(parsed, code, output, errors='', *, refused=False):
+def _human_result(parsed, code, output, errors='', *, refused=False, glob=()):
     """Only a typed receipt supports success; an exit code alone never does."""
     try: value = json.loads(output)
     except (ValueError, TypeError): value = None
@@ -106,6 +136,8 @@ def _human_result(parsed, code, output, errors='', *, refused=False):
                 success = OWNER_HUMAN['recorded'].format(plan=parsed.plan, milestone=parsed.milestone, result=parsed.result)
     if success:
         print(safe(success, 1000))
+        note = standing_note(list(glob), parsed.plan, value) if parsed.verb == 'approve' else None
+        if note: print(safe(note, 1000))
         for _code, text in value.get('warnings') or ():           # dev14: words that may be technical; a warning, never a refusal
             print(safe(OWNER_HUMAN['warning'].format(text=text), 1000))
         if value.get('post_commit_errors'):
@@ -183,4 +215,4 @@ def main(args):
     except Exception as error:
         code = 1
         output.write(json.dumps({'error': str(error), 'type': type(error).__name__}, ensure_ascii=False))
-    return _human_result(parsed, code, output.getvalue(), errors.getvalue())
+    return _human_result(parsed, code, output.getvalue(), errors.getvalue(), glob=glob)

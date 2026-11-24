@@ -75,6 +75,35 @@ Khi engine chờ tài nguyên đã khai báo, vị trí trong hàng đợi gắn
 - Máy mới: tải wheel từ trang phát hành, kiểm SHA256 với `SHA256SUMS`, tạo venv và cài wheel; chạy `claude login`; `onecrew init` cho từng dự án; `hook user install` nếu muốn hook người dùng. Đường dẫn máy cũ nằm trong plan đã duyệt và `active-plan.json` (trường `project`, `state_root`), nên đổi đường dẫn nghĩa là chủ sở hữu duyệt lại plan đang mở.
 - Phiên mới của Claude: đọc `CLAUDE.md` ở gốc repo, rồi `plan digest`.
 
+## 8. Gắn phiên điều phối: plan thường trực (standing) và nhắc lời giao việc
+
+Có từ bản chứa GSDP-A (#63 lượt đầu); runtime đã phát hành trước đó không có.
+- **Plan thường trực:** hợp đồng ghi `"standing": true`.
+  - Hạn = lúc chủ duyệt + `budget.time` phút (tối đa 28800 phút, tức 20 ngày). Xuất lại (verdict, `hook export`, `owner enforce`, mở phiên) không kéo dài hạn; chỉ lần duyệt mới đặt hạn mới.
+  - Dừng lượt (Stop) không chặn và không ghi dòng mỗi lượt.
+  - Sửa và lệnh vẫn bị xét như plan thường. Hết hạn ở chế độ chặn thì mọi sửa và lệnh của phiên bị chặn tới khi chủ duyệt lại.
+  - Plan thường giữ hạn 24 giờ và Stop chặn như cũ. `budget.time` cũng là giới hạn giờ làm của job dưới plan: hai việc dùng chung một số.
+  - `owner approve --human` in rõ plan thường trực, giờ hết hạn và việc Stop không chặn.
+- **Cách gắn:**
+  1. Phiên điều phối có dự án riêng (một repo git) và sổ riêng.
+  2. Chạy `onecrew --project <dự-án> --state-root <sổ> init --remind on`. Lệnh thêm một mục PreToolUse riêng `hook remind`, chỉ nhắc, không bao giờ chặn. Nó cũng ghi tệp mẫu `<sổ>\plans\mau-giao-viec.md` nếu chưa có.
+  3. Hợp đồng có `standing`; chủ duyệt.
+  4. Chủ bật chế độ ghi: `onecrew owner enforce <plan> --mode log`. Mấy ngày đầu chỉ ghi; chủ đọc nhật ký rồi mới chuyển sang chặn.
+- **Nhắc lời giao việc:** áp dụng khi plan của phiên là thường trực và lời giao qua Agent, Task, SendMessage, start_session hay send_message thiếu mục của tệp mẫu.
+  - Hook ghi một dòng `reminded` và Claude nhận danh sách mục thiếu.
+  - Lời nhắc đến SAU khi công cụ đã chạy.
+  - Hook so bằng từ khóa, không phân biệt hoa thường, trong mọi chuỗi của lời giao. Nó chỉ biết có tiêu đề, không biết nội dung đúng hay sai.
+  - Chủ sửa tệp mẫu bất cứ lúc nào; tệp không còn mục nào thì không nhắc.
+  - Gỡ bằng `init --remind off`; `init` không cờ giữ nguyên mục đang có.
+  - Runtime cũ không biết `hook remind`, nên phải gỡ mục nhắc trước khi trỏ hook về runtime cũ.
+- **Cách thoát đúng:** chủ gõ trong terminal của mình `onecrew owner enforce <plan> --mode log` (về chỉ ghi).
+  - Nếu plan có câu hỏi đang mở: `onecrew owner answer <mã câu hỏi> --revision <bản> --choice stop`.
+  - Xóa khối hook trong thư mục dự án KHÔNG phải cách thoát: hook người dùng vẫn tìm plan qua bản sao trong sổ.
+- **Thử trước:** `scripts/owner/gan-dieu-phoi.ps1` dựng thư mục thử `D:\OneCrewRuns\gsdp-a\thu-gan`, có sổ thử và plan thử thường trực (chủ duyệt trong script). Thư mục điều phối không đổi.
+  - Mặc định là chạy thử, không ghi gì; `-ApDung` mới chạy thật.
+  - `-TomTat` tóm tắt nhật ký của thư mục thử.
+  - `-QuayVe` gỡ mục nhắc và trỏ hook về runtime đã phát hành.
+
 ## Nhập review ngoài và kiểm lại finding
 
 Trên plan đang duyệt xong có năng lực `finding-register`, chạy `onecrew findings import-review P1 --file review.json`. Lấy `task_id` từ `anchor_task`, lấy `revision`, `milestone`, `receipt` và `artifact_sha` từ `onecrew plan show P1`. Ví dụ một báo cáo có dạng sau.
