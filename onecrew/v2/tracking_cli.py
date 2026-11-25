@@ -6,6 +6,10 @@ or reuses the one already running for this state root when its identity (instanc
 that identity check; `stop` stops only the matching server (never another process). Every command reads the ledger read-only; none approves,
 answers, pauses or resumes anything — `stop` ends the page's server, not a task.
 
+Fixed address (URL9692, 25/11/2026): without --port, `serve` and `open` use the port of <state root>/tracking.json ({"port": N}), else 9692
+(tracking_web.default_port); `--port 0` still takes a free port. A taken fixed port is reused only when it is this ledger's own server,
+otherwise the command names the port and stops (exit 2) without trying another one.
+
 `stop --url U --instance I --pid P [--started-at T]` (R5 round 4, 03/11) stops exactly the server that answers at U as instance I with pid P
 for this state root, even when the marker names another server (a pinned viewer whose marker moved), and nothing else; without these
 arguments `stop` is unchanged (the marker's server). See tracking_web.stop_target.
@@ -39,12 +43,14 @@ def _parser():
     for verb in ('serve', 'open'):
         a = sub.add_parser(verb, help=('Chạy trang web local trong tiến trình này (Ctrl+C đóng trang, không dừng worker).' if verb == 'serve'
                                       else 'Mở trang web local trong trình duyệt mặc định (server chạy tách rời).'))
-        a.add_argument('--host', default='127.0.0.1'); a.add_argument('--port', type=int, default=0, help='0 = cổng trống bất kỳ.')
+        a.add_argument('--host', default='127.0.0.1')
+        a.add_argument('--port', type=int, default=None, help='Mặc định: cổng trong tracking.json của sổ ({"port": N}), không có thì 9692. '
+                       '0 = cổng trống bất kỳ (server của `track open` tự thoát sau 1800 giây không ai xem; cổng cố định thì không).')
         a.add_argument('--interval', type=float, default=2.0, help='Chu kỳ poll của trang (giây, 0.5-60).')
         a.add_argument('--project-only', action='store_true', help='Chỉ project của --project (mặc định: mọi project của sổ).')
         if verb == 'serve':
             a.add_argument('--announce', help=argparse.SUPPRESS)
-            a.add_argument('--idle-exit', type=float, default=None, help='Tự thoát sau N giây không có request (mặc định: không; `track open` đặt 1800).')
+            a.add_argument('--idle-exit', type=float, default=None, help='Tự thoát sau N giây không có request (mặc định: không; `track open` đặt 1800 khi --port 0, cổng cố định thì không).')
         else:
             a.add_argument('--plan', help='Mở lại đúng việc của dự án này, kể cả sau khi trang đã tự thoát.')
             a.add_argument('--no-browser', action='store_true', help='Khởi động/dùng lại server và in URL, không mở trình duyệt.')
@@ -114,11 +120,13 @@ def main(argv=None):
             print(json.dumps(result, ensure_ascii=False, indent=1)); return 0 if result.get('stopped') else 2
         if not 0.5 <= opts.interval <= 60: raise LedgerError('--interval: 0.5-60 giây.')
         scope = project_id if opts.project_only else None
+        port = opts.port if opts.port is not None else tracking_web.default_port(state_root)     # URL9692: tracking.json of the ledger, else 9692
+        if not 0 <= port <= 65535: raise LedgerError('--port: 0-65535.')
         if opts.command == 'serve':
             import os
             idle = opts.idle_exit if opts.idle_exit is not None else (float(os.environ['ONECREW_TRACK_IDLE_EXIT']) if os.environ.get('ONECREW_TRACK_IDLE_EXIT') else None)
-            return tracking_web.serve(state_root, host=opts.host, port=opts.port, project_id=scope, interval=opts.interval, announce=opts.announce, idle_exit=idle)
-        result = tracking_web.open_page(state_root, host=opts.host, port=opts.port, project_id=project_id if opts.plan else scope,
+            return tracking_web.serve(state_root, host=opts.host, port=port, project_id=scope, interval=opts.interval, announce=opts.announce, idle_exit=idle)
+        result = tracking_web.open_page(state_root, host=opts.host, port=port, project_id=project_id if opts.plan else scope,
                                         plan=opts.plan, interval=opts.interval,
                                         project=opts.project.resolve(), explicit_state_root=opts.state_root, browser=not opts.no_browser)
         print(json.dumps(result, ensure_ascii=False, indent=1))

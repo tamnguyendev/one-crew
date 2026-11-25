@@ -8,7 +8,14 @@ anew (sqlite read-only, no transaction kept between polls), so the page rebuilds
 tab or a restarted server shows the same truth without a cursor to lose and without duplicating an event (the ledger's seq is the identity).
 
 Closing the page or the server never stops a worker: workers are other processes that do not know this one exists. The server started by
-`track open` runs detached and exits by itself after `idle_exit` seconds without a request.
+`track open` runs detached; on a free port of the system (`--port 0`) it exits by itself after `idle_exit` seconds without a request.
+
+Fixed address (URL9692, 25/11/2026): `track open` and `track serve` listen on `default_port(state_root)` unless `--port` is given: the `port` of
+`<state root>/tracking.json` ({"port": N}) when that file exists, else DEFAULT_PORT (9692). A server on a fixed port (not 0) started by
+`track open` does not exit when idle (it stays until `track stop` or the machine stops). A fixed port that is already taken is never replaced
+by another port: when what answers there is this ledger's own tracking server (same state root, wheel version and scope, asked on
+/api/health) it is reused; anything else (another program, a tracking server of another ledger or version) is reported with the port and
+the command stops (`busy_message`).
 
 Server identity (P2 of 03/11): every server carries an `instance` nonce, its wheel version, its state root and its project scope in `/api/health`
 and in the marker `<state_root>/tracking/server.json` that `track serve --announce` writes. `track open` reuses a server only when the marker's
@@ -74,6 +81,8 @@ from pathlib import Path
 from ..ledger import LedgerError, utcnow
 from . import tracking, tracking_dashboard, tracking_direction, tracking_host_web, tracking_list, tracking_sessions
 
+DEFAULT_PORT = 9692
+PORT_FILE = 'tracking.json'                      # <state root>/tracking.json: {"port": N}, this ledger's own fixed port (URL9692 D1)
 MARKER = 'tracking/server.json'
 LOCK = 'tracking/open.lock'
 MARKER_DIR_ENV = 'ONECREW_TRACK_MARKER_DIR'      # set: the marker and lock live under <dir>/<sha256 of the state root>[:16]/ instead of inside the state root
@@ -97,6 +106,77 @@ def root_id(state_root):
     fingerprint is exact, reveals nothing and is left as it is by the guard (plain hex)."""
     import hashlib
     return hashlib.sha256(os.path.normcase(str(Path(state_root).resolve())).encode('utf-8')).hexdigest()
+
+
+def default_port(state_root):
+    """The port `track open` and `track serve` use without --port (URL9692): `port` of <state root>/tracking.json when the file exists, else
+    DEFAULT_PORT. The file is only read. A file that is not a JSON object with an integer port 1-65535 is an error (never a silent 9692,
+    which could be another ledger's address)."""
+    path = Path(state_root) / PORT_FILE
+    if not path.exists():
+        return DEFAULT_PORT
+    try:
+        value = json.loads(path.read_text(encoding='utf-8-sig'))
+    except (OSError, ValueError) as error:
+        raise LedgerError(f'{PORT_FILE} của sổ không đọc được ({type(error).__name__}): cần {{"port": N}}, N từ 1 đến 65535.') from None
+    port = value.get('port') if isinstance(value, dict) else None
+    if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
+        raise LedgerError(f'{PORT_FILE} của sổ phải có dạng {{"port": N}}, N từ 1 đến 65535 (đang là {str(port if isinstance(value, dict) else value)[:40]!r}).')
+    return port
+
+
+def _url_at(host, port):
+    host = '127.0.0.1' if host == 'localhost' else host
+    return f'http://[{host}]:{port}/' if ':' in host else f'http://{host}:{port}/'
+
+
+def _port_taken(host, port):
+    """Is (host, port) already held? Tried as the server binds (SO_EXCLUSIVEADDRUSE on Windows), and released at once."""
+    try:
+        family = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)[0][0]
+    except OSError:
+        family = socket.AF_INET
+    probe = socket.socket(family, socket.SOCK_STREAM)
+    try:
+        if os.name == 'nt':
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        probe.bind((host, port))
+        return False
+    except OSError:
+        return True
+    finally:
+        probe.close()
+
+
+def holder(host, port, state_root, project_id, here=None):
+    """(kind, health, why) of what holds a fixed port: 'same' = this ledger's own tracking server with the same wheel version and scope (it may
+    be reused), 'tracker' = a OneCrew tracking server that may not be reused (`why` says why), 'other' = anything else."""
+    health = identity(_url_at(host, port))
+    if not health or not str(health.get('server', '')).startswith('OneCrewTrack/'):
+        return 'other', None, None
+    if not _same_root(health, state_root):
+        return 'tracker', health, 'server theo dõi OneCrew của sổ khác'
+    if health.get('version') != (here or version()):
+        return 'tracker', health, f"server theo dõi của chính sổ này nhưng phiên bản khác ({health.get('version')})"
+    if (health.get('project_id') or None) != (project_id or None):
+        return 'tracker', health, 'server theo dõi của chính sổ này nhưng phạm vi dự án khác'
+    return 'same', health, None
+
+
+def busy_message(port, why=None):
+    """What a taken fixed port is reported as (URL9692 a1): the port, who holds it if known, and that no other port was opened."""
+    if why:
+        return (f'cổng {port} đang do {why} giữ: không mở cổng khác. Dừng server đó (`onecrew track stop` với sổ của nó) rồi mở lại, '
+                f'hay đặt cổng khác cho sổ này trong {PORT_FILE} của sổ ({{"port": N}}) hoặc dùng --port.')
+    return (f'cổng {port} đang bị chương trình khác giữ: không mở cổng khác. Đặt cổng khác cho sổ này trong {PORT_FILE} của sổ '
+            f'({{"port": N}}) hoặc dùng --port.')
+
+
+def _adopted(health, url, state_root):
+    """A marker record for this ledger's own server found on its fixed port without a marker naming it (its fields from its /api/health)."""
+    return {'url': url, 'pid': health.get('pid'), 'instance': health.get('instance'), 'version': health.get('version'),
+            'state_root': str(Path(state_root).resolve()), 'state_root_id': health.get('state_root_id'), 'project_id': health.get('project_id'),
+            'poll_seconds': health.get('poll_seconds'), 'read_only': True, 'started_at': health.get('started_at')}
 SERVER_NAME = 'OneCrewTrack/2'
 LOCK_STALE_SECONDS = 60
 
@@ -302,8 +382,20 @@ def _read_marker(path):
 
 
 def serve(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0, announce=None, idle_exit=None, comparison=True, browser=False):
-    """Run in this process until Ctrl+C. Prints one JSON line with the URL first; with `announce`, also writes it to that marker file (atomically)."""
-    server = make_server(state_root, host=host, port=port, project_id=project_id, interval=interval, idle_exit=idle_exit, comparison=comparison)
+    """Run in this process until Ctrl+C. Prints one JSON line with the URL first; with `announce`, also writes it to that marker file (atomically).
+    URL9692: a fixed port already held by this ledger's own server is reported as that server's address (`reused`, exit 0, nothing started);
+    held by anything else, it is a LedgerError naming the port (no other port is tried)."""
+    try:
+        server = make_server(state_root, host=host, port=port, project_id=project_id, interval=interval, idle_exit=idle_exit, comparison=comparison)
+    except OSError:
+        if not port:
+            raise
+        kind, health, why = holder(host, port, state_root, project_id)
+        if kind == 'same' and comparison:
+            print(json.dumps(dict(_adopted(health, _url_at(host, port), state_root), reused=True,
+                                  note=f'cổng {port} đã có server theo dõi của chính sổ này: dùng địa chỉ đó, không mở server thứ hai.'), ensure_ascii=False), flush=True)
+            return 0
+        raise LedgerError(busy_message(port, why)) from None
     record = {'url': url_of(server), 'pid': os.getpid(), 'instance': server.track_identity['instance'], 'version': server.track_identity['version'],
               'state_root': str(Path(state_root).resolve()), 'state_root_id': server.track_identity['state_root_id'], 'project_id': project_id, 'poll_seconds': interval,
               'read_only': True, 'started_at': utcnow(), 'note': 'Ctrl+C hay đóng cửa sổ này chỉ đóng trang theo dõi; worker không dừng.'}
@@ -636,7 +728,11 @@ def _unlock(fd, path):
     except OSError: pass
 
 
-def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0, project=None, explicit_state_root=None, idle_exit=1800,
+_IDLE_AUTO = object()
+IDLE_EXIT_FREE_PORT = 1800
+
+
+def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0, project=None, explicit_state_root=None, idle_exit=_IDLE_AUTO,
               browser=True, spawn=True, wait=30.0, plan=None):
     """Reuse the live detached server of this state root when its identity matches (see `reusable`), else start one; then open the page.
     `spawn=False` only reports (no server is started). Concurrent calls serialise on the open lock.
@@ -644,7 +740,11 @@ def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval
     not replaced); a started server has `wait` seconds (30: a loaded machine needs 4-10 s) to answer with its identity; and a failed open never
     leaves a server running — on a timeout, an early exit or an error the tree it started is ended and a marker that tree wrote is removed.
     R5 round 5: under the lock the marker is read again (a concurrent open may have handed over a reusable server meanwhile: reuse it) and only
-    the marker that failed is removed; the child gets absolute paths; a failure note says which pids could not be ended, if any."""
+    the marker that failed is removed; the child gets absolute paths; a failure note says which pids could not be ended, if any.
+    URL9692: `idle_exit` left out is IDLE_EXIT_FREE_PORT (1800 s) for port 0 and none for a fixed port (the server stays); a fixed port that is
+    taken is reused when it is this ledger's own server (its marker is written again), else reported and nothing is started (no other port)."""
+    if idle_exit is _IDLE_AUTO:
+        idle_exit = None if port else IDLE_EXIT_FREE_PORT
     state_root = Path(state_root).resolve()
     marker, lock = marker_paths(state_root)
     here = version()
@@ -698,7 +798,14 @@ def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval
         if not spawn:
             return {'error': 'không có server dùng lại được', 'refused': refused, 'version_here': here}
         if port and record and health and urllib.parse.urlsplit(record['url']).port == port:
-            return {'error': 'Cổng yêu cầu đang phục vụ một trang có định danh khác.', 'refused': refused}
+            return {'error': busy_message(port, f'một trang theo dõi có định danh khác, không dùng lại được ({why})'), 'port': port, 'busy': True, 'refused': refused}
+        if port and _port_taken(host, port):         # URL9692 a1: a taken fixed port is reused (this ledger's own server) or reported; never another port
+            kind, held, why = holder(host, port, state_root, project_id, here)
+            if kind == 'same':
+                adopted = _adopted(held, _url_at(host, port), state_root)
+                _write_marker(marker, adopted)       # the lock is held: `track status`/`track stop` find this server from now on
+                return opened(adopted, True, found_on_port=True)
+            return {'error': busy_message(port, why), 'port': port, 'busy': True, 'holder': _brief(held), 'refused': refused}
         old_instance = (record or {}).get('instance')
         current = _read_marker(marker)               # the lock is held: only a server can write it now; remove exactly the marker that failed `reusable`
         if (current is None and marker.exists()) or (not health and current is not None and record is not None and current.get('instance') == old_instance):
@@ -711,7 +818,7 @@ def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval
         args += ['track', 'serve', '--host', host, '--port', str(port), '--interval', str(interval), '--announce', str(marker)]
         if project_id: args.append('--project-only')
         flags = (subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, 'DETACHED_PROCESS', 0)) if os.name == 'nt' else 0
-        env = dict(os.environ, ONECREW_TRACK_IDLE_EXIT=str(idle_exit), PYTHONSAFEPATH='1')     # `-m` must not pick a stray `onecrew` from the caller's cwd
+        env = dict(os.environ, ONECREW_TRACK_IDLE_EXIT=str(idle_exit) if idle_exit else '', PYTHONSAFEPATH='1')     # `-m` must not pick a stray `onecrew` from the caller's cwd; '' = no idle exit
         import tempfile
         child = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True, creationflags=flags, env=env,
                                  cwd=tempfile.gettempdir())
