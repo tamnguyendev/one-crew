@@ -110,6 +110,13 @@ def state(ledger, selector, conn=None):
     approved = root['approved'] or {}
     inflight, active_nodes = False, []
     definitions={node['id']:node for node in definition['nodes']} if definition else {}
+    for nid, node in definitions.items():
+        # NHANVAI: the sub-task's display label, and the sub-tasks it still waits for: its depends whose declared state is not reached
+        # yet (the same rank eligible() uses: a held or failed upstream counts as not reached), in the order the plan declares them
+        if nid in records:
+            records[nid]['role'] = node.get('role')
+            records[nid]['waits_for'] = [edge['node'] for edge in node['depends']
+                                         if edge['node'] in records and _rank(records[edge['node']]) < STATES[edge['requires']]]
     for nid,record in records.items():
         if record['attempt']:
             attempt = conn.execute('SELECT status FROM attempts WHERE id=?', (record['attempt'],)).fetchone()
@@ -133,6 +140,7 @@ def state(ledger, selector, conn=None):
             **_finding_view(finding_scope.holds(ledger, root['selector'], definition['nodes'] if definition else [], conn)),
             'request_blockers': finding_scope.request_blockers(ledger, root['selector'], definition['nodes'] if definition else [], conn),
             'failed_blockers':failed_blockers,
+            'role_area_report': ip.role_area_report(definition['nodes'], definition.get('roles')) if definition else [],   # NHANVAI: reported, not refused
             **({'tool_claims': _open_claims(conn, root['task_id'], records)} if 'execution-mode' in root.get('capabilities', ()) else {})}
 
 
@@ -260,7 +268,7 @@ def _publication_current(current, original, nid):
             and current['contract_revision'] == original['contract_revision']
             and nid in current['nodes']
             and original['internal_revision'] in current['nodes'][nid].get('valid_internal_revisions',[current['internal_revision']])
-            and next((node for node in current['definition']['nodes'] if node['id']==nid),None)==next((node for node in original['definition']['nodes'] if node['id']==nid),None)
+            and ip.without_labels(next((node for node in current['definition']['nodes'] if node['id']==nid),None))==ip.without_labels(next((node for node in original['definition']['nodes'] if node['id']==nid),None))
             and not _input_blocks(current, nid)
             and current['nodes'][nid]['generation'] == original['nodes'][nid]['generation'])
 

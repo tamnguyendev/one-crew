@@ -372,6 +372,7 @@ function deepCount(d,k){var w=d.work||{},rows=msRowsOf(d);
     if(d.work)return (w.repairs||[]).length?(w.repairs.length+' lần sửa'):'không có';return ''}
   if(k==='plan'){var ch=(w.changes||[]).filter(function(x){return x.kind==='contract'}).length;return d.work?(ch?ch+' lần sửa':'không có'):(d.contract_revision?'bản '+d.contract_revision:'')}
   if(k==='waits')return d.waits?(d.waits.length+' lần chờ'):'';
+  if(k==='agents'){var nn=Object.keys(d.nodes||{}).length;return nn?nn+' task':''}
   if(k==='evidence')return d.evidence_keys?(d.evidence_keys.length+' mục'):'';
   if(k==='res'){var m=typeof leaseMatch==='function'&&typeof last!=='undefined'?leaseMatch(d,last&&last.shared_resources):{mine:[]};return m.mine.length?m.mine.length+' khóa':'không có'}
   return ''}
