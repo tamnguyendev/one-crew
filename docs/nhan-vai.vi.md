@@ -115,3 +115,14 @@ DANH SÁCH TASK
 LEAD chờ task 2 vì nó đòi BE2 đã nghiệm thu, không chỉ đã kiểm. Nó chờ task 3 vì FE chưa kiểm đạt.
 
 Script thử của chủ, `scripts/owner/thu-nhanvai.ps1`, dựng đúng sổ thử này rồi mở trang theo dõi.
+
+## Giới hạn
+
+- **Vai chỉ là nhãn.** Vai không đổi quyền, không đổi mô hình hay cách giao, chạy, kiểm việc con. Việc con được ghi tệp nào vẫn do trường `write` của nó quyết định. `executor.role` vẫn chỉ là `worker`.
+- **Bảng vai chỉ báo, không chặn.** Việc con ghi ra ngoài vùng của vai mình vẫn được ghi vào plan và vẫn chạy. Người đọc phải tự xem báo cáo `role_area_report` hay dòng chữ đỏ trên trang.
+- **Việc con không khai nhãn không bị so với bảng.** Bảng vai không bắt mọi việc con phải có nhãn.
+- **Vùng tệp so theo tên đường dẫn**, cùng luật với hook ghi: đúng tệp, thư mục cha, hoặc glob, không phân biệt hoa thường. Nó không theo liên kết hay tên ngắn trên đĩa.
+- **Khối Danh sách task nằm trong chi tiết việc**, ở mục "Agent và việc nền", không nằm ở màn hình đầu. Khối chỉ có khi trang đã đọc đủ chi tiết của việc.
+- **Plan digest và trang Phiên Claude không hiện nhãn vai.** Chỉ engine state và trang theo dõi có nhãn.
+- **"Chờ task" chỉ tính theo `depends` trong plan.** Việc con chờ người hay chờ tài nguyên dùng chung không hiện ở đây; những thứ đó nằm ở mục chờ và tài nguyên của trang theo dõi.
+- **Chữ trạng thái lấy từ sổ lúc trang đọc**, không phải dự đoán: "đang làm" nghĩa là sổ ghi việc con đã bắt đầu và chưa có đầu ra.

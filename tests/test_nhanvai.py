@@ -214,6 +214,16 @@ class TestNhanVai(EngineFixture):
         self.assertEqual(code, 0, result)
         self.assertEqual(self.definition().get('roles'), {'backend': ['a.txt'], 'frontend': ['b.txt'], 'lead': ['a.txt', 'b.txt']})
         self.assertEqual(result.get('role_area_report'), [{'node': 'FE', 'role': 'frontend', 'kind': 'outside_area', 'paths': ['a.txt']}])
+        for stray in ('role_table', 'labels', 'area'):          # any other key is still refused, and nothing is published
+            with self.subTest(key=stray):
+                source.write_text(json.dumps({'nodes': picture(), 'reason': 'Split work inside the approved scope', 'evidence': ['a.txt:1'],
+                                              stray: {'backend': ['a.txt']}}), encoding='utf-8')
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    code = engine_cli.main(['--project', str(self.root), '--state-root', str(self.ledger.state_root), 'engine', 'revise', 'plan-ns:P1', '--file', str(source)])
+                self.assertNotEqual(code, 0, out.getvalue())
+                self.assertIn('takes nodes, reason, evidence', out.getvalue())
+                self.assertEqual(self.ip.current(self.ledger, 'P1')['internal_revision'], 1)
 
     def test_bad_roles_table_is_refused(self):
         for bad in ({'Backend': ['a.txt']}, {'backend': []}, {'backend': 'a.txt'}, {'backend': ['../x']}, {'backend': ['C:/x']}, ['backend'],
