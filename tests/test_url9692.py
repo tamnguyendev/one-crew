@@ -1,12 +1,14 @@
 """URL9692 (25/11/2026): a fixed address for the OneCrew tracking page.
 
-`track open` and `track serve` listen on 9692 unless the ledger sets its own port in <state root>/tracking.json ({"port": N}); `--port`
-still wins and `--port 0` still takes a free port. A fixed port that is taken is reused only when this ledger's own tracking server answers
-there; anything else is reported with the port and nothing else is started. A server that `track open` starts on a fixed port does not exit
-when idle; on port 0 it keeps the 1800-second idle exit. The host stays 127.0.0.1.
+Rev 3 (owner 21:56, option 1): a ledger with <state root>/tracking.json ({"port": N}) opens `track open` and `track serve` on N; a ledger
+without that file keeps a free port of the system as before (191a58f); `--port` still wins and `--port 0` still takes a free port. A fixed
+port that is taken is reused only when this ledger's own tracking server answers there; anything else is reported with the port and nothing
+else is started. A server that `track open` starts on a fixed port does not exit when idle; on port 0 it keeps the 1800-second idle exit.
+The host stays 127.0.0.1.
 
-No test opens a browser, none listens on 9692 itself: a case that needs a real listener takes a free port of the system and closes it in
-tearDown. A started server is replaced by a fake child process (no detached process is left behind).
+No test opens a browser and none uses 9692 (the M1 checker holds it while the tests run): every fixed port here is a free port of the
+system chosen by the test and written to tracking.json, and a case that needs a real listener closes it in tearDown. A started server is
+replaced by a fake child process (no detached process is left behind).
 """
 import contextlib
 import io
@@ -115,15 +117,12 @@ class TestUrl9692(unittest.TestCase):
         ((state or self.state) / 'tracking.json').write_text(json.dumps({'port': port}), encoding='utf-8')
 
     # ---- A: new behaviour -----------------------------------------------------------------------------------------------------------------
-    def test_open_and_serve_default_port_is_9692(self):
-        self.assertEqual(self.called_with('serve')['port'], 9692)
-        self.assertEqual(self.called_with('open')['port'], 9692)
-
     def test_state_root_tracking_json_sets_port(self):
-        self.set_port(9693)
-        self.assertEqual(self.called_with('serve')['port'], 9693)
-        self.assertEqual(self.called_with('open')['port'], 9693)
-        self.assertEqual(self.called_with('open', '--port', '9700')['port'], 9700, '--port still wins over tracking.json')
+        port, other = free_port(), free_port()
+        self.set_port(port)
+        self.assertEqual(self.called_with('serve')['port'], port)
+        self.assertEqual(self.called_with('open')['port'], port)
+        self.assertEqual(self.called_with('open', '--port', str(other))['port'], other, '--port still wins over tracking.json')
         self.assertEqual(self.called_with('serve', '--port', '0')['port'], 0)
 
     def test_busy_port_of_another_program_stops_with_message(self):
@@ -181,6 +180,17 @@ class TestUrl9692(unittest.TestCase):
         args, env = self.spawned[0]['args'], self.spawned[0]['env']
         self.assertEqual(args[args.index('--port') + 1], '0')
         self.assertEqual(env.get('ONECREW_TRACK_IDLE_EXIT'), '1800', 'port 0 keeps the 1800-second idle exit')
+
+    def test_no_tracking_json_keeps_free_port(self):
+        self.assertFalse((self.state / 'tracking.json').exists())
+        self.assertEqual(self.called_with('serve')['port'], 0)
+        self.assertEqual(self.called_with('open')['port'], 0)
+        code, out = self.cli_spawning_nothing('open', '--no-browser')     # the started server: a free port and the 1800-second idle exit, as before
+        self.assertEqual(len(self.spawned), 1, out)
+        args, env = self.spawned[0]['args'], self.spawned[0]['env']
+        self.assertEqual(args[args.index('--port') + 1], '0')
+        self.assertEqual(env.get('ONECREW_TRACK_IDLE_EXIT'), '1800')
+        self.assertFalse((self.state / 'tracking.json').exists(), 'nothing writes the file')
 
     def test_host_default_stays_localhost(self):
         self.assertEqual(self.called_with('serve')['host'], '127.0.0.1')

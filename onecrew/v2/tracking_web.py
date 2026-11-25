@@ -10,8 +10,9 @@ tab or a restarted server shows the same truth without a cursor to lose and with
 Closing the page or the server never stops a worker: workers are other processes that do not know this one exists. The server started by
 `track open` runs detached; on a free port of the system (`--port 0`) it exits by itself after `idle_exit` seconds without a request.
 
-Fixed address (URL9692, 25/11/2026): `track open` and `track serve` listen on `default_port(state_root)` unless `--port` is given: the `port` of
-`<state root>/tracking.json` ({"port": N}) when that file exists, else DEFAULT_PORT (9692). A server on a fixed port (not 0) started by
+Fixed address (URL9692, 25/11/2026; rev 3, owner 21:56 option 1): `track open` and `track serve` listen on `default_port(state_root)` unless
+`--port` is given: the `port` of `<state root>/tracking.json` ({"port": N}) when that file exists, else DEFAULT_PORT (0: a free port of the
+system, exactly as before URL9692; the real ledger gets 9692 by its own tracking.json). A server on a fixed port (not 0) started by
 `track open` does not exit when idle (it stays until `track stop` or the machine stops). A fixed port that is already taken is never replaced
 by another port: when what answers there is this ledger's own tracking server (same state root, wheel version and scope, asked on
 /api/health) it is reused; anything else (another program, a tracking server of another ledger or version) is reported with the port and
@@ -81,7 +82,7 @@ from pathlib import Path
 from ..ledger import LedgerError, utcnow
 from . import tracking, tracking_dashboard, tracking_direction, tracking_host_web, tracking_list, tracking_sessions
 
-DEFAULT_PORT = 9692
+DEFAULT_PORT = 0                                 # URL9692 rev 3 (D1): a ledger without tracking.json keeps a free port, as 191a58f
 PORT_FILE = 'tracking.json'                      # <state root>/tracking.json: {"port": N}, this ledger's own fixed port (URL9692 D1)
 MARKER = 'tracking/server.json'
 LOCK = 'tracking/open.lock'
@@ -110,8 +111,8 @@ def root_id(state_root):
 
 def default_port(state_root):
     """The port `track open` and `track serve` use without --port (URL9692): `port` of <state root>/tracking.json when the file exists, else
-    DEFAULT_PORT. The file is only read. A file that is not a JSON object with an integer port 1-65535 is an error (never a silent 9692,
-    which could be another ledger's address)."""
+    DEFAULT_PORT (0, a free port: rev 3). The file is only read. A file that is not a JSON object with an integer port 1-65535 is an error
+    (never a silent fallback: the owner wrote that file to get a fixed address)."""
     path = Path(state_root) / PORT_FILE
     if not path.exists():
         return DEFAULT_PORT

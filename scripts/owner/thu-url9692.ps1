@@ -2,13 +2,14 @@
 .SYNOPSIS
   URL9692 M2: try the fixed tracking addresses with the trial runtime: 9692 (real ledger), 9693 (development ledger), 9694 (coordinator's ledger).
 .DESCRIPTION
+  Rev 3 (owner 21:56, option 1): a ledger gets a fixed port only from its own tracking.json; a ledger without that file keeps a free port.
   Default = dry run: shows what would be written and started, writes nothing, starts nothing.
   -ApDung (owner's own terminal only; refused inside an AI session):
-    1. writes tracking.json {"port": 9693} into the development ledger and {"port": 9694} into the coordinator's ledger
-       (a tracking.json that is already there with another content is only replaced after you answer y);
-    2. runs `track open --no-browser` of the trial runtime for the three ledgers (the real ledger has no tracking.json: 9692);
+    1. writes tracking.json {"port": 9692} into the real ledger, {"port": 9693} into the development ledger and {"port": 9694} into the
+       coordinator's ledger (a tracking.json that is already there with another content is only replaced after you answer y);
+    2. runs `track open --no-browser` of the trial runtime for the three ledgers;
     3. prints the three URLs and asks /api/health of each (no proxy).
-  -QuayVe -ApDung: stops the three servers (`track stop` of each ledger) and removes the two tracking.json files this script writes
+  -QuayVe -ApDung: stops the three servers (`track stop` of each ledger) and removes exactly the three tracking.json files this script writes
   (a file with another content is only removed after you answer y). -QuayVe alone is the dry run of that.
   Then open the three URLs in the browser, wait 35 minutes, open them again: each page must still be there.
   Exit 0 = every step passed; 1 = a step failed; 2 = -ApDung inside an AI session.
@@ -38,7 +39,7 @@ $env:PYTHONIOENCODING = 'utf-8'
 $noBom = New-Object System.Text.UTF8Encoding $false
 
 $ledgers = @(
-    [pscustomobject]@{ Name = 'so that'; State = $RealState; Port = 9692; File = $false },
+    [pscustomobject]@{ Name = 'so that'; State = $RealState; Port = 9692; File = $true },
     [pscustomobject]@{ Name = 'so phat trien'; State = $DevState; Port = 9693; File = $true },
     [pscustomobject]@{ Name = 'so rieng dieu phoi'; State = $CoordState; Port = 9694; File = $true }
 )
@@ -83,9 +84,6 @@ foreach ($l in $ledgers) {
     if (-not (Test-Path -LiteralPath $l.State)) { Write-Host ('KHONG DAT: khong tim thay ' + $l.Name + ' ' + $l.State) -ForegroundColor Red; $failed = $true }
 }
 if ($failed) { [Console]::OutputEncoding = $savedEncoding; $env:PYTHONIOENCODING = $savedIo; exit 1 }
-if (-not $QuayVe -and (Test-Path -LiteralPath (Join-Path $RealState 'tracking.json'))) {
-    Write-Host ('LUU Y: so that co tracking.json (' + (Read-PortFile (Join-Path $RealState 'tracking.json')) + '): cong cua no khong phai 9692; script nay khong dong vao tep do.') -ForegroundColor Yellow
-}
 
 try {
     if ($QuayVe) {
