@@ -2384,8 +2384,23 @@ def judge_call(plan, root, bad_plan, source, event, bad_input, limited=False, re
     return 0
 
 
+def owner_typed_note(event, root, plan):
+    """VAI3: under a standing plan, a turn the OWNER typed gets one `reminded` line (rule owner_prompt, never the words) and the reminder text, which
+    is returned for the context. None when there is nothing to remind; it is never a gate, so any error is silence."""
+    try:
+        if not plan.get('standing'): return None
+        from . import giao_viec, messages
+        if not giao_viec.owner_typed(event.get('prompt')): return None
+        text = giao_viec.owner_reminder(plan.get('plan'), plan.get('state_root'), messages.lang())
+        if not text: return None
+        record(root, plan, 'reminded', 'UserPromptSubmit', giao_viec.OWNER_NOTE, 'owner_prompt', session=event.get('session_id'))
+        return text
+    except Exception:                                    # noqa: BLE001 - a reminder never locks the session
+        return None
+
+
 def prompt(args):
-    event, _ = read_stdin()
+    event, bad_input = read_stdin()
     note_call(event)                 # #25: the identity of an earlier call in this process must not leak into this record
     plan, root, bad, _ = governing(args, event)
     if plan is None or plan.get('status') not in ('approved', 'stopped_with_report'): return 0
@@ -2393,15 +2408,16 @@ def prompt(args):
     hit = next((k for k in plan.get('prompt_keywords', []) if str(k).casefold() in text), None)
     rules = Path(plan.get('state_root') or '.') / 'plans' / 'owner-rules.md'
     line = f"The owner's rules are in {rules}; read them before proposing or presenting anything." if rules.is_file() else None
+    typed = None if bad or bad_input else owner_typed_note(event, root, plan)
     if hit is None:
-        owner_context(None if bad else plan, root, event, 'UserPromptSubmit', line)
+        owner_context(None if bad else plan, root, event, 'UserPromptSubmit', '\n'.join(p for p in (typed, line) if p) or None)
         return 0
     budget = plan.get('budget') or {}
     pending = next((m['id'] for m in plan.get('milestones', []) if m.get('state') != 'passed'), None)
     note = (f"Contract v{plan.get('revision')} says: {budget.get('max_calls')} calls, {budget.get('time')} minutes, next milestone {pending or 'none'}. "
             f"Spoken words are not in the ledger; change the contract with `onecrew plan amend` or file a CREQ.")
     record(root, plan, 'reminded', 'UserPromptSubmit', note, 'prompt_keyword:' + str(hit), session=event.get('session_id'))
-    owner_context(None if bad else plan, root, event, 'UserPromptSubmit', note + (' ' + line if line else ''))
+    owner_context(None if bad else plan, root, event, 'UserPromptSubmit', (typed + '\n' if typed else '') + note + (' ' + line if line else ''))
     return 0
 
 

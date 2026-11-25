@@ -203,6 +203,14 @@ Expected: `plan show` reports `status: accepted`. If an owner command reports an
 
 For a second task in the same project, reuse the executable and state directory, choose a new plan name, and ask the assistant to prepare a new contract. You do not need a new venv or another `init` for every task. Starting on an existing production project is a separate decision; do not copy this demo's plan or ledger into it.
 
+## Working with three roles (optional)
+
+Not needed for the demo above. This applies to a version that contains VAI3; earlier releases have no owner reminder.
+
+For longer work you can split the sessions: the **owner** (requests, approves, answers, accepts), an **exchange session** (where the owner talks; it logs the words and passes work on) and a **coordinator session** (runs under a standing plan and by default only delegates). Add a verifier session when you want an independent check. Copy the matching template into the folder's `CLAUDE.md`: [exchange](vai3/trao-doi.en.md), [coordinator](vai3/dieu-phoi.en.md), [verifier](vai3/kiem.en.md). The roles are documentation and templates: OneCrew does not assign roles in code, does not forward messages between sessions, and does not change who decides.
+
+When the session's plan is standing (`"standing": true` in the contract) and the owner types straight into it, the `hook prompt` entry that `onecrew init` writes reminds Claude to log the words and tell the exchange session, and adds one `reminded` line (rule `owner_prompt`, without the typed text). It never blocks. Messages from other sessions and app events (text starting with the `cross-session-message`, `system-reminder`, `task-notification`, `side-sessions-event` or `ci-monitor-event` wrapper) are not reminded; this relies on how the app wraps them today. Edit the reminder in `<state>/plans/mau-loi-chu.md`; an empty file turns it off; without the file the built-in text is used (`ONECREW_LANG=vi` for Vietnamese).
+
 ## Troubleshooting
 
 | Symptom | Next step |

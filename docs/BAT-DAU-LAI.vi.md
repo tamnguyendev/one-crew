@@ -80,7 +80,7 @@ Khi engine chờ tài nguyên đã khai báo, vị trí trong hàng đợi gắn
 Có từ bản chứa GSDP-A (#63 lượt đầu); runtime đã phát hành trước đó không có.
 - **Plan thường trực:** hợp đồng ghi `"standing": true`.
   - Hạn = lúc chủ duyệt + `budget.time` phút (tối đa 28800 phút, tức 20 ngày). Xuất lại (verdict, `hook export`, `owner enforce`, mở phiên) không kéo dài hạn; chỉ lần duyệt mới đặt hạn mới.
-  - Dừng lượt (Stop) không chặn và không ghi dòng mỗi lượt.
+  - Dừng lượt (Stop) không chặn và không ghi dòng nhật ký vi phạm (`violations.jsonl`) mỗi lượt. Phần theo dõi việc nền vẫn ghi một dòng `parent_stop` mỗi lượt vào `.onecrew/background.jsonl`, như với mọi phiên.
   - Sửa và lệnh vẫn bị xét như plan thường. Hết hạn ở chế độ chặn thì mọi sửa và lệnh của phiên bị chặn tới khi chủ duyệt lại.
   - Plan thường giữ hạn 24 giờ và Stop chặn như cũ. `budget.time` cũng là giới hạn giờ làm của job dưới plan: hai việc dùng chung một số.
   - `owner approve --human` in rõ plan thường trực, giờ hết hạn và việc Stop không chặn.
@@ -103,6 +103,27 @@ Có từ bản chứa GSDP-A (#63 lượt đầu); runtime đã phát hành trư
   - Mặc định là chạy thử, không ghi gì; `-ApDung` mới chạy thật.
   - `-TomTat` tóm tắt nhật ký của thư mục thử.
   - `-QuayVe` gỡ mục nhắc và trỏ hook về runtime đã phát hành.
+
+## 9. Mô hình 3 vai: chủ sở hữu, phiên trao đổi, phiên điều phối
+
+Có từ bản chứa VAI3; runtime đã phát hành trước đó không có phần nhắc dưới đây.
+
+| Vai | Việc | Mẫu `CLAUDE.md` |
+|---|---|---|
+| Chủ sở hữu | Nêu yêu cầu, duyệt, trả lời, nghiệm thu | (người, không cần mẫu) |
+| Phiên trao đổi | Nơi chủ nói chuyện; ghi lời chủ; chuyển việc | [trao-doi.vi.md](vai3/trao-doi.vi.md) |
+| Phiên điều phối | Chạy dưới plan thường trực; mặc định chỉ giao việc | [dieu-phoi.vi.md](vai3/dieu-phoi.vi.md) |
+
+Thêm một phiên kiểm độc lập khi cần: [kiem.vi.md](vai3/kiem.vi.md). Bản tiếng Anh nằm cạnh (`*.en.md`). Ba vai là tài liệu và mẫu: OneCrew không nhận vai bằng mã, không tự đẩy tin giữa các phiên, và quyền quyết không đổi.
+
+**Nhắc khi chủ gõ thẳng vào phiên điều phối:**
+- Áp dụng khi plan của phiên là thường trực (mục 8). Cần hook `hook prompt` mà `onecrew init` vẫn ghi; không cần `--remind on`.
+- Mỗi lượt chủ gõ: Claude nhận lời nhắc "ghi lời này vào sổ yêu cầu, báo phiên trao đổi một dòng, rồi làm", và `violations.jsonl` có một dòng `reminded` luật `owner_prompt`. Dòng này không chứa chữ chủ gõ. Không chặn gì.
+- Không nhắc: tin của phiên khác và sự kiện của app, tức chữ bắt đầu bằng lớp bọc `<cross-session-message>`, `<system-reminder>`, `<task-notification>`, `<side-sessions-event>` hay `<ci-monitor-event>`. Chữ khác, kể cả lớp bọc lạ, nội dung dán hay đính kèm, đều coi là lời chủ.
+- Giới hạn: việc nhận nguồn dựa vào lớp bọc chữ của app. App đổi định dạng thì tin phiên khác có thể bị nhắc thừa. Lời chủ mà app chèn sau một lớp bọc kể trên trong cùng lượt thì không được nhắc.
+- Chữ nhắc: tệp `<sổ>\plans\mau-loi-chu.md` (chủ sửa bất cứ lúc nào; cả tệp là lời nhắc). Không có tệp thì dùng chữ mặc định (`ONECREW_LANG=vi` cho tiếng Việt, còn lại tiếng Anh). **Tệp rỗng là tắt.**
+
+Trang `plan present` của hợp đồng thường trực có dòng "THƯỜNG TRỰC" để chủ thấy cờ trước khi duyệt.
 
 ## Nhập review ngoài và kiểm lại finding
 

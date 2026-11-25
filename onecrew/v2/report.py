@@ -1023,6 +1023,14 @@ def _present_missing(f):
     return lines or ['  không thiếu bằng chứng nào cho các acceptance']
 
 
+def _standing_flag(f):
+    """VAI3 (GSDP-A review): a standing plan is named on the page the owner reads before approving."""
+    c = f['contract']
+    if c is None or not c.get('standing'): return []
+    from . import giao_viec
+    return _wrap(giao_viec.STANDING_PRESENT.format(minutes=c['budget']['time']), '', '  ')
+
+
 @_stores_nothing
 def render_present(state_root, name, revision=None, project_id=None):
     """`plan present`: one page of plain text, from the ledger, no model - what the owner reads before approving or accepting."""
@@ -1030,7 +1038,7 @@ def render_present(state_root, name, revision=None, project_id=None):
     state = f['state']
     approved = state['approved']['revision'] if state['approved'] else 'chưa có'
     lines = _heading(f, 'TRÌNH') + [f'Bản đã duyệt: {approved}', f'Sha bản: {state["revisions"][f["revision"]]["sha"]}', f'Mã việc: {state["task_id"]}']
-    lines += _wrap(f'Cần bạn làm: {_needs(f)}', '', '  ') + _amend_block(f)
+    lines += _wrap(f'Cần bạn làm: {_needs(f)}', '', '  ') + _standing_flag(f) + _amend_block(f)
     lines += _forecast_lines(f)
     for unknown in f.get('runtime_unknowns', []):
         lines += _wrap(f'Chưa rõ {unknown["unknown"]}: {unknown["question"]}; giữ {", ".join(unknown["required_by"])}; chủ thể giải: {unknown["resolver"]}.', '', '  ')

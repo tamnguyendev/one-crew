@@ -8,6 +8,7 @@ tool_input: the field names of SendMessage and start_session are not documented,
 `#` and blank lines are skipped. A missing file means the built-in template below; a file with no item means no reminder; an unreadable file means
 silence. The match is by keyword only: it knows a heading is there, not that what follows it is right (D10).
 """
+import re
 from pathlib import Path
 
 TEMPLATE_NAME = 'mau-giao-viec.md'
@@ -36,10 +37,44 @@ INIT_TEXT = {
 }
 # what `owner approve --human` adds for a standing plan (D6), so the owner sees at once what was approved
 STANDING_HUMAN = ('Plan {plan} là plan THƯỜNG TRỰC (standing): hết hạn {expires} (lúc duyệt + {minutes} phút; xuất lại không kéo dài hạn, chỉ lần duyệt mới '
-                  'đặt hạn mới). Dừng lượt (Stop) không chặn và không ghi dòng mỗi lượt. Sửa và lệnh vẫn bị xét như plan thường; hết hạn ở chế độ chặn '
+                  'đặt hạn mới). Dừng lượt (Stop) không chặn và không ghi dòng nhật ký vi phạm mỗi lượt. Sửa và lệnh vẫn bị xét như plan thường; hết hạn ở chế độ chặn '
                   'thì mọi sửa và lệnh bị chặn tới khi bạn duyệt lại. Cách thoát: owner enforce {plan} --mode log.')
 LOCAL_TIME = ' (giờ máy)'
 EXPIRY_RULE = 'lúc duyệt + {minutes} phút'
+
+
+# VAI3: the reminder when the OWNER types straight into a session under a standing plan. The app wraps what it sends on its own (another session's
+# message, its events); text that does not start with one of these wrappers is taken as the owner's (D3: an unknown wrapper counts as the owner).
+APP_WRAPPERS = ('cross-session-message', 'system-reminder', 'task-notification', 'side-sessions-event', 'ci-monitor-event')
+_APP_WRAPPED = re.compile(r'<(?:' + '|'.join(APP_WRAPPERS) + r')(?=[\s/>]|$)')
+OWNER_TEMPLATE_NAME = 'mau-loi-chu.md'      # <state-root>/plans/: the owner's own reminder text; an empty file turns the reminder off (D6)
+OWNER_MAX_CHARS = 4_000
+_LEADING = chr(0xFEFF) + ' \t\r\n'          # blank space and a byte-order mark before the wrapper
+OWNER_TEXT = {
+    'vi': ('Chủ sở hữu vừa gõ thẳng vào phiên này (plan thường trực {plan}). Trước khi làm: (1) ghi lời đó, nguyên văn kèm giờ, vào sổ yêu cầu '
+           '(mặc định YEU-CAU-CHU.vi.md ở thư mục của phiên); (2) báo phiên trao đổi một dòng; rồi làm. Lời nhắc này không chặn gì.'),
+    'en': ('The owner just typed straight into this session (standing plan {plan}). Before acting: (1) write those words, verbatim with the time, '
+           'into the owner request log (default YEU-CAU-CHU.vi.md in the session folder); (2) tell the exchange session in one line; then carry on. '
+           'This reminder blocks nothing.'),
+}
+OWNER_NOTE = 'owner typed straight into a standing plan session; reminded to log the words and tell the exchange session'   # the ledger line: never the words
+# `plan present` of a standing plan: the owner sees the flag BEFORE approving (STANDING_HUMAN below is what `owner approve` says after)
+STANDING_PRESENT = ('THƯỜNG TRỰC (standing): hợp đồng này hết hạn lúc duyệt + {minutes} phút (xuất lại không kéo dài hạn); dừng lượt (Stop) không '
+                    'chặn; sửa và lệnh vẫn bị xét như plan thường.')
+
+
+def owner_typed(prompt):
+    """True when the text of a new turn counts as the owner's: any text that does not start with one of the app's own wrappers."""
+    if not isinstance(prompt, str) or not prompt.strip(): return False
+    return not _APP_WRAPPED.match(prompt.lstrip(_LEADING))
+
+
+def owner_reminder(plan, state_root, language):
+    """The reminder text: <state-root>/plans/mau-loi-chu.md when it is there ('' when it is empty: no reminder), else the built-in text.
+    Raises OSError/ValueError when the file cannot be read."""
+    path = Path(state_root) / 'plans' / OWNER_TEMPLATE_NAME if state_root else None
+    if path is not None and path.exists(): return path.read_text(encoding='utf-8-sig').strip()[:OWNER_MAX_CHARS]
+    return OWNER_TEXT['vi' if language == 'vi' else 'en'].format(plan=plan)
 
 
 def init_text(key, language, **values):
