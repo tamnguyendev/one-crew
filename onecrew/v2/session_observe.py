@@ -133,7 +133,9 @@ def _active(project, state_root):
 
 def _targets(event):
     """([the active target of every registered project this call reaches], the active target of the session's own project or None).
-    QSAT: the session's own project is the SESSION place of candidate_dirs (the hook process directory)."""
+    QSAT: the session's own project is the registered project of CLAUDE_PROJECT_DIR when it has an active plan (a `cd` that persists in the
+    session's shell moves the hook process directory, not the project Claude was started in); else the SESSION place of candidate_dirs (the hook
+    process directory). Both are looked up in the owner profile's registry, never in a .onecrew folder of the working directory."""
     # Use the owner profile's project registry and the external export. A plan
     # or config planted in a tool's working directory cannot select a ledger.
     projects = where._read_registry(where.registry_file())
@@ -150,6 +152,15 @@ def _targets(event):
                 targets[key] = _active(key, projects[key])
                 if role == hook_cli.SESSION: own = targets[key]
                 break
+    declared = os.environ.get('CLAUDE_PROJECT_DIR')
+    if declared:
+        try:
+            folders = where.repository_dirs(declared)
+        except (OSError, ValueError):
+            folders = []
+        key = next((k for k in (os.path.normcase(str(d)) for d in folders) if k in projects), None)
+        started = (targets[key] if key in targets else _active(key, projects[key])) if key else None
+        if started: own = started
     return [target for target in targets.values() if target], own
 
 
@@ -183,7 +194,7 @@ def _binding(event, session):
                   'status': 'bound' if target else 'unbound',
                   'reason': 'registered active plan' if target else ('multiple plans' if ambiguous else 'no active target')}
         if ambiguous:       # QSAT D4: a record written by this release says why, so it stays apart from an older release's record
-            record['cause'] = 'places' if len(reached) > 1 else 'plan_changed'
+            record['cause'] = 'plan_changed' if len({identity[1] for identity in identities}) == 1 else 'places'
         if record != prior:
             from .install import write_text
             write_text(path, json.dumps(record, ensure_ascii=False))

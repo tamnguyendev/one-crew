@@ -29,16 +29,20 @@ $PlanA = 'QSAT-THU-A'
 $PlanB = 'QSAT-THU-B'
 function Stop-Here([string]$why) { Write-Host ('KHONG DAT: ' + $why) -ForegroundColor Red; exit 1 }
 
-if (($ApDung) -and ($env:CLAUDE_CODE_CHILD_SESSION -or $env:CLAUDECODE -or $env:CLAUDE_CODE_ENTRYPOINT)) {
+if (($ApDung) -and ($env:CLAUDE_CODE_CHILD_SESSION -or $env:CLAUDECODE)) {
   Write-Host 'KHONG DAT: dang o trong phien AI; mo terminal rieng cua ban roi chay lai.' -ForegroundColor Red; exit 2 }
 $full = [IO.Path]::GetFullPath($ThuGoc).TrimEnd('\')
 if (-not $full.StartsWith('D:\OneCrewRuns\qsat\', [StringComparison]::OrdinalIgnoreCase)) { Stop-Here ('thu muc thu phai nam duoi D:\OneCrewRuns\qsat\, dang la ' + $full) }
 
-# Dau van tay tep settings Claude cua ban (noi bo quan sat that duoc cai): script phai de nguyen no.
+# Dau van tay cac tep cua ban ma script khong duoc dung toi: hai tep settings Claude (noi bo quan sat va hook that duoc cai), danh ba du an va
+# tep khoa quan sat cua OneCrew tren may (%LOCALAPPDATA%\OneCrew\hook-projects.json, observation-keys.json). Script phai de nguyen chung.
+# (So cua may trong %LOCALAPPDATA%\OneCrew khong nam trong dau van tay: phien Claude dang mo cua ban ghi vao do bat cu luc nao.)
 function Get-RealPrint {
-  $p = Join-Path $env:USERPROFILE '.claude\settings.json'
-  if (Test-Path -LiteralPath $p -PathType Leaf) { return $p + '=' + (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash }
-  return $p + '=khong co'
+  $files = @((Join-Path $env:USERPROFILE '.claude\settings.json'), (Join-Path $env:USERPROFILE '.claude\settings.local.json'),
+             (Join-Path $env:LOCALAPPDATA 'OneCrew\hook-projects.json'), (Join-Path $env:LOCALAPPDATA 'OneCrew\observation-keys.json'))
+  $parts = foreach ($p in $files) {
+    if (Test-Path -LiteralPath $p -PathType Leaf) { $p + '=' + (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash } else { $p + '=khong co' } }
+  $parts -join ';'
 }
 $printBefore = Get-RealPrint
 
@@ -80,8 +84,8 @@ if ($QuayVe) {
   }
   Rename-Item -LiteralPath $ThuGoc -NewName $newName
   if (Test-Path -LiteralPath $ThuGoc) { Stop-Here 'chua doi ten duoc thu muc thu (co tep dang mo?).' }
-  if ((Get-RealPrint) -ne $printBefore) { Stop-Here 'ho so Claude hay thu muc may cua ban da doi trong luc chay; bao nguoi dieu phoi.' }
-  Write-Host ('DAT: da go bo quan sat thu va doi ten thu muc thu thanh ' + $newName + '; ho so cua ban khong doi.') -ForegroundColor Green
+  if ((Get-RealPrint) -ne $printBefore) { Stop-Here 'tep settings Claude, danh ba du an hay tep khoa quan sat cua ban da doi trong luc chay; bao nguoi dieu phoi.' }
+  Write-Host ('DAT: da go bo quan sat thu va doi ten thu muc thu thanh ' + $newName + '; settings Claude, danh ba du an va tep khoa quan sat cua ban khong doi.') -ForegroundColor Green
   exit 0
 }
 
@@ -139,7 +143,7 @@ Show-Step $step
 if ($step.Code -ne 0) { Stop-Here 'day su kien mo phong loi (xem dong o tren).' }
 $step = Invoke-Thu $PyThu @('-I', '-B', '-X', 'utf8', $Helper, 'xem', '--so-a', $SoA, '--so-b', $SoB, '--session', $Phien, '--plan-a', $PlanA) $null
 Show-Step $step
-if ((Get-RealPrint) -ne $printBefore) { Stop-Here 'ho so Claude hay thu muc may cua ban da doi trong luc chay; bao nguoi dieu phoi.' }
+if ((Get-RealPrint) -ne $printBefore) { Stop-Here 'tep settings Claude, danh ba du an hay tep khoa quan sat cua ban da doi trong luc chay; bao nguoi dieu phoi.' }
 if ($step.Code -ne 0) { Stop-Here 'bo quan sat thu chua lam dung (xem cac dong TRUOT o tren).' }
-Write-Host ('DAT: dong tom tat da che, phien ' + $Phien + ' van gan ' + $PlanA + ', so B khong co dong nao; ho so cua ban khong doi.') -ForegroundColor Green
+Write-Host ('DAT: dong tom tat da che, phien ' + $Phien + ' van gan ' + $PlanA + ', so B khong co dong nao; settings Claude, danh ba du an va tep khoa quan sat cua ban khong doi.') -ForegroundColor Green
 Write-Host 'Xong thi ghi ket qua bang script nghiem thu, roi don bang: thu-qsat.ps1 -QuayVe (thu truoc), roi -QuayVe -ApDung.'

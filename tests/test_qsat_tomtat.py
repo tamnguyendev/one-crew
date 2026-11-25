@@ -65,12 +65,12 @@ class TestQsatTomTat(unittest.TestCase):
         task = self.project.state('PA')['task_id']
         return [e['payload'] for e in self.ledger.events(task) if e['kind'] == 'hook.observed']
 
-    def hand_over(self, tool, inputs, hooks=('PreToolUse',)):
-        """The rows of one hand-over call (tool_use_id 'give-1') after the turn ends, as {hook: row}."""
+    def hand_over(self, tool, inputs, hooks=('PreToolUse',), call_id='give-1'):
+        """The rows of one hand-over call (tool_use_id call_id) after the turn ends, as {hook: row}."""
         for hook in hooks:
-            self.call(hook, tool_name=tool, tool_use_id='give-1', tool_input=inputs)
+            self.call(hook, tool_name=tool, tool_use_id=call_id, tool_input=inputs)
         self.call('Stop')
-        rows = {r['hook']: r for r in self.observed() if r.get('tool_use_id') == 'give-1'}
+        rows = {r['hook']: r for r in self.observed() if r.get('tool_use_id') == call_id}
         self.assertEqual(set(rows), set(hooks), 'every hook of the call is recorded')
         return rows
 
@@ -93,6 +93,13 @@ class TestQsatTomTat(unittest.TestCase):
         self.assertTrue(isinstance(summary, str) and summary.startswith('Dùng ') and 0 < len(summary) <= 160, repr(summary)[:200])
         self.assertNotIn(token, summary)
         self.assertNotIn('A1b2C3d4E5A1b2C3d4E5', summary)
+        # a key that straddles the 160th character: masked before the cut, so no part of it is left at the end
+        straddle = 'ghp_' + 'Z9y8X7w6V5' * 4
+        rows = self.hand_over('Task', {'description': 'y' * 150 + ' ' + straddle + ' cuoi', 'prompt': 'PRIVATE-PROMPT'}, call_id='give-2')
+        summary = rows['PreToolUse'].get('summary')
+        self.assertTrue(isinstance(summary, str) and len(summary) <= 160, repr(summary)[-80:])
+        self.assertNotIn('ghp_Z9', summary)
+        self.assertNotIn('Z9y8X7', summary)
 
     def test_summary_only_on_pretooluse(self):
         rows = self.hand_over('Agent', {'description': 'Chỉ dòng trước', 'prompt': 'PRIVATE-PROMPT'}, hooks=('PreToolUse', 'PostToolUse'))
