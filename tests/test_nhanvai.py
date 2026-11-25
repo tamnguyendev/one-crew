@@ -199,6 +199,22 @@ class TestNhanVai(EngineFixture):
         self.revise_or_fail(again, roles={})
         self.assertNotIn('roles', self.definition())
 
+    def test_command_engine_revise_file_takes_the_roles_table(self):
+        import contextlib, io
+        from pathlib import Path
+        from onecrew.v2 import engine_cli
+        nodes = picture(); nodes[2]['write'] = ['a.txt', 'b.txt']
+        source = Path(self.temp.name) / 'internal.json'
+        source.write_text(json.dumps({'nodes': nodes, 'reason': 'Split work inside the approved scope', 'evidence': ['a.txt:1'],
+                                      'roles': {'backend': ['a.txt'], 'frontend': ['b.txt'], 'lead': ['a.txt', 'b.txt']}}), encoding='utf-8')
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = engine_cli.main(['--project', str(self.root), '--state-root', str(self.ledger.state_root), 'engine', 'revise', 'plan-ns:P1', '--file', str(source)])
+        result = json.loads(out.getvalue())
+        self.assertEqual(code, 0, result)
+        self.assertEqual(self.definition().get('roles'), {'backend': ['a.txt'], 'frontend': ['b.txt'], 'lead': ['a.txt', 'b.txt']})
+        self.assertEqual(result.get('role_area_report'), [{'node': 'FE', 'role': 'frontend', 'kind': 'outside_area', 'paths': ['a.txt']}])
+
     def test_bad_roles_table_is_refused(self):
         for bad in ({'Backend': ['a.txt']}, {'backend': []}, {'backend': 'a.txt'}, {'backend': ['../x']}, {'backend': ['C:/x']}, ['backend'],
                     {'r%d' % i: ['a.txt'] for i in range(41)}):

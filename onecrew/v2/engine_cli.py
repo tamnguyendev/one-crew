@@ -88,8 +88,8 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
             result = tracking_work.review_trace(ledger, opts.plan)
         elif opts.command == 'revise':
             body = json.loads(opts.file.read_text(encoding='utf-8-sig'))
-            if not isinstance(body, dict) or set(body) - {'nodes', 'reason', 'evidence', 'expected_revision'}:
-                raise LedgerError('Internal revision file takes nodes, reason, evidence and optional expected_revision.')
+            if not isinstance(body, dict) or set(body) - {'nodes', 'reason', 'evidence', 'expected_revision', 'roles'}:     # NHANVAI D8: roles table
+                raise LedgerError('Internal revision file takes nodes, reason, evidence and optional expected_revision and roles.')
             result = internal_plan.revise(ledger, opts.plan, **body)
         elif opts.command == 'measure':
             from . import execution_mode

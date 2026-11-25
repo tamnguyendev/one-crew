@@ -35,17 +35,26 @@ Việc con không khai nhãn thì không bị so với bảng.
 
 Báo ở ba chỗ, cùng một nội dung (`role_area_report`):
 
-1. **Lúc lập plan**: kết quả của lần sửa plan nội bộ (`internal_plan.revise`) có `role_area_report`.
+1. **Lúc lập plan**: kết quả của lần sửa plan nội bộ (lệnh `engine revise` hay `internal_plan.revise`) có `role_area_report`.
 2. **Trong `engine state`**: trường `role_area_report` ở cấp plan.
 3. **Trên trang theo dõi**: dòng chữ đỏ dưới việc con bị báo, ví dụ "ghi ngoài vùng của @frontend: api/server.py".
 
 Mỗi mục báo có dạng: `{"node": "FE", "role": "frontend", "kind": "outside_area", "paths": ["api/server.py"]}`. Trường `kind` là `outside_area` hoặc `role_not_in_table`.
 
-Cách khai bảng: tham số `roles` của `internal_plan.revise(..., roles={...})`.
+Có hai cách khai bảng:
 
-- Không truyền `roles`: plan giữ bảng của bản trước. Vì thế các lần sửa plan tự động (sửa lỗi, khôi phục), vốn chỉ truyền danh sách việc con, không làm mất bảng.
-- `roles={}`: bỏ bảng.
-- Lệnh `onecrew engine revise --file` chưa nhận khóa `roles` (tệp lệnh đó nằm ngoài hợp đồng NHANVAI). Hiện chỉ khai bảng được qua API Python.
+- Bằng lệnh: thêm khóa `"roles"` vào tệp của `onecrew engine revise <plan> --file <tệp>`, cạnh `nodes`, `reason`, `evidence`:
+
+  ```json
+  {"nodes": [...], "reason": "...", "evidence": ["..."], "roles": {"backend": ["api/"], "frontend": ["ui/**"]}}
+  ```
+
+- Bằng API Python: tham số `roles` của `internal_plan.revise(..., roles={...})`.
+
+Quy tắc giữ hay bỏ bảng:
+
+- Không có `roles`: plan giữ bảng của bản trước. Vì thế các lần sửa plan tự động (sửa lỗi, khôi phục), vốn chỉ đưa danh sách việc con, không làm mất bảng.
+- `"roles": {}`: bỏ bảng.
 
 ## Chữ trạng thái trên trang theo dõi
 
