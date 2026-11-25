@@ -211,6 +211,14 @@ For longer work you can split the sessions: the **owner** (requests, approves, a
 
 When the session's plan is standing (`"standing": true` in the contract) and the owner types straight into it, the `hook prompt` entry that `onecrew init` writes reminds Claude to log the words and tell the exchange session, and adds one `reminded` line (rule `owner_prompt`, without the typed text). It never blocks. Messages from other sessions and app events (text starting with the `cross-session-message`, `system-reminder`, `task-notification`, `side-sessions-event` or `ci-monitor-event` wrapper) are not reminded; this relies on how the app wraps them today. Edit the reminder in `<state>/plans/mau-loi-chu.md`; an empty file turns it off; without the file the built-in text is used (`ONECREW_LANG=vi` for Vietnamese).
 
+Details:
+
+- **The recorded line.** One JSON line in `<project>/.onecrew/violations.jsonl` with `event` `reminded`, `rule` `owner_prompt`, `tool` `UserPromptSubmit`, the time, plan, revision, mode and session id. The typed text is not stored; match the time against the request log. The line shows that the reminder was given, not that Claude followed it.
+- **Changing the text.** The owner edits the file; the whole file (up to 4000 characters, lines starting with `#` included) is given to Claude from the next turn on. Delete the file to return to the built-in text.
+- **Self-work switch.** The coordinator only delegates by default. To let it change code itself, add the line `Coordinator self-work: on` to that session's `CLAUDE.md`; remove the line to turn it off. It is a written rule only: no hook checks it, and the contract's scope and the owner's authority stay as they are.
+- **Limits.** Reminders only, never a block; Claude can ignore them. Nothing proves who typed the text. Words the app places after one of its wrappers in the same turn are not reminded.
+- **Trying it.** With an approved standing plan, type one sentence into the session and check that one `owner_prompt` line appears; then have another session send it a message and check that no line is added.
+
 ## Troubleshooting
 
 | Symptom | Next step |

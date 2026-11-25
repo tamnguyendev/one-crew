@@ -125,6 +125,18 @@ Thêm một phiên kiểm độc lập khi cần: [kiem.vi.md](vai3/kiem.vi.md).
 
 Trang `plan present` của hợp đồng thường trực có dòng "THƯỜNG TRỰC" để chủ thấy cờ trước khi duyệt.
 
+**Dòng nhắc trong sổ.** Mỗi lần nhắc là một dòng JSON trong `<dự-án>\.onecrew\violations.jsonl`: `event` = `reminded`, `rule` = `owner_prompt`, `tool` = `UserPromptSubmit`, kèm giờ `at`, `plan`, `revision`, `mode`, mã phiên `session`; `reason` là một câu cố định, `subject` để trống. Muốn đối chiếu "chủ đã gõ gì" thì so giờ của dòng với sổ yêu cầu `YEU-CAU-CHU.vi.md`. `hook sync` nhập các dòng này vào sổ cái như mọi dòng `reminded` khác. Dòng này chỉ cho biết hook đã nhắc, không cho biết Claude đã làm theo.
+
+**Sửa hay tắt lời nhắc.** Chủ tự mở (hoặc tạo) `<sổ>\plans\mau-loi-chu.md`, viết lời nhắc bằng chữ của mình, lưu UTF-8. Cả tệp được đưa nguyên cho Claude (tối đa 4000 ký tự; dòng bắt đầu bằng `#` cũng được đưa). Tệp rỗng hoặc chỉ có dòng trống: tắt. Xóa tệp: về chữ mặc định. Tệp có tác dụng từ lượt kế tiếp, không cần duyệt lại hay mở lại phiên. Tệp không đọc được thì hook im.
+
+**Công tắc "tự làm" của phiên điều phối.** Mặc định phiên điều phối chỉ giao việc. Muốn nó tự sửa mã, chủ thêm đúng một dòng vào `CLAUDE.md` của phiên: `Điều phối được tự làm: bật` (bản tiếng Anh: `Coordinator self-work: on`); bỏ dòng đó là tắt. Đây là luật bằng chữ trong mẫu: chưa có hook kiểm hay chặn, và hợp đồng, phạm vi, quyền của chủ vẫn áp dụng như cũ.
+
+**Giới hạn chung.** Chỉ nhắc, không bao giờ chặn; Claude vẫn có thể bỏ qua. Không chứng minh được chữ do chủ gõ. Không tự đẩy tin sang phiên trao đổi. Chưa có sổ yêu cầu của chủ trong sổ OneCrew (tệp yêu cầu là tệp tay).
+
+**Cách thử.**
+- Thử nhanh ở dự án có hợp đồng thường trực đã duyệt: gõ một câu vào phiên, rồi đọc `.onecrew\violations.jsonl` thấy một dòng `owner_prompt`; cho một phiên khác gửi một tin vào phiên đó, không có dòng mới.
+- Thử ở thư mục riêng khi phát triển chính OneCrew: `scripts/owner/thu-vai3.ps1`, chạy trong terminal của chủ từ checkout VAI3 đã qua mốc M1. Không công tắc là chạy thử, không ghi gì; `-ApDung` dựng gói và thư mục thử `D:\OneCrewRuns\vai3\thu` rồi hỏi lời duyệt plan thử; `-TomTat` đếm dòng nhắc; `-QuayVe -ApDung` trỏ hook của dự án thử về runtime đã phát hành. Script ghim đường dẫn máy phát triển; đổi bằng tham số `-ThuGoc`, `-Python`, `-RuntimeCu`, `-SoPhatTrien`.
+
 ## Nhập review ngoài và kiểm lại finding
 
 Trên plan đang duyệt xong có năng lực `finding-register`, chạy `onecrew findings import-review P1 --file review.json`. Lấy `task_id` từ `anchor_task`, lấy `revision`, `milestone`, `receipt` và `artifact_sha` từ `onecrew plan show P1`. Ví dụ một báo cáo có dạng sau.
