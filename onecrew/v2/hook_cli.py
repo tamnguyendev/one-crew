@@ -1,7 +1,7 @@
 """`onecrew hook check|prompt|stop|session|sync|export|mode|install` — Claude Code hooks for an active v2 plan (slice L2).
 
 The hooks read `<project>/.onecrew/active-plan.json` (see active_plan.py) and never open the ledger on the hot path; `stop`,
-`session`, `sync` and `export` may read it. Field names of the hook JSON (Claude Code docs, checked 2026-10-18):
+`session`, `sync` and `export` may read it, and so may `check` for an EXPIRED export, read-only (BANXUAT: active_plan.finished). Field names of the hook JSON (Claude Code docs, checked 2026-10-18):
   stdin, all events: session_id, transcript_path, cwd, permission_mode, hook_event_name
   PreToolUse: tool_name, tool_input {Edit/Write/MultiEdit: file_path; NotebookEdit: notebook_path; Bash/PowerShell: command}
   UserPromptSubmit: prompt        Stop: stop_hook_active        SessionStart: source (startup|resume|clear|compact)
@@ -2310,7 +2310,7 @@ def check(args):
     # a path the hook cannot resolve (`$PWD/x`) is judged by the session's plan; when the session has no enforce plan of its own, the plan of the cwd judges it
     from .active_plan import released
     watched = any(plan is not None and role == SESSION and plan.get('mode') == 'enforce' and plan.get('status') in ('approved', 'stopped_with_report','closed')
-                  and not released(plan) for (plan, _, _, _), role in governed)
+                  and not released(plan) and (bad_plan is not None or not over(plan, root)) for (plan, root, bad_plan, _), role in governed)
     code = 0
     for (plan, root, bad_plan, source), role in governed:
         if plan is not None and judge_call(plan, root, bad_plan, source, event, bad_input, limited=role != SESSION, refuse_unresolvable=role == CWD and not watched) == 2: code = 2
@@ -2335,6 +2335,23 @@ def owner_context(plan, root, event, name, context=''):
         output('')
 
 
+def expired(plan):
+    """True when the exported plan carries an expiry that has passed; raises ValueError for a stamp that cannot be read."""
+    expires = plan.get('expires')
+    return bool(expires) and dt.datetime.fromisoformat(expires) < dt.datetime.now(dt.timezone.utc)
+
+
+def over(plan, root):
+    """BANXUAT: the export has expired and the ledger says this very plan is over (accepted, or closed by the owner): it governs nothing more.
+    The ledger is opened only for an expired export, read-only; anything that cannot be read is False."""
+    try:
+        if not expired(plan): return False
+        from .active_plan import finished
+        return finished(plan, root)
+    except Exception:                                    # noqa: BLE001 - unknown stays enforced
+        return False
+
+
 def judge_call(plan, root, bad_plan, source, event, bad_input, limited=False, refuse_unresolvable=False):
     """One plan's verdict on one call: 2 when it blocks the call (enforce mode), else 0.
 
@@ -2354,8 +2371,8 @@ def judge_call(plan, root, bad_plan, source, event, bad_input, limited=False, re
         from .active_plan import released
         if released(plan):                              # DONGVIEC (dong-bo-giam-sat): the owner closed it with `owner close`; it governs nothing more
             return 0
-        expires = plan.get('expires')
-        if touched and expires and dt.datetime.fromisoformat(expires) < dt.datetime.now(dt.timezone.utc):
+        if touched and expired(plan):
+            if over(plan, root): return 0               # BANXUAT: a stale export of a finished plan locks nothing; every other expired export blocks
             raise ValueError('the active plan expired; the owner re-approves it (plan approve) to refresh it')
         if touched: holds_current(root, plan)        # W18: a register newer than the exported holds fails closed, never open
         data = event.get('tool_input') if isinstance(event.get('tool_input'), dict) else {}

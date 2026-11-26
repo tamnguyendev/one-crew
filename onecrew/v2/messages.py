@@ -135,6 +135,19 @@ TEXT = {
     'doctor.plan_blocks': {'en': '. The hook blocks writes.', 'vi': '. Hook chặn lệnh ghi.'},
     'doctor.plan_expired': {'en': ', expired at {expires}. Refresh: onecrew hook export {name}',
                             'vi': ', hết hạn lúc {expires}. Làm mới bằng onecrew hook export {name}'},
+    # BANXUAT: the exported file still holds the project although the ledger says the plan is over
+    'doctor.plan_stale_accepted': {'en': ': the file for the hooks says {status} (expires {expires}) but the ledger says accepted; until it is rewritten the hook follows '
+                                         'the old file while it has not expired. Refresh: onecrew hook export {name}',
+                                   'vi': ': file cho hook ghi {status} (hạn {expires}) nhưng sổ ghi đã nghiệm thu; khi chưa ghi lại và chưa hết hạn, hook vẫn giữ repo theo '
+                                         'file cũ. Làm mới bằng onecrew hook export {name}'},
+    'doctor.plan_stale_closed': {'en': ': the file for the hooks says {status} (expires {expires}) but the ledger says closed by the owner; until it is rewritten the hook '
+                                       'follows the old file while it has not expired. Refresh: onecrew hook export {name}',
+                                 'vi': ': file cho hook ghi {status} (hạn {expires}) nhưng sổ ghi chủ đã đóng; khi chưa ghi lại và chưa hết hạn, hook vẫn giữ repo theo '
+                                       'file cũ. Làm mới bằng onecrew hook export {name}'},
+    'doctor.plan_closed': {'en': 'none ({name} closed by the owner in the ledger)', 'vi': 'không có ({name} chủ đã đóng trong sổ)'},
+    'doctor.plan_copies': {'en': '. The two copies disagree: the project copy says {project}, the state-root copy says {state} (the hook follows the latter). '
+                                 'Refresh: onecrew hook export {name}',
+                           'vi': '. Hai bản xuất khác nhau: bản ở repo ghi {project}, bản ở thư mục sổ ghi {state} (hook theo bản này). Làm mới bằng onecrew hook export {name}'},
     'doctor.plan_none': {'en': 'none (no .onecrew/active-plan.json)', 'vi': 'không có (không có .onecrew/active-plan.json)'},
     'doctor.plan_bad': {'en': 'active-plan.json cannot be read ({why})', 'vi': 'không đọc được active-plan.json ({why})'},
     'doctor.project': {'en': 'project', 'vi': 'dự án'},
