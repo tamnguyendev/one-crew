@@ -108,7 +108,7 @@ def make_project():
 
 
 def build():
-    from onecrew.control import Control, migrate
+    from onecrew.control_core import Control, migrate      # onecrew.control (legacy) is not in the package
     from onecrew.ledger import Ledger
     from onecrew.snapshots import Snapshots
     from onecrew.v2 import engine, internal_plan as ip, plan as plans
