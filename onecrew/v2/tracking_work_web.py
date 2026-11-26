@@ -223,7 +223,8 @@ function workEmpty(t){return '<div class="work-empty">'+esc(t)+'</div>'}
 function workCard(label,value,note){return '<div class="work-card"><div class="eyebrow">'+esc(label)+'</div><div class="answer">'+workEsc(value)+'</div>'+(note?'<p class="work-meta">'+esc(note)+'</p>':'')+'</div>'}
 function workSource(x){var s=x&&x.source,q=s&&(s.seq!=null?s.seq:s.verdict_seq);return s?'<details class="work-meta"><summary>Nguồn đối chiếu</summary><div>Nguồn: '+esc(s.kind||'receipt')+(q!=null?' #'+esc(q):'')+((x.at||s.at)?' · '+esc(when(x.at||s.at)):'')+'</div></details>':''}
 function workEvidence(d,k){return k&&(d.evidence_keys||[]).indexOf(k)>=0?openBtn(k):'<span class="work-meta">Chưa có bằng chứng mở được từ task này</span>'}
-function nodeName(d,id){var w=d.work||{},n=(w.node_titles||w.nodes||{})[id];return n?workText(n)+' ('+id+')':id||'chưa rõ phần việc'}
+function nodeName(d,id){var s=(d.node_titles||{})[id];if(s)return s+' ('+id+')';     // TENTASK rev 3: the short name of the task detail first
+  var w=d.work||{},n=(w.node_titles||w.nodes||{})[id];return n?workText(n)+' ('+id+')':id||'chưa rõ phần việc'}
 function sitPanel(d){var s=sit(d),a=s.activity||{},needs=d.needs_user||[],lu=d.last_update,n=d.nodes_summary||{},where=s.milestones?s.milestones.text:(n.total?((n.verified||0)+(n.accepted||0))+'/'+n.total+' phần việc đã kiểm':'');
   var ask=needs.length?'<a href="#needs">'+esc(needs.map(function(x){return needTitle(x)}).join(' · '))+'</a>'
     :s.next_by==='owner'?esc(s.next||'Quyết định của bạn')+'<small>Bước này do OneCrew chỉ ra; trang chưa có mẫu lệnh cho nó.</small>'   // 13/11: never "nothing waits for you" beside "Ai làm tiếp: Bạn"

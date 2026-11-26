@@ -135,7 +135,7 @@ The "3 vai" model separates talking with the owner from coordinating the work. U
 
 ### Role labels and short names for sub-tasks
 
-A sub-task of an internal plan may carry a role label (`"role": "backend"`) and a short name for people (`"title"`, one line, at most 80 characters). Both are for display on the tracking page and change nothing about how the sub-task is run or checked. The page shows them in a "Danh sách task" block with status words and a one-line summary taken from ledger figures only; each row opens on the whole goal. Without `"title"`, the short name is the start of the goal. An optional role table (`roles` in the file given to `onecrew engine revise`) only reports sub-tasks that write outside their role's area; it never blocks. See [docs/nhan-vai.vi.md](docs/nhan-vai.vi.md) (Vietnamese).
+A sub-task of an internal plan may carry a role label (`"role": "backend"`) and a short name for people (`"title"`, one line, at most 80 characters). Both are for display on the tracking page and change nothing about how the sub-task is run or checked. The page shows them in a "Danh sách task" block with status words and a one-line summary taken from ledger figures only; each row opens on the whole goal. Without `"title"`, the page names the sub-task itself: the short opening of its goal when that is readable, otherwise a name built from its work that starts with the action (folder read, number of files, file written). The task detail's table of sub-tasks uses the same names. An optional role table (`roles` in the file given to `onecrew engine revise`) only reports sub-tasks that write outside their role's area; it never blocks. See [docs/nhan-vai.vi.md](docs/nhan-vai.vi.md) (Vietnamese).
 
 ### Session observation (optional)
 

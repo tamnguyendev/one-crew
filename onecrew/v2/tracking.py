@@ -217,6 +217,135 @@ def short_title(title, limit=64):
     return (head[:cut] if cut > 0 else head).rstrip(' ,;:—-(') + '…'
 
 
+NODE_NAME = 70          # TENTASK: the longest short name taken from a goal, '…' included
+NODE_GOAL = 4000        # TENTASK: the whole goal of a sub-task in the detail (real goals measured 26/11: 278 to 1000 characters)
+
+
+MACHINE_HEAD = 40      # TENTASK rev 3 (D10): a goal head longer than this is machine text
+COMMIT = re.compile(r'(?<![0-9A-Za-z])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40}(?![0-9A-Za-z])')     # a commit id: 7 to 40 lowercase hex, a digit among them
+ROOT_FOLDER = 'gốc repo'
+
+
+def _cut(text, limit=NODE_NAME):
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + '…'
+
+
+def goal_head(goal):
+    """TENTASK: the goal up to its first ': ' or '. ' (a ':' or '.' without a space after it does not end it), spaces collapsed."""
+    text = ' '.join(str(goal or '').split())
+    ends = [i for i in (text.find(': '), text.find('. ')) if i > 0]
+    return (text[:min(ends)] if ends else text).strip()
+
+
+def machine_head(head):
+    """TENTASK rev 3 (D10): a goal head people cannot read as a name: it holds a commit id (7-40 hex), an '@', or is longer than 40 characters."""
+    return len(head) > MACHINE_HEAD or '@' in head or bool(COMMIT.search(head))
+
+
+def _paths(values):
+    out = []
+    for value in values if isinstance(values, list) else []:
+        if not isinstance(value, str) or not value.strip(): continue
+        path = value.strip().replace('\\', '/')
+        while path.startswith('./'): path = path[2:]
+        out.append(path)
+    return out
+
+
+# TENTASK rev 4 (I8): the action verb of a sub-task, the first word of its goal (first VERB_SPAN characters) found in this table
+VERB_SPAN = 120
+VERBS = (('Rà soát', ('rà soát', 'soát', 'review')), ('Sửa', ('sửa', 'fix')), ('Viết', ('viết', 'write')), ('Thêm', ('thêm', 'add')),
+         ('Tạo', ('tạo', 'create')), ('Kiểm tra', ('kiểm tra', 'kiểm', 'test')), ('Tích hợp', ('tích hợp', 'integrate')),
+         ('Tổng hợp', ('tổng hợp',)), ('Đọc', ('đọc', 'read')))
+_VERB_OF = {word: label for label, words in VERBS for word in words}
+_VERB = re.compile(r'(?<!\w)(' + '|'.join(re.escape(w) for w in sorted(_VERB_OF, key=len, reverse=True)) + r')(?!\w)')
+
+
+def _fold_text(text):
+    import unicodedata
+    return unicodedata.normalize('NFC', ' '.join(str(text or '').split())).casefold()
+
+
+def goal_verb(goal):
+    """TENTASK rev 4 (I8): the verb of the table that comes first in the first 120 characters of the goal ('Cụm 2 review …' -> 'Rà soát'), or None."""
+    found = _VERB.search(_fold_text(goal)[:VERB_SPAN])
+    return _VERB_OF[found.group(1)] if found else None
+
+
+def verb_only(head):
+    """TENTASK rev 4: a goal head that is only a verb of the table ('Tích hợp', 'review'): it says no object, so it is not a name."""
+    return _fold_text(head).strip(' .:;,!-') in _VERB_OF
+
+
+def _base(path):
+    return path.rstrip('/').rsplit('/', 1)[-1] or path
+
+
+def _folder(paths, names=2):
+    """TENTASK rev 4 (D10): the deepest folder that holds at least half of `paths`, shown by its last `names` names
+    ('src/Core/Signature.Domain/RestfulFactory/a.cs' ... -> 'Signature.Domain/RestfulFactory'); 'gốc repo' when no folder holds half of them."""
+    counts = {}
+    for path in set(paths):
+        parts = path.rstrip('/').split('/')[:-1]
+        for depth in range(1, len(parts) + 1): counts[tuple(parts[:depth])] = counts.get(tuple(parts[:depth]), 0) + 1
+    held = [folder for folder, n in counts.items() if n * 2 >= len(set(paths))]
+    if not held: return ROOT_FOLDER
+    best = max(held, key=lambda folder: (len(folder), counts[folder], [-ord(c) for c in '/'.join(folder)]))
+    return '/'.join(best[-names:])
+
+
+def work_name(verb, own, reads, writes, waits):
+    """TENTASK rev 4 (D10, I8): a name from the sub-task's work, starting with its verb:
+      '<verb> <folder> (<N> tệp) → viết|sửa <file> (+K)'   when it has own reads (N of them; the folder by _folder),
+      '<verb> kết quả <M> việc con → viết|sửa <file>'      when it has none and waits for M >= 2 sub-tasks,
+      '<verb> <file>'                                      when it only writes;
+    'sửa' when it also reads the file it writes, else 'viết'; (+K) when it writes K more files. None when nothing gives a name."""
+    if not verb: return None
+    first = writes[0] if writes else None
+    arrow = (f' → {"sửa" if first in reads else "viết"} {_base(first)}' + (f' (+{len(writes) - 1})' if len(writes) > 1 else '')) if first else ''
+    if own:
+        name = f'{verb} {_folder(own)} ({len(own)} tệp){arrow}'
+        return name if len(name) <= NODE_NAME else f'{verb} {_folder(own, 1)} ({len(own)} tệp){arrow}'    # too long: the folder's last name only
+    if waits >= 2: return f'{verb} kết quả {waits} việc con{arrow}'
+    if first: return f'{verb} {_base(first)}'
+    return None
+
+
+def node_names(nodes):
+    """TENTASK: {node id: name} of the sub-tasks of one internal plan on the tracking page.
+      - a node's "title" (the short name for people) when it has one;
+      - else the head of its goal (up to the first ': ' or '. ') when that is short, not machine text (machine_head) and says more than a verb;
+      - else (rev 3-4, D10, I8) a name from its work (work_name), starting with a verb: the first verb of the table in its goal, else from its
+        files (writes a file it also reads: 'Sửa'; writes another file: 'Viết'; reads only: 'Đọc'). Its own reads are the files it reads that
+        fewer than half of the plan's sub-tasks read;
+      - nothing from the work: the goal head.
+    Every name is at most NODE_NAME characters (cut with '…'); None when nothing gives a word (the page shows the id)."""
+    nodes = [n for n in nodes if isinstance(n, dict) and n.get('id')]
+    readers = {}
+    for n in nodes:
+        for path in set(_paths(n.get('read'))): readers[path] = readers.get(path, 0) + 1
+    names = {}
+    for n in nodes:
+        title = n.get('title')
+        if isinstance(title, str) and title.strip():
+            names[n['id']] = clean(' '.join(title.split()), 80); continue
+        head = goal_head(n.get('goal'))
+        name = head
+        if not head or machine_head(head) or verb_only(head):
+            reads, writes = _paths(n.get('read')), _paths(n.get('write'))
+            own = sorted({p for p in reads if readers[p] * 2 < len(nodes)})
+            verb = goal_verb(n.get('goal')) or ('Sửa' if set(writes) & set(reads) else 'Viết' if writes else 'Đọc' if reads else None)
+            waits = len({d.get('node') for d in n.get('depends') or [] if isinstance(d, dict) and d.get('node')})
+            name = work_name(verb, own, set(reads), writes, waits) or head
+        names[n['id']] = clean(_cut(name), None) or None if name else None
+    return names
+
+
+def node_name(node, nodes=None):
+    """TENTASK: the name of one sub-task (node_names over `nodes`, the plan it belongs to; alone when not given)."""
+    return node_names(nodes if nodes is not None else [node]).get(node.get('id'))
+
+
 ROW_TITLE = 80
 
 
@@ -1344,7 +1473,9 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200, observe=Non
             'compared_at': compared_at,          # UI58 MC: when the views were compared with the project (the list: the task page's last comparison, or None)
             'compared_by': ('task_page' if compared_at else None) if not engine_root else None,
             'created_at': row['created_at'], 'started_at': first_started, 'has_started': has_started, 'deadline': None,
-            'node_titles': {n['id']: clean(n.get('goal'), 200) for n in ((engine_view or {}).get('definition') or {}).get('nodes', [])},
+            # TENTASK: a sub-task's name for people (its "title", else the head of its goal); the whole goal, the instruction given to the AI, in node_goals
+            'node_titles': node_names(((engine_view or {}).get('definition') or {}).get('nodes', [])),
+            'node_goals': {n['id']: clean(n.get('goal'), NODE_GOAL) for n in ((engine_view or {}).get('definition') or {}).get('nodes', [])},
             'root_status': state['status'],
             'status': {'kind': kind, 'label': OUTCOME_WORDS[outcome] if outcome else (STOPPED_WORD if stopped_now else WORDS[kind]), 'outcome': outcome, 'reason': clean(reason, 600), 'source': sources},
             'level': {'kind': level, 'label': LEVEL_WORDS[level]},

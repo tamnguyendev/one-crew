@@ -18,9 +18,11 @@
 - **NHANVAI, nhãn vai cho việc con của plan nội bộ:**
   - Trường `"role"` không bắt buộc; trang theo dõi có khối "Danh sách task" hiện @vai và chữ trạng thái. Nhãn chỉ để hiện, đổi nhãn không chạy lại việc con.
   - Bảng vai và vùng tệp (tùy chọn) chỉ báo, không chặn. Xem `docs/nhan-vai.vi.md`.
-- **TENTASK, khối Danh sách task đọc được:**
-  - Việc con khai thêm được tên ngắn cho người (`"title"`, một dòng, tối đa 80 ký tự); không khai thì trang lấy đoạn đầu của mục tiêu.
-  - Đầu khối có một dòng tóm tắt từ số liệu sổ; mở một dòng thì thấy cả mục tiêu.
+- **TENTASK, khối Danh sách task đọc được (chủ nghiệm thu bản 4 trên sổ phát triển 26/11):**
+  - Việc con khai thêm được tên ngắn cho người (`"title"`, một dòng, tối đa 80 ký tự).
+  - Việc con cũ không có `"title"`: trang lấy phần đầu ngắn của mục tiêu khi phần đó đọc được; mục tiêu là chữ máy hoặc phần đầu chỉ là một động từ thì trang đặt tên từ việc con làm, bắt đầu bằng việc làm (thư mục đọc, số tệp, tệp viết hay sửa; việc tích hợp nêu số việc con nó chờ). Tên này không nói được nội dung.
+  - Bảng "Phần việc" dùng cùng tên ngắn, xuống dòng được; mở một dòng thì thấy cả mục tiêu và mã việc con.
+  - Đầu khối Danh sách task có một dòng tóm tắt từ số liệu sổ.
 - **DONGVIEC, chủ đóng việc cũ:**
   - `onecrew owner close <plan> --reference "…" [--dry-run] [--human]`: chủ đóng một việc đang đề xuất, đã duyệt hoặc đã dừng; sổ thêm một dòng ghi lời chủ, không xóa gì. Phiên AI bị từ chối, cả khi chạy thử.
   - `--dry-run` kiểm như thật nhưng không ghi gì.
