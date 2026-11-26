@@ -132,6 +132,10 @@ def _active(project, state_root):
 
 
 def _targets(event):
+    """([the active target of every registered project this call reaches], the active target of the session's own project or None).
+    QSAT: the session's own project is the registered project of CLAUDE_PROJECT_DIR when it has an active plan (a `cd` that persists in the
+    session's shell moves the hook process directory, not the project Claude was started in); else the SESSION place of candidate_dirs (the hook
+    process directory). Both are looked up in the owner profile's registry, never in a .onecrew folder of the working directory."""
     # Use the owner profile's project registry and the external export. A plan
     # or config planted in a tool's working directory cannot select a ledger.
     projects = where._read_registry(where.registry_file())
@@ -140,14 +144,24 @@ def _targets(event):
         path = (event.get('tool_input') or {}).get('file_path')
         if isinstance(path, str):
             places.append((Path(event['cwd']).joinpath(path).parent, hook_cli.LIMITED))
-    targets = {}
-    for place, _role in places:
+    targets, own = {}, None
+    for place, role in places:
         for directory in where.repository_dirs(place):
             key = os.path.normcase(str(directory))
             if key in projects and key not in targets:
                 targets[key] = _active(key, projects[key])
+                if role == hook_cli.SESSION: own = targets[key]
                 break
-    return [target for target in targets.values() if target]
+    declared = os.environ.get('CLAUDE_PROJECT_DIR')
+    if declared:
+        try:
+            folders = where.repository_dirs(declared)
+        except (OSError, ValueError):
+            folders = []
+        key = next((k for k in (os.path.normcase(str(d)) for d in folders) if k in projects), None)
+        started = (targets[key] if key in targets else _active(key, projects[key])) if key else None
+        if started: own = started
+    return [target for target in targets.values() if target], own
 
 
 def _binding(event, session):
@@ -159,25 +173,36 @@ def _binding(event, session):
             prior = json.loads(path.read_text(encoding='utf-8'))
         except FileNotFoundError:
             prior = {}
-        if prior.get('ambiguous'): return None
+        if prior.get('ambiguous'): return None      # any record marked ambiguous stays so, an older release's (no cause) included (giu-ban-ghi-cu)
         previous = prior.get('target')
-        candidates = _targets(event)
+        candidates, own = _targets(event)
+        # QSAT D3: when the session's own project is registered and has an active plan, that plan alone is the candidate; the projects the call
+        # only reaches (a Read, an Edit, a shell command in another repository) add no identity. A plan switch in the session's project still
+        # makes the session ambiguous (previous below), and a session outside every registered project keeps the earlier rule.
+        if own: candidates = [own]
         if previous and not any(t['task'] == previous['task'] and t['state_root'] == previous['state_root'] for t in candidates):
             registered = where.registered_state_root(previous['project'])
             current = (_active(previous['project'], registered)
                        if registered and os.path.normcase(str(registered.resolve())) == previous['state_root'] else None)
             if current: candidates.append(current)
-        identities = {(t['state_root'], t['project'], t['task']) for t in candidates}
+        reached = {(t['state_root'], t['project'], t['task']) for t in candidates}
+        identities = set(reached)
         if previous: identities.add((previous['state_root'], previous['project'], previous['task']))
         ambiguous = len(identities) > 1
         target = candidates[0] if candidates and not ambiguous else None
         record = {'session': session, 'target': target, 'ambiguous': ambiguous,
                   'status': 'bound' if target else 'unbound',
                   'reason': 'registered active plan' if target else ('multiple plans' if ambiguous else 'no active target')}
+        if ambiguous:       # QSAT D4: a record written by this release says why, so it stays apart from an older release's record
+            record['cause'] = 'plan_changed' if len({identity[1] for identity in identities}) == 1 else 'places'
         if record != prior:
             from .install import write_text
             write_text(path, json.dumps(record, ensure_ascii=False))
         return target
+
+
+# QSAT: the short field each hand-over tool already has, kept as the row's one-line summary (PreToolUse only). The app's send_message has none.
+SUMMARY_FIELDS = {'Agent': 'description', 'Task': 'description', 'SendMessage': 'summary', 'mcp__ccd_session__start_session': 'title'}
 
 
 def _rows(event, session, target):
@@ -224,6 +249,11 @@ def _rows(event, session, target):
                 yield row('external_artifact', label=_clean(str(location), 1024))
                 return
         yield row('tool_call')
+    elif name == 'PreToolUse' and tool in SUMMARY_FIELDS:
+        # QSAT D1/D2: one short line of a hand-over, from the field the tool already has; masked and capped, never the prompt or message itself
+        raw = inputs.get(SUMMARY_FIELDS[tool]) if isinstance(inputs, dict) else None
+        summary = _clean(raw, 160) if isinstance(raw, str) and raw.strip() else None
+        yield row('tool_call', **({'summary': summary} if summary else {}))
     else:
         yield row({'SubagentStart': 'subagent_start', 'SubagentStop': 'subagent_stop',
                    'SessionStart': 'session_start', 'SessionEnd': 'session_end', 'Stop': 'turn_end'}.get(name, 'tool_call'))
