@@ -109,6 +109,8 @@ def build(ledger, name):
         status = state['status'] if revision == state['latest'] else 'approved'
         if state['accepted'] and state['accepted']['revision'] == revision: status = 'accepted'
         elif revision in state['stopped']: status = 'stopped_with_report'
+        if state.get('closed') and state['closed'].get('closed_by') == plans.CLOSED_BY_OWNER: status = 'closed'    # DONGVIEC: owner close ends every revision
+        closed_by = state['closed'].get('closed_by') if status == 'closed' and state.get('closed') else None
         task_id, latest = state['task_id'], state['latest']
         later = {}                                                   # milestone -> seq of its latest verdict.recorded on this revision
         for v in state['verdicts']:
@@ -133,7 +135,7 @@ def build(ledger, name):
     return {'schema_version': 1, 'plan': state['name'], 'anchor': state['selector'],
             **({'workflow_holds': workflow_holds} if workflow_holds is not None else {}),
             **{key: state[key] for key in ('workflow_version', 'capabilities') if key in state},
-            'revision': revision, 'plan_sha': sha, 'status': status,
+            'revision': revision, 'plan_sha': sha, 'status': status, **({'closed_by': closed_by} if closed_by else {}),
             'pending_revision': latest if latest != revision else None, 'anchor_task': task_id,
             # what the plan waits for outside the session: a receipt that has no verdict yet, an owner question nobody answered (the Stop hook lets go)
             'waiting': {'receipt_without_verdict': unanswered, 'open_questions': questions, 'run_in_progress': running},
@@ -160,6 +162,18 @@ def standing_expiry(approved, contract):
 
 
 ENFORCING = ('approved', 'stopped_with_report', 'closed')       # the statuses hook_cli.judge_call enforces
+RELEASED_BY = 'owner_close'                                     # DONGVIEC (option dong-bo-giam-sat): = plan.CLOSED_BY_OWNER
+
+
+def released(document):
+    """DONGVIEC, option dong-bo-giam-sat: True for an active plan the owner closed with `owner close` (status closed, closed_by owner_close):
+    the hooks stop governing it, as for an accepted plan. A plan closed by a stop answer has no closed_by and stays enforced as before."""
+    return isinstance(document, dict) and document.get('status') == 'closed' and document.get('closed_by') == RELEASED_BY
+
+
+def holds(document):
+    """The hooks enforce this active plan: its status is one of ENFORCING and the owner has not released it with `owner close`."""
+    return isinstance(document, dict) and document.get('status') in ENFORCING and not released(document)
 
 
 def _same(document, copy):
@@ -196,7 +210,7 @@ def _still_enforcing(ledger, copy):
         now = build(here, copy.get('anchor') or copy.get('plan'))
     except Exception:                   # noqa: BLE001 - unknown is enforcing
         return True
-    return now is not None and now.get('status') in ENFORCING
+    return now is not None and holds(now)
 
 
 def switch_refusal(ledger, document, take_over=False):
@@ -208,7 +222,7 @@ def switch_refusal(ledger, document, take_over=False):
     if take_over: return None
     copy = governing_copy(ledger)
     if copy is None or (not copy.get('unreadable') and _same(document, copy)): return None
-    if not _still_enforcing(ledger, copy) and document.get('status') in ENFORCING: return None
+    if not _still_enforcing(ledger, copy) and holds(document): return None
     current = 'an unreadable active plan (' + copy['unreadable'] + ')' if copy.get('unreadable') else f"plan {copy.get('plan')} ({copy.get('status')})"
     return (f"Plan {document.get('plan')} is not the plan the hooks of this project follow: {current} governs it and still holds it. Only the owner "
             f"switches the governing plan: hook mode enforce --plan {document.get('plan')} --by owner (scripts/owner/enforce.ps1), or plan approve.")

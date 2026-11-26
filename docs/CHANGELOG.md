@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## v2.5.0.dev34 (26/11/2026): plan thường trực và nhắc lời giao việc (GSDP-A), mô hình 3 vai (VAI3), quan sát phiên giữ tóm tắt giao việc (QSAT), trang theo dõi ở địa chỉ cố định (URL9692), nhãn vai cho việc con (NHANVAI), danh sách task đọc được (TENTASK)
+## v2.5.0.dev34 (26/11/2026): plan thường trực và nhắc lời giao việc (GSDP-A), mô hình 3 vai (VAI3), quan sát phiên giữ tóm tắt giao việc (QSAT), trang theo dõi ở địa chỉ cố định (URL9692), nhãn vai cho việc con (NHANVAI), danh sách task đọc được (TENTASK), lệnh chủ đóng việc cũ (DONGVIEC)
 
 - **GSDP-A, cho phiên điều phối chạy dài:**
   - Hợp đồng khai thêm được `"standing": true`: plan hết hạn lúc duyệt + `budget.time` phút (tối đa 20 ngày, xuất lại không kéo dài); Stop không chặn và không ghi dòng mỗi lượt. Plan thường như cũ.
@@ -21,6 +21,10 @@
 - **TENTASK, khối Danh sách task đọc được:**
   - Việc con khai thêm được tên ngắn cho người (`"title"`, một dòng, tối đa 80 ký tự); không khai thì trang lấy đoạn đầu của mục tiêu.
   - Đầu khối có một dòng tóm tắt từ số liệu sổ; mở một dòng thì thấy cả mục tiêu.
+- **DONGVIEC, chủ đóng việc cũ:**
+  - `onecrew owner close <plan> --reference "…" [--dry-run] [--human]`: chủ đóng một việc đang đề xuất, đã duyệt hoặc đã dừng; sổ thêm một dòng ghi lời chủ, không xóa gì. Phiên AI bị từ chối, cả khi chạy thử.
+  - `--dry-run` kiểm như thật nhưng không ghi gì.
+  - Hook thôi giữ việc chủ đóng; việc đóng bằng câu trả lời "dừng" vẫn giữ như cũ. Xem `docs/dong-viec.vi.md`.
 - **Đóng gói:** thêm module `onecrew.v2.giao_viec`.
 - **Giới hạn đã biết:** việc nhận lời chủ dựa vào lớp bọc chữ của app (lời chủ nằm sau một lớp bọc trong cùng lượt không được nhắc; app đổi định dạng thì có thể nhắc thừa); lời nhắc không bảo đảm Claude làm theo; công tắc "tự làm" của phiên điều phối chỉ là chữ; nhãn và bảng vai không đổi quyền; hook người dùng của máy chỉ đổi khi chủ tự cài bản mới.
 

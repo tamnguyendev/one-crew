@@ -141,6 +141,10 @@ A sub-task of an internal plan may carry a role label (`"role": "backend"`) and 
 
 `onecrew hook user install --observe` (an owner command) records, for sessions that run inside a registered project, the owner's typed words (filtered), the questions the AI asks, background command names, paths of files written outside the project, and start and end times; it does not record file contents or command output. Every such row is labelled unverified. Observation exists since dev33; new in dev34, a hand-over keeps one masked summary line (at most 160 characters, never the prompt or message), and a session bound to its own project stays bound when it reads or runs commands in another one. `onecrew hook sessions` lists the local session bindings, including unbound sessions. It is not a security boundary.
 
+### Closing old plans
+
+`onecrew owner close <plan> --reference "…"` (an owner command; `--dry-run` writes nothing) closes a proposed, approved or stopped plan without deleting anything, and the hooks stop holding the repository to it. See [docs/dong-viec.vi.md](docs/dong-viec.vi.md) (Vietnamese).
+
 ## Current limitations
 
 - **Hooks are not a security boundary.** They cover supported operations in connected sessions. External processes, sessions outside the configured project, and shell forms the parser does not understand may escape that coverage. Do not use this beta to contain untrusted code.

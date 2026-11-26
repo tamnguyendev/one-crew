@@ -2308,8 +2308,9 @@ def check(args):
     note_call(event, 'user' if user else 'project', quiet=user and (has_project_hook(session_project, same) if not no_id else has_project_hook(session_project)))
     governed = [(govern(project_copy, project_root, copy), role) for project_copy, project_root, copy, role in locate_all(args, event)]
     # a path the hook cannot resolve (`$PWD/x`) is judged by the session's plan; when the session has no enforce plan of its own, the plan of the cwd judges it
+    from .active_plan import released
     watched = any(plan is not None and role == SESSION and plan.get('mode') == 'enforce' and plan.get('status') in ('approved', 'stopped_with_report','closed')
-                  for (plan, _, _, _), role in governed)
+                  and not released(plan) for (plan, _, _, _), role in governed)
     code = 0
     for (plan, root, bad_plan, source), role in governed:
         if plan is not None and judge_call(plan, root, bad_plan, source, event, bad_input, limited=role != SESSION, refuse_unresolvable=role == CWD and not watched) == 2: code = 2
@@ -2349,6 +2350,9 @@ def judge_call(plan, root, bad_plan, source, event, bad_input, limited=False, re
         touched = not limited or touches_repo(plan, root, event, base)
         if bad_input or (bad_plan and touched): raise ValueError(bad_input or bad_plan)
         if plan.get('status') not in ('approved', 'stopped_with_report','closed'):
+            return 0
+        from .active_plan import released
+        if released(plan):                              # DONGVIEC (dong-bo-giam-sat): the owner closed it with `owner close`; it governs nothing more
             return 0
         expires = plan.get('expires')
         if touched and expires and dt.datetime.fromisoformat(expires) < dt.datetime.now(dt.timezone.utc):
@@ -2604,6 +2608,8 @@ def session(args):
     note_background(event, root, None if bad else plan)       # BG-A: a SessionStart(resume) is the host reconnecting; it revives no child by itself
     if plan is None: return 0
     plan = refreshed(root, plan)
+    from .active_plan import released
+    if released(plan): return 0                     # DONGVIEC (dong-bo-giam-sat): a plan the owner closed is not given to a new session as its contract
     budget = plan.get('budget') or {}
     pending = next((m for m in plan.get('milestones', []) if m.get('state') != 'passed'), None)
     lines = [f"OneCrew contract {plan.get('plan')} v{plan.get('revision')} [{plan.get('status')}, hook mode {plan.get('mode')}]: {plan.get('title')}",

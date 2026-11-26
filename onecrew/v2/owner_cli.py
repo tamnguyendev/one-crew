@@ -6,7 +6,9 @@ Each one is the older command with `--by owner` fixed, run through the same code
   owner enforce <plan> [--mode log|enforce] [--reference R]                     = hook mode <mode> --by owner --plan <plan>
   owner record --plan P --milestone M --result pass|fail|inconclusive --artifact-sha S --receipt-file F --reference R
                                                                                 = verdict record --by owner
-They are refused inside an AI tool session: ownership.OWNER_VERBS names these four, and the code they call refuses too (C3, C11).
+  owner close <plan> --reference R [--dry-run]                                  = plan close --by owner (DONGVIEC)
+They are refused inside an AI tool session: ownership.OWNER_VERBS names the first four, and the code they call refuses too (C3, C11); owner close is
+refused by the code it calls (plan.close -> require_owner -> refuse_in_ai_session), its dry run included.
 """
 import argparse
 import contextlib
@@ -64,6 +66,9 @@ def _parser():
     p.add_argument('--revision', type=int, help='Refuse acceptance when the current revision differs.')
     p = verbs.add_parser('enforce', help=t('owner.enforce'))
     p.add_argument('plan'); p.add_argument('--mode', choices=['enforce', 'log'], default='enforce'); p.add_argument('--reference', default=t('owner.enforce_reference'))
+    p = verbs.add_parser('close', help=t('owner.close'))
+    p.add_argument('plan'); p.add_argument('--reference', required=True, help=t('owner.close_reference'))
+    p.add_argument('--dry-run', action='store_true', help=t('owner.close_dry_run'))
     p = verbs.add_parser('record', help=t('owner.record'))
     p.add_argument('--plan', required=True); p.add_argument('--milestone', required=True); p.add_argument('--result', required=True, choices=['pass', 'fail', 'inconclusive'])
     p.add_argument('--artifact-sha', required=True); p.add_argument('--receipt-file', required=True, type=Path); p.add_argument('--reference', required=True, help=t('owner.reference'))
@@ -105,6 +110,8 @@ def translate(args):
         return 'plan_cli', argv + (['--revision', str(args.revision)] if args.revision is not None else [])
     if args.verb == 'enforce':
         return 'hook_cli', ['hook', 'mode', args.mode, '--by', 'owner', '--plan', args.plan, '--reference', args.reference]
+    if args.verb == 'close':           # DONGVIEC
+        return 'plan_cli', ['plan', 'close', args.plan, '--by', 'owner', '--reference', args.reference] + (['--dry-run'] if args.dry_run else [])
     return 'plan_cli', ['verdict', 'record', '--plan', args.plan, '--milestone', args.milestone, '--result', args.result, '--by', 'owner',
                         '--artifact-sha', args.artifact_sha, '--receipt-file', str(args.receipt_file), '--reference', args.reference]
 
@@ -124,6 +131,10 @@ def _human_result(parsed, code, output, errors='', *, refused=False, glob=()):
             success = OWNER_HUMAN['answered'].format(choice=parsed.choice, request=parsed.request)
         elif parsed.verb == 'enforce' and value.get('mode') == parsed.mode and value.get('exported') is True:
             success = OWNER_HUMAN['enforced'].format(mode=parsed.mode, plan=parsed.plan)
+        elif parsed.verb == 'close' and parsed.dry_run and value.get('dry_run') is True and value.get('written') is False:
+            success = OWNER_HUMAN['close_dry_run'].format(plan=value.get('plan'), status=value.get('status'))
+        elif parsed.verb == 'close' and not parsed.dry_run and value.get('status') == 'closed' and value.get('closed_now'):
+            success = OWNER_HUMAN['closed'].format(plan=parsed.plan, status=value['closed_now'].get('previous_status'))
         elif parsed.verb == 'record':
             last = next((m.get('last_verdict') or {} for m in value.get('milestones', [])
                          if m.get('id') == parsed.milestone), {})
