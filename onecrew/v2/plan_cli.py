@@ -43,6 +43,9 @@ def _parser():
     p.add_argument('name'); p.add_argument('--by', required=True); p.add_argument('--reference', required=True)
     p.add_argument('--artifact-sha', required=True, help='The artifact accepted; must be what the final milestone verified.')
     p.add_argument('--revision', type=int, help='Expected current revision; checked inside the acceptance write transaction.')
+    p = plan.add_parser('close', help='Owner only (= onecrew owner close): close a proposed, approved or stopped plan; nothing is deleted.')
+    p.add_argument('name'); p.add_argument('--by', required=True); p.add_argument('--reference', required=True)
+    p.add_argument('--dry-run', action='store_true', help='Show what would be closed; write nothing.')
     p = plan.add_parser('amend', help='A new revision (needs a new approval); the old one is kept.')
     p.add_argument('--goal-source', type=int, action='append', default=[], metavar='EVENT',
                    help='Sequence number of a pinned goal, approved choice or eligible session input on this plan (repeatable).')
@@ -183,6 +186,7 @@ def _dispatch(ledger, args):
                 state = plans.anchor_events(ledger, conn, args.name)
                 chosen = (state['approved'] or {}).get('chosen') if state['approved'] and state['approved']['revision'] == state['latest'] else None
             return step0.brainstorm_table(plans.load(ledger, state)[0], chosen)
+        if args.command == 'close': return plans.close(ledger, args.name, args.by, args.reference, dry_run=args.dry_run)
         if args.command == 'accept': return plans.accept(ledger, args.name, args.by, args.reference, args.artifact_sha, expected_revision=args.revision)
         if args.command == 'amend': return plans.amend(ledger, args.name, read_json(args.file), args.reason, args.author,
                                                        check_form=True, goal_sources=args.goal_source)
@@ -229,13 +233,14 @@ def main(argv=None):
     if args.group == 'plan' and args.command == 'lint': return _lint(args)
     read_retention = args.group == 'plan' and args.command == 'retention' and args.action == 'list'
     read_survey = args.group == 'plan' and ((args.command == 'survey' and args.action == 'show') or args.command == 'step0')
-    if read_survey or read_retention or (args.group == 'verdict' and args.command in ('diff', 'artifact')):      # the ledger of a run that must write nothing: a write is an error, not a convention
+    dry_close = args.group == 'plan' and args.command == 'close' and args.dry_run         # DONGVIEC: owner close --dry-run writes nothing
+    if read_survey or read_retention or dry_close or (args.group == 'verdict' and args.command in ('diff', 'artifact')):      # the ledger of a run that must write nothing: a write is an error, not a convention
         from . import lint
         ledger = lint.ReadOnlyLedger(args.project, args.state_root)
     else:
         ledger = Ledger(args.project, args.state_root)
     try:
-        read_only = (read_survey or read_retention or (args.group == 'plan' and args.command in ('show', 'report', 'digest', 'present'))
+        read_only = (read_survey or read_retention or dry_close or (args.group == 'plan' and args.command in ('show', 'report', 'digest', 'present'))
                      or (args.group == 'verdict' and args.command in ('diff', 'artifact')))     # review of dev22 (P2): show too (verdict status records lost runs: it writes)
         if not read_only:      # sync_refusals writes the ledger; these never do
             from .gate import sync_refusals

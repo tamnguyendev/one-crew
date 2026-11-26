@@ -21,6 +21,9 @@ NS_KINDS = ('plan.closed',)
 BASELINE_KIND = 'plan.baseline_recorded'       # P1-D: class A; the old reader ignores it, the new one reads it when base_artifact is missing
 READ_KINDS = KINDS + NS_KINDS + (BASELINE_KIND, 'plan.goal_pinned', 'verdict.run_started')
 OWNER_ACTORS = ('user', 'owner')
+# DONGVIEC: `onecrew owner close` marks its plan.closed with closed_by=owner_close; the stop answer's plan.closed has no such field
+CLOSED_BY_OWNER = 'owner_close'
+CLOSABLE = ('proposed', 'approved', 'stopped_with_report')
 
 
 def require_owner(by, what):
@@ -84,7 +87,9 @@ def derive(ledger, conn, name):
             if state['approved'] is not None and p.get('revision') == state['approved'].get('revision'):
                 state['approved'] = dict(state['approved'], baseline=p)
         elif kind == 'plan.accepted': state['accepted'] = p
-        elif kind == 'plan.closed' and namespaces.has_capability(state, 'sequential-engine'): state['closed'] = p
+        # DONGVIEC: a plan the owner closed with `owner close` (closed_by owner_close) is closed whatever its capabilities; the stop answer's
+        # plan.closed keeps counting on an engine root only, as before
+        elif kind == 'plan.closed' and (namespaces.has_capability(state, 'sequential-engine') or p.get('closed_by') == CLOSED_BY_OWNER): state['closed'] = p
         elif kind == 'verdict.run_started' and p.get('run_id'):
             label = p.get('plan')
             if label == state['selector']:
@@ -909,6 +914,36 @@ def accept(ledger, name, by, reference, artifact_sha, *, expected_revision=None)
     active_plan.export(ledger, name)
     outcome.note(ledger, name)
     return _show(ledger, name)
+
+
+def close(ledger, name, by, reference, *, dry_run=False):
+    """DONGVIEC: the owner closes a plan that is proposed, approved or stopped_with_report (`onecrew owner close <plan> --reference R`): one
+    plan.closed event by the owner with the owner's words and the status it had; nothing is deleted (events, evidence and files stay). Refused,
+    with nothing written, for an accepted or already closed plan, for an old `plan:` anchor (the old version reads it: a class-B event there is
+    refused by compat), and inside an AI session (require_owner). `dry_run`: the same checks, then what would be closed, and nothing is written.
+    Afterwards the engine runs nothing for it, plan digest and the tracking page count it as closed, and the active plan the hooks follow is
+    exported with closed_by=owner_close, so the hooks stop governing it (option dong-bo-giam-sat; a plan closed by a stop answer keeps the old
+    behaviour)."""
+    require_owner(by, 'Closing a plan')
+    reference = text_field(reference, 'reference', 500)
+    with ledger.transaction(write=not dry_run) as conn:
+        state = anchor_events(ledger, conn, name)
+        if not state['selector'].startswith(namespaces.NAMESPACED):
+            raise LedgerError(f'Cannot close {state["name"]}: it is an old plan ({state["selector"]}) that older OneCrew versions still read; '
+                              'owner close only closes plans made by this version. Nothing was written.')
+        if state['status'] not in CLOSABLE:
+            raise LedgerError(f'Cannot close {state["name"]}: the plan is {state["status"]}; only a proposed, approved or stopped plan can be closed. '
+                              'Nothing was written.')
+        record = {'plan': state['name'], 'revision': state['latest'], 'previous_status': state['status'], 'by': by, 'reference': reference,
+                  'reason': reference, 'closed_by': CLOSED_BY_OWNER, 'effect': 'closed', 'grants_authority': False}
+        if dry_run:
+            return {'dry_run': True, 'would_close': record, 'plan': state['name'], 'anchor': state['selector'], 'status': state['status'],
+                    'written': False}
+        emit(ledger, conn, state['task_id'], 'plan.closed', dict(record, **session_info()))
+    from . import active_plan, outcome
+    active_plan.export(ledger, state['selector'])          # the hooks read the exported file: it now says closed_by owner_close
+    outcome.note(ledger, state['selector'])
+    return dict(_show(ledger, state['selector']), closed_now=record)
 
 
 def _advice_view(event, sha):
