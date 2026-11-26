@@ -45,6 +45,7 @@ Mọi trường hợp khác vẫn chặn như cũ:
 - việc còn mở, đã dừng có báo cáo, hoặc đóng bằng câu trả lời "dừng";
 - sổ không có, không đọc được, hoặc đang bị khóa quá lâu;
 - bản xuất ghi mã bản hợp đồng khác với bản đã nghiệm thu;
+- bản xuất trỏ sang một sổ khác với sổ hook đang dùng cho repo (`--state-root` của hook, không có thì `.onecrew/config.json`, rồi bảng đăng ký, rồi sổ mặc định): bản xuất không được tự chọn sổ thả cho nó;
 - bản xuất thiếu thông tin để đối chiếu (bản xuất rất cũ).
 
 ## Giới hạn

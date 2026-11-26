@@ -11,6 +11,8 @@ import hashlib
 import io
 import json
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -18,10 +20,12 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))          # test_v2_l2 imports test_v2_l1 by its plain name
 from test_v2_l2 import HookFixture, owned_plan                      # noqa: E402
 
+from onecrew.ledger import Ledger                                   # noqa: E402
 from onecrew.v2 import active_plan, cli, hook_cli, install, plan as plans, verdict   # noqa: E402
 from tests.v2_fixture import BAD, milestone, plan_json               # noqa: E402
 
 PAST = '2020-01-01T00:00:00+00:00'
+REPO = Path(__file__).resolve().parents[1]
 
 
 class TestBanXuat(HookFixture):
@@ -212,6 +216,31 @@ class TestBanXuat(HookFixture):
         self.stale()
         self.rewrite(plan_sha='0' * 64)
         self.assertEqual(self.hook(), 2)
+
+    def test_hook_blocks_when_export_names_another_ledger(self):
+        """Review I7 Q2: the export may not choose the ledger that releases it. The hook's ledger says open; the file points at one that says accepted."""
+        self.enforce()
+        other = Path(self.ledger.state_root).parent / 'other-state'
+        other.mkdir()
+        shutil.copy2(Path(self.ledger.state_root) / 'ledger.sqlite3', other / 'ledger.sqlite3')
+        elsewhere = Ledger(self.root, other)
+        with elsewhere.transaction(write=True) as conn:
+            state = plans.derive(elsewhere, conn, 'P1')
+            plans.emit(elsewhere, conn, state['task_id'], 'plan.accepted',
+                       {'plan': 'P1', 'revision': 1, 'sha': state['approved']['sha'], 'by': 'owner', 'reference': 'fixture', 'artifact_sha': self.tree()})
+        self.rewrite(state_root=str(other.resolve()), expires=PAST)
+        self.assertEqual(self.hook(), 2)
+
+    def test_hook_passes_with_the_configured_ledger_when_the_hook_names_none(self):
+        """The form `onecrew init` installs: `hook check` without --state-root takes the ledger from .onecrew/config.json."""
+        self.stale()
+        (self.root / '.onecrew' / 'config.json').write_text(json.dumps({'state_root': str(self.ledger.state_root)}), encoding='utf-8')
+        home = Path(self.ledger.state_root).parent / 'home'
+        env = dict({k: v for k, v in os.environ.items() if k not in ('CLAUDE_CODE_CHILD_SESSION', 'CLAUDECODE')},
+                   PYTHONUTF8='1', LOCALAPPDATA=str(home), CLAUDE_PROJECT_DIR=str(self.root))
+        done = subprocess.run([sys.executable, '-X', 'utf8', '-m', 'onecrew', 'hook', 'check'], input=json.dumps(self.edit('docs/x.md')).encode('utf-8'),
+                              capture_output=True, cwd=REPO, timeout=120, env=env)
+        self.assertEqual(done.returncode, 0, done.stderr.decode('utf-8', 'replace'))
 
     def test_hook_heal_writes_nothing_to_the_ledger(self):
         self.stale()

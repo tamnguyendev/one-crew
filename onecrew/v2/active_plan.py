@@ -176,16 +176,19 @@ def holds(document):
     return isinstance(document, dict) and document.get('status') in ENFORCING and not released(document)
 
 
-def finished(document, project):
+def finished(document, project, state_root):
     """BANXUAT (option doctor-va-tu-lanh): True only when the ledger says this very plan (its anchor AND its plan_sha) was accepted, or closed by the
     owner with `owner close`. The hook asks this about an EXPIRED export only, so that a file an older runtime never rewrote does not lock the
-    repository. The ledger is opened read-only and nothing is written. Anything else is False and the hook blocks as before: no anchor, sha or state
-    root in the file, a file of another project, a ledger that cannot be read, a plan still open, closed by a stop answer, or another revision."""
+    repository. `state_root` is the one the HOOK uses for this project (its --state-root, else config.json, the registry, the default): the file may not
+    choose the ledger that releases it. The ledger is opened read-only and nothing is written. Anything else is False and the hook blocks as before: no
+    anchor or sha in the file, a file of another project or another state root, a ledger that cannot be read, a plan still open, closed by a stop
+    answer, or another revision."""
     try:
-        anchor, sha, state_root = document.get('anchor'), document.get('plan_sha'), document.get('state_root')
-        if not (anchor and sha and state_root): return False
+        anchor, sha, named = document.get('anchor'), document.get('plan_sha'), document.get('state_root')
+        if not (anchor and sha and named and state_root): return False
         folder = os.path.normcase(str(Path(project).resolve()))
         if os.path.normcase(str(Path(document['project']).resolve())) != folder: return False
+        if os.path.normcase(str(Path(named).resolve())) != os.path.normcase(str(Path(state_root).resolve())): return False
         from ..specs import digest
         from . import plan as plans
         from .report import _Reader
@@ -194,6 +197,7 @@ def finished(document, project):
             state = plans.derive(reader, conn, anchor)
         if state is None: return False
         if state['status'] == 'accepted': return state['accepted'].get('sha') == sha
+        if state['status'] != 'closed': return False
         closed = state.get('closed') or {}
         return closed.get('closed_by') == plans.CLOSED_BY_OWNER and (state['approved'] or {}).get('sha') == sha
     except Exception:                   # noqa: BLE001 - unknown stays enforced
