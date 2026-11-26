@@ -1023,7 +1023,7 @@ details.badge>summary::-webkit-details-marker{display:none}details.badge>summary
 .tl-st{flex:none;font:13px/1.4 ui-monospace,Consolas,monospace;white-space:nowrap;text-align:right;padding-top:1px}
 .tl-st.ok{color:var(--ok)}.tl-st.run{color:var(--wait)}.tl-st.wait{color:var(--idle)}.tl-st.bad{color:var(--fail)}.tl-out{margin-top:3px;font-size:12.5px;color:var(--fail)}
 .tl-sum{margin:0 0 6px;font-size:13.5px;line-height:1.5;color:var(--ink2);overflow-wrap:anywhere}.tl-sum b{color:var(--ink);font-weight:600}
-.tl-open summary{cursor:pointer;list-style:none}.tl-open summary::-webkit-details-marker{display:none}.tl-open summary:hover>span{text-decoration:underline}
+.tlist details.tl-open{margin:0}.tlist .tl-open>summary{cursor:pointer;list-style:none;color:var(--ink)}.tl-open>summary::-webkit-details-marker{display:none}.tl-open>summary:hover>span{text-decoration:underline}
 .tl-goal{margin:6px 0 2px;font-size:13.5px;line-height:1.5;color:var(--ink2);white-space:pre-wrap;overflow-wrap:anywhere}
 </style></head><body data-view="list">
 @@SPRITE@@
