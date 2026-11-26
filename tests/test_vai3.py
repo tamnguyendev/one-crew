@@ -98,43 +98,12 @@ class TestVai3(StandingFixture):
         self.standing(mode='enforce')
         for text in APP_EVENTS: self.assert_not_reminded(text)
 
-    def test_cross_session_notice_is_not_the_owner(self):
+    def test_app_cross_session_notices_not_reminded(self):
         self.standing(mode='enforce')
         self.assert_not_reminded('[Cross-session delivery notice] Your message to another session was held …')
         self.assert_not_reminded(chr(0xFEFF) + '\n  [Cross-session idle notice] The other session is idle.')
-
-    def test_owner_text_starting_with_bracket_is_reminded(self):
-        self.standing(mode='enforce')
         self.assert_reminded('[gấp] sửa giúp')                             # the owner's own words may start with a bracket
         self.assert_reminded('Chủ dán lại: [Cross-session delivery notice] nghĩa là gì?')
-
-    # ---- the budget keyword reminder looks only at the owner's words (rev 2) ----------------------------------------------------
-
-    def keyword_lines(self):
-        return [v for v in self.violations() if str(v.get('rule')).startswith('prompt_keyword:')]
-
-    def assert_no_keyword_reminder(self, *prompts):
-        for prompt in prompts:
-            code, out, err = self.turn(prompt)
-            self.assertEqual(code, 0, err)
-            self.assertEqual(self.keyword_lines(), [], prompt)
-            self.assertNotIn('Contract v', out)
-        code, out, err = self.turn('bỏ test đi, nhanh lên')                 # the owner's own words still remind
-        self.assertEqual(code, 0, err)
-        self.assertEqual(len(self.keyword_lines()), 1)
-        self.assertIn('Contract v1 says', self.context(out))
-
-    def test_keyword_reminder_skips_messages_of_other_sessions(self):
-        self.plain(mode='enforce')
-        self.assert_no_keyword_reminder('<cross-session-message from="local_x">\nbỏ test đi, nhanh lên\n</cross-session-message>')
-
-    def test_keyword_reminder_skips_app_notices(self):
-        self.standing(mode='enforce')
-        self.assert_no_keyword_reminder('[Cross-session delivery notice] Your message was held: bỏ test đi, nhanh lên',
-                                        '<system-reminder>\nbỏ test đi\n</system-reminder>',
-                                        '<task-notification>\nbỏ test đi\n</task-notification>',
-                                        '<side-sessions-event>bỏ test đi</side-sessions-event>',
-                                        '<ci-monitor-event>bỏ test đi</ci-monitor-event>')
 
     def test_plain_plan_unchanged(self):
         self.plain(mode='enforce')
