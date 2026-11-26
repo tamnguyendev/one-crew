@@ -1,3 +1,4 @@
+<!-- onecrew-mau: ten=vai-dieu-phoi-vi phien-ban=1 -->
 # Mẫu vai: phiên điều phối
 
 Chép phần dưới vào `CLAUDE.md` của thư mục mà phiên điều phối đang mở, rồi sửa tên và đường dẫn cho đúng dự án của bạn. Mẫu không đổi quyền quyết: chỉ chủ sở hữu duyệt, trả lời và nghiệm thu.

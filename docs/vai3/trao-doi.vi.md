@@ -1,3 +1,4 @@
+<!-- onecrew-mau: ten=vai-trao-doi-vi phien-ban=1 -->
 # Mẫu vai: phiên trao đổi
 
 Chép phần dưới vào `CLAUDE.md` của thư mục mà phiên trao đổi đang mở, rồi sửa tên và đường dẫn cho đúng dự án của bạn. Mẫu không đổi quyền quyết: chỉ chủ sở hữu duyệt, trả lời và nghiệm thu.
