@@ -164,6 +164,7 @@ py-modules = [
     "onecrew.v2.session_transcript",
     "onecrew.v2.tracking_dashboard",
     "onecrew.v2.tracking_direction",
+    "onecrew.v2.tracking_gop",
     "onecrew.v2.goal_history",
     "onecrew.v2.tracking_sessions",
     "onecrew.v2.tracking_web",

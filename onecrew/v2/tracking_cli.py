@@ -48,6 +48,8 @@ def _parser():
                        '0 = cổng trống bất kỳ (server của `track open` tự thoát sau 1800 giây không ai xem; cổng cố định thì không).')
         a.add_argument('--interval', type=float, default=2.0, help='Chu kỳ poll của trang (giây, 0.5-60).')
         a.add_argument('--project-only', action='store_true', help='Chỉ project của --project (mặc định: mọi project của sổ).')
+        a.add_argument('--so', action='append', default=[], metavar='THƯ_MỤC_SỔ',
+                       help='Thêm một sổ khác (chỉ đọc) vào trang gộp; lặp được. Thêm vào danh sách "so" của tracking.json.')
         if verb == 'serve':
             a.add_argument('--announce', help=argparse.SUPPRESS)
             a.add_argument('--idle-exit', type=float, default=None, help='Tự thoát sau N giây không có request (mặc định: không; `track open` đặt 1800 khi --port 0, cổng cố định thì không).')
@@ -122,12 +124,13 @@ def main(argv=None):
         scope = project_id if opts.project_only else None
         port = opts.port if opts.port is not None else tracking_web.default_port(state_root)     # URL9692: tracking.json of the ledger, else a free port
         if not 0 <= port <= 65535: raise LedgerError('--port: 0-65535.')
+        extra = {'so': [str(Path(path).resolve()) for path in opts.so]} if opts.so else {}
         if opts.command == 'serve':
             import os
             idle = opts.idle_exit if opts.idle_exit is not None else (float(os.environ['ONECREW_TRACK_IDLE_EXIT']) if os.environ.get('ONECREW_TRACK_IDLE_EXIT') else None)
-            return tracking_web.serve(state_root, host=opts.host, port=port, project_id=scope, interval=opts.interval, announce=opts.announce, idle_exit=idle)
+            return tracking_web.serve(state_root, host=opts.host, port=port, project_id=scope, interval=opts.interval, announce=opts.announce, idle_exit=idle, **extra)
         result = tracking_web.open_page(state_root, host=opts.host, port=port, project_id=project_id if opts.plan else scope,
-                                        plan=opts.plan, interval=opts.interval,
+                                        plan=opts.plan, interval=opts.interval, **extra,
                                         project=opts.project.resolve(), explicit_state_root=opts.state_root, browser=not opts.no_browser)
         print(json.dumps(result, ensure_ascii=False, indent=1))
         return 0 if result.get('url') else 2
