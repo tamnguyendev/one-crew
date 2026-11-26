@@ -58,6 +58,7 @@ class TestTrangGop(Fixture):
             db.close()
 
     def config(self, **value):
+        self.state.mkdir(parents=True, exist_ok=True)       # a fixture that proposed nothing has no state folder yet
         (self.state / 'tracking.json').write_text(json.dumps(value), encoding='utf-8')
 
     def folder(self, step='doc-tep-mau', plain='cau thuong khong phai buoc', name='phien-a'):
@@ -264,7 +265,7 @@ class TestTrangGop(Fixture):
     def test_single_ledger_page_unchanged_without_so(self):
         self.make(self.ledger, 'P-MOT')
         url = self.serve()
-        self.assertEqual(self.get(url)[1].encode('utf-8'), tracking_web._page(2.0))
+        self.assertEqual(self.get(url)[1], tracking_web._page(2.0))
         value = json.loads(self.get(url + 'api/overview?list=1&limit=50')[1])
         self.assertIn('list', value)
         self.assertNotIn('so', value['projects'][0]['tasks'][0])
