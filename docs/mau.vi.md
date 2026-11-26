@@ -1,6 +1,6 @@
 # Mẫu prompt có phiên bản
 
-OneCrew có tám mẫu prompt: mẫu giao việc (`mau-giao-viec`), mẫu nhắc khi chủ sở hữu gõ thẳng (`mau-loi-chu`) và sáu mẫu vai trong `docs/vai3/` (điều phối, kiểm, trao đổi; tiếng Việt và tiếng Anh). Skill đã duyệt của dự án **không** nằm trong danh sách này (xem `skills list`).
+OneCrew có tám mẫu prompt: mẫu giao việc (`mau-giao-viec`), mẫu nhắc khi chủ sở hữu gõ thẳng (`mau-loi-chu`) và sáu mẫu vai trong `onecrew/templates/vai3/` (điều phối, kiểm, trao đổi; tiếng Việt và tiếng Anh). Skill đã duyệt của dự án **không** nằm trong danh sách này (xem `skills list`).
 
 ## Dòng đầu và số phiên bản
 
@@ -25,7 +25,26 @@ onecrew --project <dự án> mau list
 
 Mỗi mẫu một dòng: tên, `phien-ban=<số hoặc chua-ghi>`, băm ngắn (12 ký tự đầu SHA-256 của nội dung) và đường dẫn. Mẫu có sẵn trong chương trình ghi `(có sẵn trong chương trình)` hay `(built into the program)` thay cho đường dẫn.
 
-Sáu mẫu vai không nằm trong gói cài: lệnh đọc `<dự án>/docs/vai3`, không có thì đọc `docs/vai3` cạnh mã nguồn đang chạy; không có cả hai thì in một dòng ghi chú. Với bản cài từ gói, trỏ `--project` vào bản mã có thư mục đó.
+## Mẫu vai nằm ở đâu
+
+Sáu mẫu vai đi cùng gói cài, ở `onecrew/templates/vai3/`, nên máy chỉ có bản cài vẫn thấy đủ tám mẫu. Lệnh đọc mẫu trong gói trước, rồi đọc `<dự án>/docs/vai3` (dự án là thư mục của `--project`, mặc định là thư mục hiện tại):
+
+- tệp cùng tên trong `<dự án>/docs/vai3` thắng mẫu trong gói; các mẫu khác vẫn lấy từ gói;
+- tệp chỉ có ở dự án được thêm vào danh sách;
+- cột đường dẫn của `onecrew mau list` cho biết mỗi mẫu đọc từ đâu.
+
+Chỉ khi cả gói lẫn dự án đều không có mẫu vai thì lệnh mới in một dòng ghi chú.
+
+### Tự sửa một mẫu vai
+
+1. Chạy `onecrew mau list` để lấy đường dẫn của mẫu trong gói.
+2. Chép tệp đó sang `<dự án>/docs/vai3/`, giữ nguyên tên tệp.
+3. Sửa bản chép, và tự tăng số `phien-ban` ở dòng đầu.
+4. Chạy `onecrew mau lint` ở dự án.
+
+Không sửa tệp ngay trong gói đã cài: lần nâng cấp sau sẽ ghi đè. Ngược lại, bản chép trong dự án vẫn thắng sau khi nâng cấp gói và không có cảnh báo lệch phiên bản; muốn dùng mẫu mới của gói thì xóa bản chép hoặc cập nhật nó.
+
+Trong mã nguồn OneCrew, `docs/vai3/` là bản chép giữ khớp từng byte với `onecrew/templates/vai3/`: sửa một mẫu thì sửa cả hai chỗ, test sẽ báo khi lệch.
 
 ## onecrew mau lint
 

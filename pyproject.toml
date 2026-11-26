@@ -178,5 +178,6 @@ py-modules = [
 ]
 
 # The owner-rules templates (vi and en) ship inside the wheel; `plan rules init` and `onecrew init` read them with importlib.resources.
+# vai3/*.md: the six role templates (GOIVAI) that `onecrew mau list|lint` read; docs/vai3 keeps an identical copy.
 [tool.setuptools.package-data]
-"onecrew.templates" = ["*.md"]
+"onecrew.templates" = ["*.md", "vai3/*.md"]
