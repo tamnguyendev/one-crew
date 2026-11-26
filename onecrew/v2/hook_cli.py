@@ -2239,7 +2239,8 @@ def state_copy(state_root, root):
 
 def tampered(project_plan, copy_plan):
     """True when the project copy says something other than the state-root copy about what is allowed."""
-    return any(project_plan.get(k) != copy_plan.get(k) for k in ('plan', 'revision', 'plan_sha', 'mode', 'owned', 'non_goals', 'bash_deny', 'protected', 'scratch','workflow_holds'))
+    return any(project_plan.get(k) != copy_plan.get(k) for k in ('plan', 'revision', 'plan_sha', 'mode', 'owned', 'non_goals', 'bash_deny', 'protected', 'scratch','workflow_holds',
+                                                                'standing'))
 
 
 def governing(args, event):
@@ -2383,24 +2384,43 @@ def judge_call(plan, root, bad_plan, source, event, bad_input, limited=False, re
     return 0
 
 
+def owner_typed_note(event, root, plan):
+    """VAI3: under a standing plan, a turn the OWNER typed gets one `reminded` line (rule owner_prompt, never the words) and the reminder text, which
+    is returned for the context. None when there is nothing to remind; it is never a gate, so any error is silence."""
+    try:
+        if not plan.get('standing'): return None
+        from . import giao_viec, messages
+        if not giao_viec.owner_typed(event.get('prompt')): return None
+        text = giao_viec.owner_reminder(plan.get('plan'), plan.get('state_root'), messages.lang())
+        if not text: return None
+        record(root, plan, 'reminded', 'UserPromptSubmit', giao_viec.OWNER_NOTE, 'owner_prompt', session=event.get('session_id'))
+        return text
+    except Exception:                                    # noqa: BLE001 - a reminder never locks the session
+        return None
+
+
 def prompt(args):
-    event, _ = read_stdin()
+    event, bad_input = read_stdin()
     note_call(event)                 # #25: the identity of an earlier call in this process must not leak into this record
     plan, root, bad, _ = governing(args, event)
     if plan is None or plan.get('status') not in ('approved', 'stopped_with_report'): return 0
+    from . import giao_viec
+    # VAI3 I9, every plan: a budget keyword counts only in a turn the owner typed, not in another session's message or an app notice
+    keywords = plan.get('prompt_keywords', []) if giao_viec.owner_typed(event.get('prompt')) else []
     text = str(event.get('prompt') or '').casefold()
-    hit = next((k for k in plan.get('prompt_keywords', []) if str(k).casefold() in text), None)
+    hit = next((k for k in keywords if str(k).casefold() in text), None)
     rules = Path(plan.get('state_root') or '.') / 'plans' / 'owner-rules.md'
     line = f"The owner's rules are in {rules}; read them before proposing or presenting anything." if rules.is_file() else None
+    typed = None if bad or bad_input else owner_typed_note(event, root, plan)
     if hit is None:
-        owner_context(None if bad else plan, root, event, 'UserPromptSubmit', line)
+        owner_context(None if bad else plan, root, event, 'UserPromptSubmit', '\n'.join(p for p in (typed, line) if p) or None)
         return 0
     budget = plan.get('budget') or {}
     pending = next((m['id'] for m in plan.get('milestones', []) if m.get('state') != 'passed'), None)
     note = (f"Contract v{plan.get('revision')} says: {budget.get('max_calls')} calls, {budget.get('time')} minutes, next milestone {pending or 'none'}. "
             f"Spoken words are not in the ledger; change the contract with `onecrew plan amend` or file a CREQ.")
     record(root, plan, 'reminded', 'UserPromptSubmit', note, 'prompt_keyword:' + str(hit), session=event.get('session_id'))
-    owner_context(None if bad else plan, root, event, 'UserPromptSubmit', note + (' ' + line if line else ''))
+    owner_context(None if bad else plan, root, event, 'UserPromptSubmit', (typed + '\n' if typed else '') + note + (' ' + line if line else ''))
     return 0
 
 
@@ -2493,12 +2513,36 @@ def background_hook(args):
     return 0
 
 
+def remind(args):
+    """GSDP-A (D7, D10, D11): `hook remind`, a PreToolUse entry of its own (installed only by `onecrew init --remind on`, onFailure continue) for the
+    delegation tools (giao_viec.TOOLS). When the session's plan is a standing plan and the strings of tool_input lack an item of the owner's template, it
+    writes one `reminded` line and returns the missing items as additionalContext, in log and in enforce mode alike. It is never a gate: no deny, no
+    ask, exit 0 always; a bad payload, no plan, a plain plan, an unreadable plan or template, or any error is silence."""
+    try:
+        event, bad_input = read_stdin()
+        if bad_input: return 0
+        note_call(event)
+        plan, root, bad, _ = governing(args, event)
+        if plan is None or bad or not plan.get('standing') or plan.get('status') not in ('approved', 'stopped_with_report'): return 0
+        from . import giao_viec
+        tool = str(event.get('tool_name') or '?')
+        names = giao_viec.missing(giao_viec.items_for(plan.get('state_root')), event.get('tool_input'))
+        if not names: return 0
+        note = giao_viec.reminder(plan.get('plan'), tool, names, plan.get('state_root'))
+        record(root, plan, 'reminded', tool, note, 'delegation_missing:' + ','.join(names)[:200], session=event.get('session_id'))
+        print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'additionalContext': note}}, ensure_ascii=False), flush=True)
+    except Exception:                                    # noqa: BLE001 - a reminder never locks the session
+        pass
+    return 0
+
+
 def stop(args):
     event, _ = read_stdin()
     note_call(event)
     plan, root, bad, _ = governing(args, event)
     note_background(event, root, None if bad else plan)       # BG-A: the PARENT turn ended; no child is finished by it
     if plan is None: return 0
+    if plan.get('standing') and not bad: return 0           # GSDP-A (D6): a standing plan (a coordinator) is never held at Stop and writes no line per turn
     plan = refreshed(root, plan)
     session = event.get('session_id')
     pending = next((m for m in plan.get('milestones', []) if m.get('state') != 'passed'), None)
@@ -2567,6 +2611,8 @@ def session(args):
              'You may change only: ' + ', '.join(plan.get('owned', [])[:12]) + (' ...' if len(plan.get('owned', [])) > 12 else '')]
     lines += ['Not goals: ' + '; '.join(plan.get('non_goals', []))[:300]] if plan.get('non_goals') else []
     lines.append(f"Budget: {budget.get('max_calls')} calls, {budget.get('time')} minutes (the ledger holds the remaining amount).")
+    if plan.get('standing'):
+        lines.append(f"Standing plan: it expires {plan.get('expires')} (approval + budget.time; nothing renews it but a new approval); Stop does not hold the turn.")
     lines += [f"Milestones: {', '.join(m['id'] + '=' + m['state'] for m in plan.get('milestones', []))}",
               f"Next: {pending['id'] + ' ' + pending['title'] if pending else 'all milestones passed; the owner accepts'}",
               'Not yours: plan approve/accept/enforce, verdict record --by owner, push, tag. Do not say "done" before the verdict.',
@@ -2620,25 +2666,32 @@ BACKGROUND_EVENTS = (('PostToolUse', 'background', 10, 'Agent|Task|Bash|PowerShe
                      ('SubagentStart', 'background', 10, None, 'continue'),
                      ('SubagentStop', 'background', 10, None, 'continue'),
                      ('SessionEnd', 'background', 5, None, 'continue'))
+# GSDP-A (D11, opt-in: `onecrew init --remind on`): the delegation reminder, a PreToolUse entry of its OWN next to the check entry (never merged into its
+# matcher: the check gate fails closed and judges expiry first, so an expired plan would then block the delegation). It never blocks: onFailure continue.
+REMIND_MATCHER = 'Agent|Task|SendMessage|mcp__ccd_session__start_session|mcp__ccd_session_mgmt__send_message'      # = giao_viec.MATCHER
+REMIND_EVENTS = (('PreToolUse', 'remind', 10, REMIND_MATCHER, 'continue'),)
 OBSERVATION_DENY_RULES = [f'{tool}(*hook {verb}*)' for tool in ('Bash', 'PowerShell') for verb in ('observe', 'sync')]
 OWNER_DENY = ('plan approve', 'plan accept', 'plan enforce', 'plan goal-pin', 'verdict record', 'hook mode', 'plan unknown close*owner', 'plan poc record*owner',
               'owner approve', 'owner accept', 'owner enforce', 'owner record', 'owner answer', 'question answer',
               'support confirm', 'support target add', 'support rollback', 'support cleanup*--v')    # owner-only entry points
 
 
-def build_settings(handler, state_root, background=False):
-    """{'hooks', 'permissions'}; handler(verb, timeout, fail) is the handler dict of one hook event. `background`: also the BG-A observation events."""
+def build_settings(handler, state_root, background=False, remind=False):
+    """{'hooks', 'permissions'}; handler(verb, timeout, fail) is the handler dict of one hook event. `background`: also the BG-A observation events.
+    `remind` (GSDP-A): also the delegation reminder, a second PreToolUse entry after the check entry."""
     def entry(verb, timeout, matcher, fail):
         return dict({'matcher': matcher} if matcher else {}, hooks=[handler(verb, timeout, fail)])
-    return {'hooks': {event: [entry(verb, timeout, matcher, fail)] for event, verb, timeout, matcher, fail in HOOK_EVENTS + (BACKGROUND_EVENTS if background else ())},
-            'permissions': {'deny': deny_rules(state_root)}}
+    hooks = {}
+    for event, verb, timeout, matcher, fail in HOOK_EVENTS + (BACKGROUND_EVENTS if background else ()) + (REMIND_EVENTS if remind else ()):
+        hooks.setdefault(event, []).append(entry(verb, timeout, matcher, fail))
+    return {'hooks': hooks, 'permissions': {'deny': deny_rules(state_root)}}
 
 
-def portable_settings(exe, state_root):
+def portable_settings(exe, state_root, remind=False):
     """What `onecrew init` writes: the installed `onecrew` executable runs `hook <verb>`; the project comes from CLAUDE_PROJECT_DIR and the state
-    root from <project>/.onecrew/config.json, so no handler names a repo, an interpreter or a state root."""
+    root from <project>/.onecrew/config.json, so no handler names a repo, an interpreter or a state root. `remind`: `init --remind on` (GSDP-A)."""
     return build_settings(lambda verb, timeout, fail: {'type': 'command', 'command': str(exe), 'args': ['hook', verb], 'timeout': timeout, 'onFailure': fail},
-                          state_root)
+                          state_root, remind=remind)
 
 
 def settings(project, state_root, repo, background=False):
@@ -2690,6 +2743,7 @@ def parser():
     p = verbs.add_parser('mode', help='Owner only: log or enforce.'); p.add_argument('mode', choices=['log', 'enforce']); p.add_argument('--by', required=True)
     p.add_argument('--plan'); p.add_argument('--reference', required=True)
     verbs.add_parser('background', help='PostToolUse/SubagentStart/SubagentStop/SessionEnd: record background work (BG-A); never blocks.')
+    verbs.add_parser('remind', help='PreToolUse (delegation tools): remind a standing plan of missing delegation items (GSDP-A); never blocks.')
     verbs.add_parser('observe', help='Observe a local Claude session for its target plan (stdin JSON); only as the handler `hook user install --observe` '
                      'wrote it.').add_argument('--install-key', help=argparse.SUPPRESS)
     verbs.add_parser('sessions', help='List local observed session bindings, including unbound sessions.')
@@ -2721,8 +2775,8 @@ def main(argv=None):
         from . import session_observe
         print(json.dumps(session_observe.bindings(), ensure_ascii=False))
         return 0
-    if args.verb in ('check', 'prompt', 'stop', 'session', 'background'):
-        return {'check': check, 'prompt': prompt, 'stop': stop, 'session': session, 'background': background_hook}[args.verb](args)
+    if args.verb in ('check', 'prompt', 'stop', 'session', 'background', 'remind'):
+        return {'check': check, 'prompt': prompt, 'stop': stop, 'session': session, 'background': background_hook, 'remind': remind}[args.verb](args)
     if args.verb == 'user':                  # #25: no ledger, no project: a file of the user's own
         from . import install
         return install.user_hook(args.action, args.settings_file, args.program, observe=args.observe)

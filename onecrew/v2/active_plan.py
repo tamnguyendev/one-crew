@@ -4,7 +4,9 @@
 document to `<state-root>/plans/<name>/active-plan.json` and `<project>/.onecrew/active-plan.json`:
 
     {plan, revision, plan_sha, status, mode: log|enforce, owned[], non_goals[], bash_deny[], protected[], scratch[], budget,
-     milestones[], prompt_keywords[], expires, ...}
+     milestones[], prompt_keywords[], expires, standing (only when true), ...}
+
+`expires` is 24 hours after the export for a plain plan; for a standing plan (GSDP-A) it is the approval + budget.time minutes (standing_expiry).
 
 The file is evidence for the hooks, not authority: the ledger still decides what is approved. What an amendment does to it: the
 file keeps describing the last APPROVED revision (so asking for a change cannot widen what is allowed); `pending_revision`
@@ -126,6 +128,8 @@ def build(ledger, name):
     chosen = policy(ledger)
     root = Path(ledger.state_root).resolve()
     now = dt.datetime.now(dt.timezone.utc)
+    standing = bool(contract.get('standing'))
+    expires = standing_expiry(state['approved'], contract) if standing else now + dt.timedelta(hours=EXPIRY_HOURS)
     return {'schema_version': 1, 'plan': state['name'], 'anchor': state['selector'],
             **({'workflow_holds': workflow_holds} if workflow_holds is not None else {}),
             **{key: state[key] for key in ('workflow_version', 'capabilities') if key in state},
@@ -143,7 +147,16 @@ def build(ledger, name):
             'milestones': [{'id': v['id'], 'title': v['title'], 'state': v['state'], 'verifier': v['verifier'], 'runs': v.get('runs'),
                             'repairs_left': v.get('repairs_left'), 'last_result': (v.get('last_verdict') or {}).get('result')} for v in views],
             'prompt_keywords': chosen.get('prompt_keywords', DEFAULT_KEYWORDS), 'project': str(Path(ledger.project).resolve()),
-            'state_root': str(root), 'exported_at': utcnow(), 'expires': (now + dt.timedelta(hours=EXPIRY_HOURS)).isoformat()}
+            'state_root': str(root), 'exported_at': utcnow(), 'expires': expires.isoformat(), **({'standing': True} if standing else {})}
+
+
+def standing_expiry(approved, contract):
+    """GSDP-A (D6): a standing plan expires at the owner's approval (the time in the plan.approved row of the ledger) + budget.time minutes. It is read
+    from the ledger on every export, so a re-export (verdict, hook export, owner enforce, a session start) never extends it; only a new approval does."""
+    stamp = approved.get('at') or approved.get('recorded_at')
+    at = dt.datetime.fromisoformat(str(stamp))
+    if at.tzinfo is None: at = at.replace(tzinfo=dt.timezone.utc)
+    return at + dt.timedelta(minutes=int(contract['budget']['time']))
 
 
 ENFORCING = ('approved', 'stopped_with_report', 'closed')       # the statuses hook_cli.judge_call enforces

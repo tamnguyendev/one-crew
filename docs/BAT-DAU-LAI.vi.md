@@ -75,6 +75,69 @@ Khi engine chờ tài nguyên đã khai báo, vị trí trong hàng đợi gắn
 - Máy mới: tải wheel từ trang phát hành, kiểm SHA256 với `SHA256SUMS`, tạo venv và cài wheel; chạy `claude login`; `onecrew init` cho từng dự án; `hook user install` nếu muốn hook người dùng. Đường dẫn máy cũ nằm trong plan đã duyệt và `active-plan.json` (trường `project`, `state_root`), nên đổi đường dẫn nghĩa là chủ sở hữu duyệt lại plan đang mở.
 - Phiên mới của Claude: đọc `CLAUDE.md` ở gốc repo, rồi `plan digest`.
 
+## 8. Gắn phiên điều phối: plan thường trực (standing) và nhắc lời giao việc
+
+Có từ bản chứa GSDP-A (#63 lượt đầu); runtime đã phát hành trước đó không có.
+- **Plan thường trực:** hợp đồng ghi `"standing": true`.
+  - Hạn = lúc chủ duyệt + `budget.time` phút (tối đa 28800 phút, tức 20 ngày). Xuất lại (verdict, `hook export`, `owner enforce`, mở phiên) không kéo dài hạn; chỉ lần duyệt mới đặt hạn mới.
+  - Dừng lượt (Stop) không chặn và không ghi dòng nhật ký vi phạm (`violations.jsonl`) mỗi lượt. Phần theo dõi việc nền vẫn ghi một dòng `parent_stop` mỗi lượt vào `.onecrew/background.jsonl`, như với mọi phiên.
+  - Sửa và lệnh vẫn bị xét như plan thường. Hết hạn ở chế độ chặn thì mọi sửa và lệnh của phiên bị chặn tới khi chủ duyệt lại.
+  - Plan thường giữ hạn 24 giờ và Stop chặn như cũ. `budget.time` cũng là giới hạn giờ làm của job dưới plan: hai việc dùng chung một số.
+  - `owner approve --human` in rõ plan thường trực, giờ hết hạn và việc Stop không chặn.
+- **Cách gắn:**
+  1. Phiên điều phối có dự án riêng (một repo git) và sổ riêng.
+  2. Chạy `onecrew --project <dự-án> --state-root <sổ> init --remind on`. Lệnh thêm một mục PreToolUse riêng `hook remind`, chỉ nhắc, không bao giờ chặn. Nó cũng ghi tệp mẫu `<sổ>\plans\mau-giao-viec.md` nếu chưa có.
+  3. Hợp đồng có `standing`; chủ duyệt.
+  4. Chủ bật chế độ ghi: `onecrew owner enforce <plan> --mode log`. Mấy ngày đầu chỉ ghi; chủ đọc nhật ký rồi mới chuyển sang chặn.
+- **Nhắc lời giao việc:** áp dụng khi plan của phiên là thường trực và lời giao qua Agent, Task, SendMessage, start_session hay send_message thiếu mục của tệp mẫu.
+  - Hook ghi một dòng `reminded` và Claude nhận danh sách mục thiếu.
+  - Lời nhắc đến SAU khi công cụ đã chạy.
+  - Hook so bằng từ khóa, không phân biệt hoa thường, trong mọi chuỗi của lời giao. Nó chỉ biết có tiêu đề, không biết nội dung đúng hay sai.
+  - Chủ sửa tệp mẫu bất cứ lúc nào; tệp không còn mục nào thì không nhắc.
+  - Gỡ bằng `init --remind off`; `init` không cờ giữ nguyên mục đang có.
+  - Runtime cũ không biết `hook remind`, nên phải gỡ mục nhắc trước khi trỏ hook về runtime cũ.
+- **Cách thoát đúng:** chủ gõ trong terminal của mình `onecrew owner enforce <plan> --mode log` (về chỉ ghi).
+  - Nếu plan có câu hỏi đang mở: `onecrew owner answer <mã câu hỏi> --revision <bản> --choice stop`.
+  - Xóa khối hook trong thư mục dự án KHÔNG phải cách thoát: hook người dùng vẫn tìm plan qua bản sao trong sổ.
+- **Thử trước:** `scripts/owner/gan-dieu-phoi.ps1` dựng thư mục thử `D:\OneCrewRuns\gsdp-a\thu-gan`, có sổ thử và plan thử thường trực (chủ duyệt trong script). Thư mục điều phối không đổi.
+  - Mặc định là chạy thử, không ghi gì; `-ApDung` mới chạy thật.
+  - `-TomTat` tóm tắt nhật ký của thư mục thử.
+  - `-QuayVe` gỡ mục nhắc và trỏ hook về runtime đã phát hành.
+
+## 9. Mô hình 3 vai: chủ sở hữu, phiên trao đổi, phiên điều phối
+
+Có từ bản chứa VAI3; runtime đã phát hành trước đó không có phần nhắc dưới đây.
+
+| Vai | Việc | Mẫu `CLAUDE.md` |
+|---|---|---|
+| Chủ sở hữu | Nêu yêu cầu, duyệt, trả lời, nghiệm thu | (người, không cần mẫu) |
+| Phiên trao đổi | Nơi chủ nói chuyện; ghi lời chủ; chuyển việc | [trao-doi.vi.md](vai3/trao-doi.vi.md) |
+| Phiên điều phối | Chạy dưới plan thường trực; mặc định chỉ giao việc | [dieu-phoi.vi.md](vai3/dieu-phoi.vi.md) |
+
+Thêm một phiên kiểm độc lập khi cần: [kiem.vi.md](vai3/kiem.vi.md). Bản tiếng Anh nằm cạnh (`*.en.md`). Ba vai là tài liệu và mẫu: OneCrew không nhận vai bằng mã, không tự đẩy tin giữa các phiên, và quyền quyết không đổi.
+
+**Nhắc khi chủ gõ thẳng vào phiên điều phối:**
+- Áp dụng khi plan của phiên là thường trực (mục 8). Cần hook `hook prompt` mà `onecrew init` vẫn ghi; không cần `--remind on`.
+- Mỗi lượt chủ gõ: Claude nhận lời nhắc "ghi lời này vào sổ yêu cầu, báo phiên trao đổi một dòng, rồi làm", và `violations.jsonl` có một dòng `reminded` luật `owner_prompt`. Dòng này không chứa chữ chủ gõ. Không chặn gì.
+- Không nhắc: tin của phiên khác và sự kiện của app, tức chữ bắt đầu bằng lớp bọc `<cross-session-message>`, `<system-reminder>`, `<task-notification>`, `<side-sessions-event>` hay `<ci-monitor-event>`, hoặc bằng thông báo của app mở đầu `[Cross-session ` (ví dụ `[Cross-session delivery notice]`, `[Cross-session idle notice]`). Chữ khác, kể cả lớp bọc lạ, nội dung dán hay đính kèm, đều coi là lời chủ.
+- Lời nhắc ngân sách theo từ khóa (`prompt_keywords`, có từ trước) theo cùng luật nhận nguồn, ở **mọi plan**, thường trực hay không: từ khóa nằm trong tin của phiên khác hay thông báo của app thì không nhắc; chữ chủ gõ có từ khóa vẫn nhắc.
+- Giới hạn: việc nhận nguồn dựa vào lớp bọc và thông báo của app. App đổi định dạng thì tin phiên khác có thể bị nhắc thừa. Lời chủ mà app chèn sau một lớp bọc hay thông báo kể trên trong cùng lượt thì không được nhắc, kể cả nhắc theo từ khóa.
+- Chữ nhắc: tệp `<sổ>\plans\mau-loi-chu.md` (chủ sửa bất cứ lúc nào; cả tệp là lời nhắc). Không có tệp thì dùng chữ mặc định (`ONECREW_LANG=vi` cho tiếng Việt, còn lại tiếng Anh). **Tệp rỗng là tắt.**
+
+Trang `plan present` của hợp đồng thường trực có dòng "THƯỜNG TRỰC" để chủ thấy cờ trước khi duyệt.
+
+**Dòng nhắc trong sổ.** Mỗi lần nhắc là một dòng JSON trong `<dự-án>\.onecrew\violations.jsonl`: `event` = `reminded`, `rule` = `owner_prompt`, `tool` = `UserPromptSubmit`, kèm giờ `at`, `plan`, `revision`, `mode`, mã phiên `session`; `reason` là một câu cố định, `subject` để trống. Muốn đối chiếu "chủ đã gõ gì" thì so giờ của dòng với sổ yêu cầu `YEU-CAU-CHU.vi.md`. `hook sync` nhập các dòng này vào sổ cái như mọi dòng `reminded` khác. Dòng này chỉ cho biết hook đã nhắc, không cho biết Claude đã làm theo.
+
+**Sửa hay tắt lời nhắc.** Chủ tự mở (hoặc tạo) `<sổ>\plans\mau-loi-chu.md`, viết lời nhắc bằng chữ của mình, lưu UTF-8. Cả tệp được đưa nguyên cho Claude (tối đa 4000 ký tự; dòng bắt đầu bằng `#` cũng được đưa). Tệp rỗng hoặc chỉ có dòng trống: tắt. Xóa tệp: về chữ mặc định. Tệp có tác dụng từ lượt kế tiếp, không cần duyệt lại hay mở lại phiên. Tệp không đọc được thì hook im.
+
+**Công tắc "tự làm" của phiên điều phối.** Mặc định phiên điều phối chỉ giao việc. Muốn nó tự sửa mã, chủ thêm đúng một dòng vào `CLAUDE.md` của phiên: `Điều phối được tự làm: bật` (bản tiếng Anh: `Coordinator self-work: on`); bỏ dòng đó là tắt. Đây là luật bằng chữ trong mẫu: chưa có hook kiểm hay chặn, và hợp đồng, phạm vi, quyền của chủ vẫn áp dụng như cũ.
+
+**Giới hạn chung.** Chỉ nhắc, không bao giờ chặn; Claude vẫn có thể bỏ qua. Không chứng minh được chữ do chủ gõ. Không tự đẩy tin sang phiên trao đổi. Chưa có sổ yêu cầu của chủ trong sổ OneCrew (tệp yêu cầu là tệp tay).
+
+**Cách thử.**
+- Thử nhanh ở dự án có hợp đồng thường trực đã duyệt: gõ một câu vào phiên, rồi đọc `.onecrew\violations.jsonl` thấy một dòng `owner_prompt`; cho một phiên khác gửi một tin vào phiên đó, không có dòng mới.
+- Thử ở thư mục riêng khi phát triển chính OneCrew: `scripts/owner/thu-vai3.ps1`, chạy trong terminal của chủ từ checkout VAI3 đã qua mốc M1. Không công tắc là chạy thử, không ghi gì; `-ApDung` dựng gói và thư mục thử `D:\OneCrewRuns\vai3\thu` rồi hỏi lời duyệt plan thử; `-TomTat` đếm dòng nhắc; `-QuayVe -ApDung` trỏ hook của dự án thử về runtime đã phát hành. Script ghim đường dẫn máy phát triển; đổi bằng tham số `-ThuGoc`, `-Python`, `-RuntimeCu`, `-SoPhatTrien`.
+
 ## Nhập review ngoài và kiểm lại finding
 
 Trên plan đang duyệt xong có năng lực `finding-register`, chạy `onecrew findings import-review P1 --file review.json`. Lấy `task_id` từ `anchor_task`, lấy `revision`, `milestone`, `receipt` và `artifact_sha` từ `onecrew plan show P1`. Ví dụ một báo cáo có dạng sau.

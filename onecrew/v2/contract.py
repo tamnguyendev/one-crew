@@ -14,7 +14,10 @@ from ..snapshots import scoped_path
 
 SCHEMA_VERSION = 2
 FIELDS = {'schema_version', 'title', 'size', 'understanding', 'options', 'preconditions', 'output', 'scope', 'non_goals', 'items',
-          'milestones', 'budget', 'attention', 'stop', 'profile_version', 'origin', 'decisions', 'presentation', 'authority', 'review_policy', 'solution_ref'}
+          'milestones', 'budget', 'attention', 'stop', 'profile_version', 'origin', 'decisions', 'presentation', 'authority', 'review_policy', 'solution_ref',
+          'standing'}
+# GSDP-A (#63, D6): `standing: true` is a standing plan (a coordinator session): it expires at the owner's approval + budget.time minutes (a re-export
+# never extends it) and its Stop hook never blocks nor records. Optional; false or absent is a plain plan, and a plain contract stays byte-identical.
 MAX_DECISIONS = 10
 MAX_NEUTRAL = 20
 DECISION_ID = re.compile(r'D[1-9][0-9]?')
@@ -261,6 +264,9 @@ def validate(value):
         from . import authority
         optional['authority'] = authority.normalize(value['authority'])
     if value.get('advisor') is not None: optional['advisor'] = _advisor(value['advisor'])      # W43: the provider and model of the advisor, when the contract pins them
+    if 'standing' in value:
+        if not isinstance(value['standing'], bool): raise LedgerError('standing: true or false (a standing plan: expiry = approval + budget.time, Stop never blocks).')
+        if value['standing']: optional['standing'] = True
     return {**optional, 'schema_version': SCHEMA_VERSION, 'title': text_field(value.get('title'), 'title', 200),
             'size': size, 'understanding': _understanding(value.get('understanding'), size),
             'options': _options(value.get('options'), size),

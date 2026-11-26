@@ -203,6 +203,22 @@ Expected: `plan show` reports `status: accepted`. If an owner command reports an
 
 For a second task in the same project, reuse the executable and state directory, choose a new plan name, and ask the assistant to prepare a new contract. You do not need a new venv or another `init` for every task. Starting on an existing production project is a separate decision; do not copy this demo's plan or ledger into it.
 
+## Working with three roles (optional)
+
+Not needed for the demo above. This applies to a version that contains VAI3; earlier releases have no owner reminder.
+
+For longer work you can split the sessions: the **owner** (requests, approves, answers, accepts), an **exchange session** (where the owner talks; it logs the words and passes work on) and a **coordinator session** (runs under a standing plan and by default only delegates). Add a verifier session when you want an independent check. Copy the matching template into the folder's `CLAUDE.md`: [exchange](vai3/trao-doi.en.md), [coordinator](vai3/dieu-phoi.en.md), [verifier](vai3/kiem.en.md). The roles are documentation and templates: OneCrew does not assign roles in code, does not forward messages between sessions, and does not change who decides.
+
+When the session's plan is standing (`"standing": true` in the contract) and the owner types straight into it, the `hook prompt` entry that `onecrew init` writes reminds Claude to log the words and tell the exchange session, and adds one `reminded` line (rule `owner_prompt`, without the typed text). It never blocks. Messages from other sessions and app events (text starting with the `cross-session-message`, `system-reminder`, `task-notification`, `side-sessions-event` or `ci-monitor-event` wrapper, or with an app notice headed `[Cross-session `, such as `[Cross-session delivery notice]` or `[Cross-session idle notice]`) are not reminded; this relies on how the app wraps them today. The older budget keyword reminder (`prompt_keywords`) follows the same rule on every plan, standing or not: a keyword inside another session's message or an app notice does not trigger it, a keyword the owner types still does. Edit the reminder in `<state>/plans/mau-loi-chu.md`; an empty file turns it off; without the file the built-in text is used (`ONECREW_LANG=vi` for Vietnamese).
+
+Details:
+
+- **The recorded line.** One JSON line in `<project>/.onecrew/violations.jsonl` with `event` `reminded`, `rule` `owner_prompt`, `tool` `UserPromptSubmit`, the time, plan, revision, mode and session id. The typed text is not stored; match the time against the request log. The line shows that the reminder was given, not that Claude followed it.
+- **Changing the text.** The owner edits the file; the whole file (up to 4000 characters, lines starting with `#` included) is given to Claude from the next turn on. Delete the file to return to the built-in text.
+- **Self-work switch.** The coordinator only delegates by default. To let it change code itself, add the line `Coordinator self-work: on` to that session's `CLAUDE.md`; remove the line to turn it off. It is a written rule only: no hook checks it, and the contract's scope and the owner's authority stay as they are.
+- **Limits.** Reminders only, never a block; Claude can ignore them. Nothing proves who typed the text. Words the app places after one of its wrappers in the same turn are not reminded.
+- **Trying it.** With an approved standing plan, type one sentence into the session and check that one `owner_prompt` line appears; then have another session send it a message and check that no line is added.
+
 ## Troubleshooting
 
 | Symptom | Next step |
