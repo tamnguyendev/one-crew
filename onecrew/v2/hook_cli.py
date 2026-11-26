@@ -2404,8 +2404,11 @@ def prompt(args):
     note_call(event)                 # #25: the identity of an earlier call in this process must not leak into this record
     plan, root, bad, _ = governing(args, event)
     if plan is None or plan.get('status') not in ('approved', 'stopped_with_report'): return 0
+    from . import giao_viec
+    # VAI3 I9, every plan: a budget keyword counts only in a turn the owner typed, not in another session's message or an app notice
+    keywords = plan.get('prompt_keywords', []) if giao_viec.owner_typed(event.get('prompt')) else []
     text = str(event.get('prompt') or '').casefold()
-    hit = next((k for k in plan.get('prompt_keywords', []) if str(k).casefold() in text), None)
+    hit = next((k for k in keywords if str(k).casefold() in text), None)
     rules = Path(plan.get('state_root') or '.') / 'plans' / 'owner-rules.md'
     line = f"The owner's rules are in {rules}; read them before proposing or presenting anything." if rules.is_file() else None
     typed = None if bad or bad_input else owner_typed_note(event, root, plan)

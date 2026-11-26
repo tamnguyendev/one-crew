@@ -120,7 +120,8 @@ Thêm một phiên kiểm độc lập khi cần: [kiem.vi.md](vai3/kiem.vi.md).
 - Áp dụng khi plan của phiên là thường trực (mục 8). Cần hook `hook prompt` mà `onecrew init` vẫn ghi; không cần `--remind on`.
 - Mỗi lượt chủ gõ: Claude nhận lời nhắc "ghi lời này vào sổ yêu cầu, báo phiên trao đổi một dòng, rồi làm", và `violations.jsonl` có một dòng `reminded` luật `owner_prompt`. Dòng này không chứa chữ chủ gõ. Không chặn gì.
 - Không nhắc: tin của phiên khác và sự kiện của app, tức chữ bắt đầu bằng lớp bọc `<cross-session-message>`, `<system-reminder>`, `<task-notification>`, `<side-sessions-event>` hay `<ci-monitor-event>`, hoặc bằng thông báo của app mở đầu `[Cross-session ` (ví dụ `[Cross-session delivery notice]`, `[Cross-session idle notice]`). Chữ khác, kể cả lớp bọc lạ, nội dung dán hay đính kèm, đều coi là lời chủ.
-- Giới hạn: việc nhận nguồn dựa vào lớp bọc chữ của app. App đổi định dạng thì tin phiên khác có thể bị nhắc thừa. Lời chủ mà app chèn sau một lớp bọc kể trên trong cùng lượt thì không được nhắc.
+- Lời nhắc ngân sách theo từ khóa (`prompt_keywords`, có từ trước) theo cùng luật nhận nguồn, ở **mọi plan**, thường trực hay không: từ khóa nằm trong tin của phiên khác hay thông báo của app thì không nhắc; chữ chủ gõ có từ khóa vẫn nhắc.
+- Giới hạn: việc nhận nguồn dựa vào lớp bọc và thông báo của app. App đổi định dạng thì tin phiên khác có thể bị nhắc thừa. Lời chủ mà app chèn sau một lớp bọc hay thông báo kể trên trong cùng lượt thì không được nhắc, kể cả nhắc theo từ khóa.
 - Chữ nhắc: tệp `<sổ>\plans\mau-loi-chu.md` (chủ sửa bất cứ lúc nào; cả tệp là lời nhắc). Không có tệp thì dùng chữ mặc định (`ONECREW_LANG=vi` cho tiếng Việt, còn lại tiếng Anh). **Tệp rỗng là tắt.**
 
 Trang `plan present` của hợp đồng thường trực có dòng "THƯỜNG TRỰC" để chủ thấy cờ trước khi duyệt.

@@ -98,12 +98,41 @@ class TestVai3(StandingFixture):
         self.standing(mode='enforce')
         for text in APP_EVENTS: self.assert_not_reminded(text)
 
-    def test_app_cross_session_notices_not_reminded(self):
+    def test_cross_session_notice_is_not_the_owner(self):
         self.standing(mode='enforce')
         self.assert_not_reminded('[Cross-session delivery notice] Your message to another session was held …')
         self.assert_not_reminded(chr(0xFEFF) + '\n  [Cross-session idle notice] The other session is idle.')
+
+    def test_owner_text_starting_with_bracket_is_reminded(self):
+        self.standing(mode='enforce')
         self.assert_reminded('[gấp] sửa giúp')                             # the owner's own words may start with a bracket
         self.assert_reminded('Chủ dán lại: [Cross-session delivery notice] nghĩa là gì?')
+
+    # ---- I9: the budget keyword reminder counts only words the owner typed ------------------------------------------------------
+
+    def keyword_rules(self):
+        return [v['rule'] for v in self.violations() if str(v.get('rule')).startswith('prompt_keyword:')]
+
+    def assert_keywords_only_from_owner(self, *others):
+        for other in others:
+            code, out, err = self.turn(other)
+            self.assertEqual(code, 0, err)
+            self.assertEqual(self.keyword_rules(), [], other)
+            self.assertNotIn('Contract v', out, other)
+        code, out, err = self.turn('[gấp] bỏ test đi')                     # control: the same keyword typed by the owner
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.keyword_rules(), ['prompt_keyword:bỏ test'])
+        self.assertIn('Contract v1 says', self.context(out))
+
+    def test_keyword_reminder_skips_messages_of_other_sessions(self):
+        self.plain(mode='enforce')
+        self.assert_keywords_only_from_owner('<cross-session-message from="local_x">\nbỏ test đi\n</cross-session-message>')
+
+    def test_keyword_reminder_skips_app_notices(self):
+        self.standing(mode='enforce')
+        self.assert_keywords_only_from_owner('[Cross-session delivery notice] Your message was held: bỏ test đi',
+                                             *(f'<{name}>\nbỏ test đi\n</{name}>'
+                                               for name in ('system-reminder', 'task-notification', 'side-sessions-event', 'ci-monitor-event')))
 
     def test_plain_plan_unchanged(self):
         self.plain(mode='enforce')
