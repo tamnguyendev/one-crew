@@ -98,6 +98,13 @@ class TestVai3(StandingFixture):
         self.standing(mode='enforce')
         for text in APP_EVENTS: self.assert_not_reminded(text)
 
+    def test_app_cross_session_notices_not_reminded(self):
+        self.standing(mode='enforce')
+        self.assert_not_reminded('[Cross-session delivery notice] Your message to another session was held …')
+        self.assert_not_reminded(chr(0xFEFF) + '\n  [Cross-session idle notice] The other session is idle.')
+        self.assert_reminded('[gấp] sửa giúp')                             # the owner's own words may start with a bracket
+        self.assert_reminded('Chủ dán lại: [Cross-session delivery notice] nghĩa là gì?')
+
     def test_plain_plan_unchanged(self):
         self.plain(mode='enforce')
         self.assert_not_reminded('Làm đi.')

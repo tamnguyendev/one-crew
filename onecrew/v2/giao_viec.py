@@ -44,9 +44,10 @@ EXPIRY_RULE = 'lúc duyệt + {minutes} phút'
 
 
 # VAI3: the reminder when the OWNER types straight into a session under a standing plan. The app wraps what it sends on its own (another session's
-# message, its events); text that does not start with one of these wrappers is taken as the owner's (D3: an unknown wrapper counts as the owner).
+# message, its events) or heads it "[Cross-session ...]" (its notices about delivery and idle sessions); text that does not start with one of
+# these is taken as the owner's (D3: an unknown wrapper counts as the owner).
 APP_WRAPPERS = ('cross-session-message', 'system-reminder', 'task-notification', 'side-sessions-event', 'ci-monitor-event')
-_APP_WRAPPED = re.compile(r'<(?:' + '|'.join(APP_WRAPPERS) + r')(?=[\s/>]|$)')
+_APP_WRAPPED = re.compile(r'<(?:' + '|'.join(APP_WRAPPERS) + r')(?=[\s/>]|$)|\[Cross-session ')
 OWNER_TEMPLATE_NAME = 'mau-loi-chu.md'      # <state-root>/plans/: the owner's own reminder text; an empty file turns the reminder off (D6)
 OWNER_MAX_CHARS = 4_000
 _LEADING = chr(0xFEFF) + ' \t\r\n'          # blank space and a byte-order mark before the wrapper
@@ -64,7 +65,7 @@ STANDING_PRESENT = ('THƯỜNG TRỰC (standing): hợp đồng này hết hạn
 
 
 def owner_typed(prompt):
-    """True when the text of a new turn counts as the owner's: any text that does not start with one of the app's own wrappers."""
+    """True when the text of a new turn counts as the owner's: any text that does not start with one of the app's own wrappers or notices."""
     if not isinstance(prompt, str) or not prompt.strip(): return False
     return not _APP_WRAPPED.match(prompt.lstrip(_LEADING))
 
