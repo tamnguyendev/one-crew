@@ -97,6 +97,23 @@ def _write(path, document):
     os.replace(temporary, path)
 
 
+def _frozen_tests(ledger, anchor, revision, sha, contract):
+    """LINTTEST (D2): the frozen test files are taken from HEAD when the approved revision is first exported. A later export of the same revision
+    and contract (the Stop hook's refresh, a verdict, hook export) keeps that list, so a test the work writes and commits stays a new test it may
+    still change; a new approved revision takes the list again. [] when the contract grants authority {edit, edit_tests}."""
+    from . import namespaces
+    from .lint import edit_tests_granted, frozen_tests
+    if edit_tests_granted(contract): return []
+    try:
+        before = json.loads(namespaces.active_file(ledger, anchor).read_text(encoding='utf-8-sig'))
+        if (isinstance(before, dict) and before.get('anchor') == anchor and before.get('revision') == revision and before.get('plan_sha') == sha
+                and isinstance(before.get('frozen_tests'), list)):
+            return list(before['frozen_tests'])
+    except (OSError, ValueError, LedgerError):
+        pass
+    return frozen_tests(ledger.project, contract)
+
+
 def build(ledger, name):
     """The document for plan `name`, or None while the plan has never been approved."""
     from . import plan as plans
@@ -139,6 +156,9 @@ def build(ledger, name):
             'waiting': {'receipt_without_verdict': unanswered, 'open_questions': questions, 'run_in_progress': running},
             'mode': chosen.get('mode', 'log'), 'title': contract['title'], 'output': contract['output'],
             'owned': contract['scope']['owned'], 'non_goals': contract['non_goals'],
+            # LINTTEST (option canh-bao-va-chan): the test files of HEAD that owned covers, taken now (the hook compares names, it never runs git);
+            # [] when the contract grants authority {edit, edit_tests}. A copy exported before this change has no key and is judged as before.
+            'frozen_tests': _frozen_tests(ledger, state['selector'], revision, sha, contract),
             'bash_deny': list(DEFAULT_BASH_DENY) + list(chosen.get('bash_deny', [])),
             'protected': list(DEFAULT_PROTECTED) + [str(root / 'plans'), str(root)] + [str(Path.home() / '.claude' / n) for n in DEFAULT_GUARDED_HOME],
             'scratch': list(DEFAULT_SCRATCH) + [tempfile.gettempdir(), memory_dir(ledger.project)],

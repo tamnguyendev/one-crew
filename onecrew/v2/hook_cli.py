@@ -314,6 +314,12 @@ def judge_path(plan, root, target, action):
         for goal in plan.get('non_goals', []):
             if path_like(goal) and under(rel, goal):
                 return 'non_goal', f'{rel} matches non_goal "{goal}". {rules_text(plan)}'
+        # LINTTEST (option canh-bao-va-chan): a test file that was in HEAD when the plan was exported, and the contract did not grant edit_tests
+        frozen = plan.get('frozen_tests')
+        if isinstance(frozen, list) and _fold(rel) in {_fold(f) for f in frozen if isinstance(f, str)}:
+            return 'existing_test', (f'{rel} is a test that already existed when plan {plan.get("plan")} was exported, and the plan does not grant '
+                                     f'authority edit_tests: existing tests are not changed. Write a new test file instead; if this work must change '
+                                     f'existing tests, ask the owner for a revision with authority {{"edit": true, "edit_tests": true}}. {action}')
         if any(under(rel, o) for o in plan.get('owned', [])): return None
     for item in scratch:                                  # a scratch place outside the project never excuses a file inside it
         if item in Path(root).parents: continue           # nor does one that contains the whole project (a project under %TEMP%)
@@ -2240,7 +2246,7 @@ def state_copy(state_root, root):
 def tampered(project_plan, copy_plan):
     """True when the project copy says something other than the state-root copy about what is allowed."""
     return any(project_plan.get(k) != copy_plan.get(k) for k in ('plan', 'revision', 'plan_sha', 'mode', 'owned', 'non_goals', 'bash_deny', 'protected', 'scratch','workflow_holds',
-                                                                'standing'))
+                                                                'standing', 'frozen_tests'))     # LINTTEST: a copy that drops the frozen tests is a changed copy
 
 
 def governing(args, event):

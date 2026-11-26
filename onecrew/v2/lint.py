@@ -326,6 +326,70 @@ def _command_input_warnings(project, contract):
     return warnings
 
 
+# ---- LINTTEST: test files that already exist ------------------------------------------------------------------------------
+# D1: a test file is a file of HEAD under a folder named test, tests or __tests__ (at any level), or named test_*, *_test or *_tests.
+TEST_FOLDERS = ('test', 'tests', '__tests__')
+SHOWN_TESTS = 3
+
+
+def is_test_path(path):
+    """LINTTEST (D1): a project-relative posix path that names a test file (case-folded)."""
+    parts = str(path).replace('\\', '/').casefold().split('/')
+    stem = parts[-1].split('.', 1)[0] if parts[-1] else ''
+    return any(p in TEST_FOLDERS for p in parts[:-1]) or stem.startswith('test_') or stem.endswith(('_test', '_tests'))
+
+
+def edit_tests_granted(contract):
+    """LINTTEST: the contract lets the work change existing tests: authority {edit: true, edit_tests: true} (the switch authority.py already reads)."""
+    grant = contract.get('authority') if isinstance(contract, dict) else None
+    return isinstance(grant, dict) and grant.get('edit') is True and grant.get('edit_tests') is True
+
+
+def head_files(project):
+    """The files of HEAD under the project folder, project-relative posix paths; [] when there is no repository, no commit or git cannot be run."""
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith('GIT_')}
+    try:
+        done = subprocess.run(['git', '-C', str(project), '-c', 'core.quotepath=false', 'ls-tree', '-r', '--name-only', '-z', 'HEAD'],
+                              capture_output=True, env=env, timeout=120, creationflags=0x08000000 if os.name == 'nt' else 0)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if done.returncode != 0: return []
+    return [p for p in done.stdout.decode('utf-8', 'replace').split('\0') if p]
+
+
+def existing_tests(project, owned):
+    """LINTTEST: the test files of HEAD that scope.owned covers (the write hook's own matching: exact, directory prefix or glob, case-folded),
+    sorted; [] outside git."""
+    from .authority import owned_match
+    found = []
+    for path in head_files(project):
+        if not is_test_path(path): continue
+        try:
+            if owned_match(path, list(owned or [])): found.append(path)
+        except LedgerError:
+            continue
+    return sorted(found)
+
+
+def frozen_tests(project, contract):
+    """LINTTEST (option canh-bao-va-chan): the existing test files the hooks refuse to change: those scope.owned covers, or [] when the contract
+    grants authority {edit, edit_tests}."""
+    if edit_tests_granted(contract): return []
+    return existing_tests(project, ((contract or {}).get('scope') or {}).get('owned') or [])
+
+
+def existing_test_warnings(project, contract):
+    """LINTTEST (I1, I2): warning owned_covers_existing_tests when scope.owned covers test files already in HEAD and edit_tests is not granted;
+    nothing when the tests are new, when edit_tests is granted, or outside git. A warning only: plan lint still exits 0."""
+    found = frozen_tests(project, contract)
+    if not found: return []
+    shown = ', '.join(found[:SHOWN_TESTS]) + (f' (và {len(found) - SHOWN_TESTS} tệp nữa)' if len(found) > SHOWN_TESTS else '')
+    return [('owned_covers_existing_tests',
+             f'scope.owned trùm {len(found)} tệp test đã có trong HEAD: {shown}. Hợp đồng chưa cấp quyền sửa test cũ, nên hook sẽ từ chối sửa '
+             'các tệp này (test mới vẫn viết được). Nếu việc này thật sự phải sửa test cũ, khai authority {"edit": true, "edit_tests": true}; '
+             'nếu không, thu hẹp scope.owned về đúng tệp test mới.')]
+
+
 def check(ledger, raw, author=None, ack_criteria=False):
     """(reasons, warnings): reasons make `plan lint` exit 1, warnings are printed and change nothing. `ack_criteria` silences the two criteria
     warnings (the author has read them); the missing "fail if" is a reason either way."""
@@ -337,7 +401,8 @@ def check(ledger, raw, author=None, ack_criteria=False):
     warnings = [] if ack_criteria else _warnings(ledger, raw, contract)
     if step0.needs_advice(ledger, contract):
         warnings.append(('advice_required', 'Trước khi chủ duyệt, chạy onecrew plan advise <tên kế hoạch>.'))
-    return reasons, warnings + owner_view_warnings(contract) + _command_input_warnings(ledger.project, contract)
+    return reasons, (warnings + owner_view_warnings(contract) + _command_input_warnings(ledger.project, contract)
+                     + existing_test_warnings(ledger.project, contract))
 
 
 def notes(raw):
