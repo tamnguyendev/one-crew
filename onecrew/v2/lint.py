@@ -326,6 +326,42 @@ def _command_input_warnings(project, contract):
     return warnings
 
 
+_SCRIPT_TYPES = ('.py', '.pyw', '.ps1', '.sh', '.cmd', '.bat', '.js', '.mjs', '.cjs', '.ts', '.rb', '.pl')
+# VER60B: a data file named "...baseline..." is the usual shape of a saved list of red tests. A source file or a test id is not one.
+_SAVED_BASELINE = re.compile(r'(?<![\w.{}-])[\w.{}-]*baseline[\w.{}-]*\.(?:json|jsonl|txt|csv|tsv|ya?ml|toml|ini|cfg|log|lst|list|dat|xml|'
+                             r'db|sqlite3?|pickle|pkl)(?![\w-])', re.I)
+
+
+def _saved_baseline_warnings(project, contract):
+    """VER60B: one warning per verifier script that names a saved baseline file (never a refusal). A script that is missing or cannot be
+    read says nothing; the match is by name only, so a list saved under another name is not seen."""
+    found = {}
+    for m in contract['milestones']:
+        if m['verifier']['type'] != 'command':
+            continue
+        config = m['verifier']['config']
+        for word in (config['argv'][0], *_command_operands(config['argv'])):
+            if not word.lower().endswith(_SCRIPT_TYPES):
+                continue
+            path = os.path.normpath(Path(project) / (config['cwd'] or '.') / word)
+            found.setdefault(path, []).append(m['id'])
+    warnings = []
+    for path, milestones in found.items():
+        try:
+            if not os.path.isfile(path):
+                continue
+            with open(path, encoding='utf-8', errors='replace') as handle:
+                named = _SAVED_BASELINE.search(handle.read(2_000_000))
+        except (OSError, ValueError):
+            continue
+        if named:
+            warnings.append(('command_saved_baseline',
+                             f'{", ".join(dict.fromkeys(milestones))}: bộ kiểm «{path}» nhắc tệp «{named.group(0)}». Nếu đó là danh sách ca đỏ nền '
+                             'lưu sẵn thì lỗi thật ở những ca trong danh sách sẽ lọt qua: hãy đo nền ngay trong lượt kiểm trên cây gốc (mẫu bộ '
+                             'kiểm với --base, trong onecrew/templates/command-inputs.vi.md). Chỉ là lời nhắc, không chặn.'))
+    return warnings
+
+
 def check(ledger, raw, author=None, ack_criteria=False):
     """(reasons, warnings): reasons make `plan lint` exit 1, warnings are printed and change nothing. `ack_criteria` silences the two criteria
     warnings (the author has read them); the missing "fail if" is a reason either way."""
@@ -337,7 +373,8 @@ def check(ledger, raw, author=None, ack_criteria=False):
     warnings = [] if ack_criteria else _warnings(ledger, raw, contract)
     if step0.needs_advice(ledger, contract):
         warnings.append(('advice_required', 'Trước khi chủ duyệt, chạy onecrew plan advise <tên kế hoạch>.'))
-    return reasons, warnings + owner_view_warnings(contract) + _command_input_warnings(ledger.project, contract)
+    return reasons, (warnings + owner_view_warnings(contract) + _command_input_warnings(ledger.project, contract)
+                     + _saved_baseline_warnings(ledger.project, contract))
 
 
 def notes(raw):
