@@ -9,6 +9,7 @@ tool_input: the field names of SendMessage and start_session are not documented,
 silence. The match is by keyword only: it knows a heading is there, not that what follows it is right (D10).
 """
 import re
+import unicodedata
 from pathlib import Path
 
 TEMPLATE_NAME = 'mau-giao-viec.md'
@@ -53,9 +54,11 @@ OWNER_MAX_CHARS = 4_000
 _LEADING = chr(0xFEFF) + ' \t\r\n'          # blank space and a byte-order mark before the wrapper
 OWNER_TEXT = {
     'vi': ('Chủ sở hữu vừa gõ thẳng vào phiên này (plan thường trực {plan}). Trước khi làm: (1) ghi lời đó, nguyên văn kèm giờ, vào sổ yêu cầu '
-           '(mặc định YEU-CAU-CHU.vi.md ở thư mục của phiên); (2) báo phiên trao đổi một dòng; rồi làm. Lời nhắc này không chặn gì.'),
+           '(mặc định YEU-CAU-CHU.vi.md ở thư mục của phiên); (2) báo phiên trao đổi một dòng; rồi làm. Nếu lời đó là một quyết định thì ghi thêm vào '
+           'sổ quyết định của repo bằng `onecrew decision add` (phạm vi, tiêu đề, lời nguyên văn). Lời nhắc này không chặn gì.'),
     'en': ('The owner just typed straight into this session (standing plan {plan}). Before acting: (1) write those words, verbatim with the time, '
            'into the owner request log (default YEU-CAU-CHU.vi.md in the session folder); (2) tell the exchange session in one line; then carry on. '
+           "If those words are a decision, also record it in the repository's decision book with `onecrew decision add` (scope, title, the words verbatim). "
            'This reminder blocks nothing.'),
 }
 OWNER_NOTE = 'owner typed straight into a standing plan session; reminded to log the words and tell the exchange session'   # the ledger line: never the words
@@ -132,6 +135,28 @@ def missing(items, tool_input):
     """The names of the items none of whose keywords appear in any string of tool_input."""
     text = '\n'.join(strings(tool_input))[:MAX_CHARS].casefold()
     return [name for name, words in items if not any(word.casefold() in text for word in words)]
+
+
+# SQD (I5): a delegation of a repository that has decisions in force says which one applies: an id "SQD-n", or the sentence below. Like the
+# template items, it is a match on form: it knows a decision is named, not that it is the right one (D4).
+DECISION_ID = re.compile(r'(?<![\w-])sqd-\d+(?!\w)')
+NO_DECISION = unicodedata.normalize('NFC', 'không có quyết định liên quan')
+DECISIONS_NAMED = 10         # at most this many (the newest) in the reminder
+
+
+def names_decision(tool_input):
+    """True when any string of tool_input holds "SQD-n" or "không có quyết định liên quan" (any case, any Unicode form, any spacing)."""
+    text = unicodedata.normalize('NFC', '\n'.join(strings(tool_input))[:MAX_CHARS]).casefold()
+    return bool(DECISION_ID.search(text)) or NO_DECISION in ' '.join(text.split())
+
+
+def decision_reminder(plan, tool, records):
+    """One line: the decisions in force (id and title, never the owner's words)."""
+    shown = records[-DECISIONS_NAMED:]
+    listed = '; '.join(f"{r['id']} {' '.join(r['title'].split())}" for r in shown)
+    more = f'; và {len(records) - len(shown)} quyết định cũ hơn (onecrew decision list)' if len(records) > len(shown) else ''
+    return (f'OneCrew (plan thường trực {plan}): lời giao việc vừa gửi qua {tool} chưa nói quyết định nào của chủ áp cho việc này. '
+            f'Còn hiệu lực: {listed}{more}. Nêu mã SQD-n áp dụng hoặc ghi "{NO_DECISION}". Việc giao KHÔNG bị chặn.')
 
 
 def reminder(plan, tool, names, state_root):

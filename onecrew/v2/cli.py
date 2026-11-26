@@ -8,6 +8,10 @@ import sys
 from .messages import t
 
 GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner', 'compat', 'findings', 'executor', 'outcome', 'continue', 'context', 'question', 'estimate', 'notifications', 'desktop', 'incident', 'lesson', 'issue', 'unknown', 'engine', 'wiki', 'support', 'track', 'review')
+# SQD: `decision` is a group of the installed command only. In a checkout the word is v1's JEV verb (`decision configure|doctor`, onecrew/cli.py),
+# which routes GROUPS before it, so it is not listed there; from a checkout: python -m onecrew.v2.cli decision ...
+INSTALLED_GROUPS = ('decision',)
+DECISION_HELP = "  decision   add / list / show (the owner's decision book of this repository; SQD)\n"
 OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enforce (v2 AI work contract; owner-only approval and acceptance)\n'
                   '  verdict    record / run (v2 milestone verdicts with receipts)\n'
                   '  hook       check / prompt / stop / session / sync / export / mode / install --print (v2 Claude Code hooks)\n'
@@ -74,6 +78,9 @@ def route(args, index):
     if args[index] == 'owner':
         from .owner_cli import main as owner_main
         return owner_main(args)
+    if args[index] == 'decision':                    # SQD: the owner's decision book; not an owner verb (D1)
+        from .sqd import main as decision_main
+        return decision_main(args)
     if args[index] == 'compat':
         from .compat_cli import main as compat_main
         return compat_main(args)
@@ -146,14 +153,14 @@ def main(argv=None):
             print(f'onecrew unknown (not installed: the code running is {here})')
         return 0
     if len(args) <= index or args[index] in ('--help', '-h'):
-        print('OneCrew: --project <path> <group> <command> [options]\n' + help_lines() +
+        print('OneCrew: --project <path> <group> <command> [options]\n' + help_lines() + DECISION_HELP +
               'Use <group> <command> --help for options. Durable commands accept --state-root before group.')
         return 0
     if args[index] == 'support':                     # before route(): route imports ownership -> ledger, which a broken install may not have
         from .support_spool import entry
         return entry(args, index)
-    if args[index] in GROUPS or args[index:index + 2] == ['eval', 'plan-metrics']: return route(args, index)
-    print(f'onecrew: unknown group "{args[index]}". This install has: {", ".join(GROUPS)}. The other groups run from a checkout (onecrew_cli.py).',
+    if args[index] in GROUPS + INSTALLED_GROUPS or args[index:index + 2] == ['eval', 'plan-metrics']: return route(args, index)
+    print(f'onecrew: unknown group "{args[index]}". This install has: {", ".join(GROUPS + INSTALLED_GROUPS)}. The other groups run from a checkout (onecrew_cli.py).',
           file=sys.stderr)
     return 2
 

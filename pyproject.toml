@@ -120,6 +120,7 @@ py-modules = [
     "onecrew.v2.learning_cli",
     "onecrew.v2.localization",
     "onecrew.v2.giao_viec",
+    "onecrew.v2.sqd",
     "onecrew.v2.review_dispatch",
     "onecrew.v2.metered_verifier",
     "onecrew.v2.runtime_unknowns",

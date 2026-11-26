@@ -2513,23 +2513,45 @@ def background_hook(args):
     return 0
 
 
+def template_note(plan, tool, event):
+    """GSDP-A: (reminder text, rule) when the delegation lacks an item of the owner's template, else None; any error is None."""
+    try:
+        from . import giao_viec
+        names = giao_viec.missing(giao_viec.items_for(plan.get('state_root')), event.get('tool_input'))
+        if not names: return None
+        return giao_viec.reminder(plan.get('plan'), tool, names, plan.get('state_root')), 'delegation_missing:' + ','.join(names)[:200]
+    except Exception:                                    # noqa: BLE001 - a reminder never locks the session
+        return None
+
+
+def decision_note(plan, root, tool, event):
+    """SQD (I5): (reminder text, rule) when the repository has decisions in force and the delegation names none, else None; any error is None."""
+    try:
+        from . import giao_viec, sqd
+        records = sqd.current(plan.get('state_root'), root)
+        if not records or giao_viec.names_decision(event.get('tool_input')): return None
+        return giao_viec.decision_reminder(plan.get('plan'), tool, records), 'delegation_decision'
+    except Exception:                                    # noqa: BLE001 - a reminder never locks the session
+        return None
+
+
 def remind(args):
     """GSDP-A (D7, D10, D11): `hook remind`, a PreToolUse entry of its own (installed only by `onecrew init --remind on`, onFailure continue) for the
-    delegation tools (giao_viec.TOOLS). When the session's plan is a standing plan and the strings of tool_input lack an item of the owner's template, it
-    writes one `reminded` line and returns the missing items as additionalContext, in log and in enforce mode alike. It is never a gate: no deny, no
-    ask, exit 0 always; a bad payload, no plan, a plain plan, an unreadable plan or template, or any error is silence."""
+    delegation tools (giao_viec.TOOLS). When the session's plan is a standing plan and the strings of tool_input lack an item of the owner's template,
+    or (SQD) the repository has decisions in force and the delegation names none, it writes one `reminded` line (one call, one record: both reasons
+    share it) and returns the text as additionalContext, in log and in enforce mode alike. It is never a gate: no deny, no ask, exit 0 always; a bad
+    payload, no plan, a plain plan, an unreadable plan, or any error is silence (an unreadable template or book silences its own reminder only)."""
     try:
         event, bad_input = read_stdin()
         if bad_input: return 0
         note_call(event)
         plan, root, bad, _ = governing(args, event)
         if plan is None or bad or not plan.get('standing') or plan.get('status') not in ('approved', 'stopped_with_report'): return 0
-        from . import giao_viec
         tool = str(event.get('tool_name') or '?')
-        names = giao_viec.missing(giao_viec.items_for(plan.get('state_root')), event.get('tool_input'))
-        if not names: return 0
-        note = giao_viec.reminder(plan.get('plan'), tool, names, plan.get('state_root'))
-        record(root, plan, 'reminded', tool, note, 'delegation_missing:' + ','.join(names)[:200], session=event.get('session_id'))
+        found = [n for n in (template_note(plan, tool, event), decision_note(plan, root, tool, event)) if n]
+        if not found: return 0
+        note = '\n'.join(text for text, _ in found)
+        record(root, plan, 'reminded', tool, note, ';'.join(rule for _, rule in found), session=event.get('session_id'))
         print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'additionalContext': note}}, ensure_ascii=False), flush=True)
     except Exception:                                    # noqa: BLE001 - a reminder never locks the session
         pass
@@ -2597,6 +2619,15 @@ def stop(args):
     return 0
 
 
+def decision_lines(plan, root):
+    """SQD (I4): the repository's decisions in force, added to the session start; [] when there is none or on any error."""
+    try:
+        from . import sqd
+        return sqd.session_lines(plan.get('state_root'), root)
+    except Exception:                                    # noqa: BLE001 - the session start never fails on the book
+        return []
+
+
 def session(args):
     event, _ = read_stdin()
     note_call(event)
@@ -2617,7 +2648,7 @@ def session(args):
               f"Next: {pending['id'] + ' ' + pending['title'] if pending else 'all milestones passed; the owner accepts'}",
               'Not yours: plan approve/accept/enforce, verdict record --by owner, push, tag. Do not say "done" before the verdict.',
               'Change the contract with `onecrew plan amend` (owner approves).']
-    text = '\n'.join(lines[:25])
+    text = '\n'.join(lines[:25] + decision_lines(plan, root))
     name = event.get('hook_event_name') or 'SessionStart'
     if name != 'SessionStart': return 0                 # PreCompact has no documented way to add context; SessionStart(source=compact) follows it
     owner_context(None if bad else plan, root, event, 'SessionStart', text)
