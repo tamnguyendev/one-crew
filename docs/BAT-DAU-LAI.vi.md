@@ -35,6 +35,8 @@ R1 chỉ build DEBUG khi đang phát triển, RELEASE là bước giao riêng sa
 
 Với hợp đồng có nhiều mốc lệnh, xem [mẫu khai tệp phụ thuộc và bộ kiểm unittest](../onecrew/templates/command-inputs.vi.md). Khi các lệnh có đích kiểm khác nhau, lint nhắc tác giả xem xét `inputs`. Với đường dẫn ngoài repo trên dòng lệnh, lint nhắc khai `env_inputs`. Hai cảnh báo giữ nguyên hợp đồng và mã thoát của lint.
 
+Mốc kiểm hồi quy không dùng danh sách ca đỏ nền lưu sẵn: lần đo trong môi trường lỗi sẽ cho lỗi thật lọt qua. Bộ kiểm trong mẫu trên nhận `--base <cây gốc>`: nó chạy cùng bộ test trên cây gốc trong cùng lượt, bằng cùng trình thông dịch. Ca đỏ ở cả hai bên được in tên và không tính; đỏ mới hay bị bỏ qua thì trượt; cây gốc không đo được hoặc đỏ hơn 3 ca thì trượt với lời “nền nghi lỗi”. Lint nhắc khi script bộ kiểm nhắc một tệp dữ liệu có tên chứa `baseline`; lời nhắc không chặn. Cách tạo cây gốc, đổi ngưỡng và các giới hạn nằm ở mục “Ca đỏ nền” của mẫu.
+
 Thử giao diện đang phát triển với `onecrew --project <dự-án-nguồn> --state-root <sổ-nguồn> track copy-view --clone <bản-clone-Git> --scratch <thư-mục-tạm>`. Dùng một clone riêng và thư mục tạm có sẵn, cả hai tách khỏi dự án và sổ nguồn. Lệnh chụp sổ rollback journal, hiển thị việc của dự án với đường dẫn clone, rồi mở trang trên máy này. Trang có nhãn “Đã tắt so với bản hiện tại”. Dừng bằng Ctrl+C để dọn bản sao. Dùng `--no-browser` để chỉ in URL. Khi cần số liệu mới từ sổ, mở lại bản sao.
 
 ## 5. Động từ chỉ chủ sở hữu được gõ

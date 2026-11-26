@@ -1450,3 +1450,17 @@ Các phép kiểm của MG chạy trên cây nguồn. MF kiểm gói cài, MO d�
 |---|---|
 | O4 · #35 EV-A | `plan show`, báo cáo và trang việc dùng bằng chứng gắn với lượt kiểm, phiên bản, tiêu chí và artifact. `tests.test_rm1_evidence` kiểm tái dùng đúng phạm vi, dữ liệu cũ thiếu nguồn và bản ghi mâu thuẫn. |
 | I5 · #15 | `findings import-review` ghi nguồn ngoài vào sổ finding. Engine giao sửa theo quyền và ngân sách đã duyệt. `findings recheck` kiểm biên nhận và đường dẫn đã sửa. `tests.test_rm1_review_repair` đi qua CLI, báo cáo, trang việc và engine trên sổ tạm. |
+
+## VER60B bản 1 · M1
+
+Lỗ “đạt giả” của VER60 nằm ở bộ kiểm của hợp đồng: nó bỏ qua ca đỏ theo một danh sách đo một lần trong môi trường lỗi. Engine, cách chấm mốc và cấu hình verifier giữ nguyên.
+
+| Yêu cầu | Triển khai | Ca kiểm trong `tests/test_ver60b.py` |
+|---|---|---|
+| I1 · đo ca đỏ nền cùng lượt | Bộ kiểm mẫu nhận `--base <cây gốc>`, chạy cùng đích trên bản đang kiểm và bản sao tạm của cây gốc, cùng trình thông dịch. Đỏ ở cả hai được in tên và không tính; đỏ mới và ca bị bỏ qua thì trượt; ca con so từng ca. | `excuses_red_that_is_red_on_base`, `fails_red_not_on_base`, `skip_still_fails`, `compares_subtests_one_by_one`, `tree_is_left_as_it_was` |
+| I2 · nền nghi lỗi | Gốc chạy hỏng, không có ca nào chạy hoặc đỏ hơn 3 ca (`--base-red-max`) thì trượt. Module không tải được và lỗi bước chuẩn bị của lớp, module không bao giờ là đỏ nền. | `base_that_ran_nothing_fails`, `mostly_red_fails`, `never_excuses_cases_that_did_not_run`, `candidate_that_stops_early_fails` |
+| I3 · không có `--base` thì như cũ | Cùng mã thoát khi đạt, bỏ qua, đỏ, không có ca nào. | `without_base_unchanged`; ba ca `Template` của `tests/test_ver60_lint.py` |
+| I4 · lint nhắc tệp nền lưu sẵn | `lint._saved_baseline_warnings`: một lời nhắc `command_saved_baseline` cho mỗi script bộ kiểm nhắc tệp dữ liệu tên chứa `baseline`; không chặn. Tên khác thì không thấy. | `lint_warns_saved_baseline_file`, `lint_quiet_without_baseline_file` |
+| I5 · mẫu giải thích | Mục “Ca đỏ nền” của `onecrew/templates/command-inputs.vi.md`, gồm cách tạo cây gốc và giới hạn. | `template_text_names_base_and_same_run` |
+
+Giới hạn: so theo tên ca nên ca đã đỏ ở gốc mà hỏng thêm kiểu khác không bị bắt; ca bị xóa khỏi bản đang kiểm không bị báo; hợp đồng tự viết bộ kiểm riêng không được mẫu bảo vệ.
