@@ -6,7 +6,7 @@ OneCrew is a local workflow tool for people who delegate work to AI assistants. 
 
 [Get started](docs/GETTING-STARTED.en.md) · [Releases](https://github.com/tamnguyendev/one-crew/releases) · [Report an issue](https://github.com/tamnguyendev/one-crew/issues) · [Limitations](#current-limitations)
 
-> **Beta:** this guide targets the published **`2.5.0.dev31`** release, tested on Windows. The separate `2.5.0.dev28+mrr.4` release adds experimental multi-repository reading; it does **not** include the later changes (the dev28 tracking list, the dev30 user-level hook, the dev31 background tracking and shared-resource leases). Choose a release explicitly rather than installing from `main`.
+> **Beta:** this README describes **`2.5.0.dev34`**, tested on Windows. The [getting-started guide](docs/GETTING-STARTED.en.md) still installs the published `2.5.0.dev31` release. The separate `2.5.0.dev28+mrr.4` release adds experimental multi-repository reading; it does **not** include the later changes (the dev28 tracking list, the dev30 user-level hook, the dev31 background tracking and shared-resource leases, the dev33 session observation and new tracking page, or the [dev34 changes below](#whats-new-in-250dev34)). Choose a release explicitly rather than installing from `main`.
 
 ## Why OneCrew?
 
@@ -24,7 +24,7 @@ Use it when a task needs explicit scope, checkable outputs, or a handoff you can
 
 ## What you can do
 
-These capabilities are included in the dev31 release. Their availability does not mean every host, provider, or workflow has been tested end to end.
+These capabilities are included in dev34. Their availability does not mean every host, provider, or workflow has been tested end to end.
 
 | Capability | What it gives you |
 |---|---|
@@ -33,7 +33,7 @@ These capabilities are included in the dev31 release. Their availability does no
 | **Track progress locally** | A browser dashboard with task lists, project/status filters, decisions needing your attention, and a timeline of recorded activity. |
 | **Follow solution changes** | Inspect the recorded solution and revisions, with before/after information where the ledger contains it. |
 | **Separate output from verification** | See generated outputs, milestone results, and evidence. A generated file or successful model response is not automatically an accepted result. |
-| **Follow test and repair cycles** | Link findings, repairs, and rechecks through the existing workflow. The UI displays recorded cycles; it cannot reconstruct activity that was never recorded. |
+| **Follow test and repair cycles** | Link findings, repairs, and rechecks through the existing workflow. The UI displays recorded cycles; it cannot reconstruct activity that was never recorded. Import an external review with `onecrew findings import-review` (the plan needs the `finding-register` capability), fix inside the grant, then run `findings recheck`; `findings list --open-only` shows what still blocks acceptance. |
 | **Reuse project knowledge** | Initialize a project wiki, retrieve relevant context, and record or withdraw knowledge with supporting evidence. This is external memory, not model training. |
 | **Resume with context** | Use continuation and handoff records to carry task state and relevant knowledge forward. Reopening a chat alone does not reconnect it automatically. |
 | **Report problems** | Collect local diagnostic information through `support` commands and review it before sharing. |
@@ -63,7 +63,7 @@ This workflow also fits documentation and source-analysis tasks: define the expe
 
 The [English getting-started guide](docs/GETTING-STARTED.en.md) walks through downloading a verified wheel, installing it into a separate venv, connecting a disposable project, completing a first task, and opening the dashboard.
 
-**Follow that guide from step 1.** It is the single installation path for this README. At the end, you will have a greeting file checked by a command, a recorded result, and a task visible in the dashboard. The demo does not claim to validate a real-model reviewer or every hook path.
+**Follow that guide from step 1** for a first trial. It is written for the `2.5.0.dev31` release and installs that wheel, so it does **not** give you the changes made after dev31, including those listed under [What's new in 2.5.0.dev34](#whats-new-in-250dev34). At the end, you will have a greeting file checked by a command, a recorded result, and a task visible in the dashboard. The demo does not claim to validate a real-model reviewer or every hook path.
 
 **Already using OneCrew?** Do not replace a shared runtime while tasks are active. Read [upgrading an existing project](docs/GETTING-STARTED.en.md#upgrading-an-existing-project) first. Successful installation does not prove existing plans and consumers can safely switch runtimes.
 
@@ -75,7 +75,7 @@ With the variables from the getting-started guide:
 & $OneCrew --project $Project --state-root $State track open
 ```
 
-The local viewer helps answer **what is happening, what changed, what was checked, and who needs to act next**. It shows recorded tasks, not every Claude conversation on your machine. A connected page means it can read its data source; it does not mean the work has passed verification.
+The local viewer helps answer **what is happening, what changed, what was checked, and who needs to act next**. It shows recorded tasks, not every Claude conversation on your machine. A connected page means it can read its data source; it does not mean the work has passed verification. A passing check made on older code is shown as needing a recheck and is not counted; a check that timed out is shown as inconclusive, with the reason.
 
 The page is read-only. Where a validated owner command is available, you can copy it and run it in your own terminal. Opening evidence is not approval; closing the page does not stop a worker. Missing evidence or timing data means unknown, not zero work or success.
 
@@ -97,26 +97,29 @@ The ledger and dashboard are local. Model-backed work still uses the provider an
 
 | Area | Status |
 |---|---|
-| Contracts, wiki/context, verification, findings, diagnostics, and tracking UI | Included in the **dev31 beta** described here. |
+| Contracts, wiki/context, verification, findings, diagnostics, and tracking UI | Included in the **dev34 beta** described here. |
+| Standing plans and delegation reminders, three roles, session hand-over summaries, a fixed address for the tracking page, sub-task role labels and short names | **Included in 2.5.0.dev34.** See [What's new](#whats-new-in-250dev34), the [changelog](docs/CHANGELOG.md) and [current limitations](#current-limitations). |
 | Reading multiple repositories in one task (MR-R) | **Separate experimental release:** [dev28-mrr.4](https://github.com/tamnguyendev/one-crew/releases/tag/v2.5.0.dev28-mrr.4). Read-only source use, not arbitrary multi-repo editing; its release notes report no real-model trial. |
 | Claude Code plugin (CP-1) | Separate from the Python wheel. Do not assume installing this release installs a marketplace plugin. |
-| Background-work tracking, one review per request, shared-resource leases, skill delivery | **Included in dev31.** Optional hook events (`hook install --print --background`) let the dashboard show subagents and background commands the host reports; a check request is reviewed and charged once; heavy resources you declare are held across sessions, plans, and ledgers on the machine; an approved, pinned skill can be delivered to a native worker. Known limits: the [dev31 release notes](https://github.com/tamnguyendev/one-crew/releases/tag/v2.5.0.dev31), issues [#55](https://github.com/tamnguyendev/one-crew/issues/55), [#32](https://github.com/tamnguyendev/one-crew/issues/32). Roadmap work parked on 2026-11-23 (closed as not planned): [#36](https://github.com/tamnguyendev/one-crew/issues/36), [#41](https://github.com/tamnguyendev/one-crew/issues/41). |
-| User-level hook coverage and shell-parser hardening | **Included since dev30.** Optional `onecrew hook user install` makes every Claude Code session on the machine, subagents included, ask the plan of the project it writes in; git commands that discard uncommitted work outside the owned scope are refused. Known limits: the [dev30 release notes](https://github.com/tamnguyendev/one-crew/releases/tag/v2.5.0.dev30), [issue #25](https://github.com/tamnguyendev/one-crew/issues/25), [issue #12](https://github.com/tamnguyendev/one-crew/issues/12). |
+| Background-work tracking, one review per request, shared-resource leases, skill delivery | **Included in dev31.** Optional hook events (`hook install --print --background`) let the dashboard show subagents and background commands the host reports; a check request is reviewed and charged once; heavy resources you declare are held across sessions, plans, and ledgers on the machine; an approved, pinned skill can be delivered to a native worker. `onecrew track background` lists the observed subagents and background commands (read-only). Known limits: the [dev31 release notes](https://github.com/tamnguyendev/one-crew/releases/tag/v2.5.0.dev31), issues [#55](https://github.com/tamnguyendev/one-crew/issues/55), [#32](https://github.com/tamnguyendev/one-crew/issues/32). Roadmap work parked on 2026-11-23 (closed as not planned): [#36](https://github.com/tamnguyendev/one-crew/issues/36), [#41](https://github.com/tamnguyendev/one-crew/issues/41). |
+| User-level hook coverage and shell-parser hardening | **Included since dev30.** Optional `onecrew hook user install` makes every Claude Code session on the machine, subagents included, ask the plan of the project it writes in; git commands that discard uncommitted work outside the owned scope are refused. Check it with `onecrew hook user status`; remove it with `onecrew hook user uninstall` (owner commands). Known limits: the [dev30 release notes](https://github.com/tamnguyendev/one-crew/releases/tag/v2.5.0.dev30), [issue #25](https://github.com/tamnguyendev/one-crew/issues/25), [issue #12](https://github.com/tamnguyendev/one-crew/issues/12). |
 | Other assistant hosts and providers | Support depends on the adapter and workflow. Claude Code hook behavior is not a guarantee of equivalent protection in another host. |
 
 For version-specific evidence and limitations, use the [release notes](https://github.com/tamnguyendev/one-crew/releases), not a feature name or passing test count alone.
 
-## Standing plans for a coordinator session
+## What's new in 2.5.0.dev34
 
-A contract may set `"standing": true` for a long-running coordinator session. A standing plan expires at the owner's approval plus `budget.time` minutes (at most 20 days), and a re-export never extends that. Its Stop hook neither blocks nor writes a line per turn. Edits and commands are still judged as under a plain plan. A plain plan keeps the 24-hour expiry and the Stop block.
+### Standing plans for a coordinator session
 
-`onecrew init --remind on` adds a separate PreToolUse entry, `hook remind`. Under a standing plan, it records a `reminded` line when a delegation (Agent, Task, SendMessage, start_session, send_message) lacks an item of the owner's template `<state-root>/plans/mau-giao-viec.md`. It also tells Claude which items are missing. It only reminds and never blocks, and the reminder arrives after the tool has run. `init --remind off` removes the entry.
+A contract may set `"standing": true` for a long-running coordinator session. A standing plan expires at the owner's approval plus `budget.time` minutes (at most 20 days), and a re-export never extends that. Its Stop hook neither blocks nor writes a violation line per turn. Edits and commands are still judged as under a plain plan; once it has expired in enforce mode, they are blocked until the owner approves again. `plan present` and `owner approve --human` state that the plan is standing. A plain plan keeps the 24-hour expiry and the Stop block.
+
+`onecrew init --remind on` adds a separate PreToolUse entry, `hook remind`. Under a standing plan, it records a `reminded` line when a delegation (Agent, Task, SendMessage, start_session, send_message) lacks an item of the owner's template `<state-root>/plans/mau-giao-viec.md`. It also tells Claude which items are missing. It only reminds and never blocks, and the reminder arrives after the tool has run. `init --remind off` removes the entry. `init --remind on` writes the template when it is missing, one item per line as `- name: keyword, keyword`; matching is by keyword only, so it shows that a heading is present, not that what follows is right.
 
 The owner's way out is `onecrew owner enforce <plan> --mode log`. Deleting the project's hook block is not a way out: the user-scope hook still finds the plan through its copy in the state root. Details (Vietnamese): [docs/BAT-DAU-LAI.vi.md](docs/BAT-DAU-LAI.vi.md), section 8.
 
-## A fixed address for the tracking page
+### A fixed address for the tracking page
 
-New in 2.5.0.dev34. A ledger may choose its own port in a `tracking.json` file placed directly in the state root, for example `{"port": 9692}`.
+A ledger may choose its own port in a `tracking.json` file placed directly in the state root, for example `{"port": 9692}`.
 
 - With that file, `onecrew track open` and `track serve` always use `http://127.0.0.1:<port>/`, so one bookmark keeps working. A server on a fixed port does not stop when nobody is viewing; it stays until `onecrew track stop` for that ledger or a shutdown.
 - Without the file, a free port is used as before and the server stops after 30 minutes without a viewer.
@@ -124,19 +127,25 @@ New in 2.5.0.dev34. A ledger may choose its own port in a `tracking.json` file p
 - If the port is busy: when this ledger's own tracking server holds it, that address is reused; when anything else holds it, the command reports the port and stops without opening another one. Change the port in `tracking.json` or stop the other program.
 - A malformed `tracking.json` (not `{"port": N}` with N from 1 to 65535) is an error.
 - The page is served to this machine only (127.0.0.1).
+- `onecrew track status` shows whether this ledger's server can be reused; `track open --no-browser` only prints the URL.
 
-## Three roles: owner, exchange session, coordinator
+### Three roles: owner, exchange session, coordinator
 
-New in 2.5.0.dev34. The "3 vai" model separates talking with the owner from coordinating the work. Under a standing plan, words the owner types straight into the coordinator session get a reminder to log them and tell the exchange session; it never blocks. Role templates (Vietnamese and English) are in [docs/vai3/](docs/vai3/); details in [docs/GETTING-STARTED.en.md](docs/GETTING-STARTED.en.md) and section 9 of [docs/BAT-DAU-LAI.vi.md](docs/BAT-DAU-LAI.vi.md).
+The "3 vai" model separates talking with the owner from coordinating the work. Under a standing plan, words the owner types straight into the coordinator session get a reminder to log them and tell the exchange session; it never blocks, and its `reminded` line (rule `owner_prompt`) does not contain the typed words. The reminder comes from the `hook prompt` entry that `onecrew init` already writes (no `--remind on` needed). Text that starts with an app wrapper (another session's message, a system notice) is not reminded. Edit the reminder text in `<state-root>/plans/mau-loi-chu.md`; an empty file turns it off. The older budget keyword reminder (`prompt_keywords`) now follows the same source rule on every plan, standing or not. Role templates (Vietnamese and English) are in [docs/vai3/](docs/vai3/); details in [docs/GETTING-STARTED.en.md](docs/GETTING-STARTED.en.md) and section 9 of [docs/BAT-DAU-LAI.vi.md](docs/BAT-DAU-LAI.vi.md).
 
-## Role labels and short names for sub-tasks
+### Role labels and short names for sub-tasks
 
-New in 2.5.0.dev34. A sub-task of an internal plan may carry a role label (`"role": "backend"`) and a short name for people (`"title"`, one line, at most 80 characters). Both are for display on the tracking page and change nothing about how the sub-task is run or checked. See [docs/nhan-vai.vi.md](docs/nhan-vai.vi.md) (Vietnamese).
+A sub-task of an internal plan may carry a role label (`"role": "backend"`) and a short name for people (`"title"`, one line, at most 80 characters). Both are for display on the tracking page and change nothing about how the sub-task is run or checked. The page shows them in a "Danh sách task" block with status words and a one-line summary taken from ledger figures only; each row opens on the whole goal. Without `"title"`, the short name is the start of the goal. An optional role table (`roles` in the file given to `onecrew engine revise`) only reports sub-tasks that write outside their role's area; it never blocks. See [docs/nhan-vai.vi.md](docs/nhan-vai.vi.md) (Vietnamese).
+
+### Session observation (optional)
+
+`onecrew hook user install --observe` (an owner command) records, for sessions that run inside a registered project, the owner's typed words (filtered), the questions the AI asks, background command names, paths of files written outside the project, and start and end times; it does not record file contents or command output. Every such row is labelled unverified. Observation exists since dev33; new in dev34, a hand-over keeps one masked summary line (at most 160 characters, never the prompt or message), and a session bound to its own project stays bound when it reads or runs commands in another one. `onecrew hook sessions` lists the local session bindings, including unbound sessions. It is not a security boundary.
 
 ## Current limitations
 
 - **Hooks are not a security boundary.** They cover supported operations in connected sessions. External processes, sessions outside the configured project, and shell forms the parser does not understand may escape that coverage. Do not use this beta to contain untrusted code.
 - **Installation is not enforcement.** `doctor` checks configuration; a proposed plan is not an enforced plan. Verify hook behavior in a disposable project before relying on it.
+- **Reminders are not enforcement.** The owner-words reminder relies on how the app wraps text today: words placed after a wrapper in the same turn are not reminded, and a format change may cause extra reminders. A reminder does not guarantee that Claude follows it. The coordinator "self-work" switch is written text only. Role labels and the role table do not change permissions. An installed user-level hook changes only when the owner installs the new version.
 - **Tracking is based on recorded events.** OneCrew does not expose hidden model reasoning or automatically capture every subagent action, token, or tool call.
 - **Budgets depend on the execution path.** Contract `max_calls` applies to calls managed by OneCrew; it does not meter every call made by a Claude Code session under hooks.
 - **Checks have a cost.** Repository snapshots and environment checks can be expensive on large trees. This beta does not guarantee shorter development time or complete test coverage.
@@ -151,7 +160,7 @@ The [known-issues list](docs/obs2/su-dung/LOI-DA-BIET.vi.md) contains additional
 - [Changelog](docs/CHANGELOG.md) — release history.
 - [English first-task template](examples/hello-onecrew.template.json) — schema-v2 sample with a content check; fill its provenance before proposing it.
 - [Core and package boundaries](docs/v2-core.vi.md) — detailed reference, Vietnamese.
-- [Tracking guide](docs/obs2/su-dung/DANH-SACH-CONG-VIEC.vi.md) — detailed UI guide, Vietnamese.
+- [Tracking guide](docs/obs2/su-dung/DANH-SACH-CONG-VIEC.vi.md) — detailed UI guide, Vietnamese, written for dev28; the page layout changed in dev33.
 - [Historical architecture](docs/LICH-SU.vi.md) — earlier v1 workflows. Checkout-only `job`/`work`/`delivery` commands are not the installed v2 quickstart.
 
 ## Feedback and contributions
