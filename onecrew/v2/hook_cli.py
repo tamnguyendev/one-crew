@@ -2412,6 +2412,9 @@ def prompt(args):
     rules = Path(plan.get('state_root') or '.') / 'plans' / 'owner-rules.md'
     line = f"The owner's rules are in {rules}; read them before proposing or presenting anything." if rules.is_file() else None
     typed = None if bad or bad_input else owner_typed_note(event, root, plan)
+    from . import tach_phien      # TACHPHIEN: one reminder to split a long session, for a turn the owner typed; it never blocks
+    split = None if bad or bad_input else tach_phien.note(event, root, plan, record, session_state)
+    typed = '\n'.join(p for p in (typed, split) if p) or None
     if hit is None:
         owner_context(None if bad else plan, root, event, 'UserPromptSubmit', '\n'.join(p for p in (typed, line) if p) or None)
         return 0
