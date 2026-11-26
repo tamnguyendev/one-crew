@@ -1,5 +1,29 @@
 # CHANGELOG
 
+## v2.5.0.dev34 (26/11/2026): plan thường trực và nhắc lời giao việc (GSDP-A), mô hình 3 vai (VAI3), quan sát phiên giữ tóm tắt giao việc (QSAT), trang theo dõi ở địa chỉ cố định (URL9692), nhãn vai cho việc con (NHANVAI), danh sách task đọc được (TENTASK)
+
+- **GSDP-A, cho phiên điều phối chạy dài:**
+  - Hợp đồng khai thêm được `"standing": true`: plan hết hạn lúc duyệt + `budget.time` phút (tối đa 20 ngày, xuất lại không kéo dài); Stop không chặn và không ghi dòng mỗi lượt. Plan thường như cũ.
+  - `onecrew init --remind on` thêm mục `hook remind`: dưới plan thường trực, lời giao thiếu mục của mẫu `<sổ>\plans\mau-giao-viec.md` thì có một dòng `reminded` và lời nhắc. Chỉ nhắc, không chặn.
+- **VAI3, mô hình 3 vai (chủ, phiên trao đổi, phiên điều phối):**
+  - Dưới plan thường trực, chủ gõ thẳng vào phiên thì Claude được nhắc ghi lời đó vào sổ yêu cầu và báo phiên trao đổi; sổ có một dòng `reminded` không chứa chữ chủ. Chữ nhắc sửa ở `<sổ>\plans\mau-loi-chu.md`, tệp rỗng là tắt.
+  - Nhắc ngân sách theo từ khóa chỉ xét chữ chủ gõ, ở mọi plan: tin của phiên khác và thông báo của app không bật nhắc.
+  - Mẫu vai (vi, en) ở `docs/vai3/`; trang `plan present` nêu plan thường trực trước khi duyệt.
+- **QSAT, bộ quan sát phiên Claude:**
+  - Một lần giao việc giữ một dòng tóm tắt đã che (tối đa 160 ký tự, lấy từ trường mô tả ngắn); không bao giờ lưu lời giao hay tin nhắn.
+  - Phiên gắn theo dự án của chính nó thì vẫn gắn khi đọc hay chạy lệnh ở dự án khác có plan. Bản ghi cũ chưa rõ vẫn để chưa gắn.
+- **URL9692, địa chỉ cố định cho trang theo dõi:**
+  - Sổ có `tracking.json` (`{"port": N}`) thì `track open` và `track serve` luôn mở ở cổng đó và server không tự tắt; sổ không có tệp thì như cũ.
+  - `--port` vẫn đè lên tệp; cổng bị chương trình khác giữ thì báo và dừng.
+- **NHANVAI, nhãn vai cho việc con của plan nội bộ:**
+  - Trường `"role"` không bắt buộc; trang theo dõi có khối "Danh sách task" hiện @vai và chữ trạng thái. Nhãn chỉ để hiện, đổi nhãn không chạy lại việc con.
+  - Bảng vai và vùng tệp (tùy chọn) chỉ báo, không chặn. Xem `docs/nhan-vai.vi.md`.
+- **TENTASK, khối Danh sách task đọc được:**
+  - Việc con khai thêm được tên ngắn cho người (`"title"`, một dòng, tối đa 80 ký tự); không khai thì trang lấy đoạn đầu của mục tiêu.
+  - Đầu khối có một dòng tóm tắt từ số liệu sổ; mở một dòng thì thấy cả mục tiêu.
+- **Đóng gói:** thêm module `onecrew.v2.giao_viec`.
+- **Giới hạn đã biết:** việc nhận lời chủ dựa vào lớp bọc chữ của app (lời chủ nằm sau một lớp bọc trong cùng lượt không được nhắc; app đổi định dạng thì có thể nhắc thừa); lời nhắc không bảo đảm Claude làm theo; công tắc "tự làm" của phiên điều phối chỉ là chữ; nhãn và bảng vai không đổi quyền; hook người dùng của máy chỉ đổi khi chủ tự cài bản mới.
+
 ## v2.5.0.dev33 (23/11/2026): trang theo dõi theo mockup (UIMOCK), trang việc đọc đúng trạng thái (UI58), quan sát phiên Claude (OBS3), review ngoài gắn việc sửa (RM1), tệp phụ thuộc của mốc lệnh (VER60, chưa nghiệm thu), tài liệu CAT14; chủ nghiệm thu UIMOCK, UI58, OBS3, RM1 trên sổ phát triển 23/11
 
 - **UIMOCK, trang theo dõi giống mockup duyệt 19/11:**

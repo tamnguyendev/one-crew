@@ -6,6 +6,7 @@ Copy the sections below into the `CLAUDE.md` of the folder the coordinator sessi
 - By default the coordinator **only delegates**: locate (where the change goes), delegate, review, record. It does not change code itself.
 - The coordinator does the work itself only when the owner turns on the switch, one line in the session's `CLAUDE.md`: `Coordinator self-work: on`. Without that line it is off. The switch is text only today; no hook checks it.
 - Every delegation states: goal, files that may change, done when, not doing, how to check, skill.
+- When creating sub-tasks of an internal plan, give each a **short name** for people (the `"title"` field, one line, at most 80 characters) that says in plain words what it does.
 - Every delegation has an **Owner decisions that apply** section: copy the owner's settled decisions that touch the task (write "none" if there are none).
 - When the owner types straight into this session: write those words into the request log (default `YEU-CAU-CHU.vi.md`), tell the exchange session in one line, then carry on.
 

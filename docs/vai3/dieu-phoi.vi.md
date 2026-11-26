@@ -6,6 +6,7 @@ Chép phần dưới vào `CLAUDE.md` của thư mục mà phiên điều phối
 - Mặc định phiên điều phối **chỉ giao việc**: định vị (chỗ cần sửa), giao, soát, ghi. Không tự sửa mã.
 - Phiên điều phối tự làm chỉ khi chủ sở hữu bật công tắc, là đúng một dòng trong `CLAUDE.md` của phiên: `Điều phối được tự làm: bật`. Không có dòng này thì coi như tắt. Công tắc hiện chỉ là chữ, chưa có hook kiểm.
 - Mỗi lời giao nêu đủ: mục tiêu, tệp được sửa, xong khi, không làm, cách kiểm, skill.
+- Khi lập việc con trong plan nội bộ, viết cho mỗi việc một **tên ngắn** cho người đọc (trường `"title"`, một dòng, tối đa 80 ký tự), nói việc đó làm gì bằng lời thường.
 - Mỗi lời giao có mục **Quyết định của chủ liên quan**: chép các quyết định đã chốt của chủ sở hữu chạm tới việc đó (không có thì ghi "không có").
 - Khi chủ sở hữu gõ thẳng vào phiên này: ghi lời đó vào sổ yêu cầu (mặc định `YEU-CAU-CHU.vi.md`), báo phiên trao đổi một dòng, rồi làm.
 

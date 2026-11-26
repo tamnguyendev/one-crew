@@ -114,6 +114,25 @@ A contract may set `"standing": true` for a long-running coordinator session. A 
 
 The owner's way out is `onecrew owner enforce <plan> --mode log`. Deleting the project's hook block is not a way out: the user-scope hook still finds the plan through its copy in the state root. Details (Vietnamese): [docs/BAT-DAU-LAI.vi.md](docs/BAT-DAU-LAI.vi.md), section 8.
 
+## A fixed address for the tracking page
+
+New in 2.5.0.dev34. A ledger may choose its own port in a `tracking.json` file placed directly in the state root, for example `{"port": 9692}`.
+
+- With that file, `onecrew track open` and `track serve` always use `http://127.0.0.1:<port>/`, so one bookmark keeps working. A server on a fixed port does not stop when nobody is viewing; it stays until `onecrew track stop` for that ledger or a shutdown.
+- Without the file, a free port is used as before and the server stops after 30 minutes without a viewer.
+- `--port N` always overrides the file; `--port 0` always takes a free port.
+- If the port is busy: when this ledger's own tracking server holds it, that address is reused; when anything else holds it, the command reports the port and stops without opening another one. Change the port in `tracking.json` or stop the other program.
+- A malformed `tracking.json` (not `{"port": N}` with N from 1 to 65535) is an error.
+- The page is served to this machine only (127.0.0.1).
+
+## Three roles: owner, exchange session, coordinator
+
+New in 2.5.0.dev34. The "3 vai" model separates talking with the owner from coordinating the work. Under a standing plan, words the owner types straight into the coordinator session get a reminder to log them and tell the exchange session; it never blocks. Role templates (Vietnamese and English) are in [docs/vai3/](docs/vai3/); details in [docs/GETTING-STARTED.en.md](docs/GETTING-STARTED.en.md) and section 9 of [docs/BAT-DAU-LAI.vi.md](docs/BAT-DAU-LAI.vi.md).
+
+## Role labels and short names for sub-tasks
+
+New in 2.5.0.dev34. A sub-task of an internal plan may carry a role label (`"role": "backend"`) and a short name for people (`"title"`, one line, at most 80 characters). Both are for display on the tracking page and change nothing about how the sub-task is run or checked. See [docs/nhan-vai.vi.md](docs/nhan-vai.vi.md) (Vietnamese).
+
 ## Current limitations
 
 - **Hooks are not a security boundary.** They cover supported operations in connected sessions. External processes, sessions outside the configured project, and shell forms the parser does not understand may escape that coverage. Do not use this beta to contain untrusted code.
