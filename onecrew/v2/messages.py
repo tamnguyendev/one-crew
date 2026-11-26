@@ -190,6 +190,24 @@ TEXT = {
     'owner.metavar_item': {'en': 'ITEM', 'vi': 'MỤC'},
     'owner.reference': {'en': 'Where you said yes (a message, a ticket, a date).', 'vi': 'Nơi bạn đã đồng ý (tin nhắn, ticket, ngày).'},
     'owner.enforce_reference': {'en': 'onecrew owner enforce', 'vi': 'onecrew owner enforce'},
+    # ---- TACHPHIEN: the notes of `hook prompt` about splitting a long session (tach_phien.py); context for Claude, never a gate
+    'tachphien.big': {'en': ('OneCrew (split the session, plan {plan}): the context of this session is large (about {thousands}k tokens in the last turn). Tell the owner in one '
+                             'short line and suggest a new session; carry the work over with `onecrew continue {plan}`. This blocks nothing.'),
+                      'vi': ('OneCrew (tách phiên, plan {plan}): ngữ cảnh của phiên này đã lớn (lượt cuối khoảng {thousands} nghìn token). Báo chủ một dòng ngắn, đề nghị mở phiên '
+                             'mới; mang việc sang bằng `onecrew continue {plan}`. Lời nhắc này không chặn gì.')},
+    'tachphien.idle': {'en': ('OneCrew (split the session, plan {plan}): the context is large (about {thousands}k tokens) and the last turn was {minutes} minutes ago, past '
+                              'the cache lifetime, so the next turn writes the whole context again. Tell the owner in one short line and suggest a new session; carry '
+                              'the work over with `onecrew continue {plan}`. This blocks nothing.'),
+                       'vi': ('OneCrew (tách phiên, plan {plan}): ngữ cảnh lớn (khoảng {thousands} nghìn token) và lượt cuối cách đây {minutes} phút, đã quá hạn bộ nhớ đệm, '
+                              'nên lượt kế phải ghi lại toàn bộ ngữ cảnh. Báo chủ một dòng ngắn, đề nghị mở phiên mới; mang việc sang bằng `onecrew continue {plan}`. '
+                              'Lời nhắc này không chặn gì.')},
+    'tachphien.boundary': {'en': ('OneCrew (split the session, plan {plan}): {stage}. This is a good point to start a new session (context about {thousands}k tokens). '
+                                  'Tell the owner in one short line; carry the work over with `onecrew continue {plan}`. This blocks nothing.'),
+                           'vi': ('OneCrew (tách phiên, plan {plan}): {stage}. Đây là chỗ hợp để mở phiên mới (ngữ cảnh khoảng {thousands} nghìn token). Báo chủ một dòng '
+                                  'ngắn; mang việc sang bằng `onecrew continue {plan}`. Lời nhắc này không chặn gì.')},
+    'tachphien.stage.approved': {'en': 'the plan is approved', 'vi': 'plan đã được duyệt'},
+    'tachphien.stage.milestone': {'en': 'a milestone has passed', 'vi': 'một mốc vừa đạt'},
+    'tachphien.stage.acceptance': {'en': "every milestone has passed and the owner's acceptance is next", 'vi': 'đã đủ mốc, chờ chủ nghiệm thu'},
 }
 
 
