@@ -7,7 +7,7 @@ import sys
 
 from .messages import t
 
-GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner', 'compat', 'findings', 'executor', 'outcome', 'continue', 'context', 'question', 'estimate', 'notifications', 'desktop', 'incident', 'lesson', 'issue', 'unknown', 'engine', 'wiki', 'support', 'track', 'review')
+GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner', 'compat', 'findings', 'executor', 'outcome', 'continue', 'context', 'question', 'estimate', 'notifications', 'desktop', 'incident', 'lesson', 'issue', 'unknown', 'engine', 'wiki', 'support', 'track', 'review', 'mau')
 OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enforce (v2 AI work contract; owner-only approval and acceptance)\n'
                   '  verdict    record / run (v2 milestone verdicts with receipts)\n'
                   '  hook       check / prompt / stop / session / sync / export / mode / install --print (v2 Claude Code hooks)\n'
@@ -38,7 +38,7 @@ OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enfo
 
 def help_lines():
     """The v2 lines of the top-level help: the three older ones as they were, then init / doctor / owner in the language of ONECREW_LANG."""
-    return OLD_HELP_LINES + ''.join(f'  {name:<10} {t("cli.line_" + name)}\n' for name in ('init', 'doctor', 'owner'))
+    return OLD_HELP_LINES + '  mau        list / lint (versioned prompt templates; read-only)\n' + ''.join(f'  {name:<10} {t("cli.line_" + name)}\n' for name in ('init', 'doctor', 'owner'))
 
 
 HELP_LINES = help_lines()       # the full v1 router (onecrew/cli.py) imports this
@@ -50,6 +50,9 @@ def route(args, index):
         from .support_spool import entry
         return entry(args, index)
     rest = args[index + 1:]
+    if args[index] == 'mau':                         # QLMAU: reads template files only; no owner verb, no ledger
+        from .giao_viec import mau_main
+        return mau_main(args)
     if args[index] == 'owner' and (rest[:1] == ['help'] or rest[-1:] in (['-h'], ['--help'])):
         from .owner_cli import syntax
         return syntax(rest)

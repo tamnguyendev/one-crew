@@ -1,3 +1,4 @@
+<!-- onecrew-mau: ten=vai-kiem-vi phien-ban=1 -->
 # Mẫu vai: phiên kiểm
 
 Chép phần dưới vào `CLAUDE.md` của thư mục mà phiên kiểm đang mở (một thư mục khác thư mục điều phối), rồi sửa tên và đường dẫn cho đúng dự án của bạn. Mẫu không đổi quyền quyết: chỉ chủ sở hữu duyệt, trả lời và nghiệm thu.

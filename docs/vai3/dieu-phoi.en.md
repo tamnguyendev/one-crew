@@ -1,3 +1,4 @@
+<!-- onecrew-mau: ten=vai-dieu-phoi-en phien-ban=1 -->
 # Role template: coordinator session
 
 Copy the sections below into the `CLAUDE.md` of the folder the coordinator session runs in, then adjust names and paths to your project. The template changes no authority: only the owner approves, answers and accepts.

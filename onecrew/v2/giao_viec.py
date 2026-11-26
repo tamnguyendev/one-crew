@@ -7,7 +7,14 @@ One item per line: `- <name>: <keyword>, <keyword>, ...`. A delegation that hold
 tool_input: the field names of SendMessage and start_session are not documented, so no field name is relied on) has that item. Lines that start with
 `#` and blank lines are skipped. A missing file means the built-in template below; a file with no item means no reminder; an unreadable file means
 silence. The match is by keyword only: it knows a heading is there, not that what follows it is right (D10).
+
+QLMAU: every prompt template (the delegation template, the owner-words reminder, the role templates under docs/vai3/) opens with one header line
+`onecrew-mau: ten=<name> phien-ban=<integer>` (a `#` or `<!-- -->` comment). The person who edits a template raises its number; the short hash is
+computed. `onecrew mau list` / `mau lint` are here too: they only read template files (no ledger, no skill, no write). The module is the one that
+owns the templates; a template without a header still works and shows its version as unknown.
 """
+import argparse
+import hashlib
 import re
 from pathlib import Path
 
@@ -15,7 +22,8 @@ TEMPLATE_NAME = 'mau-giao-viec.md'
 TOOLS = ('Agent', 'Task', 'SendMessage', 'mcp__ccd_session__start_session', 'mcp__ccd_session_mgmt__send_message')
 MATCHER = '|'.join(TOOLS)
 MAX_CHARS = 400_000          # the text read from one tool_input; a longer delegation is cut, never refused
-DEFAULT_TEMPLATE = '''# Mẫu giao việc: OneCrew nhắc khi lời giao việc của plan thường trực thiếu mục (chỉ nhắc, không chặn).
+DEFAULT_TEMPLATE = '''# onecrew-mau: ten=mau-giao-viec phien-ban=1
+# Mẫu giao việc: OneCrew nhắc khi lời giao việc của plan thường trực thiếu mục (chỉ nhắc, không chặn).
 # Mỗi dòng "- <tên mục>: <từ khóa>, <từ khóa>, ..." là một mục; lời giao có một từ khóa (không phân biệt hoa thường) là đủ mục đó.
 # Dòng bắt đầu bằng # và dòng trống được bỏ qua. Chủ sở hữu sửa tệp này bất cứ lúc nào; tệp không còn mục nào thì không nhắc.
 - Mục tiêu: mục tiêu, mục đích, goal, objective
@@ -51,10 +59,11 @@ _APP_WRAPPED = re.compile(r'<(?:' + '|'.join(APP_WRAPPERS) + r')(?=[\s/>]|$)|\[C
 OWNER_TEMPLATE_NAME = 'mau-loi-chu.md'      # <state-root>/plans/: the owner's own reminder text; an empty file turns the reminder off (D6)
 OWNER_MAX_CHARS = 4_000
 _LEADING = chr(0xFEFF) + ' \t\r\n'          # blank space and a byte-order mark before the wrapper
+_OWNER_HEADER = '# onecrew-mau: ten=mau-loi-chu phien-ban=1\n'     # removed before the text is sent (see owner_reminder)
 OWNER_TEXT = {
-    'vi': ('Chủ sở hữu vừa gõ thẳng vào phiên này (plan thường trực {plan}). Trước khi làm: (1) ghi lời đó, nguyên văn kèm giờ, vào sổ yêu cầu '
+    'vi': (_OWNER_HEADER + 'Chủ sở hữu vừa gõ thẳng vào phiên này (plan thường trực {plan}). Trước khi làm: (1) ghi lời đó, nguyên văn kèm giờ, vào sổ yêu cầu '
            '(mặc định YEU-CAU-CHU.vi.md ở thư mục của phiên); (2) báo phiên trao đổi một dòng; rồi làm. Lời nhắc này không chặn gì.'),
-    'en': ('The owner just typed straight into this session (standing plan {plan}). Before acting: (1) write those words, verbatim with the time, '
+    'en': (_OWNER_HEADER + 'The owner just typed straight into this session (standing plan {plan}). Before acting: (1) write those words, verbatim with the time, '
            'into the owner request log (default YEU-CAU-CHU.vi.md in the session folder); (2) tell the exchange session in one line; then carry on. '
            'This reminder blocks nothing.'),
 }
@@ -71,11 +80,41 @@ def owner_typed(prompt):
 
 
 def owner_reminder(plan, state_root, language):
-    """The reminder text: <state-root>/plans/mau-loi-chu.md when it is there ('' when it is empty: no reminder), else the built-in text.
-    Raises OSError/ValueError when the file cannot be read."""
+    """The reminder text: <state-root>/plans/mau-loi-chu.md when it is there ('' when it is empty or holds only its header line: no reminder), else the
+    built-in text. The `onecrew-mau:` header line is never sent. Raises OSError/ValueError when the file cannot be read."""
     path = Path(state_root) / 'plans' / OWNER_TEMPLATE_NAME if state_root else None
-    if path is not None and path.exists(): return path.read_text(encoding='utf-8-sig').strip()[:OWNER_MAX_CHARS]
-    return OWNER_TEXT['vi' if language == 'vi' else 'en'].format(plan=plan)
+    if path is not None and path.exists(): return without_header(path.read_text(encoding='utf-8-sig')).strip()[:OWNER_MAX_CHARS]
+    return without_header(OWNER_TEXT['vi' if language == 'vi' else 'en']).format(plan=plan)
+
+
+# ---- QLMAU: the version header -------------------------------------------------------------------------------------------------
+
+_HEADER = re.compile(r'[ \t]*(?:#+[ \t]*|<!--[ \t]*)?onecrew-mau:[ \t]*ten=([a-z0-9][a-z0-9-]*)[ \t]+phien-ban=([0-9]{1,9})[ \t]*(?:-->)?[ \t]*\Z')
+UNKNOWN_VERSION = 'chua-ghi'
+
+
+def header(text):
+    """(name, version) of the header on the FIRST line of a template text, or None."""
+    lines = text.lstrip(chr(0xFEFF)).splitlines()
+    found = _HEADER.match(lines[0]) if lines else None
+    return (found.group(1), int(found.group(2))) if found else None
+
+
+def without_header(text):
+    """The text with its header line removed; the text itself when it has none."""
+    text = text.lstrip(chr(0xFEFF))
+    return ''.join(text.splitlines(keepends=True)[1:]) if header(text) else text
+
+
+def delegation_version(state_root):
+    """The version of the delegation template in force (the owner's file, else the built-in one); None when its header says none or it cannot be read."""
+    try:
+        path = template_path(state_root) if state_root else None
+        text = path.read_text(encoding='utf-8-sig') if path is not None and path.exists() else DEFAULT_TEMPLATE
+    except (OSError, ValueError):
+        return None
+    found = header(text)
+    return found[1] if found else None
 
 
 def init_text(key, language, **values):
@@ -91,7 +130,7 @@ def parse(text):
     items = []
     for line in text.splitlines():
         line = line.strip()
-        if not line or line.startswith('#'): continue
+        if not line or line.startswith('#') or _HEADER.match(line): continue
         if line[:1] in '-*': line = line[1:].strip()
         name, colon, rest = line.partition(':')
         words = [w.strip() for w in rest.split(',') if w.strip()]
@@ -136,5 +175,165 @@ def missing(items, tool_input):
 
 def reminder(plan, tool, names, state_root):
     path = template_path(state_root) if state_root else TEMPLATE_NAME
-    return (f"OneCrew (plan thường trực {plan}): lời giao việc vừa gửi qua {tool} thiếu mục: {', '.join(names)}. "
+    version = delegation_version(state_root)
+    mark = f'mau-giao-viec@{UNKNOWN_VERSION if version is None else version}'
+    return (f"OneCrew (plan thường trực {plan}; mẫu {mark}): lời giao việc vừa gửi qua {tool} thiếu mục: {', '.join(names)}. "
             f"Việc giao KHÔNG bị chặn. Bổ sung các mục này cho người nhận (hoặc ở lần giao sau). Mẫu của chủ sở hữu: {path}.")
+
+
+# ---- QLMAU: `onecrew mau list` and `onecrew mau lint` (read only) ---------------------------------------------------------------
+
+ROLE_FOLDER = ('docs', 'vai3')                      # not in the wheel: read from the project, else beside the code (a checkout)
+ROLE_SECTIONS = {'vi': ('Việc của vai', 'Không làm', 'Nhận việc từ', 'Báo cho'), 'en': ('Role', 'Not doing', 'Takes work from', 'Reports to')}
+BUILT_IN = {'en': '(built into the program)', 'vi': '(có sẵn trong chương trình)'}
+MAU_TEXT = {
+    'no_header': {'en': 'no valid header line `onecrew-mau: ten=<name> phien-ban=<integer>` on the first line',
+                  'vi': 'dòng đầu không có `onecrew-mau: ten=<tên> phien-ban=<số>` hợp lệ'},
+    'same_name': {'en': 'the name "{value}" is already used by {other}', 'vi': 'tên "{value}" đã dùng ở {other}'},
+    'unreadable': {'en': 'cannot be read: {value}', 'vi': 'không đọc được: {value}'},
+    'not_item': {'en': 'not an item `- <name>: <keyword>, ...`', 'vi': 'dòng không phải mục `- <tên mục>: <từ khóa>, ...`'},
+    'empty_item': {'en': 'item "{value}" has no keyword', 'vi': 'mục "{value}" bỏ trống, không có từ khóa'},
+    'same_item': {'en': 'item "{value}" is written twice (line {other})', 'vi': 'mục "{value}" viết hai lần (dòng {other})'},
+    'overlap': {'en': 'keyword "{value}" is already in item "{other}"', 'vi': 'từ khóa "{value}" đã có ở mục "{other}" (chồng chéo)'},
+    'missing_item': {'en': 'required item missing: {value}', 'vi': 'thiếu mục bắt buộc: {value}'},
+    'missing_part': {'en': 'required part missing: ## {value}', 'vi': 'thiếu phần của vai: ## {value}'},
+    'empty_part': {'en': 'part "## {value}" is empty', 'vi': 'phần "## {value}" bỏ trống'},
+    'same_part': {'en': 'part "## {value}" is written twice', 'vi': 'phần "## {value}" viết hai lần'},
+    'off': {'en': 'NOTE {name} {path}: no text, so this reminder is turned off', 'vi': 'GHI CHÚ {name} {path}: không có chữ, nên lời nhắc này đang tắt'},
+    'no_roles': {'en': 'NOTE role templates not found (no docs/vai3 under {value}); point --project at a checkout that has it',
+                 'vi': 'GHI CHÚ không thấy mẫu vai (không có docs/vai3 ở {value}); trỏ --project vào bản mã có thư mục đó'},
+    'passed': {'en': 'PASS: {value} templates meet the norm', 'vi': 'ĐẠT: {value} mẫu đúng quy chuẩn'},
+    'failed': {'en': 'FAIL: {value} problem(s)', 'vi': 'KHÔNG ĐẠT: {value} lỗi'},
+}
+
+
+def mau_text(key, language, **values):
+    return MAU_TEXT[key]['vi' if language == 'vi' else 'en'].format(**values)
+
+
+def _entry(kind, name, path, built_in=None):
+    """One template: {kind, name, path, text, version, sha, problem}. `built_in` is the program's own text (no file)."""
+    entry = {'kind': kind, 'name': name, 'path': str(path), 'text': None, 'version': None, 'sha': '-', 'problem': None}
+    try:
+        data = built_in.encode('utf-8') if built_in is not None else Path(path).read_bytes()
+        entry['text'] = data.decode('utf-8-sig')
+    except (OSError, ValueError) as error:
+        entry['problem'] = type(error).__name__
+        return entry
+    entry['sha'] = hashlib.sha256(data).hexdigest()[:12]
+    found = header(entry['text'])
+    if found: entry['name'], entry['version'] = found
+    return entry
+
+
+def role_folders(project):
+    return [Path(project).joinpath(*ROLE_FOLDER), Path(__file__).resolve().parents[2].joinpath(*ROLE_FOLDER)]
+
+
+def entries(project, state_root, language):
+    """The templates in force: the delegation template and the owner-words reminder (the owner's file under <state-root>/plans/ when there is one, else
+    the built-in text), then every *.md of docs/vai3. Only these files are read: no ledger, no skill."""
+    result = []
+    for kind, name, file, built_in in (('delegation', 'mau-giao-viec', TEMPLATE_NAME, DEFAULT_TEMPLATE),
+                                       ('owner', 'mau-loi-chu', OWNER_TEMPLATE_NAME, OWNER_TEXT['vi' if language == 'vi' else 'en'])):
+        path = Path(state_root) / 'plans' / file if state_root else None
+        if path is not None and path.exists(): result.append(_entry(kind, name, path))
+        else: result.append(_entry(kind, name, BUILT_IN['vi' if language == 'vi' else 'en'], built_in))
+    folder = next((f for f in role_folders(project) if f.is_dir()), None)
+    for path in sorted(folder.glob('*.md')) if folder else ():
+        result.append(_entry('role', 'vai-' + path.stem.replace('.', '-'), path))
+    return result
+
+
+def _lint_items(text):
+    """[(line, key, values)] of the delegation template: not an item, empty item, overlap, required item of the built-in template missing."""
+    found, names, words_of, items = [], {}, {}, []
+    for number, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith('#') or _HEADER.match(line): continue
+        if line[:1] in '-*': line = line[1:].strip()
+        name, colon, rest = line.partition(':')
+        name, words = name.strip(), [w.strip() for w in rest.split(',') if w.strip()]
+        if not colon or not name:
+            found.append((number, 'not_item', {}))
+            continue
+        if not words:
+            found.append((number, 'empty_item', {'value': name}))
+            continue
+        items.append((name, words))
+        if name.casefold() in names: found.append((number, 'same_item', {'value': name, 'other': names[name.casefold()]}))
+        else: names[name.casefold()] = number
+        for word in words:
+            first = words_of.setdefault(word.casefold(), (number, name))
+            if first[0] != number: found.append((number, 'overlap', {'value': word, 'other': first[1]}))
+    # a required item is there when an item has its name or one of its keywords, so an owner may rename it or keep one language only
+    have = {n.casefold() for n, _ in items} | {w.casefold() for _, words in items for w in words}
+    lacking = [name for name, words in parse(DEFAULT_TEMPLATE) if not ({name.casefold(), *(w.casefold() for w in words)} & have)]
+    if lacking: found.append((1, 'missing_item', {'value': ', '.join(lacking)}))
+    return found
+
+
+def _lint_role(text, path):
+    """[(line, key, values)] of a role template: each part of the role is there once and holds some text."""
+    sections = ROLE_SECTIONS['en' if path.endswith('.en.md') else 'vi']
+    found, parts, current = [], {}, None
+    for number, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if line.startswith('## '):
+            current = line[3:].strip()
+            if current in parts: found.append((number, 'same_part', {'value': current}))
+            else: parts[current] = [number, False]
+        elif line and current in parts: parts[current][1] = True
+    for name in sections:
+        if name not in parts: found.append((1, 'missing_part', {'value': name}))
+        elif not parts[name][1]: found.append((parts[name][0], 'empty_part', {'value': name}))
+    return found
+
+
+def lint(templates, language):
+    """(problems, notes): the one norm of every template: a valid header, no overlap (names, items, keywords, parts), nothing left empty or missing."""
+    problems, notes, seen = [], [], {}
+    for entry in templates:
+        def problem(line, key, **values):
+            problems.append(f"{entry['name']} {entry['path']}:{line}: {mau_text(key, language, **values)}")
+        if entry['text'] is None:
+            problem(0, 'unreadable', value=entry['problem'])
+            continue
+        if entry['kind'] == 'owner' and not without_header(entry['text']).strip():
+            notes.append(mau_text('off', language, name=entry['name'], path=entry['path']))
+            if not entry['text'].strip(): continue
+        if entry['version'] is None: problem(1, 'no_header')
+        if entry['name'] in seen: problem(1, 'same_name', value=entry['name'], other=seen[entry['name']])
+        else: seen[entry['name']] = entry['path']
+        if entry['kind'] == 'delegation': found = _lint_items(entry['text'])
+        elif entry['kind'] == 'role': found = _lint_role(entry['text'], entry['path'])
+        else: found = []
+        for line, key, values in found: problem(line, key, **values)
+    return problems, notes
+
+
+def mau_main(args):
+    """`onecrew [--project <p>] [--state-root <s>] mau list|lint`. Reads template files only and writes nothing. lint: exit 1 when a rule is broken."""
+    from . import messages, where
+    parser = argparse.ArgumentParser(prog='onecrew')
+    parser.add_argument('--project')
+    parser.add_argument('--state-root')
+    parser.add_argument('group', choices=['mau'])
+    parser.add_argument('command', choices=['list', 'lint'], help='list: name, version, short hash, path; lint: one norm for every template')
+    options = parser.parse_args(args)
+    project = Path(options.project) if options.project else Path.cwd()
+    state_root = options.state_root or where.configured_state_root(project) or where.registered_state_root(project) or where.default_state_root()
+    language = messages.lang()
+    templates = entries(project, state_root, language)
+    roles = any(e['kind'] == 'role' for e in templates)
+    note = None if roles else mau_text('no_roles', language, value=project)
+    if options.command == 'list':
+        for e in templates:
+            version = UNKNOWN_VERSION if e['version'] is None else e['version']
+            print(f"{e['name']}  phien-ban={version}  {e['sha']}  {e['path']}")
+        if note: print(note)
+        return 0
+    problems, notes = lint(templates, language)
+    for line in [*notes, *([note] if note else []), *problems]: print(line)
+    print(mau_text('failed', language, value=len(problems)) if problems else mau_text('passed', language, value=len(templates)))
+    return 1 if problems else 0

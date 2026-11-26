@@ -1,3 +1,4 @@
+<!-- onecrew-mau: ten=vai-trao-doi-en phien-ban=1 -->
 # Role template: exchange session
 
 Copy the sections below into the `CLAUDE.md` of the folder the exchange session runs in, then adjust names and paths to your project. The template changes no authority: only the owner approves, answers and accepts.

@@ -28,7 +28,7 @@ import re
 import uuid
 from pathlib import Path
 
-from . import hook_cli, where
+from . import giao_viec, hook_cli, where
 
 SESSION_SOURCE = 'claude_session'
 # Keep the historical observation keys so that links and replay IDs remain stable.
@@ -249,11 +249,14 @@ def _rows(event, session, target):
                 yield row('external_artifact', label=_clean(str(location), 1024))
                 return
         yield row('tool_call')
-    elif name == 'PreToolUse' and tool in SUMMARY_FIELDS:
+    elif name == 'PreToolUse' and tool in giao_viec.TOOLS:
         # QSAT D1/D2: one short line of a hand-over, from the field the tool already has; masked and capped, never the prompt or message itself
-        raw = inputs.get(SUMMARY_FIELDS[tool]) if isinstance(inputs, dict) else None
+        field = SUMMARY_FIELDS.get(tool)
+        raw = inputs.get(field) if field and isinstance(inputs, dict) else None
         summary = _clean(raw, 160) if isinstance(raw, str) and raw.strip() else None
-        yield row('tool_call', **({'summary': summary} if summary else {}))
+        # QLMAU: which delegation template, and which version of it, was in force (None: its header says none)
+        yield row('tool_call', template='mau-giao-viec', template_version=giao_viec.delegation_version(target['state_root']),
+                  **({'summary': summary} if summary else {}))
     else:
         yield row({'SubagentStart': 'subagent_start', 'SubagentStop': 'subagent_stop',
                    'SessionStart': 'session_start', 'SessionEnd': 'session_end', 'Stop': 'turn_end'}.get(name, 'tool_call'))
