@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## v2.5.0.dev35 (bản nháp, chưa phát hành): mẫu prompt có phiên bản (QLMAU), nhắc tách phiên (TACHPHIEN), sổ quyết định của chủ theo repo (SQD), cấm sửa test có sẵn (LINTTEST), đo ca đỏ nền ngay trong lượt kiểm (VER60B), một trang theo dõi nhiều sổ (TRANGGOP)
+
+- **QLMAU, mẫu prompt có phiên bản:**
+  - Mỗi mẫu (giao việc, lời chủ, sáu mẫu vai trong `docs/vai3/`) mở đầu bằng dòng `onecrew-mau: ten=<tên> phien-ban=<số>`; dòng `reminded` và dòng bàn giao ghi phiên bản mẫu đang dùng. Nhãn mẫu nằm ở cuối lời nhắc giao việc.
+  - `onecrew mau list` và `onecrew mau lint` chỉ đọc tệp mẫu. Xem `docs/mau.vi.md`.
+- **TACHPHIEN, nhắc tách phiên:**
+  - `hook prompt` nhắc mở phiên mới khi ngữ cảnh lớn, nghỉ quá hạn bộ nhớ đệm hoặc plan sang giai đoạn mới; chỉ nhắc, mỗi phiên nhiều nhất 3 lần. Xem `docs/tach-phien.vi.md`.
+- **SQD, sổ quyết định của chủ theo repo:**
+  - `onecrew decision add|list|show` (ở lệnh đã cài) ghi quyết định theo phạm vi, đúng lời chủ; lúc mở phiên liệt kê quyết định còn hiệu lực; plan thường trực giao việc mà không nêu quyết định thì được nhắc, không chặn. Xem `docs/quyet-dinh-chu.vi.md`.
+- **LINTTEST, cấm sửa test có sẵn:**
+  - `plan lint` cảnh báo `owned_covers_existing_tests`; hook từ chối sửa test đã có trong HEAD trừ khi hợp đồng cấp `authority {"edit": true, "edit_tests": true}`. Xem `docs/cam-sua-test-cu.vi.md`.
+- **VER60B, vá lỗ "đạt giả" của bộ kiểm:**
+  - Mẫu bộ kiểm nhận `--base` và đo ca đỏ nền trên cây gốc ngay trong lượt kiểm; `plan lint` nhắc khi script bộ kiểm nêu tệp nền lưu sẵn (chỉ nhắc).
+- **TRANGGOP, một trang nhiều sổ:**
+  - `onecrew track open --so <sổ>` (hay `track serve`) xem thêm các sổ khác của máy trên cùng trang, mọi sổ mở chỉ đọc. Xem `docs/trang-gop.vi.md`.
+- **Đóng gói:** thêm `onecrew.v2.tach_phien`, `onecrew.v2.sqd`, `onecrew.v2.tracking_gop`.
+- Mục này là bản nháp của bước gộp; chữ phát hành viết lại khi đủ việc của dev35.
+
 ## v2.5.0.dev34 (26/11/2026): plan thường trực và nhắc lời giao việc (GSDP-A), mô hình 3 vai (VAI3), quan sát phiên giữ tóm tắt giao việc (QSAT), trang theo dõi ở địa chỉ cố định (URL9692), nhãn vai cho việc con (NHANVAI), danh sách task đọc được (TENTASK), lệnh chủ đóng việc cũ (DONGVIEC)
 
 - **GSDP-A, cho phiên điều phối chạy dài:**
