@@ -221,16 +221,85 @@ NODE_NAME = 70          # TENTASK: the longest short name taken from a goal, '�
 NODE_GOAL = 4000        # TENTASK: the whole goal of a sub-task in the detail (real goals measured 26/11: 278 to 1000 characters)
 
 
-def node_name(node):
-    """TENTASK: the name of a sub-task on the tracking page. Its "title" (the short name for people) when it has one; else its goal up to
-    the first ': ' or '. ', at most NODE_NAME characters (cut with '…'). None when neither gives a word (the page shows the id)."""
-    title = node.get('title')
-    if isinstance(title, str) and title.strip(): return clean(' '.join(title.split()), 80)
-    text = ' '.join(str(node.get('goal') or '').split())
+MACHINE_HEAD = 40      # TENTASK rev 3 (D10): a goal head longer than this is machine text
+COMMIT = re.compile(r'(?<![0-9A-Za-z])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40}(?![0-9A-Za-z])')     # a commit id: 7 to 40 lowercase hex, a digit among them
+ROOT_FOLDER = 'gốc repo'
+
+
+def _cut(text, limit=NODE_NAME):
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + '…'
+
+
+def goal_head(goal):
+    """TENTASK: the goal up to its first ': ' or '. ' (a ':' or '.' without a space after it does not end it), spaces collapsed."""
+    text = ' '.join(str(goal or '').split())
     ends = [i for i in (text.find(': '), text.find('. ')) if i > 0]
-    head = (text[:min(ends)] if ends else text).strip()
-    if len(head) > NODE_NAME: head = head[:NODE_NAME - 1].rstrip() + '…'
-    return clean(head, None) or None
+    return (text[:min(ends)] if ends else text).strip()
+
+
+def machine_head(head):
+    """TENTASK rev 3 (D10): a goal head people cannot read as a name: it holds a commit id (7-40 hex), an '@', or is longer than 40 characters."""
+    return len(head) > MACHINE_HEAD or '@' in head or bool(COMMIT.search(head))
+
+
+def _paths(values):
+    out = []
+    for value in values if isinstance(values, list) else []:
+        if not isinstance(value, str) or not value.strip(): continue
+        path = value.strip().replace('\\', '/')
+        while path.startswith('./'): path = path[2:]
+        out.append(path)
+    return out
+
+
+def _folder(paths):
+    """The folder the paths share, as its last name ('src/Signature.Domain/a.cs', 'src/Signature.Domain/b/c.cs' -> 'Signature.Domain')."""
+    parts = [p.rstrip('/').split('/')[:-1] for p in paths]
+    common = []
+    for names in zip(*parts):
+        if any(n != names[0] for n in names): break
+        common.append(names[0])
+    return common[-1] if common else ROOT_FOLDER
+
+
+def work_name(reads, writes):
+    """TENTASK rev 3 (D10): a name from the sub-task's work, '<folder> — <N> tệp → <file it writes>': the folder its own reads share, how many
+    files it reads alone (its own reads), the first file it writes. A part with nothing to say is left out; None when it reads nothing of its own
+    and writes nothing."""
+    if not reads and not writes: return None
+    name = _folder(reads or writes)
+    if reads: name += f' — {len(reads)} tệp'
+    if writes: name += ' → ' + (writes[0].rstrip('/').rsplit('/', 1)[-1] or writes[0])
+    return name
+
+
+def node_names(nodes):
+    """TENTASK: {node id: name} of the sub-tasks of one internal plan on the tracking page. A node's "title" (the short name for people) when it
+    has one. Else the head of its goal (up to the first ': ' or '. ') when that is short and not machine text (machine_head). Else (rev 3, D10)
+    a name from its work (work_name): its own reads are the files it reads that fewer than half of the plan's sub-tasks read. A node with no own
+    read and no write falls back to the goal head. Every name is at most NODE_NAME characters (cut with '…'); None when nothing gives a word
+    (the page shows the id)."""
+    nodes = [n for n in nodes if isinstance(n, dict) and n.get('id')]
+    readers = {}
+    for n in nodes:
+        for path in set(_paths(n.get('read'))): readers[path] = readers.get(path, 0) + 1
+    names = {}
+    for n in nodes:
+        title = n.get('title')
+        if isinstance(title, str) and title.strip():
+            names[n['id']] = clean(' '.join(title.split()), 80); continue
+        head = goal_head(n.get('goal'))
+        name = head
+        if head and machine_head(head):
+            own = sorted({p for p in _paths(n.get('read')) if readers[p] * 2 < len(nodes)})
+            name = work_name(own, _paths(n.get('write'))) or head
+        names[n['id']] = clean(_cut(name), None) or None if name else None
+    return names
+
+
+def node_name(node, nodes=None):
+    """TENTASK: the name of one sub-task (node_names over `nodes`, the plan it belongs to; alone when not given)."""
+    return node_names(nodes if nodes is not None else [node]).get(node.get('id'))
 
 
 ROW_TITLE = 80
@@ -1361,7 +1430,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200, observe=Non
             'compared_by': ('task_page' if compared_at else None) if not engine_root else None,
             'created_at': row['created_at'], 'started_at': first_started, 'has_started': has_started, 'deadline': None,
             # TENTASK: a sub-task's name for people (its "title", else the head of its goal); the whole goal, the instruction given to the AI, in node_goals
-            'node_titles': {n['id']: node_name(n) for n in ((engine_view or {}).get('definition') or {}).get('nodes', [])},
+            'node_titles': node_names(((engine_view or {}).get('definition') or {}).get('nodes', [])),
             'node_goals': {n['id']: clean(n.get('goal'), NODE_GOAL) for n in ((engine_view or {}).get('definition') or {}).get('nodes', [])},
             'root_status': state['status'],
             'status': {'kind': kind, 'label': OUTCOME_WORDS[outcome] if outcome else (STOPPED_WORD if stopped_now else WORDS[kind]), 'outcome': outcome, 'reason': clean(reason, 600), 'source': sources},

@@ -126,19 +126,18 @@ class TestTenTask(EngineFixture):
         self.assertEqual(d.get('node_goals', {}).get('C'), LONG_GOAL, 'the detail must still carry the whole goal')
 
     def test_short_name_from_goal_without_title(self):
-        long_head = 'Đọc toàn bộ nhật ký của máy chủ ký số và đối chiếu từng lượt ký với sổ giao dịch của ngân hàng'
-        self.revise([named('A', goal=LONG_GOAL), named('B', goal='Gom kết quả. Sau đó ghi báo cáo: mục 1'),
-                     named('C', goal=long_head + ': rồi báo'), named('D', goal='Tỷ lệ 3.5:1 theo mục 2'),
-                     named('I', None, ['A', 'B', 'C', 'D'], integration=True, write=(), goal='Tích hợp')])
+        # rev 3: a short goal head that is not machine text is the name (a machine head is named from the work: the cases further down)
+        long_goal = ' '.join(['Rà phần ký số: đọc các tệp của phần ký số, ghi mọi phát hiện có dòng và bằng chứng, không sửa mã.'] * 5)
+        self.revise([named('A', goal=long_goal), named('B', goal='Gom kết quả. Sau đó ghi báo cáo: mục 1'),
+                     named('D', goal='Tỷ lệ 3.5:1 theo mục 2'),
+                     named('I', None, ['A', 'B', 'D'], integration=True, write=(), goal='Tích hợp')])
         d = self.detail()
         titles = d['node_titles']
-        self.assertEqual(titles['A'], 'Cụm 2 review vn-sign-sdk @bef6476 (node độc lập)')       # up to the first ": "
+        self.assertEqual(titles['A'], 'Rà phần ký số')                                        # up to the first ": "
         self.assertEqual(titles['B'], 'Gom kết quả')                                          # ". " comes before ": "
-        self.assertEqual(len(titles['C']), 70)
-        self.assertTrue(titles['C'].endswith('…') and long_head.startswith(titles['C'][:-1].rstrip()), titles['C'])
         self.assertEqual(titles['D'], 'Tỷ lệ 3.5:1 theo mục 2')                              # "." and ":" without a space do not cut
         self.assertEqual(titles['I'], 'Tích hợp')
-        self.assertEqual(d.get('node_goals', {}).get('A'), LONG_GOAL, 'the detail must still carry the whole goal')
+        self.assertEqual(d.get('node_goals', {}).get('A'), ' '.join(long_goal.split()), 'the detail must still carry the whole goal')
 
     # ---- I4: the block -------------------------------------------------------------------------------------------------------------
     def test_page_task_list_summary_line(self):
@@ -183,3 +182,78 @@ class TestTenTask(EngineFixture):
             self.assertLess(row.index(d['node_titles'][nid]), row.index('@' + role))     # the label under the name
         self.assertEqual(html.count('class="tl-role"'), 4)
         self.assertEqual(html.count('xong · cổng đạt'), 2)                   # the status words of the rows as NHANVAI shows them
+
+    # ---- rev 3 (I3, D10): a machine goal head is named from the work ------------------------------------------------------------------
+    def names_or_fail(self, nodes):
+        names = getattr(tracking, 'node_names', None)
+        if names is None: self.fail('the tracking detail has no naming of sub-tasks from their work (node_names)')
+        return names(nodes)
+
+    def review(self, nid, reads, writes, goal=None, **extra):
+        """A review sub-task as the real 35-node plan has them: a machine goal head, its own files to read, one report to write."""
+        return dict({'id': nid, 'goal': goal or f'Cụm {nid[1:]} review vn-sign-sdk @bef6476 (node độc lập): đọc các tệp, ghi phát hiện',
+                     'read': list(reads), 'write': list(writes)}, **extra)
+
+    def test_name_from_work_for_machine_goal(self):
+        shared = 'docs/huong-dan.md'                                          # every sub-task reads it: not its own
+        nodes = [self.review('K01', [shared, 'src/Signature.Api/a.cs'], ['reviews/K01.md']),
+                 self.review('K02', [shared, 'src/Signature.Domain/A1.cs', 'src/Signature.Domain/A2.cs', 'src/Signature.Domain/sub/A3.cs'], ['reviews/K02.md']),
+                 self.review('K03', [shared, 'src/Signature.Infra/b.cs'], ['reviews/K03.md'], goal='Rà 1a2b3c4 phần hạ tầng'),
+                 self.review('K04', [shared, 'src/Signature.Web/c.cs', 'src/Signature.Web/d.cs'], ['reviews/K04.md'],
+                             goal='Rà toàn bộ phần web của bộ ký số theo danh sách lỗi đã biết'),
+                 self.review('K05', [shared, 'src/Signature.Cli/e.cs'], ['reviews/K05.md'], title='Rà dòng lệnh ký số'),
+                 {'id': 'KZ', 'goal': 'Tích hợp', 'read': [shared, 'reviews/'], 'write': ['reviews/README.md']}]
+        names = self.names_or_fail(nodes)
+        self.assertEqual(names['K02'], 'Signature.Domain — 3 tệp → K02.md')          # "@": named from its work
+        self.assertEqual(names['K01'], 'Signature.Api — 1 tệp → K01.md')
+        self.assertEqual(names['K03'], 'Signature.Infra — 1 tệp → K03.md')           # a commit id (7-40 hex) is machine text
+        self.assertEqual(names['K04'], 'Signature.Web — 2 tệp → K04.md')             # longer than 40 characters is machine text
+        self.assertEqual(names['K05'], 'Rà dòng lệnh ký số')                          # a title always wins
+        self.assertEqual(names['KZ'], 'Tích hợp')                                     # a short head that is not machine text stays
+        self.assertNotIn('@', ' '.join(names.values()))
+
+    def test_name_from_work_ignores_shared_reads(self):
+        nodes = [self.review('K01', ['docs/chung.md', 'src/Core/a.cs', 'src/Core/b.cs'], ['reviews/K01.md']),
+                 self.review('K02', ['docs/chung.md', 'src/Core/c.cs'], ['reviews/K02.md']),
+                 self.review('K03', ['src/Core/a.cs'], ['reviews/K03.md']),
+                 self.review('K04', ['notes/rieng.md'], ['reviews/K04.md'])]
+        names = self.names_or_fail(nodes)
+        # docs/chung.md is read by 2 of 4 (not fewer than half): shared, so it neither counts nor pulls the folder up to the repository root;
+        # src/Core/a.cs is read by 2 of 4 as well
+        self.assertEqual(names['K01'], 'Core — 1 tệp → K01.md')
+        self.assertEqual(names['K02'], 'Core — 1 tệp → K02.md')
+        self.assertEqual(names['K03'], 'reviews → K03.md')                            # nothing of its own read: the folder of what it writes
+        self.assertEqual(names['K04'], 'notes — 1 tệp → K04.md')
+
+    def test_name_from_work_falls_back_to_goal_head(self):
+        head = 'Cụm 3 review vn-sign-sdk @bef6476 (node độc lập)'
+        long = 'Cụm 4 rà soát toàn bộ mã nguồn bộ ký số vn-sign-sdk ở commit bef6476 theo danh sách kiểm tra số 7 của nhóm'
+        nodes = [self.review('K03', [], [], goal=head + ': đọc các tệp'), self.review('K04', [], [], goal=long + ': rồi ghi'),
+                 self.review('K05', ['a.txt'], [], goal=head + ': x'), self.review('K06', ['a.txt'], [], goal=head + ': y')]
+        names = self.names_or_fail(nodes)
+        self.assertEqual(names['K03'], head)                                          # reads nothing, writes nothing: the goal head
+        self.assertLessEqual(len(names['K04']), 70)                                  # at most 70, "…" included
+        self.assertGreater(len(names['K04']), 60)
+        self.assertTrue(names['K04'].endswith('…') and long.startswith(names['K04'][:-1].rstrip()), names['K04'])
+        self.assertEqual((names['K05'], names['K06']), (head, head))                  # only shared reads and no write: the goal head too
+
+    # ---- rev 3 (I7): the "Phần việc" table ---------------------------------------------------------------------------------------------
+    def test_part_table_uses_short_names(self):
+        import re
+        d = self.page_data()
+        d['node_goals']['FE'] = LONG_GOAL
+        d['work'] = {'nodes': {nid: {'title': goal} for nid, goal in d['node_goals'].items()}}      # tracking_work's view: the whole goal
+        html = self.js("legacyNodes(d)", '\nvar d=' + json.dumps(d) + ';')
+        self.assertIn('<h3>Phần việc</h3>', html)
+        table = html[html.index('<h3>Phần việc</h3>'):]
+        rows = table.split('<tbody>', 1)[-1].split('<tr')[1:]
+        self.assertEqual(len(rows), 4)
+        for row, nid in zip(rows, ['BE1', 'BE2', 'FE', 'LEAD']):
+            self.assertIn('</summary>', row, nid + ': the row does not open on the whole goal')
+            shown = re.sub(r'\s[a-z-]+="[^"]*"', '', row.split('</summary>', 1)[0])       # what the closed row shows (attributes aside)
+            self.assertIn(d['node_titles'][nid], shown, nid)                              # the same short name as the Danh sách task block
+            self.assertNotIn(d['node_goals'][nid].split(':')[0] + ':', shown, nid)
+        fe = rows[2]
+        self.assertNotIn(LONG_GOAL, re.sub(r'\s[a-z-]+="[^"]*"', '', fe.split('</summary>', 1)[0]))
+        self.assertIn(LONG_GOAL, fe.split('</summary>', 1)[1])                         # the whole goal when the row is opened
+        self.assertRegex(PAGE, r'td\.pv-name\{white-space:normal')                    # a long name wraps in this table instead of widening the page
