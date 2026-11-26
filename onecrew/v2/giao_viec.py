@@ -13,12 +13,11 @@ QLMAU: every prompt template (the delegation template, the owner-words reminder,
 computed. `onecrew mau list` / `mau lint` are here too: they only read template files (no ledger, no skill, no write). The module is the one that
 owns the templates; a template without a header still works and shows its version as unknown.
 
-GOIVAI: the role templates ship in the package (onecrew/templates/vai3/), so an install has them; a project's docs/vai3/ replaces a packaged template of
-the same file name and may add files of its own.
+GOIVAI: the role templates ship in the package as onecrew/templates/role-*.md (one level: the hotfix flow takes no subfolder there), so an install has
+them; a project's docs/vai3/*.md replaces the packaged template of the same template NAME (header line) and may add templates of its own.
 """
 import argparse
 import hashlib
-import os
 import re
 from pathlib import Path
 
@@ -187,8 +186,8 @@ def reminder(plan, tool, names, state_root):
 
 # ---- QLMAU: `onecrew mau list` and `onecrew mau lint` (read only) ---------------------------------------------------------------
 
-ROLE_FOLDER = ('docs', 'vai3')                      # the project's own role templates; they win over the packaged ones by file name
-PACKAGED_ROLES = ('templates', 'vai3')              # under the onecrew package: shipped in the wheel (pyproject package-data)
+ROLE_FOLDER = ('docs', 'vai3')                      # the project's own role templates; they win over the packaged ones by template name
+PACKAGED_PREFIX = 'role-'                           # onecrew/templates/role-*.md, shipped in the wheel; the folder holds other templates too
 ROLE_SECTIONS = {'vi': ('Việc của vai', 'Không làm', 'Nhận việc từ', 'Báo cho'), 'en': ('Role', 'Not doing', 'Takes work from', 'Reports to')}
 BUILT_IN = {'en': '(built into the program)', 'vi': '(có sẵn trong chương trình)'}
 MAU_TEXT = {
@@ -231,31 +230,30 @@ def _entry(kind, name, path, built_in=None):
     return entry
 
 
-def role_folders(project):
-    """The packaged folder first, then the project's: a later folder wins by file name."""
-    return [Path(__file__).resolve().parents[1].joinpath(*PACKAGED_ROLES), Path(project).joinpath(*ROLE_FOLDER)]
+def _role_entries(folder, pattern, prefix=''):
+    """The role templates of one folder. A file without a valid header is named by its file name (without `prefix`): kiem.vi.md -> vai-kiem-vi."""
+    return [_entry('role', 'vai-' + path.stem.removeprefix(prefix).replace('.', '-'), path) for path in sorted(folder.glob(pattern))]
 
 
-def role_files(project):
-    """The role templates in force, in file-name order (the name is compared as the file system does: case does not count on Windows)."""
-    found = {}
-    for folder in role_folders(project):
-        if folder.is_dir(): found.update((os.path.normcase(path.name), path) for path in folder.glob('*.md'))
-    return [found[name] for name in sorted(found)]
+def role_entries(project):
+    """The role templates in force, by name: the packaged ones, each replaced by the project's templates of the same name. Two project files of one
+    name are both kept (lint reports them)."""
+    packaged = _role_entries(Path(__file__).resolve().parents[1] / 'templates', PACKAGED_PREFIX + '*.md', PACKAGED_PREFIX)
+    own = _role_entries(Path(project).joinpath(*ROLE_FOLDER), '*.md')
+    replaced = {e['name'].casefold() for e in own}
+    return sorted([e for e in packaged if e['name'].casefold() not in replaced] + own, key=lambda e: (e['name'], e['path']))
 
 
 def entries(project, state_root, language):
     """The templates in force: the delegation template and the owner-words reminder (the owner's file under <state-root>/plans/ when there is one, else
-    the built-in text), then the role templates (`role_files`). Only these files are read: no ledger, no skill."""
+    the built-in text), then the role templates (`role_entries`). Only these files are read: no ledger, no skill."""
     result = []
     for kind, name, file, built_in in (('delegation', 'mau-giao-viec', TEMPLATE_NAME, DEFAULT_TEMPLATE),
                                        ('owner', 'mau-loi-chu', OWNER_TEMPLATE_NAME, OWNER_TEXT['vi' if language == 'vi' else 'en'])):
         path = Path(state_root) / 'plans' / file if state_root else None
         if path is not None and path.exists(): result.append(_entry(kind, name, path))
         else: result.append(_entry(kind, name, BUILT_IN['vi' if language == 'vi' else 'en'], built_in))
-    for path in role_files(project):
-        result.append(_entry('role', 'vai-' + path.stem.replace('.', '-'), path))
-    return result
+    return result + role_entries(project)
 
 
 def _lint_items(text):

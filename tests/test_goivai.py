@@ -1,6 +1,7 @@
-"""GOIVAI: the six role templates ship inside the wheel (onecrew/templates/vai3/). `onecrew mau list|lint` find them on a machine that has only the
-install (no docs/vai3 beside the code); a project's docs/vai3 overrides a same-named packaged template. Only names the base has are imported and `mau`
-runs as a subprocess from a COPY of the onecrew package (no docs beside it: an install), so a new behaviour is red BY ASSERTION on the base.
+"""GOIVAI: the six role templates ship inside the wheel as flat files onecrew/templates/role-<coordinator|checker|liaison>.<lang>.md (the hotfix flow's
+check_wheel takes onecrew/templates/*.md one level only). `onecrew mau list|lint` find them on a machine that has only the install (no docs/vai3 beside
+the code); a project's docs/vai3 replaces the packaged template of the same template name. Only names the base has are imported and `mau` runs as a
+subprocess from a COPY of the onecrew package (no docs beside it: an install), so a new behaviour is red BY ASSERTION on the base.
 """
 import hashlib
 import os
@@ -14,12 +15,18 @@ from pathlib import Path
 from tests.v2_fixture import PY
 
 REPO = Path(__file__).resolve().parents[1]
-PACKAGED = REPO / 'onecrew' / 'templates' / 'vai3'
+PACKAGED = REPO / 'onecrew' / 'templates'
 DOCS = REPO / 'docs' / 'vai3'
-FILES = sorted(f'{role}.{lang}.md' for role in ('dieu-phoi', 'kiem', 'trao-doi') for lang in ('en', 'vi'))
-ROLES = sorted(f'vai-{role}-{lang}' for role in ('dieu-phoi', 'kiem', 'trao-doi') for lang in ('en', 'vi'))
+ENGLISH = {'dieu-phoi': 'coordinator', 'kiem': 'checker', 'trao-doi': 'liaison'}        # docs/vai3 role name -> packaged role name
+FLAT = sorted(f'role-{new}.{lang}.md' for new in ENGLISH.values() for lang in ('en', 'vi'))
+ROLES = sorted(f'vai-{role}-{lang}' for role in ENGLISH for lang in ('en', 'vi'))
 ALL = sorted(['mau-giao-viec', 'mau-loi-chu', *ROLES])
 HEADER = re.compile(r'onecrew-mau: ten=([a-z0-9-]+) phien-ban=(\d+)')
+
+
+def packaged_name(docs_name):
+    role, lang, _ = docs_name.rsplit('.', 2)
+    return f'role-{ENGLISH[role]}.{lang}.md'
 
 
 def snapshot(*folders):
@@ -37,10 +44,10 @@ class TestGoiVai(unittest.TestCase):
         shutil.copytree(REPO / 'onecrew', self.site / 'onecrew', ignore=shutil.ignore_patterns('__pycache__'))
         self.project.mkdir()
         (self.state / 'plans').mkdir(parents=True)
-        self.packaged = self.site / 'onecrew' / 'templates' / 'vai3'
+        self.packaged = self.site / 'onecrew' / 'templates'
 
     def mau(self, command):
-        env = dict(os.environ, PYTHONUTF8='1', ONECREW_LANG='vi',PYTHONDONTWRITEBYTECODE='1', LOCALAPPDATA=str(self.base / 'local'))
+        env = dict(os.environ, PYTHONUTF8='1', ONECREW_LANG='vi', PYTHONDONTWRITEBYTECODE='1', LOCALAPPDATA=str(self.base / 'local'))
         done = subprocess.run([PY, '-X', 'utf8', '-m', 'onecrew', '--project', str(self.project), '--state-root', str(self.state), 'mau', command],
                               capture_output=True, cwd=self.site, timeout=120, env=env)
         return done.returncode, done.stdout.decode('utf-8'), done.stderr.decode('utf-8', 'replace')
@@ -57,25 +64,20 @@ class TestGoiVai(unittest.TestCase):
 
     # ---- kind A -------------------------------------------------------------------------------------------------------------
 
-    def test_pyproject_package_data_includes_vai3(self):
-        text = (REPO / 'pyproject.toml').read_text(encoding='utf-8')
-        data = re.search(r'"onecrew\.templates"\s*=\s*\[([^\]]*)\]', text)
-        self.assertTrue(data and 'vai3/*.md' in data.group(1), 'package-data of onecrew.templates must take vai3/*.md')
-
-    def test_packaged_folder_holds_the_six_role_templates(self):
-        self.assertEqual(sorted(p.name for p in PACKAGED.glob('*.md')), FILES)
-        for path in PACKAGED.glob('*.md'):
+    def test_packaged_role_templates_are_six_flat_prefixed_files(self):
+        self.assertEqual(sorted(p.name for p in PACKAGED.glob('role-*.md')), FLAT)
+        for path in PACKAGED.glob('role-*.md'):
             self.assertTrue(HEADER.search(path.read_text(encoding='utf-8-sig').splitlines()[0]), path.name)
 
     def test_packaged_templates_equal_the_docs_copy(self):
-        self.assertEqual(sorted(p.name for p in PACKAGED.glob('*.md')), sorted(p.name for p in DOCS.glob('*.md')))
-        for path in DOCS.glob('*.md'): self.assertEqual((PACKAGED / path.name).read_bytes(), path.read_bytes(), path.name)
+        self.assertEqual(sorted(p.name for p in PACKAGED.glob('role-*.md')), sorted(packaged_name(p.name) for p in DOCS.glob('*.md')))
+        for path in DOCS.glob('*.md'): self.assertEqual((PACKAGED / packaged_name(path.name)).read_bytes(), path.read_bytes(), path.name)
 
     def test_mau_list_on_an_install_without_docs_shows_eight(self):
         lines, out = self.listing()
-        self.assertEqual(sorted(lines), ALL, out)
+        self.assertEqual(sorted(lines), ALL, out)                          # owner-rules.*.md and the other files of the folder are not role templates
         for name, line in lines.items(): self.assertRegex(line, r'^\S+  phien-ban=\d+  [0-9a-f]{12}  ', name)
-        for name in ROLES: self.assertIn(str(self.packaged), lines[name], name)
+        for name in ROLES: self.assertIn(str(self.packaged / 'role-'), lines[name], name)
         self.assertNotIn('GHI CHÚ', out)
 
     def test_mau_lint_on_an_install_without_docs_passes(self):
@@ -91,17 +93,29 @@ class TestGoiVai(unittest.TestCase):
         self.assertIn('vai-kiem-vi  phien-ban=9  ', lines['vai-kiem-vi'])
         self.assertIn(str(mine), lines['vai-kiem-vi'])
         for name in ROLES:
-            if name != 'vai-kiem-vi': self.assertIn(str(self.packaged), lines[name], name)
+            if name != 'vai-kiem-vi': self.assertIn(str(self.packaged / 'role-'), lines[name], name)
         mine.write_text(mine.read_text(encoding='utf-8').replace('## Báo cho', '## Khác'), encoding='utf-8')      # lint reads the project's copy
         code, out, err = self.mau('lint')
         self.assertEqual(code, 1, out + err)
-        self.assertIn(str(mine), out); self.assertIn('Báo cho', out)
+        self.assertIn(str(mine), out)
+        self.assertIn('Báo cho', out)
+
+    def test_project_template_without_header_still_overrides_by_its_file_name(self):
+        mine = self.project_roles() / 'kiem.vi.md'
+        mine.write_text('# Mẫu kiểm của dự án\n\n## Role\nx\n', encoding='utf-8')                      # no valid header line
+        lines, out = self.listing()
+        self.assertEqual(sorted(lines), ALL, out)                                                  # still eight: it replaced the packaged one
+        self.assertIn(str(mine), lines['vai-kiem-vi'])
+        self.assertIn('phien-ban=chua-ghi', lines['vai-kiem-vi'])
+        code, lint, err = self.mau('lint')
+        self.assertEqual(code, 1, lint + err)
+        self.assertTrue(any('vai-kiem-vi' in l and 'dòng đầu' in l for l in lint.splitlines()), lint)
 
     def test_note_appears_only_when_neither_has_role_templates(self):
-        shutil.rmtree(self.packaged, ignore_errors=True)
+        for path in self.packaged.glob('role-*.md'): path.unlink()
         _, out = self.listing()
         self.assertIn('GHI CHÚ', out)
-        shutil.copytree(DOCS, self.packaged)        # docs/vai3 equals the packaged folder (checked by another case); reading it keeps the base's failure an assertion
+        for path in DOCS.glob('*.md'): shutil.copyfile(path, self.packaged / packaged_name(path.name))   # reading docs/vai3 keeps the base's failure an assertion
         lines, out = self.listing()
         self.assertNotIn('GHI CHÚ', out)
         self.assertEqual(sorted(lines), ALL, out)
@@ -130,3 +144,10 @@ class TestGoiVai(unittest.TestCase):
     def test_role_template_names_keep_their_headers(self):
         names = sorted(HEADER.search(p.read_text(encoding='utf-8-sig').splitlines()[0]).group(1) for p in DOCS.glob('*.md'))
         self.assertEqual(names, ROLES)
+
+    def test_pyproject_package_data_is_unchanged(self):
+        text = (REPO / 'pyproject.toml').read_text(encoding='utf-8')
+        self.assertIn('"onecrew.templates" = ["*.md"]', text)           # test_g2_install reads this exact text
+
+    def test_templates_folder_has_no_subfolder(self):
+        self.assertEqual([p.name for p in PACKAGED.iterdir() if p.is_dir() and p.name != '__pycache__'], [])   # hotfix check_wheel: one level only
