@@ -1303,12 +1303,16 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200, observe=Non
     last = events[-1] if events else None
     nodes = {}
     if engine_view is not None:
+        # NHANVAI: the role label, the sub-tasks still waited for (engine state, in declared order), and the roles-table report of the
+        # node (option nhan-co-vung: {'kind': 'outside_area' | 'role_not_in_table', 'paths'}; None when nothing is reported)
+        role_notes = {e['node']: {'kind': e['kind'], 'paths': [clean(p, 200) for p in e['paths'][:20]]} for e in engine_view.get('role_area_report') or []}
         for nid, r in engine_view['nodes'].items():
             nodes[nid] = {'generation': r.get('generation'), 'phase': r.get('phase'), 'state': r.get('state') or 'none', 'attempt': r.get('attempt'), 'child': r.get('child'),
                           'reason': clean(r.get('reason'), 200), 'classification': clean(r.get('classification'), 100),
                           'receipt': r.get('receipt'), 'verification_receipt': r.get('verification_receipt'), 'verification_result': r.get('verification_result'),
                           'continues': r.get('continues'), 'resume_artifact': r.get('resume_artifact'), 'retained_candidate': r.get('retained_candidate'),
-                          'progress': progress.get(nid)}
+                          'progress': progress.get(nid),
+                          'role': clean(r.get('role'), 40), 'waits_for': list(r.get('waits_for') or []), 'role_area': role_notes.get(nid)}
     counts = {'total': len(nodes), 'pending': 0, 'running': 0, 'held': 0, 'produced': 0, 'verified': 0, 'accepted': 0}
     for r in nodes.values():
         if r['phase'] in counts: counts[r['phase']] += 1

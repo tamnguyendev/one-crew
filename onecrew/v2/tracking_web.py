@@ -1123,6 +1123,13 @@ details.badge>summary::-webkit-details-marker{display:none}details.badge>summary
 @media (max-width:560px){#detail .tiles4{grid-template-columns:minmax(0,1fr)}#detail .tile4{border-right:0!important;border-bottom:1px solid var(--rule)!important;min-height:0}#detail .tile4:last-child{border-bottom:0!important}}
 @media (max-width:640px){#main>section.pane{padding:10px 12px 24px}#list ul.lrows{margin:6px -12px 0}}
 @media (max-width:340px){#detail .tiles4{grid-template-columns:minmax(0,1fr)}#detail .tile4{border-right:0!important;border-bottom:1px solid var(--rule)!important}}
+.tlist{margin:4px 0 14px;padding:12px 16px 4px;border:1px solid var(--rule);border-radius:12px;background:var(--sheet)}
+.tlist h3,#main .tlist h3{margin:0 0 4px;font:600 12px/1.4 ui-monospace,Consolas,monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2)}
+.tlist ol{list-style:none;margin:0;padding:0}.tlist li{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:11px 0;border-top:1px solid var(--rule)}.tlist li:first-child{border-top:0}
+.tl-name{min-width:0;font-size:15px;line-height:1.4;overflow-wrap:anywhere;color:var(--ink)}.tl-name b{font-weight:700}.tl-name span{font-weight:600}
+.tlist code.tl-role{display:block;margin:3px 0 0;padding:0;background:none;border-radius:0;font:13px/1.3 ui-monospace,Consolas,monospace;color:var(--ink2);word-break:normal}
+.tl-st{flex:none;font:13px/1.4 ui-monospace,Consolas,monospace;white-space:nowrap;text-align:right;padding-top:1px}
+.tl-st.ok{color:var(--ok)}.tl-st.run{color:var(--wait)}.tl-st.wait{color:var(--idle)}.tl-st.bad{color:var(--fail)}.tl-out{margin-top:3px;font-size:12.5px;color:var(--fail)}
 </style></head><body data-view="list">
 @@SPRITE@@
 @@HEADER@@
@@ -1395,7 +1402,25 @@ function legacyEvidence(d){var h=[],P=prov(d);
     return '<div class="small" data-k="evk:'+k+'"><code>'+k.slice(0,12)+'…</code>'+(u[0].stored==='manifest'?' · ảnh chụp':'')+' · '+u.length+' lần được nêu'+openBtn(k)+uses(u)+'</div>'}).join('')
     +mk.map(function(k){var u=P.byKey[k];return '<div class="small" data-k="evm:'+k+'"><code>'+k.slice(0,12)+'…</code> · '+u.length+' lần được nêu · <span class="mut nob">không có trong kho: không mở được</span>'+uses(u)+'</div>'}).join('')+'</details>');
   return h.join('')}
-function legacyNodes(d){var h=[];
+// NHANVAI: the "Danh sách task" block (owner's picture of 25/11 22:34): one row per sub-task in plan order, number and name in bold,
+// @role in a monospace line under the name, and the status words on the right. The words come from the engine's own fields only:
+// verified/accepted = done with its gate passed; running = being worked on; pending with waits_for = waiting for those sub-tasks (by number).
+var TL_DONE='xong · cổng đạt';
+function taskStatus(n,num){n=n||{};
+  if(n.phase==='held')return ['bad','bị giữ'];
+  if(n.verification_result==='fail')return ['bad','kiểm chưa đạt'];
+  if(n.state==='verified'||n.state==='accepted')return ['ok',TL_DONE];
+  if(n.phase==='running')return ['run','đang làm'];
+  if(n.state==='produced')return ['wait','chờ kiểm cổng'];
+  var w=(n.waits_for||[]).map(function(id){return num[id]||id});
+  if(w.length)return ['wait','chờ task '+w.join(', ')];
+  return ['wait','chưa bắt đầu']}
+function taskList(d){var ids=Object.keys(d.nodes||{});if(!ids.length)return '';var num={},titles=d.node_titles||{};ids.forEach(function(id,i){num[id]=i+1});
+  return '<section class="tlist" aria-label="Danh sách task"><h3>Danh sách task</h3><ol>'+ids.map(function(id){var n=d.nodes[id]||{},s=taskStatus(n,num),a=n.role_area;
+    var note=a&&a.kind==='role_not_in_table'?'vai @'+n.role+' không có trong bảng vai của plan':a?'ghi ngoài vùng của @'+n.role+': '+(a.paths||[]).join(', '):'';
+    return '<li data-node="'+esc(id)+'"><div class="tl-name"><b>'+num[id]+'.</b> <span>'+esc(titles[id]||id)+'</span>'+(n.role?'<code class="tl-role">@'+esc(n.role)+'</code>':'')
+      +(note?'<div class="tl-out">'+esc(note)+'</div>':'')+'</div><span class="tl-st '+s[0]+'">'+esc(s[1])+'</span></li>'}).join('')+'</ol></section>'}
+function legacyNodes(d){var h=[taskList(d)];
   var ns=Object.keys(d.nodes||{});if(ns.length){h.push('<h3>Phần việc</h3><div class="scroll"><table><thead><tr><th>Phần việc</th><th>Trạng thái</th><th>Đầu ra</th><th>Thế hệ</th><th>Quan sát gần nhất</th></tr></thead><tbody>');
     ns.forEach(function(id){var n=d.nodes[id],p=n.progress;h.push('<tr><td><b>'+esc(nodeName(d,id))+'</b></td><td>'+word(PHASE,n.phase)+(n.phase==='held'?'<div class="small" style="color:var(--blk)">lý do (engine): '+esc(n.reason)+'</div>':'')+'</td><td>'+word(NSTATE,n.state)+(n.verification_result?' ('+esc(n.verification_result)+')':'')+'</td><td>'+n.generation+(n.continues?' <span class="small mut">tiếp từ '+esc(n.continues)+'</span>':'')+'</td><td class="wrap small">'+(p?esc(p.status)+' '+rel(p.observed_at||p.received_at)+(p.reason?'<br>'+esc(p.reason):''):'—')+'</td></tr>')});h.push('</tbody></table></div>')}
   if((d.attempts||[]).length){var mx={};((d.measure&&d.measure.attempts)||[]).forEach(function(m){mx[m.attempt]=m});var top=0;Object.keys(mx).forEach(function(k){if(typeof mx[k].execution_seconds==='number')top=Math.max(top,mx[k].execution_seconds)});

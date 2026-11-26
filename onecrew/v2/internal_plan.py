@@ -31,12 +31,13 @@ def current(ledger, selector, conn=None):
     row = conn.execute("SELECT seq,payload FROM events WHERE task_id=? AND kind=? ORDER BY seq DESC LIMIT 1", (state['task_id'], KIND)).fetchone()
     if row is None:
         return {'internal_revision': 0, 'contract_revision': state['approved']['revision'] if state['approved'] else None,
-                'definition': None, 'event': None}
+                'definition': None, 'event': None, 'role_area_report': []}
     body = json.loads(row['payload'])
     definition = json.loads(Snapshots(ledger.state_root).read_blob(body['definition']))
     if content_hash(definition) != body['definition_sha']:
         raise LedgerError('Internal plan definition hash mismatch.')
-    return dict(body, definition=definition, event=row['seq'], contract_revision=body['revision'])
+    return dict(body, definition=definition, event=row['seq'], contract_revision=body['revision'],
+                role_area_report=role_area_report(definition['nodes'], definition.get('roles')))
 
 
 def projection(nodes):
@@ -52,11 +53,86 @@ def influence_projection(nodes):
         for node in nodes]}
 
 
+# NHANVAI: a sub-task's optional role label ("role": "backend") is for display only. It is not the executor pin's role (that stays
+# executor.role = worker), it never changes how a node runs, and it is left out of every comparison of a node between two revisions,
+# so relabelling a node does not move its generation. ROLE is the label's form: a short lowercase word.
+ROLE = re.compile(r'[a-z0-9][a-z0-9-]{0,23}')
+LABELS = ('role',)
+
+
+def role_label(value, name='node role'):
+    if not isinstance(value, str) or not ROLE.fullmatch(value):
+        raise LedgerError(name + ': expected a short lowercase label such as "backend" (a-z, 0-9 and -, 1 to 24 characters, '
+                          'not starting with -); got ' + repr(value)[:40] + '.')
+    return value
+
+
+def without_labels(node):
+    """The node as the engine compares it: display labels (role) left out. None stays None."""
+    return None if node is None else {key: value for key, value in node.items() if key not in LABELS}
+
+
+def _labelled(nodes, roles_by_id):
+    """`nodes` with each node's role taken from `roles_by_id` (removed where it has none): used to hand a revision to a comparison
+    outside this module (repair_tasks) so a relabelled node does not count as changed there either."""
+    result = []
+    for node in nodes:
+        bare = without_labels(node)
+        if roles_by_id.get(bare['id']) is not None: bare['role'] = roles_by_id[bare['id']]
+        result.append(bare)
+    return result
+
+
+def validate_roles(roles):
+    """NHANVAI option nhan-co-vung: the plan's optional roles table, {label: [file area patterns]}. A pattern is matched the way the write
+    hook matches scope.owned (authority.owned_match: exact path, directory prefix or glob, case-folded). None or {} means no table."""
+    if roles is None or roles == {}: return {}
+    if not isinstance(roles, dict) or len(roles) > 40:
+        raise LedgerError('The roles table maps up to 40 role labels to their file areas, like {"backend": ["src/api/**"]}.')
+    result = {}
+    for role, area in roles.items():
+        role_label(role, 'roles table label')
+        if not isinstance(area, list) or not 1 <= len(area) <= 40:
+            raise LedgerError(f'Role {role}: its file area is a list of 1 to 40 path patterns.')
+        patterns = []
+        for pattern in area:
+            authority._scope_path(pattern, pattern=True)          # relative, no traversal, no device names (raises LedgerError)
+            value = pattern.replace('\\', '/')
+            while value.startswith('./'): value = value[2:]
+            patterns.append(value)
+        result[role] = patterns
+    return {role: result[role] for role in sorted(result)}
+
+
+def role_area_report(nodes, roles):
+    """NHANVAI option nhan-co-vung: the nodes whose write scope leaves the file area of their role. Reported, never refused: the plan is
+    published and runs exactly as without the table. One entry per reported node, in plan order:
+      {'node', 'role', 'kind': 'outside_area', 'paths': [write paths outside the role's area]}, or
+      {'node', 'role', 'kind': 'role_not_in_table', 'paths': [all its write paths]} for a label the table does not name.
+    A node without a label, or a plan without a table, is not reported."""
+    if not roles: return []
+    report = []
+    for node in nodes:
+        role = node.get('role')
+        if role is None: continue
+        writes = list(node.get('write') or [])
+        if role not in roles:
+            report.append({'node': node['id'], 'role': role, 'kind': 'role_not_in_table', 'paths': writes})
+            continue
+        outside = []
+        for path in writes:
+            try: inside = authority.owned_match(path, roles[role])
+            except LedgerError: inside = False
+            if not inside: outside.append(path)
+        if outside: report.append({'node': node['id'], 'role': role, 'kind': 'outside_area', 'paths': outside})
+    return report
+
+
 def affected_revision(previous,updated,*,contract_changed=False):
     old={node['id']:node for node in previous}
     known={node['id'] for node in updated}
     removed={path for nid,node in old.items() if nid not in known for path in node['write']}
-    changed=[node['id'] for node in updated if contract_changed or old.get(node['id'])!=node
+    changed=[node['id'] for node in updated if contract_changed or without_labels(old.get(node['id']))!=without_labels(node)
              or removed & set(node['read']+node['write'])]
     if not changed:return set()
     graph=influence_projection(updated)
@@ -154,9 +230,11 @@ def _validate(nodes, outputs):
               'estimate_seconds', 'execution_cap_seconds', 'budget_calls', 'checks', 'integration'}
     result, known = copy.deepcopy(nodes), set()
     for node in result:
-        if not isinstance(node, dict) or not fields <= set(node) or set(node) - fields - {'executor', 'indivisible', 'sources'}:
+        if not isinstance(node, dict) or not fields <= set(node) or set(node) - fields - {'executor', 'indivisible', 'sources', 'role'}:
             raise LedgerError('Internal node fields must explicitly declare goal, inputs/outputs, acceptance, dependencies, scope, resources, estimate, cap, budget and checks.')
         contracts._id(node['id'], 'node id')
+        if 'role' in node:                          # NHANVAI: optional display label of the sub-task; not executor.role
+            role_label(node['role'], 'node ' + node['id'] + ' role')
         if 'executor' in node:
             pin = node['executor']
             if (not isinstance(pin, dict) or set(pin) != {'role', 'provider', 'model'} or pin['role'] != 'worker'
@@ -284,9 +362,13 @@ def _beyond_deadline(nodes, counted, remaining_seconds):
     return sorted(node['id'] for node in nodes if node['id'] in counted and node['execution_cap_seconds'] > remaining_seconds)
 
 
-def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None):
+def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None, roles=None):
+    """`roles` (NHANVAI option nhan-co-vung): the plan's roles table {label: [file area patterns]}. None keeps the table of the current
+    internal revision (so a revision made by repair or recovery, which passes nodes only, keeps it); {} removes it. A node writing outside
+    its role's area is reported in the result ('role_area_report') and in engine state, never refused."""
     reason = text_field(reason, 'internal revision reason', 1000)
     refs = estimates.evidence(evidence)
+    table = validate_roles(roles) if roles is not None else None
     if (not isinstance(nodes, list) or any(not isinstance(node, dict) or not isinstance(node.get('acceptance'), list)
                                          or not isinstance(node.get('checks'), list) for node in nodes)):
         raise LedgerError('Internal nodes require explicit acceptance and check lists.')
@@ -296,6 +378,7 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None)
         ctx = ceilings(ledger, conn, state)
     outputs = contracts.output_ids(contract['output'])
     old_nodes = before['definition']['nodes'] if before['definition'] else []
+    if table is None: table = (before['definition'] or {}).get('roles') or {}
     acceptance = {item for node in nodes for item in node.get('acceptance', [])}
     # W05/T21: wording-only spec changes and added checks are routine; a dropped output/check, a changed threshold or any change this
     # classifier cannot place is a change of acceptance (U1), decided through the same authority gate as before.
@@ -310,7 +393,11 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None)
         # W19 (T38c): a node whose generation this revision moves cannot keep a repair marker bound to its old generation.
         from . import repair_tasks
         moved = affected_revision(old_nodes, normalized, contract_changed=before.get('contract_sha') not in (None, state['approved']['sha']))
-        normalized = repair_tasks.rebind_revised(ledger, state['selector'], old_nodes, normalized, moved, expected_revision=before['internal_revision'])
+        # NHANVAI: repair_tasks compares whole nodes; it sees the old labels, and the new labels are put back on what it returns
+        new_roles = {n['id']: n.get('role') for n in normalized}
+        normalized = _labelled(repair_tasks.rebind_revised(ledger, state['selector'], old_nodes,
+                                                           _labelled(normalized, {n['id']: n.get('role') for n in old_nodes}), moved,
+                                                           expected_revision=before['internal_revision']), new_roles)
     with ledger.transaction() as conn:
         _admit_revision(ledger,conn,state,before,normalized)
     counted, reused = _to_come(ledger, state, old_nodes, normalized, before)
@@ -322,6 +409,7 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None)
         if authority.covers(authority.effective(contract), {'edit': True, 'paths': paths}):
             decide(ledger, state, contract, sha, {'kind': 'write', 'paths': paths, 'nodes': [n['id'] for n in normalized]}, ctx, 'onecrew.internal_plan')
     definition = {'version': 1, 'nodes': normalized, 'acceptance': {oid: [n['id'] for n in normalized if oid in n['acceptance']] for oid in outputs}}
+    if table: definition['roles'] = table           # NHANVAI: only a plan that declares a table carries the key (old definitions unchanged)
     definition_sha = content_hash(definition)
     if before.get('definition_sha') == definition_sha and before.get('contract_revision') == state['approved']['revision'] and before.get('contract_sha') == sha:
         return before
