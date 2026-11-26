@@ -252,33 +252,74 @@ def _paths(values):
     return out
 
 
-def _folder(paths):
-    """The folder the paths share, as its last name ('src/Signature.Domain/a.cs', 'src/Signature.Domain/b/c.cs' -> 'Signature.Domain')."""
-    parts = [p.rstrip('/').split('/')[:-1] for p in paths]
-    common = []
-    for names in zip(*parts):
-        if any(n != names[0] for n in names): break
-        common.append(names[0])
-    return common[-1] if common else ROOT_FOLDER
+# TENTASK rev 4 (I8): the action verb of a sub-task, the first word of its goal (first VERB_SPAN characters) found in this table
+VERB_SPAN = 120
+VERBS = (('Rà soát', ('rà soát', 'soát', 'review')), ('Sửa', ('sửa', 'fix')), ('Viết', ('viết', 'write')), ('Thêm', ('thêm', 'add')),
+         ('Tạo', ('tạo', 'create')), ('Kiểm tra', ('kiểm tra', 'kiểm', 'test')), ('Tích hợp', ('tích hợp', 'integrate')),
+         ('Tổng hợp', ('tổng hợp',)), ('Đọc', ('đọc', 'read')))
+_VERB_OF = {word: label for label, words in VERBS for word in words}
+_VERB = re.compile(r'(?<!\w)(' + '|'.join(re.escape(w) for w in sorted(_VERB_OF, key=len, reverse=True)) + r')(?!\w)')
 
 
-def work_name(reads, writes):
-    """TENTASK rev 3 (D10): a name from the sub-task's work, '<folder> — <N> tệp → <file it writes>': the folder its own reads share, how many
-    files it reads alone (its own reads), the first file it writes. A part with nothing to say is left out; None when it reads nothing of its own
-    and writes nothing."""
-    if not reads and not writes: return None
-    name = _folder(reads or writes)
-    if reads: name += f' — {len(reads)} tệp'
-    if writes: name += ' → ' + (writes[0].rstrip('/').rsplit('/', 1)[-1] or writes[0])
-    return name
+def _fold_text(text):
+    import unicodedata
+    return unicodedata.normalize('NFC', ' '.join(str(text or '').split())).casefold()
+
+
+def goal_verb(goal):
+    """TENTASK rev 4 (I8): the verb of the table that comes first in the first 120 characters of the goal ('Cụm 2 review …' -> 'Rà soát'), or None."""
+    found = _VERB.search(_fold_text(goal)[:VERB_SPAN])
+    return _VERB_OF[found.group(1)] if found else None
+
+
+def verb_only(head):
+    """TENTASK rev 4: a goal head that is only a verb of the table ('Tích hợp', 'review'): it says no object, so it is not a name."""
+    return _fold_text(head).strip(' .:;,!-') in _VERB_OF
+
+
+def _base(path):
+    return path.rstrip('/').rsplit('/', 1)[-1] or path
+
+
+def _folder(paths, names=2):
+    """TENTASK rev 4 (D10): the deepest folder that holds at least half of `paths`, shown by its last `names` names
+    ('src/Core/Signature.Domain/RestfulFactory/a.cs' ... -> 'Signature.Domain/RestfulFactory'); 'gốc repo' when no folder holds half of them."""
+    counts = {}
+    for path in set(paths):
+        parts = path.rstrip('/').split('/')[:-1]
+        for depth in range(1, len(parts) + 1): counts[tuple(parts[:depth])] = counts.get(tuple(parts[:depth]), 0) + 1
+    held = [folder for folder, n in counts.items() if n * 2 >= len(set(paths))]
+    if not held: return ROOT_FOLDER
+    best = max(held, key=lambda folder: (len(folder), counts[folder], [-ord(c) for c in '/'.join(folder)]))
+    return '/'.join(best[-names:])
+
+
+def work_name(verb, own, reads, writes, waits):
+    """TENTASK rev 4 (D10, I8): a name from the sub-task's work, starting with its verb:
+      '<verb> <folder> (<N> tệp) → viết|sửa <file> (+K)'   when it has own reads (N of them; the folder by _folder),
+      '<verb> kết quả <M> việc con → viết|sửa <file>'      when it has none and waits for M >= 2 sub-tasks,
+      '<verb> <file>'                                      when it only writes;
+    'sửa' when it also reads the file it writes, else 'viết'; (+K) when it writes K more files. None when nothing gives a name."""
+    if not verb: return None
+    first = writes[0] if writes else None
+    arrow = (f' → {"sửa" if first in reads else "viết"} {_base(first)}' + (f' (+{len(writes) - 1})' if len(writes) > 1 else '')) if first else ''
+    if own:
+        name = f'{verb} {_folder(own)} ({len(own)} tệp){arrow}'
+        return name if len(name) <= NODE_NAME else f'{verb} {_folder(own, 1)} ({len(own)} tệp){arrow}'    # too long: the folder's last name only
+    if waits >= 2: return f'{verb} kết quả {waits} việc con{arrow}'
+    if first: return f'{verb} {_base(first)}'
+    return None
 
 
 def node_names(nodes):
-    """TENTASK: {node id: name} of the sub-tasks of one internal plan on the tracking page. A node's "title" (the short name for people) when it
-    has one. Else the head of its goal (up to the first ': ' or '. ') when that is short and not machine text (machine_head). Else (rev 3, D10)
-    a name from its work (work_name): its own reads are the files it reads that fewer than half of the plan's sub-tasks read. A node with no own
-    read and no write falls back to the goal head. Every name is at most NODE_NAME characters (cut with '…'); None when nothing gives a word
-    (the page shows the id)."""
+    """TENTASK: {node id: name} of the sub-tasks of one internal plan on the tracking page.
+      - a node's "title" (the short name for people) when it has one;
+      - else the head of its goal (up to the first ': ' or '. ') when that is short, not machine text (machine_head) and says more than a verb;
+      - else (rev 3-4, D10, I8) a name from its work (work_name), starting with a verb: the first verb of the table in its goal, else from its
+        files (writes a file it also reads: 'Sửa'; writes another file: 'Viết'; reads only: 'Đọc'). Its own reads are the files it reads that
+        fewer than half of the plan's sub-tasks read;
+      - nothing from the work: the goal head.
+    Every name is at most NODE_NAME characters (cut with '…'); None when nothing gives a word (the page shows the id)."""
     nodes = [n for n in nodes if isinstance(n, dict) and n.get('id')]
     readers = {}
     for n in nodes:
@@ -290,9 +331,12 @@ def node_names(nodes):
             names[n['id']] = clean(' '.join(title.split()), 80); continue
         head = goal_head(n.get('goal'))
         name = head
-        if head and machine_head(head):
-            own = sorted({p for p in _paths(n.get('read')) if readers[p] * 2 < len(nodes)})
-            name = work_name(own, _paths(n.get('write'))) or head
+        if not head or machine_head(head) or verb_only(head):
+            reads, writes = _paths(n.get('read')), _paths(n.get('write'))
+            own = sorted({p for p in reads if readers[p] * 2 < len(nodes)})
+            verb = goal_verb(n.get('goal')) or ('Sửa' if set(writes) & set(reads) else 'Viết' if writes else 'Đọc' if reads else None)
+            waits = len({d.get('node') for d in n.get('depends') or [] if isinstance(d, dict) and d.get('node')})
+            name = work_name(verb, own, set(reads), writes, waits) or head
         names[n['id']] = clean(_cut(name), None) or None if name else None
     return names
 

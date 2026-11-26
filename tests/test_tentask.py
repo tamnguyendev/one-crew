@@ -136,7 +136,7 @@ class TestTenTask(EngineFixture):
         self.assertEqual(titles['A'], 'Rà phần ký số')                                        # up to the first ": "
         self.assertEqual(titles['B'], 'Gom kết quả')                                          # ". " comes before ": "
         self.assertEqual(titles['D'], 'Tỷ lệ 3.5:1 theo mục 2')                              # "." and ":" without a space do not cut
-        self.assertEqual(titles['I'], 'Tích hợp')
+        self.assertEqual(titles['I'], 'Tích hợp kết quả 3 việc con')                       # rev 4: a head that is only a verb gets its object
         self.assertEqual(d.get('node_goals', {}).get('A'), ' '.join(long_goal.split()), 'the detail must still carry the whole goal')
 
     # ---- I4: the block -------------------------------------------------------------------------------------------------------------
@@ -198,18 +198,19 @@ class TestTenTask(EngineFixture):
         shared = 'docs/huong-dan.md'                                          # every sub-task reads it: not its own
         nodes = [self.review('K01', [shared, 'src/Signature.Api/a.cs'], ['reviews/K01.md']),
                  self.review('K02', [shared, 'src/Signature.Domain/A1.cs', 'src/Signature.Domain/A2.cs', 'src/Signature.Domain/sub/A3.cs'], ['reviews/K02.md']),
-                 self.review('K03', [shared, 'src/Signature.Infra/b.cs'], ['reviews/K03.md'], goal='Rà 1a2b3c4 phần hạ tầng'),
+                 self.review('K03', [shared, 'src/Signature.Infra/b.cs'], ['reviews/K03.md'], goal='Rà soát 1a2b3c4 phần hạ tầng'),
                  self.review('K04', [shared, 'src/Signature.Web/c.cs', 'src/Signature.Web/d.cs'], ['reviews/K04.md'],
-                             goal='Rà toàn bộ phần web của bộ ký số theo danh sách lỗi đã biết'),
-                 self.review('K05', [shared, 'src/Signature.Cli/e.cs'], ['reviews/K05.md'], title='Rà dòng lệnh ký số'),
-                 {'id': 'KZ', 'goal': 'Tích hợp', 'read': [shared, 'reviews/'], 'write': ['reviews/README.md']}]
+                             goal='Kiểm tra toàn bộ phần web của bộ ký số theo danh sách lỗi đã biết'),
+                 self.review('K05', [shared, 'src/Signature.Cli/e.cs'], ['reviews/K05.md'], title='Rà soát dòng lệnh ký số'),
+                 {'id': 'KZ', 'goal': 'Tổng hợp các báo cáo cụm', 'read': [shared], 'write': ['reviews/README.md'],
+                  'depends': [{'node': k, 'requires': 'verified'} for k in ('K01', 'K02', 'K03', 'K04')]}]
         names = self.names_or_fail(nodes)
-        self.assertEqual(names['K02'], 'Signature.Domain — 3 tệp → K02.md')          # "@": named from its work
-        self.assertEqual(names['K01'], 'Signature.Api — 1 tệp → K01.md')
-        self.assertEqual(names['K03'], 'Signature.Infra — 1 tệp → K03.md')           # a commit id (7-40 hex) is machine text
-        self.assertEqual(names['K04'], 'Signature.Web — 2 tệp → K04.md')             # longer than 40 characters is machine text
-        self.assertEqual(names['K05'], 'Rà dòng lệnh ký số')                          # a title always wins
-        self.assertEqual(names['KZ'], 'Tích hợp')                                     # a short head that is not machine text stays
+        self.assertEqual(names['K02'], 'Rà soát src/Signature.Domain (3 tệp) → viết K02.md')     # "@": named from its work
+        self.assertEqual(names['K01'], 'Rà soát src/Signature.Api (1 tệp) → viết K01.md')
+        self.assertEqual(names['K03'], 'Rà soát src/Signature.Infra (1 tệp) → viết K03.md')      # a commit id (7-40 hex) is machine text
+        self.assertEqual(names['K04'], 'Kiểm tra src/Signature.Web (2 tệp) → viết K04.md')       # longer than 40 characters is machine text
+        self.assertEqual(names['K05'], 'Rà soát dòng lệnh ký số')                                # a title always wins
+        self.assertEqual(names['KZ'], 'Tổng hợp các báo cáo cụm')                                # a short plain head with an object stays
         self.assertNotIn('@', ' '.join(names.values()))
 
     def test_name_from_work_ignores_shared_reads(self):
@@ -220,10 +221,10 @@ class TestTenTask(EngineFixture):
         names = self.names_or_fail(nodes)
         # docs/chung.md is read by 2 of 4 (not fewer than half): shared, so it neither counts nor pulls the folder up to the repository root;
         # src/Core/a.cs is read by 2 of 4 as well
-        self.assertEqual(names['K01'], 'Core — 1 tệp → K01.md')
-        self.assertEqual(names['K02'], 'Core — 1 tệp → K02.md')
-        self.assertEqual(names['K03'], 'reviews → K03.md')                            # nothing of its own read: the folder of what it writes
-        self.assertEqual(names['K04'], 'notes — 1 tệp → K04.md')
+        self.assertEqual(names['K01'], 'Rà soát src/Core (1 tệp) → viết K01.md')
+        self.assertEqual(names['K02'], 'Rà soát src/Core (1 tệp) → viết K02.md')
+        self.assertEqual(names['K03'], 'Rà soát K03.md')                              # nothing of its own read, waits for nobody: verb and file
+        self.assertEqual(names['K04'], 'Rà soát notes (1 tệp) → viết K04.md')
 
     def test_name_from_work_falls_back_to_goal_head(self):
         head = 'Cụm 3 review vn-sign-sdk @bef6476 (node độc lập)'
@@ -236,6 +237,69 @@ class TestTenTask(EngineFixture):
         self.assertGreater(len(names['K04']), 60)
         self.assertTrue(names['K04'].endswith('…') and long.startswith(names['K04'][:-1].rstrip()), names['K04'])
         self.assertEqual((names['K05'], names['K06']), (head, head))                  # only shared reads and no write: the goal head too
+
+    # ---- rev 4 (I8, D10): a name starts with what the sub-task does ---------------------------------------------------------------------
+    def test_name_starts_with_action_verb(self):
+        own = lambda nid: [f'src/{nid}/a.cs', f'src/{nid}/b.cs']
+        goals = {'K1': ('Cụm 1 review vn-sign-sdk @bef6476: đọc', 'Rà soát'), 'K2': ('Fix lỗi đăng nhập ở commit 1a2b3c4d: xem', 'Sửa'),
+                 'K3': ('Viết hướng dẫn @team: ghi', 'Viết'), 'K4': ('Thêm kiểm tra đầu vào cho bộ ký @api: thêm', 'Thêm'),
+                 'K5': ('Tạo bảng tra mã lỗi theo commit 9f8e7d6c: tạo', 'Tạo'), 'K6': ('Kiểm tra bộ ký số @bef6476: chạy', 'Kiểm tra'),
+                 'K7': ('Tổng hợp phát hiện @bef6476: gom', 'Tổng hợp'), 'K8': ('Cụm 8 integrate vn-sign-sdk @bef6476: x', 'Tích hợp'),
+                 'K9': ('Cụm 9 @bef6476 read the signing docs: x', 'Đọc')}
+        nodes = [self.review(nid, own(nid), [f'reviews/{nid}.md'], goal=goal) for nid, (goal, _) in goals.items()]
+        names = self.names_or_fail(nodes)
+        for nid, (_, verb) in goals.items():
+            with self.subTest(node=nid):
+                self.assertEqual(names[nid], f'{verb} src/{nid} (2 tệp) → viết {nid}.md')
+
+    def test_verb_from_work_when_goal_has_none(self):
+        late = 'Cụm 4 @bef6476 phần ký số ' + 'x' * 110 + ' rồi sửa'          # "sửa" after the first 120 characters does not count
+        nodes = [self.review('K1', ['src/K1/a.cs', 'src/K1/b.cs'], ['src/K1/a.cs'], goal='Cụm 1 @bef6476 phần ký số: ...'),     # writes what it reads
+                 self.review('K2', ['src/K2/a.cs'], ['reviews/K2.md', 'reviews/K2-extra.md', 'reviews/K2-more.md'], goal='Cụm 2 @bef6476 phần ký: ...'),
+                 self.review('K3', ['src/K3/a.cs', 'src/K3/b.cs', 'src/K3/c.cs'], [], goal='Cụm 3 @bef6476 phần ký: ...'),          # reads only
+                 self.review('K4', ['src/K4/a.cs'], ['reviews/K4.md'], goal=late)]
+        names = self.names_or_fail(nodes)
+        self.assertEqual(names['K1'], 'Sửa src/K1 (2 tệp) → sửa a.cs')
+        self.assertEqual(names['K2'], 'Viết src/K2 (1 tệp) → viết K2.md (+2)')
+        self.assertEqual(names['K3'], 'Đọc src/K3 (3 tệp)')
+        self.assertEqual(names['K4'], 'Viết src/K4 (1 tệp) → viết K4.md')
+
+    def test_name_uses_most_specific_folder(self):
+        deep = 'src/Core/Signature.Domain/RestfulFactory/'
+        nodes = [self.review('K04', [deep + 'a.cs', deep + 'b.cs', deep + 'sub/c.cs', deep + 'd.cs', 'src/Core/Other/e.cs', 'src/Core/Other/f.cs'],
+                             ['reviews/K04.md']),
+                 self.review('K05', ['a/x.cs', 'b/y.cs', 'c/z.cs'], ['reviews/K05.md']),                 # no folder holds half of them
+                 self.review('K06', ['docs/shared.md'], ['reviews/K06.md']), self.review('K07', ['docs/shared.md'], ['reviews/K07.md'])]
+        names = self.names_or_fail(nodes)
+        self.assertEqual(names['K04'], 'Rà soát Signature.Domain/RestfulFactory (6 tệp) → viết K04.md')   # 4 of 6 there; not "Core" or "src"
+        self.assertEqual(names['K05'], 'Rà soát gốc repo (3 tệp) → viết K05.md')
+        long_folder = 'src/Signature.Merchant.Abstractions.Generated/Interfaces.Generated/'
+        names = self.names_or_fail([self.review('K06', [long_folder + 'a.cs'], ['reviews/K06-findings.md']),
+                                    self.review('K07', ['x.cs'], []), self.review('K08', ['y.cs'], [])])    # 3 sub-tasks: 1 reader is fewer than half
+        self.assertLessEqual(len(names['K06']), 70)
+        self.assertEqual(names['K06'], 'Rà soát Interfaces.Generated (1 tệp) → viết K06-findings.md')   # too long: the last name only, the file kept
+
+    def test_integration_named_by_results_it_waits_for(self):
+        shared = 'docs/huong-dan.md'
+        waits = lambda *ids: [{'node': i, 'requires': 'verified'} for i in ids]
+        nodes = [self.review(f'K{i}', [shared, f'src/K{i}/a.cs'], [f'reviews/K{i}.md']) for i in range(1, 6)]
+        nodes += [{'id': 'KZ', 'goal': 'Tích hợp: gom 5 báo cáo thành mục lục', 'read': [shared], 'write': ['reviews/INDEX.md'],
+                   'depends': waits('K1', 'K2', 'K3', 'K4', 'K5')},
+                  {'id': 'KY', 'goal': 'Tổng hợp @bef6476: hai cụm đầu', 'read': [shared], 'write': ['reviews/HAI.md'], 'depends': waits('K1', 'K2')},
+                  {'id': 'KX', 'goal': 'Tổng hợp @bef6476: một cụm', 'read': [shared], 'write': ['reviews/MOT.md'], 'depends': waits('K1')}]
+        names = self.names_or_fail(nodes)
+        self.assertEqual(names['KZ'], 'Tích hợp kết quả 5 việc con → viết INDEX.md')
+        self.assertEqual(names['KY'], 'Tổng hợp kết quả 2 việc con → viết HAI.md')
+        self.assertEqual(names['KX'], 'Tổng hợp MOT.md')                               # waits for one only: the verb and the file
+
+    def test_verb_only_goal_head_gets_object(self):
+        nodes = [self.review('A', ['src/Login/a.py', 'src/Login/b.py'], ['reviews/A.md'], goal='Review: đọc phần đăng nhập'),
+                 self.review('B', [], [], goal='Tích hợp'),
+                 self.review('C', ['src/Report/c.py'], ['reviews/C.md'], goal='Tổng hợp báo cáo: theo mẫu')]
+        names = self.names_or_fail(nodes)
+        self.assertEqual(names['A'], 'Rà soát src/Login (2 tệp) → viết A.md')        # "Review" alone is not a name
+        self.assertEqual(names['B'], 'Tích hợp')                                       # nothing to add from its work: the head as it is
+        self.assertEqual(names['C'], 'Tổng hợp báo cáo')                               # a verb with its object is a name
 
     # ---- rev 3 (I7): the "Phần việc" table ---------------------------------------------------------------------------------------------
     def test_part_table_uses_short_names(self):

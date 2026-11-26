@@ -25,7 +25,7 @@ Thêm trường `"role"` vào việc con trong tệp plan nội bộ:
 `"goal"` của việc con là câu giao việc cho AI, thường dài vài trăm ký tự. Trang theo dõi cần một tên đọc được ngay. Vì thế việc con có thể khai thêm `"title"`: tên ngắn cho người.
 
 ```json
-{"id": "K02", "goal": "Cụm 2 review vn-sign-sdk @bef6476 (node độc lập): đọc các tệp ...", "title": "Rà Signature.Domain (26 tệp)", "role": "review", "...": "các trường khác"}
+{"id": "K02", "goal": "Cụm 2 review vn-sign-sdk @bef6476 (node độc lập): đọc các tệp ...", "title": "Rà soát Signature.Domain (26 tệp)", "role": "review", "...": "các trường khác"}
 ```
 
 - `"title"` không bắt buộc. Đó là một dòng, dài 1 đến 80 ký tự, không để trống hay chỉ có dấu cách.
@@ -40,38 +40,71 @@ Thêm trường `"role"` vào việc con trong tệp plan nội bộ:
 
 Việc cũ trong sổ không có `"title"`. Trang đặt tên ngắn cho chúng theo thứ tự sau:
 
-1. **Phần đầu câu giao việc**: câu giao việc đến dấu `": "` hay `". "` đầu tiên. Một dấu `:` hay `.` không có dấu cách sau, như "3.5:1", không cắt câu. Phần đầu được dùng làm tên nếu nó ngắn và không phải chữ máy.
-2. **Tên lấy từ phần việc**, khi phần đầu là chữ máy. Chữ máy là phần đầu:
+1. **Phần đầu câu giao việc**: câu giao việc đến dấu `": "` hay `". "` đầu tiên. Một dấu `:` hay `.` không có dấu cách sau, như "3.5:1", không cắt câu. Phần đầu được dùng làm tên khi cả ba điều sau đều đúng:
+   - nó ngắn;
+   - nó không phải chữ máy;
+   - nó có thêm chữ ngoài một động từ. "Tổng hợp báo cáo" dùng được; "Tích hợp" hay "Review" một mình thì không.
+2. **Tên lấy từ phần việc**, bắt đầu bằng **động từ**, khi phần đầu là chữ máy hay chỉ là một động từ. Chữ máy là phần đầu:
    - có mã commit (7 đến 40 ký tự hex, có ít nhất một chữ số), hoặc
    - có dấu `@`, hoặc
    - dài hơn 40 ký tự.
 
-   Tên có dạng **`<thư mục> — <N> tệp → <tệp ghi>`**:
-   - **thư mục**: thư mục chung của các tệp riêng việc con đó đọc, lấy tên cuối. Không có thư mục chung thì là "gốc repo".
-   - **tệp riêng**: tệp mà dưới nửa số việc con của cùng plan đọc. Tệp mà nhiều việc con cùng đọc (như tài liệu chung) không được đếm, nên không kéo thư mục chung về gốc.
+   Tên có dạng **`<động từ> <thư mục> (<N> tệp) → viết|sửa <tệp ghi> (+K)`**:
+   - **động từ**: chữ đầu tiên trong 120 ký tự đầu của câu giao việc có trong bảng dưới. Không có chữ nào thì xét tệp:
+     - việc con ghi một tệp nó cũng đọc thì là "Sửa";
+     - ghi tệp khác thì là "Viết";
+     - chỉ đọc thì là "Đọc".
+   - **tệp riêng**: tệp mà dưới nửa số việc con của cùng plan đọc. Tệp nhiều việc con cùng đọc (như tài liệu chung) không được đếm.
+   - **thư mục**: thư mục sâu nhất chứa ít nhất nửa số tệp riêng, ghi bằng hai tên cuối, ví dụ "Signature.Domain/RestfulFactory". Không thư mục nào chứa được nửa thì là "gốc repo". Tên quá 70 ký tự thì thư mục chỉ ghi tên cuối.
    - **N**: số tệp riêng.
-   - **tệp ghi**: tên tệp đầu tiên việc con ghi.
-   - Phần nào không có thì bỏ. Không có tệp riêng thì thư mục lấy theo tệp ghi.
-3. Việc con không đọc tệp riêng nào và không ghi gì thì trang dùng lại phần đầu câu giao việc.
+   - **viết|sửa <tệp ghi>**: tên tệp đầu tiên việc con ghi. Chữ là "sửa" khi việc con cũng đọc chính tệp đó, không thì "viết". (+K) khi nó ghi thêm K tệp nữa.
+   - Việc con không đọc tệp riêng nào nhưng chờ từ 2 việc con trở lên: **`<động từ> kết quả <M> việc con → viết <tệp ghi>`**.
+   - Không có tệp riêng và không chờ việc nào nhưng có ghi: **`<động từ> <tệp ghi>`**.
+
+   | Chữ trong câu giao việc | Động từ trong tên |
+   |---|---|
+   | review, rà soát, soát | Rà soát |
+   | sửa, fix | Sửa |
+   | viết, write | Viết |
+   | thêm, add | Thêm |
+   | tạo, create | Tạo |
+   | kiểm tra, kiểm, test | Kiểm tra |
+   | tích hợp, integrate | Tích hợp |
+   | tổng hợp | Tổng hợp |
+   | đọc, read | Đọc |
+
+   Chữ được so cả từ, không phân biệt hoa thường. Ví dụ "tests" hay "test_a.py" không phải chữ "test".
+3. Không lấy được gì từ phần việc (không có động từ, hay không đọc riêng, không chờ, không ghi gì) thì trang dùng lại phần đầu câu giao việc.
 
 Mọi tên dài hơn 70 ký tự đều bị cắt và thêm `…`.
 
-Ví dụ: việc con K02 có câu giao việc "Cụm 2 review vn-sign-sdk @bef6476 (node độc lập): đọc 26 tệp …". Nó đọc 26 tệp chỉ mình nó đọc trong `src/Signature.Domain/`, cùng một tài liệu cả 35 việc con đều đọc, và ghi `reviews/K02.md`. Phần đầu câu có `@` nên là chữ máy. Tên ngắn là "Signature.Domain — 26 tệp → K02.md".
+Ví dụ trên plan rà soát 35 việc con:
 
-Tên lấy từ phần việc chỉ nói việc con đụng tới đâu, không nói nó làm gì. Vì thế tốt nhất vẫn là khai `"title"`.
+- K04 có câu giao việc "Cụm 4 review vn-sign-sdk @bef6476 (node độc lập): …". Phần đầu có `@` nên là chữ máy. Việc con này đọc 33 tệp riêng, phần lớn trong `…/Signature.Domain/RestfulFactory/`, và ghi `reviews/K04.md`. Tên ngắn là "Rà soát Signature.Domain/RestfulFactory (33 tệp) → viết K04.md".
+- KZ có câu giao việc "Tích hợp: …". Phần đầu chỉ là một động từ. Việc con này không đọc tệp riêng, chờ 34 việc con và ghi `INDEX.md`. Tên ngắn là "Tích hợp kết quả 34 việc con → viết INDEX.md".
 
-### Đặt tên nói nội dung
+Tên lấy từ phần việc chỉ nói việc con làm loại việc gì và đụng tới đâu. Nó không nói được nội dung, nên tốt nhất vẫn là khai `"title"`.
 
-Dặn người và AI lập plan: mỗi việc con nên có `"title"` viết cho người đọc, nói nội dung việc đó làm, không chỉ số thứ tự hay mã, và không chép lại câu giao việc. Ví dụ:
+### Đặt tên bắt đầu bằng động từ, nói nội dung
 
-- "Rà Signature.Domain (26 tệp)"
+Dặn người và AI lập plan: mỗi việc con nên có `"title"` viết cho người đọc:
+
+- bắt đầu bằng một động từ nói việc con làm gì;
+- nói nội dung, không chỉ số thứ tự hay mã;
+- không chép lại câu giao việc.
+
+Ví dụ:
+
+- "Sửa lỗi đăng nhập ở login.py"
+- "Rà soát Signature.Domain (26 tệp)"
 - "Tổng hợp 34 phần → mục lục báo cáo"
-- "BE viết hợp đồng API"
-- "Kiểm tích hợp, ghi quyết định"
+- "Viết hợp đồng API cho phần backend"
+- "Kiểm tra tích hợp, ghi quyết định"
 
 Tránh:
 
 - tên chỉ có số thứ tự hay mã, như "K02", "Phần 2/34" hay "Cụm 2 @bef6476";
+- tên không có động từ, như "Signature.Domain";
 - câu dài hơn một dòng.
 
 ## Bảng vai và vùng tệp (tùy chọn)
@@ -203,7 +236,7 @@ Script thử của chủ, `scripts/owner/thu-nhanvai.ps1`, dựng đúng sổ th
 - **Vùng tệp so theo tên đường dẫn**, cùng luật với hook ghi: đúng tệp, thư mục cha, hoặc glob, không phân biệt hoa thường. Nó không theo liên kết hay tên ngắn trên đĩa.
 - **Khối Danh sách task nằm trong chi tiết việc**, ở mục "Agent và việc nền", không nằm ở màn hình đầu. Khối chỉ có khi trang đã đọc đủ chi tiết của việc.
 - **Plan digest và trang Phiên Claude không hiện nhãn vai hay tên ngắn.** Chỉ engine state và trang theo dõi có nhãn; tên ngắn chỉ có trên trang theo dõi.
-- **Tên trang tự đặt cho việc cũ chỉ là phần đầu câu giao việc hay chỗ việc con đụng tới** (thư mục, số tệp, tệp ghi). Nó không nói việc con làm gì.
+- **Tên trang tự đặt cho việc cũ chỉ là phần đầu câu giao việc, hay động từ cùng chỗ việc con đụng tới** (thư mục, số tệp, tệp ghi). Nó không nói nội dung việc. Động từ có thể đoán sai khi câu giao việc dùng chữ trong bảng theo nghĩa khác.
   - Plan đã có trong sổ không được ghi thêm `"title"`. Muốn tên nói nội dung thì khai `"title"` ở lần sửa plan kế tiếp.
 - **Dòng tóm tắt chỉ đếm.** Nó không nói việc con nào chậm hay vì sao; xem từng dòng và các mục chờ của trang.
 - **"Chờ task" chỉ tính theo `depends` trong plan.** Việc con chờ người hay chờ tài nguyên dùng chung không hiện ở đây; những thứ đó nằm ở mục chờ và tài nguyên của trang theo dõi.
