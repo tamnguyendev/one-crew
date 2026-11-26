@@ -2,6 +2,8 @@
 
 Mỗi việc con (task) của plan nội bộ có thể mang một **nhãn vai** ngắn như `backend`, `frontend` hay `lead`. Trang theo dõi hiện nhãn này dưới tên việc con, kèm chữ trạng thái ở góc phải. Nhãn chỉ để hiện: nó không đổi cách giao, chạy hay kiểm việc con.
 
+Việc con cũng có thể mang một **tên ngắn** cho người (trường `"title"`), và khối Danh sách task có một **dòng tóm tắt** ở đầu. Xem các mục dưới.
+
 ## Khai nhãn vai cho một việc con
 
 Thêm trường `"role"` vào việc con trong tệp plan nội bộ:
@@ -17,6 +19,33 @@ Thêm trường `"role"` vào việc con trong tệp plan nội bộ:
 - `"role"` ở việc con khác hẳn `executor.role`. `executor.role` vẫn chỉ nhận `worker` như trước.
 - Đổi, thêm hay bỏ nhãn giữa hai bản plan không tính là đổi việc con. Thế hệ giữ nguyên, kết quả đã kiểm giữ nguyên, việc con không chạy lại.
   - Đổi mục tiêu, phạm vi tệp hay phụ thuộc thì vẫn tính là đổi, như trước.
+
+## Tên ngắn cho người: trường "title"
+
+`"goal"` của việc con là câu giao việc cho AI, thường dài vài trăm ký tự. Trang theo dõi cần một tên đọc được ngay. Vì thế việc con có thể khai thêm `"title"`: tên ngắn cho người.
+
+```json
+{"id": "K02", "goal": "Cụm 2 review vn-sign-sdk @bef6476 (node độc lập): đọc các tệp ...", "title": "Rà mã phần 2/34", "role": "review", "...": "các trường khác"}
+```
+
+- `"title"` không bắt buộc. Đó là một dòng, dài 1 đến 80 ký tự, không để trống hay chỉ có dấu cách.
+- Có xuống dòng, dài hơn 80 ký tự hay để trống thì plan bị từ chối, và lỗi nêu `title` của việc con nào.
+- Giống nhãn vai, `"title"` chỉ để hiện:
+  - nó không đổi cách giao, chạy hay kiểm việc con;
+  - `"goal"` vẫn là câu giao việc cho AI;
+  - đổi, thêm hay bỏ `"title"` giữa hai bản plan không tính là đổi việc con: thế hệ giữ nguyên, kết quả đã kiểm giữ nguyên, việc con không chạy lại.
+- Plan cũ không có `"title"` vẫn chạy y như trước.
+
+**Tên ngắn khi không có "title".** Trang lấy câu giao việc đến dấu `": "` hay `". "` đầu tiên. Dài hơn 70 ký tự thì cắt và thêm `…`. Ví dụ câu giao việc "Cụm 2 review vn-sign-sdk @bef6476 (node độc lập): đọc các tệp ..." có tên ngắn là "Cụm 2 review vn-sign-sdk @bef6476 (node độc lập)". Tên rút như vậy vẫn có thể là chữ máy, như mã commit hay mã cụm, nên tốt nhất là khai `"title"`.
+
+**Dặn người và AI lập plan:** mỗi việc con nên có `"title"` viết cho người đọc, nói việc đó làm gì, không chép lại câu giao việc. Ví dụ:
+
+- "Rà mã phần 2/34"
+- "Tổng hợp báo cáo"
+- "BE viết hợp đồng API"
+- "Kiểm tích hợp, ghi quyết định"
+
+Tránh tên chỉ có mã như "K02" hay "Cụm 2 @bef6476", và tránh câu dài hơn một dòng.
 
 ## Bảng vai và vùng tệp (tùy chọn)
 
@@ -58,9 +87,23 @@ Quy tắc giữ hay bỏ bảng:
 
 ## Chữ trạng thái trên trang theo dõi
 
-Khối **Danh sách task** nằm trong chi tiết việc, ở mục "Agent và việc nền", ngay trên bảng Phần việc (bảng này giữ nguyên). Mỗi việc con một dòng, theo thứ tự khai trong plan:
+Khối **Danh sách task** nằm trong chi tiết việc, ở mục "Agent và việc nền", ngay trên bảng Phần việc (bảng này giữ nguyên).
 
-- Bên trái: số thứ tự và tên việc con chữ đậm, dưới là `@vai` chữ đơn cách.
+Đầu khối là **dòng tóm tắt**. Dòng này chỉ lấy từ số liệu của sổ, không do AI viết, nên không thể nói khác sổ. Nó gồm, theo thứ tự:
+
+1. tên ngắn của việc;
+2. số việc con đã xong và đạt cổng trên tổng số, ví dụ "2/4 phần xong, cổng đạt";
+3. số việc con đang làm;
+4. số việc con bị giữ;
+5. số việc con của mỗi vai, vai nhiều nhất trước, ví dụ "34 @review, 1 @lead". Phần này không có khi không việc con nào khai nhãn.
+
+Ví dụ: "**Rà mã vn-sign-sdk** · 12/35 phần xong, cổng đạt · 3 đang làm · 0 bị giữ · 34 @review, 1 @lead".
+
+Dưới dòng tóm tắt, mỗi việc con một dòng, theo thứ tự khai trong plan:
+
+- Bên trái: số thứ tự và tên ngắn của việc con, chữ đậm, dưới là `@vai` chữ đơn cách.
+  - Tên ngắn là `"title"` nếu có, không thì rút từ câu giao việc (xem mục trên).
+  - Bấm vào dòng thì mở ra cả câu giao việc (`"goal"`). Bấm lần nữa thì gập lại. Trang tự làm mới vẫn giữ dòng đang mở.
 - Góc phải: chữ trạng thái, lấy từ chính sổ:
 
 | Chữ | Màu | Khi nào |
@@ -82,6 +125,11 @@ Dữ liệu tương ứng: `engine state` và chi tiết việc của trang theo
 
 Chi tiết việc của trang theo dõi có thêm `role_area`: mục báo vùng tệp của việc con đó, hoặc null.
 
+Chi tiết việc cũng có, ở cấp việc:
+
+- `node_titles`: tên ngắn của mỗi việc con, là `"title"` hoặc tên rút từ câu giao việc. Bảng Phần việc và dòng thời gian cũng dùng tên này.
+- `node_goals`: cả câu giao việc của mỗi việc con.
+
 ## Ví dụ: bốn việc con như ảnh của chủ (25/11)
 
 ```json
@@ -102,6 +150,7 @@ Giả sử BE1 và BE2 đã kiểm đạt, FE đang chạy, LEAD chưa chạy. T
 
 ```
 DANH SÁCH TASK
+NHANVAI thử · 2/4 phần xong, cổng đạt · 1 đang làm · 0 bị giữ · 2 @backend, 1 @frontend, 1 @lead
 1. BE viết hợp đồng API                 xong · cổng đạt
    @backend
 2. BE làm API                           xong · cổng đạt
@@ -123,6 +172,8 @@ Script thử của chủ, `scripts/owner/thu-nhanvai.ps1`, dựng đúng sổ th
 - **Việc con không khai nhãn không bị so với bảng.** Bảng vai không bắt mọi việc con phải có nhãn.
 - **Vùng tệp so theo tên đường dẫn**, cùng luật với hook ghi: đúng tệp, thư mục cha, hoặc glob, không phân biệt hoa thường. Nó không theo liên kết hay tên ngắn trên đĩa.
 - **Khối Danh sách task nằm trong chi tiết việc**, ở mục "Agent và việc nền", không nằm ở màn hình đầu. Khối chỉ có khi trang đã đọc đủ chi tiết của việc.
-- **Plan digest và trang Phiên Claude không hiện nhãn vai.** Chỉ engine state và trang theo dõi có nhãn.
+- **Plan digest và trang Phiên Claude không hiện nhãn vai hay tên ngắn.** Chỉ engine state và trang theo dõi có nhãn; tên ngắn chỉ có trên trang theo dõi.
+- **Tên rút từ câu giao việc chỉ là phần đầu của câu**, có thể là chữ máy. Plan đã có trong sổ không được ghi thêm `"title"`; muốn tên đọc được thì khai `"title"` ở lần sửa plan kế tiếp.
+- **Dòng tóm tắt chỉ đếm.** Nó không nói việc con nào chậm hay vì sao; xem từng dòng và các mục chờ của trang.
 - **"Chờ task" chỉ tính theo `depends` trong plan.** Việc con chờ người hay chờ tài nguyên dùng chung không hiện ở đây; những thứ đó nằm ở mục chờ và tài nguyên của trang theo dõi.
 - **Chữ trạng thái lấy từ sổ lúc trang đọc**, không phải dự đoán: "đang làm" nghĩa là sổ ghi việc con đã bắt đầu và chưa có đầu ra.

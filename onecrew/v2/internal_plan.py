@@ -57,7 +57,10 @@ def influence_projection(nodes):
 # executor.role = worker), it never changes how a node runs, and it is left out of every comparison of a node between two revisions,
 # so relabelling a node does not move its generation. ROLE is the label's form: a short lowercase word.
 ROLE = re.compile(r'[a-z0-9][a-z0-9-]{0,23}')
-LABELS = ('role',)
+# TENTASK: a sub-task's optional short name for people ("title": "Rà mã phần 2/34") is a display label too: one line, 1 to 80
+# characters; "goal" stays the instruction given to the AI. Both labels are left out of every comparison of a node.
+TITLE_MAX = 80
+LABELS = ('role', 'title')
 
 
 def role_label(value, name='node role'):
@@ -67,18 +70,32 @@ def role_label(value, name='node role'):
     return value
 
 
+def title_label(value, name='node title'):
+    """TENTASK: the short name for people of a sub-task: a string of 1 to 80 characters on one line, not blank."""
+    if (not isinstance(value, str) or not value.strip() or len(value) > TITLE_MAX
+            or any(ch in value for ch in '\r\n\v\f\x85  ')):
+        raise LedgerError(name + ': "title" is the short name for people, one line of 1 to ' + str(TITLE_MAX)
+                          + ' characters, like "Rà mã phần 2/34"; got ' + repr(value)[:60] + '.')
+    return value
+
+
 def without_labels(node):
-    """The node as the engine compares it: display labels (role) left out. None stays None."""
+    """The node as the engine compares it: display labels (role, title) left out. None stays None."""
     return None if node is None else {key: value for key, value in node.items() if key not in LABELS}
 
 
-def _labelled(nodes, roles_by_id):
-    """`nodes` with each node's role taken from `roles_by_id` (removed where it has none): used to hand a revision to a comparison
-    outside this module (repair_tasks) so a relabelled node does not count as changed there either."""
+def _labels_of(nodes):
+    """{node id: {label: value}} of the display labels the nodes carry."""
+    return {node['id']: {key: node[key] for key in LABELS if node.get(key) is not None} for node in nodes}
+
+
+def _labelled(nodes, labels_by_id):
+    """`nodes` with each node's display labels taken from `labels_by_id` ({id: {label: value}}; removed where it has none): used to
+    hand a revision to a comparison outside this module (repair_tasks) so a relabelled or renamed node does not count as changed there either."""
     result = []
     for node in nodes:
         bare = without_labels(node)
-        if roles_by_id.get(bare['id']) is not None: bare['role'] = roles_by_id[bare['id']]
+        bare.update(labels_by_id.get(bare['id']) or {})
         result.append(bare)
     return result
 
@@ -230,11 +247,13 @@ def _validate(nodes, outputs):
               'estimate_seconds', 'execution_cap_seconds', 'budget_calls', 'checks', 'integration'}
     result, known = copy.deepcopy(nodes), set()
     for node in result:
-        if not isinstance(node, dict) or not fields <= set(node) or set(node) - fields - {'executor', 'indivisible', 'sources', 'role'}:
+        if not isinstance(node, dict) or not fields <= set(node) or set(node) - fields - {'executor', 'indivisible', 'sources', 'role', 'title'}:
             raise LedgerError('Internal node fields must explicitly declare goal, inputs/outputs, acceptance, dependencies, scope, resources, estimate, cap, budget and checks.')
         contracts._id(node['id'], 'node id')
         if 'role' in node:                          # NHANVAI: optional display label of the sub-task; not executor.role
             role_label(node['role'], 'node ' + node['id'] + ' role')
+        if 'title' in node:                         # TENTASK: optional short name for people; the goal stays the AI's instruction
+            title_label(node['title'], 'node ' + node['id'] + ' title')
         if 'executor' in node:
             pin = node['executor']
             if (not isinstance(pin, dict) or set(pin) != {'role', 'provider', 'model'} or pin['role'] != 'worker'
@@ -393,11 +412,11 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None,
         # W19 (T38c): a node whose generation this revision moves cannot keep a repair marker bound to its old generation.
         from . import repair_tasks
         moved = affected_revision(old_nodes, normalized, contract_changed=before.get('contract_sha') not in (None, state['approved']['sha']))
-        # NHANVAI: repair_tasks compares whole nodes; it sees the old labels, and the new labels are put back on what it returns
-        new_roles = {n['id']: n.get('role') for n in normalized}
+        # NHANVAI/TENTASK: repair_tasks compares whole nodes; it sees the old labels (role, title), and the new labels are put back on what it returns
+        new_labels = _labels_of(normalized)
         normalized = _labelled(repair_tasks.rebind_revised(ledger, state['selector'], old_nodes,
-                                                           _labelled(normalized, {n['id']: n.get('role') for n in old_nodes}), moved,
-                                                           expected_revision=before['internal_revision']), new_roles)
+                                                           _labelled(normalized, _labels_of(old_nodes)), moved,
+                                                           expected_revision=before['internal_revision']), new_labels)
     with ledger.transaction() as conn:
         _admit_revision(ledger,conn,state,before,normalized)
     counted, reused = _to_come(ledger, state, old_nodes, normalized, before)

@@ -1022,6 +1022,9 @@ details.badge>summary::-webkit-details-marker{display:none}details.badge>summary
 .tlist code.tl-role{display:block;margin:3px 0 0;padding:0;background:none;border-radius:0;font:13px/1.3 ui-monospace,Consolas,monospace;color:var(--ink2);word-break:normal}
 .tl-st{flex:none;font:13px/1.4 ui-monospace,Consolas,monospace;white-space:nowrap;text-align:right;padding-top:1px}
 .tl-st.ok{color:var(--ok)}.tl-st.run{color:var(--wait)}.tl-st.wait{color:var(--idle)}.tl-st.bad{color:var(--fail)}.tl-out{margin-top:3px;font-size:12.5px;color:var(--fail)}
+.tl-sum{margin:0 0 6px;font-size:13.5px;line-height:1.5;color:var(--ink2);overflow-wrap:anywhere}.tl-sum b{color:var(--ink);font-weight:600}
+.tl-open summary{cursor:pointer;list-style:none}.tl-open summary::-webkit-details-marker{display:none}.tl-open summary:hover>span{text-decoration:underline}
+.tl-goal{margin:6px 0 2px;font-size:13.5px;line-height:1.5;color:var(--ink2);white-space:pre-wrap;overflow-wrap:anywhere}
 </style></head><body data-view="list">
 @@SPRITE@@
 @@HEADER@@
@@ -1307,10 +1310,22 @@ function taskStatus(n,num){n=n||{};
   var w=(n.waits_for||[]).map(function(id){return num[id]||id});
   if(w.length)return ['wait','chờ task '+w.join(', ')];
   return ['wait','chưa bắt đầu']}
-function taskList(d){var ids=Object.keys(d.nodes||{});if(!ids.length)return '';var num={},titles=d.node_titles||{};ids.forEach(function(id,i){num[id]=i+1});
-  return '<section class="tlist" aria-label="Danh sách task"><h3>Danh sách task</h3><ol>'+ids.map(function(id){var n=d.nodes[id]||{},s=taskStatus(n,num),a=n.role_area;
+// TENTASK: one summary line above the rows, from ledger figures only (no AI text): the plan's short name, how many sub-tasks are done with
+// their gate passed out of all, how many are being worked on, how many are held, and how many sub-tasks each role has (most first).
+// Each row's name is the sub-task's short name (node_titles: its "title", else the head of its goal); opening the row shows the whole goal.
+function taskSummary(d,ids){var done=0,run=0,held=0,roles={},order=[];
+  ids.forEach(function(id){var n=d.nodes[id]||{};if(n.state==='verified'||n.state==='accepted')done++;if(n.phase==='running')run++;if(n.phase==='held')held++;
+    if(n.role){if(!roles[n.role]){roles[n.role]=0;order.push(n.role)}roles[n.role]++}});
+  order.sort(function(a,b){return roles[b]-roles[a]||order.indexOf(a)-order.indexOf(b)});
+  var name=d.row_title||d.short_title||d.plan||'',parts=[done+'/'+ids.length+' phần xong, cổng đạt',run+' đang làm',held+' bị giữ'];
+  if(order.length)parts.push(order.map(function(r){return roles[r]+' @'+r}).join(', '));
+  return '<p class="tl-sum">'+(name?'<b>'+esc(name)+'</b> · ':'')+esc(parts.join(' · '))+'</p>'}
+function taskList(d){var ids=Object.keys(d.nodes||{});if(!ids.length)return '';var num={},titles=d.node_titles||{},goals=d.node_goals||{};ids.forEach(function(id,i){num[id]=i+1});
+  return '<section class="tlist" aria-label="Danh sách task"><h3>Danh sách task</h3>'+taskSummary(d,ids)+'<ol>'+ids.map(function(id){var n=d.nodes[id]||{},s=taskStatus(n,num),a=n.role_area;
     var note=a&&a.kind==='role_not_in_table'?'vai @'+n.role+' không có trong bảng vai của plan':a?'ghi ngoài vùng của @'+n.role+': '+(a.paths||[]).join(', '):'';
-    return '<li data-node="'+esc(id)+'"><div class="tl-name"><b>'+num[id]+'.</b> <span>'+esc(titles[id]||id)+'</span>'+(n.role?'<code class="tl-role">@'+esc(n.role)+'</code>':'')
+    var head='<b>'+num[id]+'.</b> <span>'+esc(titles[id]||id)+'</span>'+(n.role?'<code class="tl-role">@'+esc(n.role)+'</code>':'');
+    var name=goals[id]?'<details class="tl-open" data-k="tl:'+esc(id)+'"><summary title="Mở để xem cả câu đã giao cho AI">'+head+'</summary><div class="tl-goal">'+esc(goals[id])+'</div></details>':head;
+    return '<li data-node="'+esc(id)+'"><div class="tl-name">'+name
       +(note?'<div class="tl-out">'+esc(note)+'</div>':'')+'</div><span class="tl-st '+s[0]+'">'+esc(s[1])+'</span></li>'}).join('')+'</ol></section>'}
 function legacyNodes(d){var h=[taskList(d)];
   var ns=Object.keys(d.nodes||{});if(ns.length){h.push('<h3>Phần việc</h3><div class="scroll"><table><thead><tr><th>Phần việc</th><th>Trạng thái</th><th>Đầu ra</th><th>Thế hệ</th><th>Quan sát gần nhất</th></tr></thead><tbody>');

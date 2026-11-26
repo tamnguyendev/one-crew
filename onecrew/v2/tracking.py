@@ -217,6 +217,22 @@ def short_title(title, limit=64):
     return (head[:cut] if cut > 0 else head).rstrip(' ,;:—-(') + '…'
 
 
+NODE_NAME = 70          # TENTASK: the longest short name taken from a goal, '…' included
+NODE_GOAL = 4000        # TENTASK: the whole goal of a sub-task in the detail (real goals measured 26/11: 278 to 1000 characters)
+
+
+def node_name(node):
+    """TENTASK: the name of a sub-task on the tracking page. Its "title" (the short name for people) when it has one; else its goal up to
+    the first ': ' or '. ', at most NODE_NAME characters (cut with '…'). None when neither gives a word (the page shows the id)."""
+    title = node.get('title')
+    if isinstance(title, str) and title.strip(): return clean(' '.join(title.split()), 80)
+    text = ' '.join(str(node.get('goal') or '').split())
+    ends = [i for i in (text.find(': '), text.find('. ')) if i > 0]
+    head = (text[:min(ends)] if ends else text).strip()
+    if len(head) > NODE_NAME: head = head[:NODE_NAME - 1].rstrip() + '…'
+    return clean(head, None) or None
+
+
 ROW_TITLE = 80
 
 
@@ -1344,7 +1360,9 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200, observe=Non
             'compared_at': compared_at,          # UI58 MC: when the views were compared with the project (the list: the task page's last comparison, or None)
             'compared_by': ('task_page' if compared_at else None) if not engine_root else None,
             'created_at': row['created_at'], 'started_at': first_started, 'has_started': has_started, 'deadline': None,
-            'node_titles': {n['id']: clean(n.get('goal'), 200) for n in ((engine_view or {}).get('definition') or {}).get('nodes', [])},
+            # TENTASK: a sub-task's name for people (its "title", else the head of its goal); the whole goal, the instruction given to the AI, in node_goals
+            'node_titles': {n['id']: node_name(n) for n in ((engine_view or {}).get('definition') or {}).get('nodes', [])},
+            'node_goals': {n['id']: clean(n.get('goal'), NODE_GOAL) for n in ((engine_view or {}).get('definition') or {}).get('nodes', [])},
             'root_status': state['status'],
             'status': {'kind': kind, 'label': OUTCOME_WORDS[outcome] if outcome else (STOPPED_WORD if stopped_now else WORDS[kind]), 'outcome': outcome, 'reason': clean(reason, 600), 'source': sources},
             'level': {'kind': level, 'label': LEVEL_WORDS[level]},
