@@ -125,9 +125,21 @@ A ledger may choose its own port in a `tracking.json` file placed directly in th
 - Without the file, a free port is used as before and the server stops after 30 minutes without a viewer.
 - `--port N` always overrides the file; `--port 0` always takes a free port.
 - If the port is busy: when this ledger's own tracking server holds it, that address is reused; when anything else holds it, the command reports the port and stops without opening another one. Change the port in `tracking.json` or stop the other program.
-- A malformed `tracking.json` (not `{"port": N}` with N from 1 to 65535) is an error.
+- A malformed `tracking.json` (not `{"port": N}` with N from 1 to 65535) is an error. A file without `port` is accepted only when it has one of the keys of the next section.
 - The page is served to this machine only (127.0.0.1).
 - `onecrew track status` shows whether this ledger's server can be reused; `track open --no-browser` only prints the URL.
+
+### One page over several ledgers
+
+`onecrew track open --so <state root>` (and `track serve`; repeat `--so` for each ledger) or `"so"` in `tracking.json` shows other ledgers of this machine on the same page. Every ledger is opened read-only.
+
+- One task list with a ledger label on each row and a switch to filter by ledger; plans from older OneCrew versions are marked "kiểu cũ".
+- The Claude sessions view (`#phien`) holds the open tasks (not accepted, not closed, older-style plans left out), session cards, the lanes of the latest session and the stream of hand-overs.
+- `"de_xuat_tu": "<markdown file>"` shows that file's bullets as proposals waiting for you; the file is only read.
+- `"phien_claude_thu_muc": [...]` lists the Claude transcript folders the page may read for session names, hand-over details and the `BƯỚC: …` lines agents write before a step. Those lines are shown as unverified and count for nothing. No folder is read unless listed; text is masked by pattern, which is not a guarantee.
+- Without `--so` and these keys the page is unchanged.
+
+Details (Vietnamese): [docs/trang-gop.vi.md](docs/trang-gop.vi.md).
 
 ### Three roles: owner, exchange session, coordinator
 

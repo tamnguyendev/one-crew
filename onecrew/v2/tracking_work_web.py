@@ -211,7 +211,7 @@ function agoShort(t){var d=new Date(t);if(!t||isNaN(d))return '';var s=Math.roun
 function updatedOf(t){return (t.last_update||{}).at||t.created_at||null}
 function projName(p){var s=String(p||'').replace(/[\\\/]+$/,'');return s.split(/[\\\/]/).pop()||s}
 function rowLine(t){var u=updatedOf(t),n=(t.needs_user||[]).length;
-  return '<span class="gut">'+stateIcon(t)+'</span><span class="sline"><span class="tname">'+esc(shortName(t))+'</span>'+segBar(t,'mini',6)+'</span><span class="rmeta">'+(n?'<span class="chip t-need">cần bạn</span>':'')
+  return '<span class="gut">'+stateIcon(t)+'</span><span class="sline"><span class="tname">'+esc(shortName(t))+'</span>'+segBar(t,'mini',6)+'</span><span class="rmeta">'+(t.so?'<span class="chip sotag" title="Sổ của việc này">'+esc(t.so.label)+(t.so.old?' · kiểu cũ':'')+'</span>':'')+(n?'<span class="chip t-need">cần bạn</span>':'')
     +(u?'<time data-ago="'+esc(u)+'" title="Cập nhật '+when(u)+'">'+agoShort(u)+'</time>':'<time>chưa có</time>')+'</span>'}
 function workRows(rows){var own=rows.filter(function(t){return (t.needs_user||[]).length}),rest=rows.filter(function(t){return !(t.needs_user||[]).length});   // UIMOCK: the mockup's one-line rows
   return '<ul class="lrows" role="listbox" aria-label="Danh sách công việc">'+(own.length&&rest.length?'<li class="grp" role="presentation">Cần bạn</li>':'')+own.map(row).join('')+(own.length&&rest.length?'<li class="grp" role="presentation">Các việc khác</li>':'')+rest.map(row).join('')+'</ul>'}
@@ -366,7 +366,7 @@ function deepLater(){var asked=typeof deepWanted!=='undefined'&&deepWanted,faile
   return '<p class="small mut deep-wait">'+(failed?ic('warn','sm','wait')+'Chưa đọc được chi tiết đầy đủ: xem dòng báo lỗi phía trên.':asked?ic('clock','sm')+'Đang lấy chi tiết từ sổ và so với bản hiện tại của dự án (vài giây)…'
     :'Mở mục này để trang đọc đủ chi tiết của việc từ sổ (dòng thời gian, bằng chứng, so với bản hiện tại của dự án).')+'</p>'}
 function deepSafe(d,k){try{return deepBody(d,k)}catch(e){return '<p class="small mut">Chưa vẽ được phần này: '+esc(String(e&&e.message||e).slice(0,160))+'</p>'}}
-function histLink(d,path,label,icon){var q=urlOf({plan:d.selector,project:d.project_id});return '<a class="golink" href="'+path+esc(q)+'">'+ic(icon,'sm')+esc(label)+'</a>'}
+function histLink(d,path,label,icon){var q=urlOf({plan:d.selector,project:d.project_id,so:typeof selected!=='undefined'&&selected?selected.so:''});return '<a class="golink" href="'+path+esc(q)+'">'+ic(icon,'sm')+esc(label)+'</a>'}
 function deepCount(d,k){var w=d.work||{},rows=msRowsOf(d);
   if(k==='loop')return rows.length?rows.length+' mốc':(d.nodes_summary||{}).total?(d.nodes_summary.total+' phần'):'không có';
   if(k==='repair'){if(d.milestone_checks){var n=0;(d.milestone_checks.rows||[]).forEach(function(r){(r.checks||[]).forEach(function(c,i){if(i>0&&r.checks[i-1].result&&r.checks[i-1].result!=='pass')n++})});return n?n+' lần sửa':'không có'}

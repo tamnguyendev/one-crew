@@ -80,7 +80,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from ..ledger import LedgerError, utcnow
-from . import tracking, tracking_dashboard, tracking_direction, tracking_host_web, tracking_list, tracking_sessions
+from . import tracking, tracking_dashboard, tracking_direction, tracking_gop, tracking_host_web, tracking_list, tracking_sessions
 
 DEFAULT_PORT = 0                                 # URL9692 rev 3 (D1): a ledger without tracking.json keeps a free port, as 191a58f
 PORT_FILE = 'tracking.json'                      # <state root>/tracking.json: {"port": N}, this ledger's own fixed port (URL9692 D1)
@@ -120,6 +120,8 @@ def default_port(state_root):
         value = json.loads(path.read_text(encoding='utf-8-sig'))
     except (OSError, ValueError) as error:
         raise LedgerError(f'{PORT_FILE} của sổ không đọc được ({type(error).__name__}): cần {{"port": N}}, N từ 1 đến 65535.') from None
+    if isinstance(value, dict) and 'port' not in value and any(k in value for k in tracking_gop.KEYS):
+        return DEFAULT_PORT                      # TRANGGOP: a file that only names ledgers, proposals or transcript folders
     port = value.get('port') if isinstance(value, dict) else None
     if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
         raise LedgerError(f'{PORT_FILE} của sổ phải có dạng {{"port": N}}, N từ 1 đến 65535 (đang là {str(port if isinstance(value, dict) else value)[:40]!r}).')
@@ -149,7 +151,12 @@ def _port_taken(host, port):
         probe.close()
 
 
-def holder(host, port, state_root, project_id, here=None):
+def so_ids(so):
+    """The identity of the extra ledgers a server was started with (`--so`), as /api/health reports them."""
+    return sorted({tracking_gop.ledger_id(path) for path in so or ()})
+
+
+def holder(host, port, state_root, project_id, here=None, so=()):
     """(kind, health, why) of what holds a fixed port: 'same' = this ledger's own tracking server with the same wheel version and scope (it may
     be reused), 'tracker' = a OneCrew tracking server that may not be reused (`why` says why), 'other' = anything else."""
     health = identity(_url_at(host, port))
@@ -161,6 +168,8 @@ def holder(host, port, state_root, project_id, here=None):
         return 'tracker', health, f"server theo dõi của chính sổ này nhưng phiên bản khác ({health.get('version')})"
     if (health.get('project_id') or None) != (project_id or None):
         return 'tracker', health, 'server theo dõi của chính sổ này nhưng phạm vi dự án khác'
+    if (health.get('so') or []) != so_ids(so):
+        return 'tracker', health, 'server theo dõi của chính sổ này nhưng sổ thêm (--so) khác'
     return 'same', health, None
 
 
@@ -176,7 +185,7 @@ def busy_message(port, why=None):
 def _adopted(health, url, state_root):
     """A marker record for this ledger's own server found on its fixed port without a marker naming it (its fields from its /api/health)."""
     return {'url': url, 'pid': health.get('pid'), 'instance': health.get('instance'), 'version': health.get('version'),
-            'state_root': str(Path(state_root).resolve()), 'state_root_id': health.get('state_root_id'), 'project_id': health.get('project_id'),
+            **({'so': health['so']} if health.get('so') else {}), 'state_root': str(Path(state_root).resolve()), 'state_root_id': health.get('state_root_id'), 'project_id': health.get('project_id'),
             'poll_seconds': health.get('poll_seconds'), 'read_only': True, 'started_at': health.get('started_at')}
 SERVER_NAME = 'OneCrewTrack/2'
 LOCK_STALE_SECONDS = 60
@@ -221,10 +230,28 @@ class _ViewerServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0, idle_exit=None, instance=None, comparison=True):
+def _gop_page(page, view):
+    """TRANGGOP: the work page with the ledger switch and the merged Phiên Claude section (hash #phien); #viec is the work list itself."""
+    switch, section = tracking_gop.render(view)
+    text = page.decode('utf-8')
+    text = text.replace('</style></head>', tracking_gop.STYLE + '</style></head>', 1)
+    text = text.replace('<main id="main"', switch + section + '<main id="main"', 1)
+    text = text.replace('href="/sessions" data-nav="sessions"', 'href="#phien" data-nav="sessions"', 1)
+    text = text.replace('href="/" data-nav="work"', 'href="#viec" data-nav="work"', 1)
+    text = text.replace('</body></html>', '<script>' + tracking_gop.SCRIPT + '</script></body></html>', 1)
+    return text.encode('utf-8')
+
+
+def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0, idle_exit=None, instance=None, comparison=True, so=()):
     state_root = Path(state_root).resolve()
+    so = tuple(str(Path(path).resolve()) for path in so or ())
+    for path in so:
+        if not (Path(path) / 'ledger.sqlite3').is_file():
+            raise LedgerError(f'--so {Path(path).name}: không có sổ ở thư mục đó (thiếu tệp sổ); không mở trang.')
     identity = {'instance': instance or secrets.token_hex(8), 'version': version(), 'state_root': str(state_root), 'state_root_id': root_id(state_root),
                 'project_id': project_id, 'pid': os.getpid()}
+    if so:
+        identity['so'] = so_ids(so)
     if not comparison:
         identity.update(comparison='off', note=COPY_NOTE)
     stats = {'requests': 0, 'last_read_ms': None, 'last_request': time.monotonic(), 'started_at': utcnow(), 'errors': 0}
@@ -278,41 +305,67 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
 
         do_POST = do_PUT = do_DELETE = do_PATCH = _refuse
 
+        def _local(self):
+            host = urllib.parse.urlsplit('//' + self.headers.get('Host', '')).hostname
+            return self.client_address[0] in ('127.0.0.1', '::1') and host in ('localhost', '127.0.0.1', '::1')
+
+        def _view(self):
+            """TRANGGOP: the merged view of this request (tracking.json is read again), or None: the page of one ledger, as before."""
+            if not comparison or not self._local():
+                return None
+            view = tracking_gop.settings(state_root, so)
+            return view if view['active'] else None
+
         def do_GET(self):
             stats['requests'] += 1; stats['last_request'] = time.monotonic()
             url = urllib.parse.urlsplit(self.path)
             if stats.get('refuse_api') and url.path.startswith('/api/'):   # tests only: in-process flag, never settable over HTTP
                 self.close_connection = True; self.connection.close(); return
             q = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
-            if project_id and q.get('project_id') and q['project_id'] != project_id:       # P2-04: a query may narrow the server's scope, never widen it
+            extra = q.get('so') if q.get('so') != tracking_gop.ledger_id(state_root) else None   # TRANGGOP: another shown ledger
+            if project_id and not extra and q.get('project_id') and q['project_id'] != project_id:       # P2-04: a query may narrow the server's scope, never widen it
                 return self._send(HTTPStatus.FORBIDDEN, {'error': f'ngoài phạm vi: server này chỉ theo dõi project {project_id[:12]}…; project_id khác không được mở',
                                                          'read_only': True, 'project_id': project_id})
-            scope = q.get('project_id') or project_id
+            scope = q.get('project_id') or (None if extra else project_id)
             try:
+                root = state_root
+                if extra:
+                    view = self._view()
+                    if view is None:
+                        return self._send(HTTPStatus.FORBIDDEN, {'error': 'Sổ khác chỉ mở trên trang gộp của máy này.', 'read_only': True})
+                    root = tracking_gop.ledger_root(view, extra)       # only a shown ledger: a request never names a folder
                 if url.path in ('/sessions', '/direction'):
-                    host = urllib.parse.urlsplit('//' + self.headers.get('Host', '')).hostname
-                    if self.client_address[0] not in ('127.0.0.1', '::1') or host not in ('localhost', '127.0.0.1', '::1'):
+                    if not self._local():
                         return self._send(HTTPStatus.FORBIDDEN, {'error': 'Chỉ mở lịch sử của việc trên máy này.'})
                     if not q.get('plan'):              # UIMOCK: the shell's "Phiên Claude" / "Hướng đi" with no task: pick one
-                        return self._html(tracking_sessions.picker_page(state_root, scope, url.path))
-                    if url.path == '/direction':
-                        return self._html(tracking_direction.page(state_root, q['plan'], scope, q))
-                    return self._html(tracking_sessions.page(state_root, q['plan'], scope, q.get('session'), comparison=comparison))
+                        body = tracking_sessions.picker_page(root, scope, url.path)
+                    elif url.path == '/direction':
+                        body = tracking_direction.page(root, q['plan'], scope, q)
+                    else:
+                        body = tracking_sessions.page(root, q['plan'], scope, q.get('session'), comparison=comparison)
+                    if extra:                           # the links of these pages stay on the same ledger
+                        for path in (b'/sessions?', b'/direction?'):
+                            body = body.replace(b'href="' + path, b'href="' + path + b'so=' + extra.encode('ascii') + b'&amp;')
+                    return self._html(body)
                 if url.path == '/overview':
-                    return self._html(tracking_dashboard.page(state_root, scope, comparison=comparison))
+                    return self._html(tracking_dashboard.page(root, scope, comparison=comparison))
                 if url.path in ('/', '/index.html'):
-                    return self._html(page)
+                    view = self._view()
+                    return self._html(page if view is None else _gop_page(page, view))
                 if url.path == '/api/health':
                     return self._send(HTTPStatus.OK, {'ok': True, 'generated_at': utcnow(), 'poll_seconds': interval, 'read_only': True, 'server': SERVER_NAME, **identity,
                                                       **{k: stats[k] for k in ('requests', 'last_read_ms', 'started_at', 'errors')}})
                 if url.path == '/api/overview':
                     started = time.perf_counter()
-                    if any(k in q for k in tracking_list.LIST_KEYS):          # OBS-2C: one page of the list (stable order, filters on the ledger)
+                    view = None if extra else self._view()
+                    if view is not None:                                      # TRANGGOP: one list of every shown ledger, whole (no paging)
+                        value = tracking_gop.cached_overview(view, project_id=scope, comparison=False)
+                    elif any(k in q for k in tracking_list.LIST_KEYS):          # OBS-2C: one page of the list (stable order, filters on the ledger)
                         try: tracking_list.params(q)
                         except ValueError as error: return self._send(HTTPStatus.BAD_REQUEST, {'error': str(error), 'read_only': True})
-                        value = tracking_list.page(state_root, q, project_id=scope, reuse_seconds=tracking.REUSE_SECONDS, comparison=comparison)
+                        value = tracking_list.page(root, q, project_id=scope, reuse_seconds=tracking.REUSE_SECONDS, comparison=comparison)
                     else:
-                        value = tracking.overview(state_root, project_id=scope, reuse_seconds=tracking.REUSE_SECONDS, comparison=comparison)
+                        value = tracking.overview(root, project_id=scope, reuse_seconds=tracking.REUSE_SECONDS, comparison=comparison)
                     stats['last_read_ms'] = round((time.perf_counter() - started) * 1000, 1)
                     if comparison:
                         tracking_host_web.attach(value, state_root)
@@ -325,15 +378,15 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
                     if not 1 <= limit <= 5000: return self._send(HTTPStatus.BAD_REQUEST, {'error': 'timeline: 1-5000'})
                     started = time.perf_counter()
                     if q.get('part') == 'head':        # UIMOCK D4: the four tiles first; the timeline, evidence and comparison come with "Xem sâu"
-                        value = tracking.head(state_root, q['plan'], project_id=scope, reuse_seconds=tracking.REUSE_SECONDS, comparison=comparison)
+                        value = tracking.head(root, q['plan'], project_id=scope, reuse_seconds=tracking.REUSE_SECONDS, comparison=comparison)
                     else:
-                        value = tracking.detail(state_root, q['plan'], project_id=scope, timeline_limit=limit,
+                        value = tracking.detail(root, q['plan'], project_id=scope, timeline_limit=limit,
                                                 reuse_seconds=tracking.REUSE_SECONDS, comparison=comparison)
                     value['server'] = {'pid': os.getpid(), 'instance': identity['instance'], 'read_ms': round((time.perf_counter() - started) * 1000, 1), 'poll_seconds': interval}
                     return self._send(HTTPStatus.OK, value)
                 if url.path == '/api/evidence':
                     if not q.get('plan') or not q.get('key'): return self._send(HTTPStatus.BAD_REQUEST, {'error': 'thiếu plan hoặc key'})
-                    value = tracking.evidence(state_root, q['plan'], q['key'], project_id=scope)
+                    value = tracking.evidence(root, q['plan'], q['key'], project_id=scope)
                     if q.get('format') == 'text':
                         head = (f"# {'ảnh chụp' if value.get('kind') == 'manifest' else 'blob'} {value['key']} ({value['bytes']} bytes"
                                 + (f", {value.get('files')} tệp" if value.get('kind') == 'manifest' else '') + f"{', cắt' if value['truncated'] else ''}); lọc bí mật: {value['redaction']['rule']}\n\n")
@@ -382,16 +435,16 @@ def _read_marker(path):
         return None
 
 
-def serve(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0, announce=None, idle_exit=None, comparison=True, browser=False):
+def serve(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0, announce=None, idle_exit=None, comparison=True, browser=False, so=()):
     """Run in this process until Ctrl+C. Prints one JSON line with the URL first; with `announce`, also writes it to that marker file (atomically).
     URL9692: a fixed port already held by this ledger's own server is reported as that server's address (`reused`, exit 0, nothing started);
     held by anything else, it is a LedgerError naming the port (no other port is tried)."""
     try:
-        server = make_server(state_root, host=host, port=port, project_id=project_id, interval=interval, idle_exit=idle_exit, comparison=comparison)
+        server = make_server(state_root, host=host, port=port, project_id=project_id, interval=interval, idle_exit=idle_exit, comparison=comparison, so=so)
     except OSError:
         if not port:
             raise
-        kind, health, why = holder(host, port, state_root, project_id)
+        kind, health, why = holder(host, port, state_root, project_id, so=so)
         if kind == 'same' and comparison:
             print(json.dumps(dict(_adopted(health, _url_at(host, port), state_root), reused=True,
                                   note=f'cổng {port} đã có server theo dõi của chính sổ này: dùng địa chỉ đó, không mở server thứ hai.'), ensure_ascii=False), flush=True)
@@ -402,6 +455,8 @@ def serve(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0
               'read_only': True, 'started_at': utcnow(), 'note': 'Ctrl+C hay đóng cửa sổ này chỉ đóng trang theo dõi; worker không dừng.'}
     if not comparison:
         record.update(comparison='off', note=COPY_NOTE)
+    if so:
+        record['so'] = server.track_identity['so']
     try:
         print(json.dumps(record, ensure_ascii=False), flush=True)
         if announce:
@@ -441,7 +496,7 @@ def _same_root(health, state_root):
     return os.path.normcase(str(health.get('state_root') or '')) == os.path.normcase(str(Path(state_root).resolve()))
 
 
-def reusable(record, health, state_root, project_id, here=None):
+def reusable(record, health, state_root, project_id, here=None, so=()):
     """(ok, reason): may `track open` reuse the server the marker `record` names, given what its URL answered (`health`)? Only when the server
     is the very one the marker was written for (instance), runs the same wheel, reads the same state root and has the same project scope."""
     here = here or version()
@@ -452,6 +507,7 @@ def reusable(record, health, state_root, project_id, here=None):
     if health.get('version') != here: return False, f"version khác: server chạy {health.get('version')}, lệnh này là {here}"
     if not _same_root(health, state_root): return False, 'state-root khác'
     if (health.get('project_id') or None) != (project_id or None): return False, 'phạm vi project khác'
+    if (health.get('so') or []) != so_ids(so): return False, 'sổ thêm (--so) khác'
     if health.get('pid') != record.get('pid'): return False, 'PID khác với marker'
     return True, None
 
@@ -734,7 +790,7 @@ IDLE_EXIT_FREE_PORT = 1800
 
 
 def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0, project=None, explicit_state_root=None, idle_exit=_IDLE_AUTO,
-              browser=True, spawn=True, wait=30.0, plan=None):
+              browser=True, spawn=True, wait=30.0, plan=None, so=()):
     """Reuse the live detached server of this state root when its identity matches (see `reusable`), else start one; then open the page.
     `spawn=False` only reports (no server is started). Concurrent calls serialise on the open lock.
     R5 round 4: the marker's server is asked again with longer timeouts while its process is exactly still running (a slow server is reused,
@@ -765,7 +821,7 @@ def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval
                 if proc: proc.close()
         elif record:
             health = identity(record['url'])
-        ok, why = reusable(record, health, state_root, project_id, here)
+        ok, why = reusable(record, health, state_root, project_id, here, so=so)
         if ok and port and urllib.parse.urlsplit(record['url']).port != port:
             return record, health, False, 'cổng khác với cổng yêu cầu'
         return record, health, ok, why
@@ -801,7 +857,7 @@ def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval
         if port and record and health and urllib.parse.urlsplit(record['url']).port == port:
             return {'error': busy_message(port, f'một trang theo dõi có định danh khác, không dùng lại được ({why})'), 'port': port, 'busy': True, 'refused': refused}
         if port and _port_taken(host, port):         # URL9692 a1: a taken fixed port is reused (this ledger's own server) or reported; never another port
-            kind, held, why = holder(host, port, state_root, project_id, here)
+            kind, held, why = holder(host, port, state_root, project_id, here, so=so)
             if kind == 'same':
                 adopted = _adopted(held, _url_at(host, port), state_root)
                 _write_marker(marker, adopted)       # the lock is held: `track status`/`track stop` find this server from now on
@@ -818,6 +874,8 @@ def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval
         args += ['--state-root', str(state_root)]
         args += ['track', 'serve', '--host', host, '--port', str(port), '--interval', str(interval), '--announce', str(marker)]
         if project_id: args.append('--project-only')
+        for path in so or ():
+            args += ['--so', str(Path(path).resolve())]
         flags = (subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, 'DETACHED_PROCESS', 0)) if os.name == 'nt' else 0
         env = dict(os.environ, ONECREW_TRACK_IDLE_EXIT=str(idle_exit) if idle_exit else '', PYTHONSAFEPATH='1')     # `-m` must not pick a stray `onecrew` from the caller's cwd; '' = no idle exit
         import tempfile
@@ -857,6 +915,8 @@ def status_page(state_root):
     record = _read_marker(marker)
     health = identity(record['url']) if record else None
     ok, why = reusable(record, health, state_root, (record or {}).get('project_id'), None)
+    if why == 'sổ thêm (--so) khác' and (health or {}).get('so') == (record or {}).get('so'):     # status has no --so of its own: the marker's
+        ok, why = True, None
     return {'state_root': str(state_root), 'marker_file': str(marker), 'marker': record, 'health': health, 'reusable': ok, 'reason': why, 'version_here': version(),
             'lock': lock.exists()}
 
@@ -1186,11 +1246,13 @@ function short(p){p=String(p||'');var parts=p.split(/[\\\/]/).filter(Boolean);re
 function conn(cls,text){var c=$('#conn');c.className=cls;c.textContent=text;var h=$('#health');h.className='hstat '+cls;h.textContent=cls==='ok'?'':text}   // UIMOCK: the header says something only when the connection is not OK; the full line is under "i"
 function narrow(){return window.matchMedia('(max-width:899px)').matches}
 function setView(){var v=selected?'detail':'list';$('#main').setAttribute('data-view',v);document.body.setAttribute('data-view',v);navScope()}   // 13/11: the list's search and filters step aside on the detail page (kept, not reset)
-function sameSel(a,b){return !!a&&!!b&&a.plan===b.plan&&(a.project||'')===(b.project||'')}
-function urlOf(sel){return sel?'?plan='+encodeURIComponent(sel.plan)+(sel.project?'&project_id='+encodeURIComponent(sel.project):''):location.pathname}
+function sameSel(a,b){return !!a&&!!b&&a.plan===b.plan&&(a.project||'')===(b.project||'')&&(a.so||'')===(b.so||'')}
+function soOf(t){return t&&t.so&&!t.so.own?t.so.id:''}   // TRANGGOP: the ledger of a row of the merged list ('' = the page's own ledger)
+function soq(sel){return sel&&sel.so?'&so='+encodeURIComponent(sel.so):''}
+function urlOf(sel){return sel?'?plan='+encodeURIComponent(sel.plan)+(sel.project?'&project_id='+encodeURIComponent(sel.project):'')+soq(sel):location.pathname}
 function mine(){return detailData&&sameSel(detailFor,selected)?detailData:null}   // R4: the detail data only while it belongs to the CURRENT selection
 function detailState(){return !selected?'none':mine()?(detailError?'stale':'ok'):!deepWanted?'head':(detailError?'error':'loading')}   // 'head': the four tiles only (UIMOCK D4)
-function taskOf(sel){return sel?tasks().find(function(t){return t.selector===sel.plan&&(!sel.project||t.project_id===sel.project)})||null:null}
+function taskOf(sel){return sel?tasks().find(function(t){return t.selector===sel.plan&&(!sel.project||t.project_id===sel.project)&&(sel.so||'')===soOf(t)})||null:null}
 function nameOf(sel){var t=taskOf(sel);return t?t.plan:String(sel.plan||'').replace(/^plan(-ns)?:/,'')}
 function clockMs(ms){return ms?new Date(ms).toLocaleTimeString('vi-VN',TF):'?'}
 function iso(ms){return ms?new Date(ms).toISOString():null}
@@ -1224,26 +1286,27 @@ function headOf(sel){if(!sel)return null;var t=taskOf(sel);if(t)return t;return 
 function viewData(){return mine()||(selected?headOf(selected):null)}
 function paintHead(first){var h=headOf(selected);if(!h||mine())return;var s=first?null:snapshot();headSig=JSON.stringify(h);renderDetail(h);if(s)restore(s);if(first)afterSelect()}
 function loadHead(sel){var tok=++headToken;      // UIMOCK D4: the root as the list reads it, no timeline / evidence / comparison: the four tiles in well under a second
-  fetch('/api/task?plan='+encodeURIComponent(sel.plan)+(sel.project?'&project_id='+encodeURIComponent(sel.project):'')+'&part=head',{cache:'no-store'})
+  fetch('/api/task?plan='+encodeURIComponent(sel.plan)+(sel.project?'&project_id='+encodeURIComponent(sel.project):'')+soq(sel)+'&part=head',{cache:'no-store'})
   .then(function(r){return r.json().then(function(j){return [r.ok,j]})}).then(function(x){if(tok!==headToken||!sameSel(sel,selected))return;
     if(!x[0]||!x[1]||x[1].error){if(!headOf(sel)&&!mine()){deepWanted=true;loadDetail('select')}return}      // no head: the full read, as before
-    var first=!headOf(sel);headData=x[1];headFor={plan:sel.plan,project:sel.project};if(!mine())paintHead(first)})
+    var first=!headOf(sel);headData=x[1];headFor={plan:sel.plan,project:sel.project,so:sel.so};if(!mine())paintHead(first)})
   .catch(function(){if(tok!==headToken||!sameSel(sel,selected))return;if(!headOf(sel)&&!mine()){deepWanted=true;loadDetail('select')}})}
 function wantDeep(){if(!selected||mine())return;if(deepWanted&&reading())return;deepWanted=true;var v=viewData();if(v){var s=snapshot();renderDetail(v);restore(s)}dind();loadDetail('deep')}
-function thead(d){var u=updatedOf(d),q=urlOf({plan:d.selector,project:d.project_id});
+function thead(d){var u=updatedOf(d),q=urlOf({plan:d.selector,project:d.project_id,so:selected&&selected.so});
   return '<div class="thead"><div class="ttop"><button type="button" id="back">‹ Quay lại</button><span class="tsp"></span><button type="button" id="close" class="xbtn" title="Đóng việc này" aria-label="Đóng việc này">'+ic('x','sm')+'</button></div>'
     +'<h2 id="dtitle" data-k="dtitle" tabindex="-1">'+esc(fullName(d))+'</h2>'
     +'<p class="tmeta"><span data-state="'+stateKey(d)+'">'+stateIcon(d,'sm')+esc(statusWord(d))+'</span><span title="'+esc(d.project||'')+'">'+ic('box','sm')+esc(projName(d.project))+'</span>'
     +(u?'<span title="Cập nhật '+when(u)+'">'+ic('clock','sm','','Cập nhật')+'<time data-ago="'+esc(u)+'">'+agoShort(u)+'</time></span>':'')
     +'<span class="src" title="Sổ: dữ liệu thật trên máy này, đã lọc bí mật, chỉ đọc">'+ic('lock','sm')+'Sổ: dữ liệu thật, chỉ đọc</span>'
     +'<a href="/sessions'+esc(q)+'">'+ic('robot','sm')+'Phiên Claude</a><a href="/direction'+esc(q)+'">'+ic('turn','sm')+'Hướng đi</a></p></div>'}
-function navScope(){var q=selected?urlOf(selected):'';['sessions','direction'].forEach(function(k){var a=document.querySelector('[data-nav="'+k+'"]');if(a&&a.setAttribute)a.setAttribute('href','/'+k+q)});
-  var w=document.querySelector('[data-nav="work"]');if(w&&w.setAttribute)w.setAttribute('href','/'+q)}
+function navScope(){var q=selected?urlOf(selected):'',gop=!!(document.getElementById&&document.getElementById('gop-phien'));['sessions','direction'].forEach(function(k){var a=document.querySelector('[data-nav="'+k+'"]');if(a&&a.setAttribute)a.setAttribute('href',gop&&k==='sessions'&&!selected?'#phien':'/'+k+q)});
+  var w=document.querySelector('[data-nav="work"]');if(w&&w.setAttribute)w.setAttribute('href',gop&&!selected?'#viec':'/'+q)}
 function tasks(){var out=[];(last&&last.projects||[]).forEach(function(p){p.tasks.forEach(function(t){out.push(t)})});return out}
 function ended(t){return t.root_status==='accepted'||t.root_status==='closed'}
 function isRecheck(t){return (t.validity||{}).kind==='recheck'||sit(t).label==='Cần kiểm lại'}     // UI58 MC: the same rule as the server's stage filter (tracking_list._stage_ok)
 function visible(){var cur=$('#proj').value,kind=$('#kind').value,src=$('#origin').value,raw=($('#q').value||'').trim(),q=raw.toLowerCase(),lf=last&&last.list&&last.list.filters,byServer=!!lf&&(lf.q||'')===raw;   // OBS-2C: the server already searched every root for this text (the client keeps filtering the loaded rows at once)
-  return workOrder(tasks().filter(function(t){if(cur&&!(cur.startsWith('repo:')?cur.slice(5).split(',').includes(t.project_id):t.project===cur))return false;
+  return workOrder(tasks().filter(function(t){if(window.gopSo&&t.so&&t.so.id!==window.gopSo)return false;
+    if(cur&&!(cur.startsWith('repo:')?cur.slice(5).split(',').includes(t.project_id):t.project===cur))return false;
     if(kind.indexOf('g_')===0&&groupOf(t)!==kind.slice(2))return false;if(kind==='need'&&!(t.needs_user||[]).length)return false;if(kind==='running'&&!(sit(t).activity||{}).running)return false;
     if(kind==='recheck'&&!isRecheck(t))return false;
     if(kind==='inconclusive'){if(sit(t).label!=='Chưa kết luận')return false}
@@ -1273,8 +1336,8 @@ function footHtml(){var L=last&&last.list;if(!L)return '';
   var ao=L.attention_outside||{};if(ao.count)h+='<p class="needout" id="needout">Ngoài phần đã tải còn '+ao.count+' việc đang chờ bạn: '+(ao.items||[]).map(function(x){return esc(x.plan)+' ('+esc(x.why)+')'}).join(', ')+(ao.count>(ao.items||[]).length?', …':'')+'. Chọn lọc “Cần bạn quyết định” để đọc đủ.</p>';
   return h+'<details class="small mut" data-k="listcov" id="listcov"><summary>Thứ tự và phạm vi của danh sách</summary><p>'+esc(L.order_basis)+'</p><p>'+esc(L.coverage)+'</p><p>'+esc(L.not_tracked)+'</p></details>'}
 function paintFoot(){var f=$('#listfoot'),h=footHtml();if(f.innerHTML===h)return;var a=document.activeElement,had=a&&a.id==='more',cov=$('#listcov'),open=cov&&cov.open;f.innerHTML=h;if(open&&$('#listcov'))$('#listcov').open=true;if(had&&$('#more'))$('#more').focus({preventScroll:true})}
-function row(t){var sel=sameSel(selected,{plan:t.selector,project:t.project_id}),lastv=!sel&&sameSel(lastViewed,{plan:t.selector,project:t.project_id});
-  return '<li class="task'+(lastv?' last':'')+'" role="option" tabindex="0" aria-selected="'+sel+'" aria-label="'+esc(rowLabel(t))+'" title="'+esc(fullName(t))+'" data-plan="'+esc(t.selector)+'" data-project="'+esc(t.project_id)+'" data-stage="'+esc(workStage(t))+'" data-group="'+groupOf(t)+'" data-k="task:'+esc(t.project_id)+':'+esc(t.selector)+'">'
+function row(t){var me={plan:t.selector,project:t.project_id,so:soOf(t)},sel=sameSel(selected,me),lastv=!sel&&sameSel(lastViewed,me);
+  return '<li class="task'+(lastv?' last':'')+'" role="option" tabindex="0" aria-selected="'+sel+'" aria-label="'+esc(rowLabel(t))+'" title="'+esc(fullName(t))+'" data-plan="'+esc(t.selector)+'" data-project="'+esc(t.project_id)+'"'+(soOf(t)?' data-ledger="'+esc(soOf(t))+'"':'')+' data-stage="'+esc(workStage(t))+'" data-group="'+groupOf(t)+'" data-k="task:'+esc(t.project_id)+':'+esc(t.selector)+(soOf(t)?':'+esc(soOf(t)):'')+'">'
     +rowLine(t)+'<span class="rx" hidden>'+workItem(t)+'</span></li>'}
 var listMode='list';   // UIMOCK D5: one list of one-line rows (the board left the default screen; workBoard stays for an old link)
 function setMode(m){listMode=m==='board'?'board':'list';try{localStorage.setItem('onecrew-track-mode',listMode)}catch(e){}render(true)}
@@ -1343,7 +1406,7 @@ function evLi(e,P){var exp=selEv===e.seq,occ=P.bySeq[e.seq]||[],n=occ.length||(e
   if(exp){h+='<div class="evbox" data-k="evbox:'+e.seq+'">';if(!n)h+='<span class="mut">bước này không nêu bằng chứng nào</span>';
     occ.forEach(function(x){h+='<div data-k="evk:'+x.key+':'+e.seq+'">'+occLine(x)+openOr(x)+'</div>'});h+='</div>'}      // each key with THIS event's own occurrence
   return h+'</li>'}
-function evHref(k){var d=mine();if(!d)return '#';return '/api/evidence?plan='+encodeURIComponent(d.selector)+'&project_id='+encodeURIComponent(d.project_id)+'&key='+k+'&format=text'}
+function evHref(k){var d=mine();if(!d)return '#';return '/api/evidence?plan='+encodeURIComponent(d.selector)+'&project_id='+encodeURIComponent(d.project_id)+soq(selected)+'&key='+k+'&format=text'}
 function groups(d){var g={},order=[];function add(key,title,e){if(!g[key]){g[key]={title:title,cur:[],old:[],tech:[]};order.push(key)}var tech=TECH.some(function(p){return e.kind.indexOf(p)===0});
     if(e.stale_generation||e.stale_attempt)g[key].old.push(e);else if(tech)g[key].tech.push(e);else g[key].cur.push(e)}
   add('plan','Plan '+d.plan,{kind:'',seq:-1,summary:''});g.plan.cur=[];
@@ -1559,7 +1622,7 @@ function restore(s){if(!s)return;Object.keys(s.open).forEach(function(k){var x=d
     else if(s.focus==='dstatus'||s.focus.indexOf('need:')===0){var tt=$('#dtitle');if(tt)tt.focus({preventScroll:true})}}   // P2: the status line is gone (the detail loaded) / the need card itself is gone (answered, new revision): the reader lands on the task heading, not at the top of the page
   var gs=document.querySelector('#detail .gscroll');if(gs&&s.gs)gs.scrollLeft=s.gs;
   $('#detailpane').scrollTop=s.pane;if(Math.abs(window.scrollY-s.win)>2)window.scrollTo(0,s.win)}
-function paint(d,sel,why){var s=snapshot();detailData=d;detailFor={plan:sel.plan,project:sel.project};renderDetail(d);restore(s);if(why==='select')afterSelect()}
+function paint(d,sel,why){var s=snapshot();detailData=d;detailFor={plan:sel.plan,project:sel.project,so:sel.so};renderDetail(d);restore(s);if(why==='select')afterSelect()}
 var listY=0,listReturnY=0;
 function reserveListScroll(y){
   // A filtered response can shorten the chips and footer while the detail is open.
@@ -1583,11 +1646,11 @@ function loadDetail(why){if(!selected)return;
   if(detailInflight&&sameSel(detailInflight.sel,selected))return;   // P2 (Codex, dev12): one read at a time for the selected task: a poll (or the same task selected again) waits for the read in flight instead of replacing it. Replacing a read slower than 20 s threw its answer away on every poll and left "đang tải" for ever; the read ends by itself: its answer, its failure or DETAIL_TIMEOUT
   if(why==='poll'&&detailTimeouts>=DETAIL_TRIES)return;             // DETAIL_TRIES reads in a row without an answer: no more automatic reads; the reader's "Thử lại", another selection or a reconnection starts again
   if(detailInflight){clearTimeout(detailInflight.timer);detailInflight.ctl.abort()}   // the read of a task no longer selected is cancelled; its answer or failure never touches the page (token + selection below)
-  var token=++detailToken,sel={plan:selected.plan,project:selected.project},ctl=new AbortController(),me={token:token,sel:sel,since:Date.now(),ctl:ctl,late:false};
+  var token=++detailToken,sel={plan:selected.plan,project:selected.project,so:selected.so},ctl=new AbortController(),me={token:token,sel:sel,since:Date.now(),ctl:ctl,late:false};
   me.timer=setTimeout(function(){me.late=true;ctl.abort()},DETAIL_TIMEOUT);detailInflight=me;if(detailError)refreshNote();
   function current(){return token===detailToken&&sameSel(sel,selected)}
   function settle(){clearTimeout(me.timer);if(detailInflight&&detailInflight.token===token)detailInflight=null}      // a reply OR a failure of a superseded request / a task no longer selected never touches the page
-  fetch('/api/task?plan='+encodeURIComponent(sel.plan)+(sel.project?'&project_id='+encodeURIComponent(sel.project):'')+'&timeline=300',{cache:'no-store',signal:ctl.signal})
+  fetch('/api/task?plan='+encodeURIComponent(sel.plan)+(sel.project?'&project_id='+encodeURIComponent(sel.project):'')+soq(sel)+'&timeline=300',{cache:'no-store',signal:ctl.signal})
   .then(function(r){return r.text().then(function(t){var j=null;try{j=JSON.parse(t)}catch(e){}return {ok:r.ok,status:r.status,j:j}})})
   .then(function(x){settle();if(!current())return;
       if(!x.ok||!x.j||typeof x.j!=='object')return detailFailed(sel,'HTTP '+x.status+(x.j&&x.j.error?': '+x.j.error:x.ok?': trả lời không đọc được':''));
@@ -1615,15 +1678,15 @@ function select(sel,opts){opts=opts||{};
   if(sel&&!selected&&!opts.silent)history.replaceState(Object.assign({},history.state,{listY:listY}),'');
   if(!sel){reserveListScroll(listY);if(detailInflight){clearTimeout(detailInflight.timer);detailInflight.ctl.abort();detailInflight=null}   // closing cancels the read: selecting the task again starts a fresh one (never a nearly expired one)
     var was=selected;if(selected){lastViewed=selected}selected=null;selEv=null;evState={};copied=null;detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailSeq=null;detailTimeouts=0;headData=null;headFor=null;headSig=null;deepWanted=false;$('#detail').innerHTML='<div id="nodetail" class="pick">Chọn một việc trong danh sách.</div>';setView();render(true);dind();
-    var row0=was&&document.querySelector('[data-k="task:'+String(was.project).replace(/"/g,'\\"')+':'+String(was.plan).replace(/"/g,'\\"')+'"]');if(row0)row0.focus({preventScroll:true});   // UI58 MC: every way back (button, Escape, browser back) lands on the row that was opened, filter and scroll kept
+    var row0=was&&document.querySelector('[data-k="task:'+String(was.project).replace(/"/g,'\\"')+':'+String(was.plan).replace(/"/g,'\\"')+(was.so?':'+String(was.so).replace(/"/g,'\\"'):'')+'"]');if(row0)row0.focus({preventScroll:true});   // UI58 MC: every way back (button, Escape, browser back) lands on the row that was opened, filter and scroll kept
     window.scrollTo(0,listY);
     if(!opts.silent&&location.search){var filters=new URLSearchParams();if($('#kind').value)filters.set('stage',$('#kind').value);if($('#proj').value)filters.set('project',$('#proj').value);
       history.pushState({listY:listY},'',location.pathname+(filters.size?'?'+filters:''))}return}
   var other=!sameSel(selected,sel);if(other)workTab='overview';detailTimeouts=0;      // a click on a task (the same one too) is the reader asking again: a new series of tries
   if(other){selEv=null;evState={};copied=null;detailSeq=null;selStep=null;gRange='current';gPinnedWindow=null;gFold={};staleNotes=[];knownNeeds={};detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailTimeouts=0;headData=null;headFor=null;headSig=null;deepWanted=false;$('#detail').innerHTML=''}
-  selected={plan:sel.plan,project:sel.project||'',focusDetail:!!opts.focusDetail};setView();render(true);
+  selected={plan:sel.plan,project:sel.project||'',so:sel.so||'',focusDetail:!!opts.focusDetail};setView();render(true);
   if(!mine()){if(headOf(selected))paintHead(true);else{pendingPane(selected);afterSelect()}if(!taskOf(selected))loadHead(selected)}dind();   // UIMOCK D4: the tiles at once (list row) or after the light read     // another task: its heading + "đang tải" at once, never the previous task's content
-  if(!opts.silent&&location.search!==urlOf(selected))history.pushState({plan:selected.plan,project:selected.project,listY:listY},'',urlOf(selected));
+  if(!opts.silent&&location.search!==urlOf(selected))history.pushState({plan:selected.plan,project:selected.project,so:selected.so,listY:listY},'',urlOf(selected));
   if(deepWanted)loadDetail('select')}
 function fetchList(done){var gen=listGen,ctl=new AbortController(),late=false,tm=setTimeout(function(){late=true;ctl.abort()},OVERVIEW_TIMEOUT);   // P2 (found with it): an overview read that never answers no longer freezes the page under a green badge
   fetch('/api/overview?'+listQuery(),{cache:'no-store',signal:ctl.signal}).then(function(r){return r.json()}).then(function(j){
@@ -1647,7 +1710,7 @@ function openEvidence(key,btn){var d0=mine(),sel0=selected;if(!d0)return;if(evSt
     show(x[0]?x[1].text:'không mở được: '+(x[1].error||''))}).catch(function(){show('không mở được (mất kết nối)')})}
 document.addEventListener('click',function(ev){var t=ev.target;
   if(t.id==='dretry'){detailTimeouts=0;loadDetail('retry');return}   // P2: the reader starts a new, bounded series of tries (the status line then says "đang thử lại…" and keeps the focus)
-  var li=t.closest&&t.closest('li.task');if(li){select({plan:li.dataset.plan,project:li.dataset.project});return}
+  var li=t.closest&&t.closest('li.task');if(li){select({plan:li.dataset.plan,project:li.dataset.project,so:li.dataset.ledger});return}
   if(t.id==='back'||t.id==='close'){select(null);return}
   if(t.classList&&t.classList.contains('copy')){var ck=t.closest('.need').getAttribute('data-k'),ct=t.getAttribute('data-copy'),cd=viewData();
     if(!cd||!copiedStillValid({k:ck,text:ct},cd)){if(cd){var cs=snapshot();renderDetail(cd);restore(cs)}return}   // R7-1: a card painted before the data changed never copies a command the latest data no longer offers
@@ -1669,7 +1732,7 @@ document.addEventListener('click',function(ev){var t=ev.target;
 });
 document.addEventListener('keydown',function(ev){var t=ev.target;
   if(t.classList&&t.classList.contains('task')){var items=Array.prototype.slice.call(document.querySelectorAll('li.task')),i=items.indexOf(t);
-    if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();select({plan:t.dataset.plan,project:t.dataset.project},{focusDetail:true})}
+    if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();select({plan:t.dataset.plan,project:t.dataset.project,so:t.dataset.ledger},{focusDetail:true})}
     else if(ev.key==='ArrowDown'&&items[i+1]){ev.preventDefault();items[i+1].focus()}else if(ev.key==='ArrowUp'&&items[i-1]){ev.preventDefault();items[i-1].focus()}
     else if(ev.key==='Home'&&items.length){ev.preventDefault();items[0].focus()}else if(ev.key==='End'&&items.length){ev.preventDefault();items[items.length-1].focus()}return}
   if(t.closest&&t.closest('ol.ev > li')&&(ev.key==='Enter'||ev.key===' ')&&!(t.tagName==='BUTTON'||t.tagName==='A')){ev.preventDefault();t.closest('ol.ev > li').click();return}
@@ -1685,7 +1748,8 @@ $('#q').addEventListener('input',function(){render(true);clearTimeout(qTimer);qT
 $('#proj').addEventListener('change',function(){var v=$('#proj').value;if(selected&&v&&selected.project){var t=tasks().filter(function(x){return x.project===v&&x.project_id===selected.project});if(!t.length){select(null);$('#detail').innerHTML='<div id="nodetail">Đã đổi sang project '+esc(short(v))+': chọn một task của project này.</div>'}}relist()});
 try{if('scrollRestoration' in history)history.scrollRestoration='manual'}catch(e){}   // UI58 MC: the page puts the list back where the reader left it (listY); the browser's own restore would move it to the top on "back"
 window.addEventListener('popstate',function(ev){var qs=new URLSearchParams(location.search),opts={silent:true,listY:ev.state&&ev.state.listY};
-  select(qs.get('plan')?{plan:qs.get('plan'),project:qs.get('project_id')||''}:null,opts)});
+  select(qs.get('plan')?{plan:qs.get('plan'),project:qs.get('project_id')||'',so:qs.get('so')||''}:null,opts)});
+window.gopRender=function(){render(true)};
 window.matchMedia('(max-width:899px)').addEventListener('change',setView);
 if(!window.matchMedia('(max-width:760px)').matches)$('#filters').open=true;   // desktop: the filters are open; phone: folded, the active ones are listed under the search
 setInterval(tick,1000);
@@ -1693,7 +1757,7 @@ if(typeof document!=='undefined'&&document.getElementById&&document.documentElem
 var qs=new URLSearchParams(location.search);
 if(qs.has('project')){var project=qs.get('project');$('#proj').add(new Option(short(project),project,true,true))}
 if(qs.has('stage'))$('#kind').value=qs.get('stage');
-if(qs.get('plan'))select({plan:qs.get('plan'),project:qs.get('project_id')||''},{silent:true,listY:history.state&&history.state.listY});
+if(qs.get('plan'))select({plan:qs.get('plan'),project:qs.get('project_id')||'',so:qs.get('so')||''},{silent:true,listY:history.state&&history.state.listY});
 poll();
 window.__track={state:function(){return {selected:selected,detailSeq:detailSeq,selEv:selEv,evOpen:Object.keys(evState),copied:copied,lastOk:lastOk,lost:!!lostSince,selStep:selStep,gRange:gRange,stale:staleNotes.map(function(x){return x.id}),axisNow:mine()&&mine().gantt&&mine().gantt.axis?mine().gantt.axis.now:null,
   detailFor:mine()?{plan:detailFor.plan,project:detailFor.project}:null,detailState:detailState(),detailError:detailError?{since:iso(detailError.since),last:iso(detailError.last),message:detailError.message}:null,detailOkAt:iso(detailOkAt),
