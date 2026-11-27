@@ -1,9 +1,9 @@
 # CHANGELOG
 
-## v2.5.0.dev35 (bản nháp, chưa phát hành): mẫu prompt có phiên bản (QLMAU), nhắc tách phiên (TACHPHIEN), sổ quyết định của chủ theo repo (SQD), cấm sửa test có sẵn (LINTTEST), đo ca đỏ nền ngay trong lượt kiểm (VER60B), một trang theo dõi nhiều sổ (TRANGGOP)
+## v2.5.0.dev35 (bản nháp, chưa phát hành): mẫu prompt có phiên bản (QLMAU), nhắc tách phiên (TACHPHIEN), sổ quyết định của chủ theo repo (SQD), cấm sửa test có sẵn (LINTTEST), đo ca đỏ nền ngay trong lượt kiểm (VER60B), một trang theo dõi nhiều sổ (TRANGGOP), mẫu vai đi cùng gói cài (GOIVAI), bản xuất kế hoạch khớp sổ (BANXUAT)
 
 - **QLMAU, mẫu prompt có phiên bản:**
-  - Mỗi mẫu (giao việc, lời chủ, sáu mẫu vai trong `docs/vai3/`) mở đầu bằng dòng `onecrew-mau: ten=<tên> phien-ban=<số>`; dòng `reminded` và dòng bàn giao ghi phiên bản mẫu đang dùng. Nhãn mẫu nằm ở cuối lời nhắc giao việc.
+  - Mỗi mẫu (giao việc, lời chủ, sáu mẫu vai) mở đầu bằng dòng `onecrew-mau: ten=<tên> phien-ban=<số>`; dòng `reminded` và dòng bàn giao ghi phiên bản mẫu đang dùng. Nhãn mẫu nằm ở cuối lời nhắc giao việc.
   - `onecrew mau list` và `onecrew mau lint` chỉ đọc tệp mẫu. Xem `docs/mau.vi.md`.
 - **TACHPHIEN, nhắc tách phiên:**
   - `hook prompt` nhắc mở phiên mới khi ngữ cảnh lớn, nghỉ quá hạn bộ nhớ đệm hoặc plan sang giai đoạn mới; chỉ nhắc, mỗi phiên nhiều nhất 3 lần. Xem `docs/tach-phien.vi.md`.
@@ -15,7 +15,11 @@
   - Mẫu bộ kiểm nhận `--base` và đo ca đỏ nền trên cây gốc ngay trong lượt kiểm; `plan lint` nhắc khi script bộ kiểm nêu tệp nền lưu sẵn (chỉ nhắc).
 - **TRANGGOP, một trang nhiều sổ:**
   - `onecrew track open --so <sổ>` (hay `track serve`) xem thêm các sổ khác của máy trên cùng trang, mọi sổ mở chỉ đọc. Xem `docs/trang-gop.vi.md`.
-- **Đóng gói:** thêm `onecrew.v2.tach_phien`, `onecrew.v2.sqd`, `onecrew.v2.tracking_gop`.
+- **GOIVAI, mẫu vai đi cùng gói cài:**
+  - Sáu mẫu vai là `onecrew/templates/role-*.md`, nên máy chỉ có bản cài vẫn thấy đủ tám mẫu ở `onecrew mau list`; mẫu trong `<dự án>/docs/vai3` thắng mẫu cùng tên mẫu của gói. Xem `docs/mau.vi.md`.
+- **BANXUAT, bản xuất kế hoạch khớp sổ:**
+  - Nghiệm thu và `owner close` ghi lại bản xuất cho hook; `doctor` báo bản xuất còn giữ repo trong khi sổ đã kết thúc; bản xuất hết hạn được thả khi sổ của repo nói đúng việc đó đã nghiệm thu hoặc đã đóng. Xem `docs/ban-xuat.vi.md`.
+- **Đóng gói:** thêm `onecrew.v2.tach_phien`, `onecrew.v2.sqd`, `onecrew.v2.tracking_gop` và sáu tệp `onecrew/templates/role-*.md`.
 - Mục này là bản nháp của bước gộp; chữ phát hành viết lại khi đủ việc của dev35.
 
 ## v2.5.0.dev34 (26/11/2026): plan thường trực và nhắc lời giao việc (GSDP-A), mô hình 3 vai (VAI3), quan sát phiên giữ tóm tắt giao việc (QSAT), trang theo dõi ở địa chỉ cố định (URL9692), nhãn vai cho việc con (NHANVAI), danh sách task đọc được (TENTASK), lệnh chủ đóng việc cũ (DONGVIEC)

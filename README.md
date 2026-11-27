@@ -107,6 +107,17 @@ The ledger and dashboard are local. Model-backed work still uses the provider an
 
 For version-specific evidence and limitations, use the [release notes](https://github.com/tamnguyendev/one-crew/releases), not a feature name or passing test count alone.
 
+## What's new in 2.5.0.dev35
+
+- **QLMAU:** every prompt template carries a name and a version; `onecrew mau list` shows them, `onecrew mau lint` checks them, and a delegation reminder says which template version it used.
+- **TACHPHIEN:** when a session has grown large, has sat past the cache lifetime or its plan reaches a new stage, you are reminded to open a new session; it never blocks.
+- **SQD:** `onecrew decision add|list|show` keeps the owner's decisions per repository, a new session lists the ones in force, and a standing plan's delegation that names none gets one reminder.
+- **LINTTEST:** `plan lint` warns when a contract covers tests that already exist, and the hook refuses to change them unless the contract grants `edit_tests`.
+- **VER60B:** the checker template measures the tests already failing on the base tree in the same run (`--base`), and `plan lint` points out a checker that names a saved baseline file.
+- **TRANGGOP:** `onecrew track open --so <state root>` shows other ledgers of the machine on the same tracking page, all read-only.
+- **GOIVAI:** the six role templates ship with the package, so an installed copy lists them; a project's `docs/vai3` overrides a template of the same name.
+- **BANXUAT:** ending a plan rewrites the plan file the hook reads, `onecrew doctor` reports one that still holds a repository after the ledger ended it, and an expired one of an ended plan no longer locks the repository.
+
 ## What's new in 2.5.0.dev34
 
 ### Standing plans for a coordinator session
