@@ -892,6 +892,15 @@ def _plan_readiness(document, root, state_root):
     detail = t('doctor.plan_ok', name=name, revision=revision, mode=mode)
     if pending:
         detail += t('doctor.plan_pending', revision=pending)
+    # BANXUAT: the file the hooks follow must agree with the ledger: a file that still holds the project for a plan that is over is a fault
+    from . import active_plan
+    ended = None
+    if state and state['status'] == 'accepted': ended = 'accepted'
+    elif state and (state.get('closed') or {}).get('closed_by') == plans.CLOSED_BY_OWNER: ended = 'closed'
+    if ended and active_plan.holds(document):
+        return ('FAIL' if mode == 'enforce' else 'WARN',
+                detail + t('doctor.plan_stale_' + ended, status=document.get('status'), expires=document.get('expires'), name=name))
+    if ended == 'closed': return 'PASS', t('doctor.plan_closed', name=name)
     if status == 'accepted':
         return 'PASS', t('doctor.plan_accepted', name=name)
     if status in ('stopped_with_report', 'closed'):
@@ -970,6 +979,11 @@ def doctor_facts(project=None, state_root=None, exe=None, claude=claude_status):
                     level, detail = _plan_readiness(plan, root, chosen)
                 except (OSError, ValueError, sqlite3.Error, TypeError) as error:
                     level, detail = 'FAIL', t('doctor.plan_bad', why=str(error))
+                if plan_file.is_file() and copy:                 # BANXUAT: say when the two exported copies disagree on the status
+                    (mine, mine_bad), (theirs, theirs_bad) = hook_cli.load_plan(plan_file), hook_cli.load_plan(copy)
+                    if not mine_bad and not theirs_bad and mine.get('status') != theirs.get('status'):
+                        detail += t('doctor.plan_copies', project=mine.get('status'), state=theirs.get('status'), name=plan.get('plan'))
+                        if level == 'PASS': level = 'WARN'
                 add(level, 'doctor.plan', detail)
     level, detail = check_user_hook()                                  # #25
     add(level, 'doctor.user', detail)

@@ -1,7 +1,7 @@
 """`onecrew hook check|prompt|stop|session|sync|export|mode|install` — Claude Code hooks for an active v2 plan (slice L2).
 
 The hooks read `<project>/.onecrew/active-plan.json` (see active_plan.py) and never open the ledger on the hot path; `stop`,
-`session`, `sync` and `export` may read it. Field names of the hook JSON (Claude Code docs, checked 2026-10-18):
+`session`, `sync` and `export` may read it, and so may `check` for an EXPIRED export, read-only (BANXUAT: active_plan.finished). Field names of the hook JSON (Claude Code docs, checked 2026-10-18):
   stdin, all events: session_id, transcript_path, cwd, permission_mode, hook_event_name
   PreToolUse: tool_name, tool_input {Edit/Write/MultiEdit: file_path; NotebookEdit: notebook_path; Bash/PowerShell: command}
   UserPromptSubmit: prompt        Stop: stop_hook_active        SessionStart: source (startup|resume|clear|compact)
@@ -2174,6 +2174,17 @@ def candidate_dirs(args, event, *, session_dir=None):
     return places
 
 
+def hook_state_root(args, directory):
+    """The state root this hook uses for the project at `directory`: --state-root, else config.json (recorded in the registry), else the registry, else
+    the default. G2: an installed hook has no --state-root."""
+    if args.state_root: return args.state_root
+    folder, configured = where.configured(directory)
+    if configured:
+        where.register_project(folder, configured)
+        return configured
+    return where.registered_state_root(directory) or where.default_state_root()
+
+
 def locate_all(args, event):
     """[(project copy, project root, state-root copy, role)] of EVERY plan that applies to this call, one per project, in the order of candidate_dirs; [] when none.
 
@@ -2186,13 +2197,8 @@ def locate_all(args, event):
     plans are all kept: a call is judged by every one of them (check), and none can be replaced by a nearer one, however it got there."""
     explicit = Path(args.project) if args.project else None
 
-    def state_of(directory):       # G2: an installed hook has no --state-root
-        if args.state_root: return args.state_root
-        folder, configured = where.configured(directory)
-        if configured:
-            where.register_project(folder, configured)
-            return configured
-        return where.registered_state_root(directory) or where.default_state_root()
+    def state_of(directory):
+        return hook_state_root(args, directory)
 
     found, seen = [], {}
     for start, role in ([(explicit, SESSION)] if explicit else candidate_dirs(args, event)):
@@ -2315,11 +2321,13 @@ def check(args):
     governed = [(govern(project_copy, project_root, copy), role) for project_copy, project_root, copy, role in locate_all(args, event)]
     # a path the hook cannot resolve (`$PWD/x`) is judged by the session's plan; when the session has no enforce plan of its own, the plan of the cwd judges it
     from .active_plan import released
+    ended = [plan is not None and over(args, plan, root) for (plan, root, _, _), _ in governed]     # BANXUAT: asked once per call and plan
     watched = any(plan is not None and role == SESSION and plan.get('mode') == 'enforce' and plan.get('status') in ('approved', 'stopped_with_report','closed')
-                  and not released(plan) for (plan, _, _, _), role in governed)
+                  and not released(plan) and (bad_plan is not None or not done) for ((plan, _, bad_plan, _), role), done in zip(governed, ended))
     code = 0
-    for (plan, root, bad_plan, source), role in governed:
-        if plan is not None and judge_call(plan, root, bad_plan, source, event, bad_input, limited=role != SESSION, refuse_unresolvable=role == CWD and not watched) == 2: code = 2
+    for ((plan, root, bad_plan, source), role), done in zip(governed, ended):
+        if plan is not None and judge_call(plan, root, bad_plan, source, event, bad_input, limited=role != SESSION, refuse_unresolvable=role == CWD and not watched,
+                                           ledger_over=done) == 2: code = 2
     if code == 0 and not bad_input:
         for (plan, root, bad_plan, _), role in governed:
             if role == SESSION and plan and not bad_plan:
@@ -2341,7 +2349,25 @@ def owner_context(plan, root, event, name, context=''):
         output('')
 
 
-def judge_call(plan, root, bad_plan, source, event, bad_input, limited=False, refuse_unresolvable=False):
+def expired(plan):
+    """True when the exported plan carries an expiry that has passed; raises ValueError for a stamp that cannot be read."""
+    expires = plan.get('expires')
+    return bool(expires) and dt.datetime.fromisoformat(expires) < dt.datetime.now(dt.timezone.utc)
+
+
+def over(args, plan, root):
+    """BANXUAT: the export has expired and the ledger says this very plan is over (accepted, or closed by the owner): it governs nothing more.
+    The ledger is opened only for an expired export that would still hold the project, read-only, and it is the ledger the hook itself uses for that
+    project; anything that cannot be read is False."""
+    try:
+        from .active_plan import finished, holds
+        if not holds(plan) or not expired(plan): return False
+        return finished(plan, root, hook_state_root(args, root))
+    except Exception:                                    # noqa: BLE001 - unknown stays enforced
+        return False
+
+
+def judge_call(plan, root, bad_plan, source, event, bad_input, limited=False, refuse_unresolvable=False, ledger_over=False):
     """One plan's verdict on one call: 2 when it blocks the call (enforce mode), else 0.
 
     `limited` is a plan that is not the session's: it was reached through the cwd of a shell command or through a path the call writes. It judges what
@@ -2360,8 +2386,8 @@ def judge_call(plan, root, bad_plan, source, event, bad_input, limited=False, re
         from .active_plan import released
         if released(plan):                              # DONGVIEC (dong-bo-giam-sat): the owner closed it with `owner close`; it governs nothing more
             return 0
-        expires = plan.get('expires')
-        if touched and expires and dt.datetime.fromisoformat(expires) < dt.datetime.now(dt.timezone.utc):
+        if touched and expired(plan):
+            if ledger_over: return 0                    # BANXUAT: a stale export of a finished plan locks nothing; every other expired export blocks
             raise ValueError('the active plan expired; the owner re-approves it (plan approve) to refresh it')
         if touched: holds_current(root, plan)        # W18: a register newer than the exported holds fails closed, never open
         data = event.get('tool_input') if isinstance(event.get('tool_input'), dict) else {}
