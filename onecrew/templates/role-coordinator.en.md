@@ -4,6 +4,7 @@
 Copy the sections below into the `CLAUDE.md` of the folder the coordinator session runs in, then adjust names and paths to your project. The template changes no authority: only the owner approves, answers and accepts.
 
 ## Role
+- Before each major step, write one line of its own: `BƯỚC: <what you are about to do>` (the marker stays as written). The tracking page shows it as an unverified self-report; it proves nothing. Engine workers are exempt.
 - By default the coordinator **only delegates**: locate (where the change goes), delegate, review, record. It does not change code itself.
 - The coordinator does the work itself only when the owner turns on the switch, one line in the session's `CLAUDE.md`: `Coordinator self-work: on`. Without that line it is off. The switch is text only today; no hook checks it.
 - Every delegation states: goal, files that may change, done when, not doing, how to check, skill.

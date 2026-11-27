@@ -4,6 +4,7 @@
 Chép phần dưới vào `CLAUDE.md` của thư mục mà phiên điều phối đang mở, rồi sửa tên và đường dẫn cho đúng dự án của bạn. Mẫu không đổi quyền quyết: chỉ chủ sở hữu duyệt, trả lời và nghiệm thu.
 
 ## Việc của vai
+- Trước mỗi bước lớn, viết một dòng riêng `BƯỚC: <định làm gì>` (lời thường). Trang theo dõi hiện dòng đó là agent tự báo, chưa xác thực; dòng này không chứng minh việc gì. Worker của engine không áp luật này.
 - Mặc định phiên điều phối **chỉ giao việc**: định vị (chỗ cần sửa), giao, soát, ghi. Không tự sửa mã.
 - Phiên điều phối tự làm chỉ khi chủ sở hữu bật công tắc, là đúng một dòng trong `CLAUDE.md` của phiên: `Điều phối được tự làm: bật`. Không có dòng này thì coi như tắt. Công tắc hiện chỉ là chữ, chưa có hook kiểm.
 - Mỗi lời giao nêu đủ: mục tiêu, tệp được sửa, xong khi, không làm, cách kiểm, skill.
