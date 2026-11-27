@@ -8,10 +8,13 @@ tool_input: the field names of SendMessage and start_session are not documented,
 `#` and blank lines are skipped. A missing file means the built-in template below; a file with no item means no reminder; an unreadable file means
 silence. The match is by keyword only: it knows a heading is there, not that what follows it is right (D10).
 
-QLMAU: every prompt template (the delegation template, the owner-words reminder, the role templates under docs/vai3/) opens with one header line
+QLMAU: every prompt template (the delegation template, the owner-words reminder, the role templates) opens with one header line
 `onecrew-mau: ten=<name> phien-ban=<integer>` (a `#` or `<!-- -->` comment). The person who edits a template raises its number; the short hash is
 computed. `onecrew mau list` / `mau lint` are here too: they only read template files (no ledger, no skill, no write). The module is the one that
 owns the templates; a template without a header still works and shows its version as unknown.
+
+GOIVAI: the role templates ship in the package as onecrew/templates/role-*.md (one level: the hotfix flow takes no subfolder there), so an install has
+them; a project's docs/vai3/*.md replaces the packaged template of the same template NAME (header line) and may add templates of its own.
 """
 import argparse
 import hashlib
@@ -208,7 +211,8 @@ def reminder(plan, tool, names, state_root):
 
 # ---- QLMAU: `onecrew mau list` and `onecrew mau lint` (read only) ---------------------------------------------------------------
 
-ROLE_FOLDER = ('docs', 'vai3')                      # not in the wheel: read from the project, else beside the code (a checkout)
+ROLE_FOLDER = ('docs', 'vai3')                      # the project's own role templates; they win over the packaged ones by template name
+PACKAGED_PREFIX = 'role-'                           # onecrew/templates/role-*.md, shipped in the wheel; the folder holds other templates too
 ROLE_SECTIONS = {'vi': ('Việc của vai', 'Không làm', 'Nhận việc từ', 'Báo cho'), 'en': ('Role', 'Not doing', 'Takes work from', 'Reports to')}
 BUILT_IN = {'en': '(built into the program)', 'vi': '(có sẵn trong chương trình)'}
 MAU_TEXT = {
@@ -225,8 +229,8 @@ MAU_TEXT = {
     'empty_part': {'en': 'part "## {value}" is empty', 'vi': 'phần "## {value}" bỏ trống'},
     'same_part': {'en': 'part "## {value}" is written twice', 'vi': 'phần "## {value}" viết hai lần'},
     'off': {'en': 'NOTE {name} {path}: no text, so this reminder is turned off', 'vi': 'GHI CHÚ {name} {path}: không có chữ, nên lời nhắc này đang tắt'},
-    'no_roles': {'en': 'NOTE role templates not found (no docs/vai3 under {value}); point --project at a checkout that has it',
-                 'vi': 'GHI CHÚ không thấy mẫu vai (không có docs/vai3 ở {value}); trỏ --project vào bản mã có thư mục đó'},
+    'no_roles': {'en': 'NOTE role templates not found (none in the package, no docs/vai3 under {value}); reinstall the package or copy the templates there',
+                 'vi': 'GHI CHÚ không thấy mẫu vai (trong gói không có, ở {value} cũng không có docs/vai3); cài lại gói hoặc chép mẫu vào đó'},
     'passed': {'en': 'PASS: {value} templates meet the norm', 'vi': 'ĐẠT: {value} mẫu đúng quy chuẩn'},
     'failed': {'en': 'FAIL: {value} problem(s)', 'vi': 'KHÔNG ĐẠT: {value} lỗi'},
 }
@@ -251,23 +255,30 @@ def _entry(kind, name, path, built_in=None):
     return entry
 
 
-def role_folders(project):
-    return [Path(project).joinpath(*ROLE_FOLDER), Path(__file__).resolve().parents[2].joinpath(*ROLE_FOLDER)]
+def _role_entries(folder, pattern, prefix=''):
+    """The role templates of one folder. A file without a valid header is named by its file name (without `prefix`): kiem.vi.md -> vai-kiem-vi."""
+    return [_entry('role', 'vai-' + path.stem.removeprefix(prefix).replace('.', '-'), path) for path in sorted(folder.glob(pattern))]
+
+
+def role_entries(project):
+    """The role templates in force, by name: the packaged ones, each replaced by the project's templates of the same name. Two project files of one
+    name are both kept (lint reports them)."""
+    packaged = _role_entries(Path(__file__).resolve().parents[1] / 'templates', PACKAGED_PREFIX + '*.md', PACKAGED_PREFIX)
+    own = _role_entries(Path(project).joinpath(*ROLE_FOLDER), '*.md')
+    replaced = {e['name'].casefold() for e in own}
+    return sorted([e for e in packaged if e['name'].casefold() not in replaced] + own, key=lambda e: (e['name'], e['path']))
 
 
 def entries(project, state_root, language):
     """The templates in force: the delegation template and the owner-words reminder (the owner's file under <state-root>/plans/ when there is one, else
-    the built-in text), then every *.md of docs/vai3. Only these files are read: no ledger, no skill."""
+    the built-in text), then the role templates (`role_entries`). Only these files are read: no ledger, no skill."""
     result = []
     for kind, name, file, built_in in (('delegation', 'mau-giao-viec', TEMPLATE_NAME, DEFAULT_TEMPLATE),
                                        ('owner', 'mau-loi-chu', OWNER_TEMPLATE_NAME, OWNER_TEXT['vi' if language == 'vi' else 'en'])):
         path = Path(state_root) / 'plans' / file if state_root else None
         if path is not None and path.exists(): result.append(_entry(kind, name, path))
         else: result.append(_entry(kind, name, BUILT_IN['vi' if language == 'vi' else 'en'], built_in))
-    folder = next((f for f in role_folders(project) if f.is_dir()), None)
-    for path in sorted(folder.glob('*.md')) if folder else ():
-        result.append(_entry('role', 'vai-' + path.stem.replace('.', '-'), path))
-    return result
+    return result + role_entries(project)
 
 
 def _lint_items(text):

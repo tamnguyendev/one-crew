@@ -1,6 +1,6 @@
 # Mẫu prompt có phiên bản
 
-OneCrew có tám mẫu prompt: mẫu giao việc (`mau-giao-viec`), mẫu nhắc khi chủ sở hữu gõ thẳng (`mau-loi-chu`) và sáu mẫu vai trong `docs/vai3/` (điều phối, kiểm, trao đổi; tiếng Việt và tiếng Anh). Skill đã duyệt của dự án **không** nằm trong danh sách này (xem `skills list`).
+OneCrew có tám mẫu prompt: mẫu giao việc (`mau-giao-viec`), mẫu nhắc khi chủ sở hữu gõ thẳng (`mau-loi-chu`) và sáu mẫu vai `onecrew/templates/role-*.md` (điều phối, kiểm, trao đổi; tiếng Việt và tiếng Anh). Skill đã duyệt của dự án **không** nằm trong danh sách này (xem `skills list`).
 
 ## Dòng đầu và số phiên bản
 
@@ -25,7 +25,35 @@ onecrew --project <dự án> mau list
 
 Mỗi mẫu một dòng: tên, `phien-ban=<số hoặc chua-ghi>`, băm ngắn (12 ký tự đầu SHA-256 của nội dung) và đường dẫn. Mẫu có sẵn trong chương trình ghi `(có sẵn trong chương trình)` hay `(built into the program)` thay cho đường dẫn.
 
-Sáu mẫu vai không nằm trong gói cài: lệnh đọc `<dự án>/docs/vai3`, không có thì đọc `docs/vai3` cạnh mã nguồn đang chạy; không có cả hai thì in một dòng ghi chú. Với bản cài từ gói, trỏ `--project` vào bản mã có thư mục đó.
+## Mẫu vai nằm ở đâu
+
+Sáu mẫu vai đi cùng gói cài, là sáu tệp nằm thẳng trong `onecrew/templates/`, nên máy chỉ có bản cài vẫn thấy đủ tám mẫu:
+
+| Vai | Tệp trong gói | Tên mẫu | Bản chép trong mã nguồn |
+|---|---|---|---|
+| Điều phối | `role-coordinator.vi.md`, `role-coordinator.en.md` | `vai-dieu-phoi-vi`, `vai-dieu-phoi-en` | `docs/vai3/dieu-phoi.*.md` |
+| Kiểm | `role-checker.vi.md`, `role-checker.en.md` | `vai-kiem-vi`, `vai-kiem-en` | `docs/vai3/kiem.*.md` |
+| Trao đổi | `role-liaison.vi.md`, `role-liaison.en.md` | `vai-trao-doi-vi`, `vai-trao-doi-en` | `docs/vai3/trao-doi.*.md` |
+
+Lệnh đọc các tệp `role-*.md` của gói, rồi đọc `<dự án>/docs/vai3/*.md` (dự án là thư mục của `--project`, mặc định là thư mục hiện tại) và đối chiếu theo **tên mẫu** ở dòng đầu:
+
+- mẫu của dự án thắng mẫu trong gói cùng tên mẫu, dù tên tệp khác nhau; các mẫu khác vẫn lấy từ gói;
+- tệp của dự án không có dòng đầu hợp lệ lấy tên theo tên tệp (`kiem.vi.md` thành `vai-kiem-vi`), nên vẫn thắng mẫu cùng tên; `onecrew mau lint` báo thiếu dòng đầu;
+- mẫu chỉ có ở dự án được thêm vào danh sách;
+- cột đường dẫn của `onecrew mau list` cho biết mỗi mẫu đọc từ đâu.
+
+Chỉ khi cả gói lẫn dự án đều không có mẫu vai thì lệnh mới in một dòng ghi chú.
+
+### Tự sửa một mẫu vai
+
+1. Chạy `onecrew mau list` để lấy đường dẫn của mẫu trong gói.
+2. Chép tệp đó sang `<dự án>/docs/vai3/` (tên tệp tùy bạn, ví dụ `kiem.vi.md`).
+3. Sửa bản chép: giữ `ten=` ở dòng đầu để nó thay đúng mẫu, và tự tăng số `phien-ban`.
+4. Chạy `onecrew mau lint` ở dự án.
+
+Không sửa tệp ngay trong gói đã cài: lần nâng cấp sau sẽ ghi đè. Ngược lại, bản chép trong dự án vẫn thắng sau khi nâng cấp gói và không có cảnh báo lệch phiên bản; muốn dùng mẫu mới của gói thì xóa bản chép hoặc cập nhật nó.
+
+Trong mã nguồn OneCrew, `docs/vai3/` là bản chép giữ khớp từng byte với sáu tệp `onecrew/templates/role-*.md` (bảng trên): sửa một mẫu thì sửa cả hai chỗ, test sẽ báo khi lệch.
 
 ## onecrew mau lint
 
